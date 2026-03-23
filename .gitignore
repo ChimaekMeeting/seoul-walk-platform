@@ -1,17 +1,6 @@
-# 백엔드 (Python / FastAPI)
-backend/.venv/
-backend/__pycache__/
+.venv/
+__pycache__/
 *.pyc
 .env
-.yml
-!label.yml
-
-# 프론트엔드 (Node.js)
-frontend/node_modules/
-frontend/dist/
-frontend/build/
-.npm/
-
-# OS 및 기타
 .DS_Store
 Thumbs.db
