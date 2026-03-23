@@ -1,0 +1,25 @@
+name: Sync GitHub Labels
+
+on:
+  push:
+    branches:
+      - dev  # dev 브랜치에 푸시될 때 작동 (main을 기본으로 쓰시면 main으로 변경)
+    paths:
+      - '.github/labels.yml' # 이 파일이 변경될 때만 Action 실행
+
+jobs:
+  labels:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write # 라벨을 생성/수정할 수 있는 권한 부여
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - name: Sync Labels
+        uses: crazy-max/ghaction-github-labeler@v5
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          yaml-file: .github/labels.yml
+          skip-delete: false # yaml에 없는 기존 라벨은 삭제하려면 false, 유지하려면 true

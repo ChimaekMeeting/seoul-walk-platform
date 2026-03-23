@@ -3,6 +3,8 @@ backend/.venv/
 backend/__pycache__/
 *.pyc
 .env
+.yml
+!label.yml
 
 # 프론트엔드 (Node.js)
 frontend/node_modules/
