@@ -3,7 +3,6 @@ name = "seoul-walk-platform"
 version = "0.1.0"
 description = "서울시 산책 경로 추천 서비스"
 authors = ["Seoul Walk Team"]
-python = "^3.11"
 
 [tool.poetry.dependencies]
 python = "^3.11"
