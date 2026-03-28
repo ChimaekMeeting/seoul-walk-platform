@@ -1,6 +1,6 @@
 import streamlit as st
-from src.db.connection import health_check
-from src.api.weather import get_environment_info
+from src.database.postgresql import health_check
+from src.client.weather import get_environment_info
 
 st.set_page_config(page_title="서울 산책 플랫폼", page_icon="🚶", layout="wide")
 st.title("🚶 서울시 산책 경로 추천")
