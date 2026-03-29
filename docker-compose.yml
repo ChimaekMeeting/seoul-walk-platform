@@ -1,12 +1,12 @@
 services:
   db:   # 이름은 다를 수 있습니다 (postgres 등)
-    image: postgis/postgis:16-3.4
+    image: postgis/postgis:15-3.3-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-seoul_walk}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5433:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
