@@ -1,6 +1,7 @@
 import streamlit as st
 from streamlit.components.v1 import html
 from src.db.connection import health_check
+from src.database.postgresql import health_check
 from src.client.weather import get_environment_info
 
 st.set_page_config(page_title="서울 산책 플랫폼", page_icon="🚶", layout="wide")

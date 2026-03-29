@@ -1,6 +1,6 @@
 # [박세은] 테스트 케이스
-from src.db.connection import health_check
-from src.api.weather_router import get_weather_message
+from src.database.postgresql import health_check
+from src.client.weather import get_weather_message
 
 def test_db_connection():
     assert health_check() is True
