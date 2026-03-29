@@ -10,5 +10,7 @@ def init_db():
     """
     from src.entity.route import Route
     from src.entity.user_query import UserQuery
+    from src.entity.walk_network import WalkNode, WalkEdge  
+    from src.entity.poi_network import SafetyPoint, PoiPoint
     
     Base.metadata.create_all(bind=engine)
