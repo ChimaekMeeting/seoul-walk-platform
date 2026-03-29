@@ -8,7 +8,11 @@ st.markdown("---")
 
 db_ok = health_check()
 st.sidebar.markdown("### 시스템 상태")
-st.sidebar.success("🟢 DB 연결됨") if db_ok else st.sidebar.error("🔴 DB 연결 실패")
+
+if db_ok:
+    st.sidebar.success("🟢 DB 연결됨")
+else:
+    st.sidebar.error("🔴 DB 연결 실패")
 
 # 실제 API 데이터 가져오기
 env = get_environment_info()
