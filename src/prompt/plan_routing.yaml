@@ -1,0 +1,12 @@
+_type: prompt
+input_variables: ["user_prompt"]
+template: |
+  사용자의 답변이 제안된 산책 조건에 대한 동의(Positive)인지 거절/수정(Negative)인지 판별하세요.
+  
+  [사용자 답변]
+  "{user_prompt}"
+  
+  [출력 규칙]
+  - 동의하거나 긍정적이면: 1
+  - 거절하거나 수정을 원하면: 0
+  - 오직 숫자 하나(0 또는 1)만 출력하세요. 다른 설명은 금지합니다.
