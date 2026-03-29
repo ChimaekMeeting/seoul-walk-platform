@@ -1,8 +1,8 @@
+# app.py
 import streamlit as st
 from streamlit.components.v1 import html
 from src.db.connection import health_check
 from src.database.postgresql import health_check
-from src.client.weather import get_environment_info
 
 st.set_page_config(page_title="서울 산책 플랫폼", page_icon="🚶", layout="wide")
 st.title("🚶 서울시 산책 경로 추천")
@@ -32,18 +32,37 @@ params = st.query_params
 lat = float(params.get("lat", 37.5665))
 lng = float(params.get("lng", 126.9780))
 
-# 현재 위치 기반 날씨 가져오기
-env = get_environment_info(lat=lat, lng=lng)
+# 🔥 FastAPI 호출 (핵심)
+try:
+    res = requests.get(
+        "http://localhost:8000/api/weather",
+        params={"lat": lat, "lng": lng},
+        timeout=3
+    )
+    env = res.json()
+except Exception as e:
+    st.error("API 서버 연결 실패")
+    env = {
+        "weather_status": "알 수 없음",
+        "weather_msg": "서버 연결 실패",
+        "air_status": "알 수 없음",
+        "air_msg": "",
+    }
 
+# DB 상태
 db_ok = health_check()
 st.sidebar.markdown("### 시스템 상태")
 st.sidebar.success("🟢 DB 연결됨") if db_ok else st.sidebar.error("🔴 DB 연결 실패")
 
+# UI 출력
 col1, col2, col3 = st.columns(3)
+
 with col1:
     st.metric("현재 날씨", env["weather_status"], env["weather_msg"])
+
 with col2:
     st.metric("미세먼지", env["air_status"], env["air_msg"])
+
 with col3:
     st.metric("추천 경로", "3개", "평균 3.2km")
 

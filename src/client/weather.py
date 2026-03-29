@@ -1,8 +1,11 @@
 # [이승리] 기상청 + 에어코리아 API
+# src/client/weather.py
 import requests
 import os
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
+load_dotenv()
 
 # ── 날씨 상태 → 메시지 딕셔너리 ──────────────────────────────
 WEATHER_MESSAGE: dict[str, str] = {
@@ -80,10 +83,21 @@ def get_weather_korea(nx: int = 60, ny: int = 127) -> tuple[str, str]:
         return "맑음", get_weather_message("맑음")
 
     try:
-        now       = datetime.now()
-        date      = now.strftime("%Y%m%d")
-        hours     = [2, 5, 8, 11, 14, 17, 20, 23]
-        base_hour = max([h for h in hours if h <= now.hour], default=23)
+        now = datetime.now()
+
+        hours = [2, 5, 8, 11, 14, 17, 20, 23]
+
+        # 🔥 현재 시간보다 이전 발표 시간 선택
+        valid_hours = [h for h in hours if h < now.hour]
+
+        if not valid_hours:
+            # 🔥 자정~2시 사이 → 전날 23시 사용
+            base_hour = 23
+            base_date = (now - timedelta(days=1)).strftime("%Y%m%d")
+        else:
+            base_hour = max(valid_hours)
+            base_date = now.strftime("%Y%m%d")
+
         base_time = f"{base_hour:02d}00"
 
         url    = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst"
@@ -92,12 +106,13 @@ def get_weather_korea(nx: int = 60, ny: int = 127) -> tuple[str, str]:
             "pageNo":     1,
             "numOfRows":  100,
             "dataType":   "JSON",
-            "base_date":  date,
+            "base_date":  base_date,
             "base_time":  base_time,
             "nx":         nx,
             "ny":         ny,
         }
         resp  = requests.get(url, params=params, timeout=5)
+        print("응답 전체:", resp.text)
         items = resp.json()["response"]["body"]["items"]["item"]
 
         pty_map = {"0": "없음", "1": "비", "2": "비", "3": "눈", "4": "소나기"}
