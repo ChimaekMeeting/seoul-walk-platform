@@ -1,5 +1,6 @@
 services:
   db:   # 이름은 다를 수 있습니다 (postgres 등)
+    platform: linux/amd64
     image: postgis/postgis:16-3.4
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-seoul_walk}
