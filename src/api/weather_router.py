@@ -1,3 +1,4 @@
+# src/api/weather_router.py
 from fastapi import APIRouter, Depends
 from src.service.weather.weather_checker import WeatherChecker
 
