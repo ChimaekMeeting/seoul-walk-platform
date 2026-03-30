@@ -85,6 +85,7 @@ class PrewalkOrchestrator:
 
         current_node = state.get("next_node")
         context = state.get("user_context")
+        weights = None
 
         print(current_node)
         print(context)
@@ -126,7 +127,6 @@ class PrewalkOrchestrator:
         elif current_node == "weighting":
             weather_data = state.get("weather_data")
             weights = await self.weight_assigner.run(context, weather_data)
-            # 여기서 경로 추천 알고리즘을 호출하면 됩니다! 인자는 context, weights
             message = f"모든 분석이 완료되었습니다! 가중치는 {weights}입니다."
             state["next_node"] = "end"
         
@@ -135,5 +135,7 @@ class PrewalkOrchestrator:
         
         return ChatResponse(
             thread_id=thread_id,
-            message=message
+            message=message,
+            state=state,
+            weights=weights if weights else None
         )

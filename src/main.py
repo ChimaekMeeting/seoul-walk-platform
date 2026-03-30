@@ -11,7 +11,7 @@ app = FastAPI()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # DB 초기화
-    init_db()
+    # init_db()
 
     yield
 
@@ -34,7 +34,6 @@ app.add_middleware(
 app.include_router(weather_router.router)
 app.include_router(user_router.router)
 app.include_router(prewalk_router.router)
-
 
 @app.get("/")
 def read_root():
