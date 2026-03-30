@@ -1,13 +1,21 @@
+import os
+from pathlib import Path
+
+# 환경 변수
+from dotenv import load_dotenv
+
+# Streamlit
 import streamlit as st
+from streamlit_folium import st_folium
+
+# 지도
+import folium
+
+# DB / 서비스
 from src.database.postgresql import health_check
 from src.client.weather import get_environment_info
+from src.service.route_service import get_route
 
-from streamlit_folium import st_folium
-import folium
-import os
-
-from pathlib import Path
-from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
 
@@ -45,6 +53,10 @@ if "end" not in st.session_state:
     st.session_state.end = None
 if "mode" not in st.session_state:
     st.session_state.mode = "start"
+if "route_coordinates" not in st.session_state:
+    st.session_state.route_coordinates = None
+if "route_distance" not in st.session_state:
+    st.session_state.route_distance = None
 
 mode = st.radio(
     "설정 모드",
@@ -87,6 +99,16 @@ if st.session_state.end:
         icon=folium.Icon(color="red", icon="flag", prefix="fa")
     ).add_to(m)
 
+if st.session_state.route_coordinates:
+    folium.PolyLine(
+        locations=st.session_state.route_coordinates,
+        color="#4A90E2",
+        weight=5,
+        opacity=0.8,
+        tooltip=f"총 {st.session_state.route_distance}km"
+    ).add_to(m)
+    m.fit_bounds(st.session_state.route_coordinates)
+
 # 출발지/도착지 둘 다 있으면 지도 범위 자동 조정
 if st.session_state.start and st.session_state.end:
     m.fit_bounds([st.session_state.start, st.session_state.end])
@@ -100,11 +122,13 @@ if map_data and map_data.get("last_clicked"):
     lng = map_data["last_clicked"]["lng"]
     clicked = [lat, lng]
 
-    if st.session_state.mode == "start":
+    # 이미 같은 좌표면 rerun 안 함
+    if st.session_state.mode == "start" and clicked != st.session_state.start:
         st.session_state.start = clicked
-    else:
+        st.rerun()
+    elif st.session_state.mode == "end" and clicked != st.session_state.end:
         st.session_state.end = clicked
-    st.rerun()
+        st.rerun()
 
 # 좌표 표시
 st.divider()
@@ -129,13 +153,22 @@ with col2:
     else:
         st.warning("도착지를 설정해주세요")
 
+
 # 경로 추천 버튼
-if st.session_state.start and st.session_state.end:
+if st.session_state.start:
     st.divider()
     if st.button("🚶 경로 추천받기", type="primary", use_container_width=True):
         with st.spinner("경로를 계산하는 중..."):
-            # TODO: algorithm/route.py 연결
-            st.success("경로 추천 로직 연결 예정!")
-
+            intent = {"intent": "safe", "distance_km": 3.0}  # 임시
+            result = get_route(
+                start_lat=st.session_state.start[0],
+                start_lng=st.session_state.start[1],
+                intent=intent,
+                end_lat=st.session_state.end[0] if st.session_state.end else None,
+                end_lng=st.session_state.end[1] if st.session_state.end else None,
+            ) 
+            st.session_state.route_coordinates = result["coordinates"]
+            st.session_state.route_distance = result["total_distance_km"]
+            st.rerun()  # 지도 다시 렌더링
 
 st.info("팀원 분들, 담당 모듈을 작업한 후 이곳(app.py)에 조립해 주세요!")
