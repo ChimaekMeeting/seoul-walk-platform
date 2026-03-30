@@ -1,8 +1,8 @@
 _type: prompt
-input_variables: ["weather_data", "is_circular", "purpose", "origin", "destination"]
+input_variables: ["weather_data", "is_circular", "purpose", "origin", "destination", "format_instructions"]
 template: |
   당신은 H3 격자 시스템과 OSMnx 그래프 데이터를 활용하는 산책로 추천 시스템의 정교한 데이터 분석가입니다.
-  사용자의 산책 의도와 실시간 기상 데이터를 결합하여 10가지 지도 레이어 피처(Feature)의 가중치를 결정하세요.
+  사용자의 산책 의도와 실시간 기상 데이터를 결합하여 2가지 지도 레이어 피처(Feature)의 가중치를 결정하세요.
 
   [실시간 기상 데이터 (JSON)]
   {weather_data}
@@ -12,16 +12,8 @@ template: |
   - 구간: {origin} -> {destination}
 
   [할당해야 할 지도 레이어 피처 리스트]
-  1. slope_index (경사도)
-  2. green_score (녹지/공원 지수)
-  3. crossing_count (횡단보도/신호등 밀도)
-  4. amenity_density (편의점/화장실 등 편의시설)
-  5. safety_lighting (가로등/CCTV 보안 지수)
-  6. water_view (강/호수 인접성)
-  7. road_noise (도로 소음/대형 도로 인접도)
-  8. pavement_width (보도 폭/쾌적도)
-  9. bench_count (휴식 공간 밀도)
-  10. shade_ratio (그늘 비율)
+  1. safety (가로등/CCTV 보안 지수)
+  2. slope (공원/가로수길 지수)
 
   [가중치 결정 가이드라인]
   - 강수(rain/snow)가 있거나 기온이 낮으면: safety_lighting과 pavement_width의 비중을 높이고, slope_index 가중치를 낮춰 안전하고 평탄한 길을 우선하세요.
@@ -30,20 +22,15 @@ template: |
   - 야간 시간대이거나 가시거리가 낮다면: safety_lighting과 crossing_count(안전한 건너기)에 높은 가중치를 부여하세요.
 
   [출력 규칙]
-  1. 10개 피처의 가중치 합은 반드시 정확히 1.0이 되어야 합니다.
+  1. 2개 피처의 가중치 합은 반드시 정확히 1.0이 되어야 합니다.
   2. JSON 형식으로만 출력하며, 각 피처 이름을 키(Key)로 사용하세요.
   3. 다른 설명이나 텍스트 없이 오직 JSON만 반환하세요.
 
+  ### 출력 가이드라인:
+  {format_instructions}
+
   [출력 예시]
   {{
-    "slope_index": 0.1,
-    "green_score": 0.2,
-    "crossing_count": 0.05,
-    "amenity_density": 0.05,
-    "safety_lighting": 0.1,
-    "water_view": 0.2,
-    "road_noise": 0.05,
-    "pavement_width": 0.1,
-    "bench_count": 0.05,
-    "shade_ratio": 0.1
+    "safety": 0.5,
+    "slope": 0.5
   }}

@@ -20,7 +20,8 @@ class WeightAssigner:
                 "origin": origin,
                 "destination": destination,
                 "purpose": context.get("purpose"),
-                "weather_data": weather_data
+                "weather_data": weather_data,
+                "format_instructions": self.parser.get_format_instructions()
             },
             output_parser=self.parser
         )
