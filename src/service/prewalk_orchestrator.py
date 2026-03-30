@@ -50,7 +50,8 @@ class PrewalkOrchestrator:
                 "is_circular": None,        # 순환 여부 (True: 순환, False: 편도)
                 "origin": None,             # 출발지
                 "destination": None,        # 목적지
-                "purpose": None             # 산책 목적
+                "purpose": None,            # 산책 목적
+                "distance_km": 1.0,         # 산책 거리
             },
             "weather_data": weather_data,   # 실시간 기상 정보
             "is_confirmed": False,          # 요약된 산책 조건에 대한 유저의 최종 승인 여부
@@ -125,6 +126,7 @@ class PrewalkOrchestrator:
         elif current_node == "weighting":
             weather_data = state.get("weather_data")
             weights = await self.weight_assigner.run(context, weather_data)
+            # 여기서 경로 추천 알고리즘을 호출하면 됩니다! 인자는 context, weights
             message = f"모든 분석이 완료되었습니다! 가중치는 {weights}입니다."
             state["next_node"] = "end"
         

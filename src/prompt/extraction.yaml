@@ -10,6 +10,8 @@ template: |
   3. 사용자가 언급하지 않은 필드는 기존 [Current Context] 값을 그대로 유지하세요.
   4. 기존 정보와 새로운 입력 모두에서 정보를 찾을 수 없는 경우에만 null을 할당하세요.
   5. origin, destination, purpose는 최대한 구체적으로 자세하게 작성하세요.
+  6. 사용자가 직접적으로 distance_km를 언급하지 않은 경우, default는 1.0으로 작성하세요.
+  7. 사용자가 직접적으로 distance_km를 언급하지 않았더라도, '격렬한 운동'을 원한다고 한 경우, 그 요구사항에 적합한 distance_km를 작성해주세요.
 
   ### 추출 가이드라인:
   1. **is_circular** (boolean): 
@@ -18,6 +20,7 @@ template: |
   2. **origin** (string): 사용자가 언급한 출발 지점 명칭.
   3. **destination** (string): 사용자가 가고자 하는 최종 목적지 명칭.
   4. **purpose** (string): 산책의 테마.
+  5. **distance_km** (float): 산책 거리
 
   ### 출력 형식:
   {format_instructions}
