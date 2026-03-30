@@ -1,4 +1,5 @@
-from src.client.weather import get_environment_info
+# src/service/weather_service.py
+from src.client.weather_client import get_environment_info
 
 def get_weather_info(lat: float, lng: float):
     """

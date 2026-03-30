@@ -1,5 +1,5 @@
 # [이승리] 기상청 + 에어코리아 API
-# src/client/weather.py
+# src/client/weather_client.py
 import requests
 import os
 import math
