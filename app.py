@@ -34,7 +34,7 @@ params = st.query_params
 lat = float(params.get("lat", 37.5665))
 lng = float(params.get("lng", 126.9780))
 
-# 🔥 FastAPI 호출 (핵심)
+# FastAPI 호출
 try:
     res = requests.get(
         "http://localhost:8080/api/weather",
