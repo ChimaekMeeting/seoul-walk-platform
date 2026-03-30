@@ -3,7 +3,7 @@ from sqlalchemy import text
 from src.database.postgresql import get_postgresql_db
 
 
-def load_graph() -> nx.DiGraph:
+def load_graph() -> nx.Graph:
     """
     walk_nodes + walk_edges를 PostGIS에서 읽어 NetworkX 그래프로 반환
 
@@ -12,7 +12,7 @@ def load_graph() -> nx.DiGraph:
             - node 속성: node_type, is_underground, is_overpass, x(lng), y(lat)
             - edge 속성: link_id, length, road_type, path_type, safety_score, slope_score
     """
-    G = nx.DiGraph()
+    G = nx.Graph()
 
     with get_postgresql_db() as db:
         # ── 노드 로드 ──────────────────────────────
@@ -64,10 +64,15 @@ def load_graph() -> nx.DiGraph:
             )
 
     print(f"그래프 로드 완료: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+    
+    largest_cc = max(nx.connected_components(G), key=len)
+    G = G.subgraph(largest_cc).copy()
+    print(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+
     return G
 
 
-def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.DiGraph:
+def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.Graph:
     """
     특정 위치 반경 내 노드/엣지만 로드 (전체 로드보다 빠름)
 
@@ -75,7 +80,7 @@ def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.DiGrap
         lat, lng: 중심 위경도
         radius_m: 반경 (미터)
     """
-    G = nx.DiGraph()
+    G = nx.Graph()
 
     with get_postgresql_db() as db:
         node_rows = db.execute(text("""
@@ -134,4 +139,9 @@ def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.DiGrap
             )
 
     print(f"반경 {radius_m}m 그래프 로드: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+
+    largest_cc = max(nx.connected_components(G), key=len)
+    G = G.subgraph(largest_cc).copy()
+    print(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+
     return G
