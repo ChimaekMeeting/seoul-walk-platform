@@ -1,0 +1,45 @@
+_type: prompt
+input_variables: ["user_prompt", "context", "location", "location_candidate", "format_instructions"]
+template: |
+  # Role
+  너는 사용자의 입력에서 {location} 선택 상태를 분석하는 위치 정보 추출 전문가야.
+
+  # Context
+  - 제공된 '장소 후보군'은 시스템이 사용자에게 제안한 장소 리스트야.
+  - '유저 입력'을 분석하여, 사용자가 제안된 후보 중 하나를 선택했는지, 아니면 새로운 장소를 말하거나 거절했는지 판단해야 해.
+
+  # Current State
+  - 유저 대화 맥락: {context}
+  - 장소 후보군: {location_candidate}
+  - 유저 입력: {user_prompt}
+
+  # Tasks
+  1. 만일 '장소 후보군'이 1개이면서, 유저가 긍정적인 반응을 보이면(예: "굿!") 그 후보군으로 확정해줘.
+  2. 유저가 장소를 최종적으로 결정(선택)했는지 확인해. (예: "여기로 할게", "서울숲 좋아")
+  3. 유저가 선택한 장소가 제공된 '장소 후보군' 목록에 포함되어 있는지 확인해.
+  4. 만약 목록에 없다면 유저가 새롭게 언급한 장소의 이름이나 주소를 추출해. 사용자가 "여기", "현 지점" 등 추상적인 표현을 언급하면 그 텍스트를 그대로 'place_name'에 넣으면 돼.
+  5. 선택된 장소의 정확한 명칭, 주소, 경위도(latitude, longitude)를 매칭해.
+  6. 'is_circular', 'purpose'는 1st. 최대한 '유저 입력'을 기반으로 작성해줘. 2nd. '유저 입력'을 통해 판단 불가한 경우, '유저 대화 맥락'을 기반으로 작성해줘.
+
+  # Constraints
+  - 유저가 선택을 보류하거나 질문을 한다면 'is_location_selected'는 false가 되어야 해.
+  - 후보군에 있는 장소를 말한 경우 'is_in_candidates'는 true, 후보군에 없는 장소를 말한 경우 'is_in_candidates'는 false로 표시해줘.
+  - 모든 응답은 반드시 아래의 JSON 형식을 지켜야 해.
+
+  # Output Format
+  {format_instructions}
+
+  {{
+      "is_location_selected": boolean,
+      "is_in_candidates": boolean,
+      "place_name": "string",
+      "address": "string",
+      "coordinate": {{
+          "lat": float,
+          "lon": float
+      }},
+      "context_update": {{
+          "is_circular": boolean,
+          "purpose": "string"
+      }}
+  }}

@@ -1,8 +1,10 @@
 # app.py
 import streamlit as st
 from streamlit.components.v1 import html
-from src.db.connection import health_check
 from src.database.postgresql import health_check
+from src.client.weather import get_environment_info
+from src.client.map_view import render_map
+import requests
 
 st.set_page_config(page_title="서울 산책 플랫폼", page_icon="🚶", layout="wide")
 st.title("🚶 서울시 산책 경로 추천")
@@ -32,10 +34,10 @@ params = st.query_params
 lat = float(params.get("lat", 37.5665))
 lng = float(params.get("lng", 126.9780))
 
-# 🔥 FastAPI 호출 (핵심)
+# FastAPI 호출
 try:
     res = requests.get(
-        "http://localhost:8000/api/weather",
+        "http://localhost:8080/api/weather",
         params={"lat": lat, "lng": lng},
         timeout=3
     )
@@ -67,3 +69,8 @@ with col3:
     st.metric("추천 경로", "3개", "평균 3.2km")
 
 st.info("팀원 분들, 담당 모듈을 작업한 후 이곳(app.py)에 조립해 주세요!")
+
+st.title("🚶‍♀️ 맞춤형 산책 지도")
+
+# 지도 렌더링 호출 (인자 없이 호출)
+render_map()
