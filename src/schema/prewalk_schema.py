@@ -13,6 +13,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     thread_id: str
     message: str
+    state: dict
+    weights: Optional[dict] = None
 
 class UserPreferenceContext(BaseModel):
     is_circular: Optional[bool]
