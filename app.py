@@ -35,6 +35,13 @@ if db_ok:
 else:
     st.sidebar.error("🔴 DB 연결 실패")
 
+st.sidebar.markdown("### 경로 설정")
+is_circular = st.sidebar.toggle("순환 경로", value=True)
+distance_km = st.sidebar.slider("목표 거리 (km)", 1.0, 10.0, 3.0, 0.5)
+safety_w = st.sidebar.slider("안전 가중치", 0.1, 3.0, 1.0, 0.1)
+nature_w = st.sidebar.slider("경사 가중치", 0.1, 3.0, 1.0, 0.1)
+purpose = st.sidebar.text_input("산책 목적", value="산책")
+
 # 실제 API 데이터 가져오기
 env = get_environment_info()
 
@@ -159,16 +166,31 @@ if st.session_state.start:
     st.divider()
     if st.button("🚶 경로 추천받기", type="primary", use_container_width=True):
         with st.spinner("경로를 계산하는 중..."):
-            intent = {"intent": "safe", "distance_km": 3.0}  # 임시
-            result = get_route(
-                start_lat=st.session_state.start[0],
-                start_lng=st.session_state.start[1],
-                intent=intent,
-                end_lat=st.session_state.end[0] if st.session_state.end else None,
-                end_lng=st.session_state.end[1] if st.session_state.end else None,
-            ) 
+            context = {
+                "is_circular": is_circular,
+                "origin": {
+                    "place_name": "",
+                    "address": "",
+                    "coordinate": {
+                        "lat": st.session_state.start[0],
+                        "lon": st.session_state.start[1]
+                    }
+                },
+                "destination": {
+                    "place_name": "",
+                    "address": "",
+                    "coordinate": {
+                        "lat": st.session_state.end[0],
+                        "lon": st.session_state.end[1]
+                    }
+                } if st.session_state.end else None,
+                "purpose": purpose
+            }
+            weights = {"safety": safety_w, "nature": nature_w}
+
+            result = get_route(context, weights)
             st.session_state.route_coordinates = result["coordinates"]
             st.session_state.route_distance = result["total_distance_km"]
-            st.rerun()  # 지도 다시 렌더링
+            st.rerun() # 지도 다시 렌더링
 
 st.info("팀원 분들, 담당 모듈을 작업한 후 이곳(app.py)에 조립해 주세요!")
