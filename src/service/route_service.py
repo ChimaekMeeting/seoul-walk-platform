@@ -47,6 +47,7 @@ def get_route(context: dict, weights: dict) -> dict:
     Args:
         context: {
             "is_circular": bool,
+            "distance_km" : float,
             "origin": {"place_name": str, "address": str, "coordinate": {"lat": float, "lon": float}},
             "destination": {"place_name": str, "address": str, "coordinate": {"lat": float, "lon": float}},
             "purpose": str
@@ -90,7 +91,11 @@ def get_route(context: dict, weights: dict) -> dict:
         result = dijkstra_route(G, start_node, end_node, weight="custom_score")
         result["mode"] = "dijkstra"
     
-    
-    print(f"결과: {result}")
+    # 가지치기 후처리
+    pruned_nodes = prune_dead_ends(result["nodes"], G, max_branch_length=100)
+    result["nodes"] = pruned_nodes
+    result["coordinates"] = extract_coordinates(G, pruned_nodes)
+
+    # print(f"결과: {result}")
 
     return result
