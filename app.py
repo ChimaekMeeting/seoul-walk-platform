@@ -15,12 +15,19 @@ import folium
 from src.database.postgresql import health_check
 from src.client.weather import get_environment_info
 from src.service.route_service import get_route
+from src.repository.graph_repository import load_graph
 
+from src.repository.graph_repository import load_graph
+
+@st.cache_resource
+def get_graph():
+    return load_graph()
+
+G = get_graph()
 
 load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
 
 MAPBOX_TOKEN = os.getenv("MAPBOX_API_KEY")
-print("TOKEN:", MAPBOX_TOKEN)
 SEOUL_CENTER = [37.5665, 126.9780]
 
 st.set_page_config(page_title="서울 산책 플랫폼", page_icon="🚶", layout="wide")
@@ -39,7 +46,7 @@ st.sidebar.markdown("### 경로 설정")
 is_circular = st.sidebar.toggle("순환 경로", value=True)
 distance_km = st.sidebar.slider("목표 거리 (km)", 1.0, 10.0, 3.0, 0.5)
 safety_w = st.sidebar.slider("안전 가중치", 0.1, 3.0, 1.0, 0.1)
-nature_w = st.sidebar.slider("경사 가중치", 0.1, 3.0, 1.0, 0.1)
+nature_w = st.sidebar.slider("자연 가중치", 0.1, 3.0, 1.0, 0.1)
 purpose = st.sidebar.text_input("산책 목적", value="산책")
 
 # 실제 API 데이터 가져오기
@@ -78,15 +85,17 @@ st.info(f"📍 **{label}** 설정 중 — 지도를 클릭하세요")
 
 
 # 지도 생성
+center = st.session_state.start if st.session_state.start else SEOUL_CENTER
+
 m = folium.Map(
-    location=SEOUL_CENTER,
-    zoom_start=13,
+    location=center,
+    zoom_start=15,
     tiles=(
-        f"https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/512"
-        f"/{{z}}/{{x}}/{{y}}@2x?access_token={MAPBOX_TOKEN}"
+        f"https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256"
+        f"/{{z}}/{{x}}/{{y}}?access_token={MAPBOX_TOKEN}"
     ),
+
     attr="Mapbox",
-    zoom_offset=-1  # 512타일 쓸 때 필요
 )
 
 # 마커 추가
@@ -115,6 +124,22 @@ if st.session_state.route_coordinates:
         tooltip=f"총 {st.session_state.route_distance}km"
     ).add_to(m)
     m.fit_bounds(st.session_state.route_coordinates)
+
+    # 노드 점 추가
+    if st.session_state.get("route_result"):
+        for node_id in st.session_state.route_result["nodes"]:
+            if node_id in G.nodes:
+                lat = G.nodes[node_id]["y"]
+                lon = G.nodes[node_id]["x"]
+                folium.CircleMarker(
+                    location=[lat, lon],
+                    radius=3,
+                    color="red",
+                    fill=True,
+                    fill_color="red",
+                    fill_opacity=0.8,
+                    tooltip=str(node_id)
+                ).add_to(m)
 
 # 출발지/도착지 둘 다 있으면 지도 범위 자동 조정
 if st.session_state.start and st.session_state.end:
@@ -160,6 +185,28 @@ with col2:
     else:
         st.warning("도착지를 설정해주세요")
 
+if st.session_state.get("route_result"):
+    result = st.session_state.route_result
+    st.divider()
+    st.markdown("### 📊 경로 정보")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("총 거리", f"{result['total_distance_km']} km")
+    with col2:
+        st.metric("이동 방식", "순환 🔄" if result['mode'] == "random_walk" else "편도 ➡️")
+    with col3:
+        avg_speed = 4.0  # 도보 평균 속도 km/h
+        time_min = round(result['total_distance_km'] / avg_speed * 60)
+        st.metric("예상 소요 시간", f"{time_min} 분")
+
+    st.markdown(f"**총 노드 수:** {len(result['nodes'])}개")
+    st.markdown(f"**알고리즘:** {result['mode']}")
+
+    # 경로 좌표 상세 (펼치기)
+    with st.expander("📍 경로 좌표 상세보기"):
+        for i, (lat, lng) in enumerate(result['coordinates']):
+            st.text(f"{i+1}. lat: {lat:.5f}, lng: {lng:.5f}")
 
 # 경로 추천 버튼
 if st.session_state.start:
@@ -168,6 +215,7 @@ if st.session_state.start:
         with st.spinner("경로를 계산하는 중..."):
             context = {
                 "is_circular": is_circular,
+                "distance_km" : distance_km,
                 "origin": {
                     "place_name": "",
                     "address": "",
@@ -191,6 +239,7 @@ if st.session_state.start:
             result = get_route(context, weights)
             st.session_state.route_coordinates = result["coordinates"]
             st.session_state.route_distance = result["total_distance_km"]
+            st.session_state.route_result = result
             st.rerun() # 지도 다시 렌더링
 
 st.info("팀원 분들, 담당 모듈을 작업한 후 이곳(app.py)에 조립해 주세요!")
