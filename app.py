@@ -1,23 +1,17 @@
 import os
 from pathlib import Path
-
-# 환경 변수
 from dotenv import load_dotenv
-
-# Streamlit
 import streamlit as st
 from streamlit_folium import st_folium
-
-# 지도
 import folium
+import requests
+from streamlit.components.v1 import html
 
-# DB / 서비스
 from src.database.postgresql import health_check
 from src.client.weather import get_environment_info
 from src.service.route_service import get_route
 from src.repository.graph_repository import load_graph
-
-from src.repository.graph_repository import load_graph
+from src.client.map_view import render_map
 
 @st.cache_resource
 def get_graph():
@@ -34,6 +28,48 @@ st.set_page_config(page_title="서울 산책 플랫폼", page_icon="🚶", layou
 st.title("🚶 서울시 산책 경로 추천")
 st.markdown("---")
 
+# ── 브라우저에서 GPS 위치 받아오기 ───────────────────────────
+html("""
+<script>
+navigator.geolocation.getCurrentPosition(
+    function(pos) {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const url = new URL(window.parent.location.href);
+        url.searchParams.set("lat", lat);
+        url.searchParams.set("lng", lng);
+        window.parent.location.href = url.toString();
+    },
+    function(err) {
+        console.log("위치 권한 거부:", err);
+    }
+);
+</script>
+""", height=0)
+
+# URL 파라미터에서 위치 가져오기 (없으면 서울시청 기본값)
+params = st.query_params
+lat = float(params.get("lat", 37.5665))
+lng = float(params.get("lng", 126.9780))
+
+# FastAPI 호출
+try:
+    res = requests.get(
+        "http://localhost:8080/api/weather",
+        params={"lat": lat, "lng": lng},
+        timeout=3
+    )
+    env = res.json()
+except Exception as e:
+    st.error("API 서버 연결 실패")
+    env = {
+        "weather_status": "알 수 없음",
+        "weather_msg": "서버 연결 실패",
+        "air_status": "알 수 없음",
+        "air_msg": "",
+    }
+
+# DB 상태
 db_ok = health_check()
 st.sidebar.markdown("### 시스템 상태")
 
@@ -49,14 +85,15 @@ safety_w = st.sidebar.slider("안전 가중치", 0.1, 3.0, 1.0, 0.1)
 nature_w = st.sidebar.slider("자연 가중치", 0.1, 3.0, 1.0, 0.1)
 purpose = st.sidebar.text_input("산책 목적", value="산책")
 
-# 실제 API 데이터 가져오기
-env = get_environment_info()
-
+# UI 출력
 col1, col2, col3 = st.columns(3)
+
 with col1:
     st.metric("현재 날씨", env["weather_status"], env["weather_msg"])
+
 with col2:
     st.metric("미세먼지", env["air_status"], env["air_msg"])
+
 with col3:
     st.metric("추천 경로", "3개", "평균 3.2km")
 
@@ -243,3 +280,8 @@ if st.session_state.start:
             st.rerun() # 지도 다시 렌더링
 
 st.info("팀원 분들, 담당 모듈을 작업한 후 이곳(app.py)에 조립해 주세요!")
+
+st.title("🚶‍♀️ 맞춤형 산책 지도")
+
+# 지도 렌더링 호출 (인자 없이 호출)
+render_map()

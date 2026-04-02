@@ -1,0 +1,30 @@
+_type: prompt
+input_variables: ["weather_data", "is_circular", "purpose", "origin", "destination", "format_instructions"]
+template: |
+  당신은 H3 격자 시스템과 OSMnx 그래프 데이터를 활용하는 산책로 추천 시스템의 정교한 데이터 분석가입니다.
+  사용자의 산책 의도와 실시간 기상 데이터를 결합하여 2가지 지도 레이어 피처(Feature)의 가중치를 결정하세요.
+
+  [실시간 기상 데이터 (JSON)]
+  {weather_data}
+
+  [산책 조건]
+  - 코스 방식: {is_circular} / 목적: {purpose}
+  - 구간: {origin} -> {destination}
+
+  [할당해야 할 지도 레이어 피처 리스트]
+  1. safety (가로등/CCTV 보안 지수)
+  2. nature (공원/가로수길 지수)
+
+  [출력 규칙]
+  1. 2개 피처의 가중치 합은 반드시 정확히 1.0이 되어야 합니다.
+  2. JSON 형식으로만 출력하며, 각 피처 이름을 키(Key)로 사용하세요.
+  3. 다른 설명이나 텍스트 없이 오직 JSON만 반환하세요.
+
+  ### 출력 가이드라인:
+  {format_instructions}
+
+  [출력 예시]
+  {{
+    "safety": 0.5,
+    "nature": 0.5
+  }}

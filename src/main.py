@@ -2,7 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from src.entity.base import init_db
+from src.api import weather_router, user_router, prewalk_router
+
 import uvicorn
+
+app = FastAPI()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -27,7 +31,9 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# app.include_router(user.router)
+app.include_router(weather_router.router)
+app.include_router(user_router.router)
+app.include_router(prewalk_router.router)
 
 @app.get("/")
 def read_root():
