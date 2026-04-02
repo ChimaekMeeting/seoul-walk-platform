@@ -13,13 +13,7 @@ template: |
 
   [할당해야 할 지도 레이어 피처 리스트]
   1. safety (가로등/CCTV 보안 지수)
-  2. slope (공원/가로수길 지수)
-
-  [가중치 결정 가이드라인]
-  - 강수(rain/snow)가 있거나 기온이 낮으면: safety_lighting과 pavement_width의 비중을 높이고, slope_index 가중치를 낮춰 안전하고 평탄한 길을 우선하세요.
-  - 기온(temp)이 높고 맑은 날씨라면: shade_ratio와 water_view 가중치를 높여 시원한 코스를 유도하세요.
-  - 목적({purpose})이 '운동'이라면: slope_index와 pavement_width를, '데이트'라면 scenery 관련인 green_score와 water_view를 최우선하세요.
-  - 야간 시간대이거나 가시거리가 낮다면: safety_lighting과 crossing_count(안전한 건너기)에 높은 가중치를 부여하세요.
+  2. nature (공원/가로수길 지수)
 
   [출력 규칙]
   1. 2개 피처의 가중치 합은 반드시 정확히 1.0이 되어야 합니다.
@@ -32,5 +26,5 @@ template: |
   [출력 예시]
   {{
     "safety": 0.5,
-    "slope": 0.5
+    "nature": 0.5
   }}
