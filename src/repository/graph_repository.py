@@ -1,6 +1,7 @@
 import networkx as nx
 from sqlalchemy import text
 from src.database.postgresql import get_postgresql_db
+from src.service.path_finder import remove_dead_ends
 
 
 def load_graph() -> nx.Graph:
@@ -67,6 +68,7 @@ def load_graph() -> nx.Graph:
     
     largest_cc = max(nx.connected_components(G), key=len)
     G = G.subgraph(largest_cc).copy()
+    G = remove_dead_ends(G)
     print(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
 
     return G
