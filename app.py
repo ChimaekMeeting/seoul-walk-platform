@@ -8,7 +8,7 @@ import requests
 from streamlit.components.v1 import html
 
 from src.database.postgresql import health_check
-from src.client.weather import get_environment_info
+from src.client.weather_client import get_environment_info
 from src.service.route_service import get_route
 from src.repository.graph_repository import load_graph
 from src.client.map_view import render_map
