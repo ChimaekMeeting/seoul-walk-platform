@@ -11,11 +11,13 @@ from src.database.postgresql import health_check
 from src.client.weather_client import get_environment_info
 from src.service.route_service import get_route
 from src.repository.graph_repository import load_graph
-from src.client.map_view import render_map
+from src.service.map_service import fetch_local_db_lines, fetch_local_db_points
+
 
 @st.cache_resource
 def get_graph():
     return load_graph()
+
 
 G = get_graph()
 
@@ -28,8 +30,9 @@ st.set_page_config(page_title="서울 산책 플랫폼", page_icon="🚶", layou
 st.title("🚶 서울시 산책 경로 추천")
 st.markdown("---")
 
-# ── 브라우저에서 GPS 위치 받아오기 ───────────────────────────
-html("""
+# ── 브라우저에서 GPS 위치 받아오기 ──────────
+html(
+    """
 <script>
 navigator.geolocation.getCurrentPosition(
     function(pos) {
@@ -45,7 +48,9 @@ navigator.geolocation.getCurrentPosition(
     }
 );
 </script>
-""", height=0)
+""",
+    height=0,
+)
 
 # URL 파라미터에서 위치 가져오기 (없으면 서울시청 기본값)
 params = st.query_params
@@ -55,11 +60,11 @@ lng = float(params.get("lng", 126.9780))
 # FastAPI 호출
 try:
     res = requests.get(
-        "http://localhost:8080/api/weather",
-        params={"lat": lat, "lng": lng},
-        timeout=3
+        "http://localhost:8080/api/weather", params={"lat": lat, "lng": lng}, timeout=3
     )
-    env = res.json()
+    # 🌟 API 응답이 [ {날씨 딕셔너리}, "메시지" ] 리스트 형태이므로 첫 번째([0])를 꺼냅니다!
+    response_data = res.json()
+    env = response_data[0] if isinstance(response_data, list) else response_data
 except Exception as e:
     st.error("API 서버 연결 실패")
     env = {
@@ -114,7 +119,7 @@ mode = st.radio(
     options=["start", "end"],
     format_func=lambda x: "출발지 설정" if x == "start" else "도착지 설정",
     horizontal=True,
-    key="mode"
+    key="mode",
 )
 
 label = "출발지" if st.session_state.mode == "start" else "도착지"
@@ -131,7 +136,6 @@ m = folium.Map(
         f"https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256"
         f"/{{z}}/{{x}}/{{y}}?access_token={MAPBOX_TOKEN}"
     ),
-
     attr="Mapbox",
 )
 
@@ -141,7 +145,7 @@ if st.session_state.start:
         st.session_state.start,
         popup="출발지",
         tooltip="출발지",
-        icon=folium.Icon(color="green", icon="play", prefix="fa")
+        icon=folium.Icon(color="green", icon="play", prefix="fa"),
     ).add_to(m)
 
 if st.session_state.end:
@@ -149,7 +153,7 @@ if st.session_state.end:
         st.session_state.end,
         popup="도착지",
         tooltip="도착지",
-        icon=folium.Icon(color="red", icon="flag", prefix="fa")
+        icon=folium.Icon(color="red", icon="flag", prefix="fa"),
     ).add_to(m)
 
 if st.session_state.route_coordinates:
@@ -158,7 +162,7 @@ if st.session_state.route_coordinates:
         color="#4A90E2",
         weight=5,
         opacity=0.8,
-        tooltip=f"총 {st.session_state.route_distance}km"
+        tooltip=f"총 {st.session_state.route_distance}km",
     ).add_to(m)
     m.fit_bounds(st.session_state.route_coordinates)
 
@@ -175,7 +179,40 @@ if st.session_state.route_coordinates:
                     fill=True,
                     fill_color="red",
                     fill_opacity=0.8,
-                    tooltip=str(node_id)
+                    tooltip=str(node_id),
+                ).add_to(m)
+
+        # 1레이어(도보 네트워크) 및 1.5레이어(CCTV 등) Folium에 추가
+        # 브라우저 렌더링 성능 보호를 위해, 경로 추천이 완료된 시점에만 데이터를 로드합니다.
+        center_lat, center_lon = center[0], center[1]
+
+        # 1레이어: 도보 네트워크 선 렌더링 
+        df_lines = fetch_local_db_lines(center_lat, center_lon, radius_m=300)
+        if not df_lines.empty:
+            for _, row in df_lines.iterrows():
+                folium.GeoJson(
+                    row["geometry"],
+                    style_function=lambda x: {
+                        "color": "#00BFFF",
+                        "weight": 2,
+                        "opacity": 0.4,
+                    },
+                ).add_to(m)
+
+        # 1.5레이어: CCTV 점 렌더링 (마찬가지로 반경 1000m 제한)
+        df_cctv = fetch_local_db_points(
+            center_lat, center_lon, "safety_layer", "safety_type", "cctv", radius_m=1000
+        )
+        if not df_cctv.empty:
+            for _, row in df_cctv.iterrows():
+                folium.CircleMarker(
+                    location=[row["lat"], row["lon"]],
+                    radius=3,
+                    color="#FFD700",
+                    fill=True,
+                    fill_color="#FFD700",
+                    fill_opacity=0.7,
+                    tooltip="CCTV",
                 ).add_to(m)
 
 # 출발지/도착지 둘 다 있으면 지도 범위 자동 조정
@@ -231,10 +268,12 @@ if st.session_state.get("route_result"):
     with col1:
         st.metric("총 거리", f"{result['total_distance_km']} km")
     with col2:
-        st.metric("이동 방식", "순환 🔄" if result['mode'] == "random_walk" else "편도 ➡️")
+        st.metric(
+            "이동 방식", "순환 🔄" if result["mode"] == "random_walk" else "편도 ➡️"
+        )
     with col3:
         avg_speed = 4.0  # 도보 평균 속도 km/h
-        time_min = round(result['total_distance_km'] / avg_speed * 60)
+        time_min = round(result["total_distance_km"] / avg_speed * 60)
         st.metric("예상 소요 시간", f"{time_min} 분")
 
     st.markdown(f"**총 노드 수:** {len(result['nodes'])}개")
@@ -242,7 +281,7 @@ if st.session_state.get("route_result"):
 
     # 경로 좌표 상세 (펼치기)
     with st.expander("📍 경로 좌표 상세보기"):
-        for i, (lat, lng) in enumerate(result['coordinates']):
+        for i, (lat, lng) in enumerate(result["coordinates"]):
             st.text(f"{i+1}. lat: {lat:.5f}, lng: {lng:.5f}")
 
 # 경로 추천 버튼
@@ -252,24 +291,28 @@ if st.session_state.start:
         with st.spinner("경로를 계산하는 중..."):
             context = {
                 "is_circular": is_circular,
-                "distance_km" : distance_km,
+                "distance_km": distance_km,
                 "origin": {
                     "place_name": "",
                     "address": "",
                     "coordinate": {
                         "lat": st.session_state.start[0],
-                        "lon": st.session_state.start[1]
-                    }
+                        "lon": st.session_state.start[1],
+                    },
                 },
-                "destination": {
-                    "place_name": "",
-                    "address": "",
-                    "coordinate": {
-                        "lat": st.session_state.end[0],
-                        "lon": st.session_state.end[1]
+                "destination": (
+                    {
+                        "place_name": "",
+                        "address": "",
+                        "coordinate": {
+                            "lat": st.session_state.end[0],
+                            "lon": st.session_state.end[1],
+                        },
                     }
-                } if st.session_state.end else None,
-                "purpose": purpose
+                    if st.session_state.end
+                    else None
+                ),
+                "purpose": purpose,
             }
             weights = {"safety": safety_w, "nature": nature_w}
 
@@ -277,11 +320,4 @@ if st.session_state.start:
             st.session_state.route_coordinates = result["coordinates"]
             st.session_state.route_distance = result["total_distance_km"]
             st.session_state.route_result = result
-            st.rerun() # 지도 다시 렌더링
-
-st.info("팀원 분들, 담당 모듈을 작업한 후 이곳(app.py)에 조립해 주세요!")
-
-st.title("🚶‍♀️ 맞춤형 산책 지도")
-
-# 지도 렌더링 호출 (인자 없이 호출)
-render_map()
+            st.rerun()  # 지도 다시 렌더링
