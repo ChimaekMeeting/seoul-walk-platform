@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 class InitRequest(BaseModel):
@@ -17,7 +17,8 @@ class ChatResponse(BaseModel):
     weights: Optional[dict] = None
 
 class UserPreferenceContext(BaseModel):
-    is_circular: Optional[bool]
-    origin: Optional[str]
-    destination: Optional[str]
-    purpose: Optional[str]
+    is_circular: Optional[bool] = Field(None, description="순환/원점회귀 여부")
+    origin: Optional[str] = Field(None, description="출발지")
+    destination: Optional[str] = Field(None, description="목적지")
+    purpose: Optional[str] = Field(None, description="산책 목적")
+    distance_km: Optional[float] = Field(None, description="산책 거리(km)")

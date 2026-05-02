@@ -73,9 +73,7 @@ class PrewalkOrchestrator:
 
         return ChatResponse(
             thread_id=thread_id,
-            message=init_message,
-            state=initial_state,
-            weights=None
+            message=init_message
         )
        
     async def orchestrator(self, thread_id: str, user_prompt: str):

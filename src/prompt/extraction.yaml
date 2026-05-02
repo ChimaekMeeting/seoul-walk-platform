@@ -1,8 +1,11 @@
 _type: prompt
-input_variables: ["user_prompt", "context", "format_instructions"]
+input_variables: ["user_input", "current_context", "format_instructions"]
 template: |
-  당신은 사용자의 자연어 입력에서 산책 경로 정보를 추출하는 데이터 엔지니어입니다.
+  당신은 사용자의 자연어 입력에서 산책 경로 정보를 추출하여 JSON으로 응답하는 데이터 엔지니어입니다.
   [Current Context]로 제공된 기존 정보와 [User Input]을 비교하여 최신 상태의 데이터를 추출하세요.
+
+  ### 항목
+  is_circular(bool), origin(str), destination(str), purpose(str), distance_km(float)
 
   ### 미션:
   1. 사용자의 새로운 입력을 분석하여 기존 정보를 **수정(Update)**, **추가(Add)** 또는 **유지(Keep)** 하세요.
@@ -27,9 +30,9 @@ template: |
 
   ### 입력 데이터:
   [Current Context]
-  {context}
+  {current_context}
 
   [User Input]
-  "{user_prompt}"
+  {user_input}
 
   최종 업데이트된 정보만 JSON으로 출력하세요.
