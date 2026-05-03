@@ -4,25 +4,21 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import load_prompt
 
 load_dotenv()
-OPENAI_API = os.getenv("OPENAI_API")
 
 class GPTClient:
     def __init__(self):
         self.llm = ChatOpenAI(
-            api_key=OPENAI_API,
+            api_key=os.getenv("OPENAI_API"),
             model="gpt-4o-mini",
             temperature=0.7
         )
 
-    async def get_response(self, prompt_name, input_data, output_parser):
+    async def get_response(self, prompt_name, input_variables, parser):
         """
         .yaml 프롬프트를 기반으로 GPT가 생성한 응답을 반환합니다.
         """
-        prompt_path = os.path.join("src", "prompt", f"{prompt_name}.yaml")
-        prompt_template = load_prompt(prompt_path, encoding="utf-8")
+        prompt_template = load_prompt(path=f"src/prompt/{prompt_name}.yaml", encoding="utf-8")
 
-        chain = prompt_template | self.llm | output_parser
+        chain = prompt_template | self.llm | parser
         
-        return await chain.ainvoke(input_data)
-    
-    # 37.6346, 126.8328
+        return await chain.ainvoke(input_variables)

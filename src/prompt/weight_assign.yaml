@@ -29,9 +29,3 @@ template: |
 
   ### 출력 가이드라인:
   {format_instructions}
-
-  [출력 예시]
-  {{
-    "safety": 0.5,
-    "nature": 0.5
-  }}

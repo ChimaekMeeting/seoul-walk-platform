@@ -1,25 +1,30 @@
+from langchain_core.output_parsers import PydanticOutputParser
+
 from src.schema.prewalk_schema import UserPreferenceContext
-from langchain_core.output_parsers import JsonOutputParser
+from src.client.gpt_client import GPTClient
+from src.service.common.utils import PromptUtils
 
-class Extractor:
-    def __init__(self, gpt_client):
-        self.gpt_client = gpt_client
-        self.parser = JsonOutputParser(pydantic_object=UserPreferenceContext)
+class Extractor(GPTClient):
+    def __init__(self):
+        super().__init__()
+        self.parser = PydanticOutputParser(pydantic_object=UserPreferenceContext)
+        self.prompt_utils = PromptUtils()
 
-    async def run(self, user_prompt: str, context: dict) -> dict:
+    async def run(self, state):
         """
-        사용자 프롬프트에서 산책 조건을 추출하여 기존 컨텍스트와 병합합니다.
+        사용자의 입력에서 정보를 추출하여 context를 업데이트합니다.
         """
-        extracted_data = await self.gpt_client.get_response(
+        input_variables = {
+            "user_input": state.get("user_prompt", ""),
+            "current_context": self.prompt_utils.format_for_prompt(state.get("user_context", {})),
+            "current_location": self.prompt_utils.format_for_prompt(state.get("current_location", {})),
+            "origin_candidates": self.prompt_utils.format_for_prompt(state.get("origin_candidate")),
+            "destination_candidates": self.prompt_utils.format_for_prompt(state.get("destination_candidate")),
+            "format_instructions": self.parser.get_format_instructions()
+        }
+
+        return await super().get_response(
             prompt_name="extraction",
-            input_data={
-                "user_prompt": user_prompt,
-                "context": context,
-                "format_instructions": self.parser.get_format_instructions()
-            },
-            output_parser=self.parser
+            input_variables=input_variables,
+            parser=self.parser
         )
-
-        print("\nextraction")
-        print(extracted_data)
-        return extracted_data
