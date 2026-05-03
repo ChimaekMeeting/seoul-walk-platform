@@ -2,7 +2,7 @@
 import streamlit as st
 from streamlit.components.v1 import html
 from src.database.postgresql import health_check
-from src.client.weather import get_environment_info
+from src.client.weather_client import get_environment_info
 from src.client.map_view import render_map
 import requests
 
