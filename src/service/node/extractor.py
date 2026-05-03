@@ -14,10 +14,20 @@ class Extractor(GPTClient):
         """
         user_input = state.get("user_prompt", "")
         current_context = state.get("user_context", {})
+        current_location = state.get("current_location", {})
+
+        # 중괄호 이스케이프 처리 (KeyError 방지)
+        def safe_str(obj):
+            if not obj or obj == "없음":
+                return "없음"
+            return str(obj).replace("{", "{{").replace("}", "}}")
 
         input_variables = {
             "user_input": user_input,
-            "current_context": current_context,
+            "current_context": safe_str(current_context),
+            "current_location": safe_str(current_location),
+            "origin_candidates": safe_str(state.get("origin_candidate")),
+            "destination_candidates": safe_str(state.get("destination_candidate")),
             "format_instructions": self.parser.get_format_instructions()
         }
 
