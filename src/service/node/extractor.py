@@ -8,7 +8,7 @@ class Extractor(GPTClient):
         super().__init__()
         self.parser = PydanticOutputParser(pydantic_object=UserPreferenceContext)
 
-    async def extract_info(self, state):
+    async def run(self, state):
         """
         사용자의 입력에서 정보를 추출하여 context를 업데이트합니다.
         """
@@ -22,7 +22,7 @@ class Extractor(GPTClient):
         }
 
         try:
-            return await self.run(
+            return await super().get_response(
                 prompt_name="extraction",
                 input_variables=input_variables,
                 parser=self.parser

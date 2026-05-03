@@ -13,7 +13,7 @@ class GPTClient:
             temperature=0.7
         )
 
-    async def run(self, prompt_name, input_variables, parser):
+    async def get_response(self, prompt_name, input_variables, parser):
         """
         .yaml 프롬프트를 기반으로 GPT가 생성한 응답을 반환합니다.
         """

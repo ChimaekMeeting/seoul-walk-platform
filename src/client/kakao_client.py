@@ -1,5 +1,6 @@
 from dotenv import load_dotenv
-import os, httpx, asyncio
+import os, httpx
+from langchain_core.tools import tool
 
 load_dotenv()
 
@@ -32,6 +33,7 @@ class KakaoClient:
             "약국": "PM9"
         }
 
+    @tool
     async def get_address_from_coords(self, lat: float = 37.634496, lon: float = 126.832852):
         """
         경위도 좌표를 주소로 변환하는 함수입니다.
@@ -66,7 +68,8 @@ class KakaoClient:
                     "place_lat": lat,
                     "place_lon": lon
                 }
-
+            
+    @tool
     async def get_address_from_keyword(self, keyword: str, lat: float, lon: float):
         """
         특정 키워드를 기반으로 주소를 반환하는 함수입니다.
@@ -77,17 +80,20 @@ class KakaoClient:
             "query": keyword,
             "x": lon,
             "y": lat,
-            "radius": 20000
+            "radius": 20000,
+            "size": 3
         }
 
         async with httpx.AsyncClient() as client:
             response = await client.get(base_url, params=params, headers=self.headers)
             return response.json()
-
-
+        
+    @tool
     async def get_address_from_category(self, category: str, lat: float, lon: float):
         """
         특정 카테고리를 기반으로 주소를 반환하는 함수입니다.
+        category 인자에는 반드시 다음 중 하나만 입력하세요: 
+        ['대형마트', '편의점', '어린이집, 유치원', '학교', '학원', '주유소, 충전소', '은행', '문화시설', '중개업소', '공공기관', '숙박', '음식점', '카페', '병원', '약국', '주차장', '지하철역', '관광명소']
         """
         base_url = f"{self.base_url}/search/category.json"
 
@@ -95,14 +101,10 @@ class KakaoClient:
             "query": self.category_group_code.get(category),
             "x": lon,
             "y": lat,
-            "radius": 20000
+            "radius": 20000,
+            "size": 3,
         }
 
         async with httpx.AsyncClient() as client:
             response = await client.get(base_url, params=params, headers=self.headers)
             return response.json()
-        
-# if __name__ == "__main__":
-#     client = KakaoClient()
-#     response = asyncio.run(client.get_address_from_coords())
-#     print(response)
