@@ -1,8 +1,8 @@
 from dotenv import load_dotenv
 import os
 from redis import asyncio
-
-load_dotenv()
+from pathlib import Path
+load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env", override=True)
 
 VALKEY_URI = os.getenv("VALKEY_URI")
 
