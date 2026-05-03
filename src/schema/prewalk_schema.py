@@ -39,18 +39,13 @@ class Weights(BaseModel):
     산책 경로 생성을 위한 요소별 가중치 스키마
     모든 가중치의 합은 1.0(100%)이 되는 것을 권장합니다.
     """
-    traffic_safety: float = Field(
+    safety: float = Field(
         0.0, 
-        description="교통 안전 가중치 (차도와의 분리도, 신호등 빈도 등)", 
+        description="가로등/CCTV 보안 지수", 
         ge=0.0, le=1.0  # ge(Greater than or Equal to), le(Less than or Equal to)
     )
-    lighting_safety: float = Field(
+    nature: float = Field(
         0.0, 
-        description="조명 및 가시성 가중치 (가로등 빈도, 야간 산책 시 중요도)", 
-        ge=0.0, le=1.0
-    )
-    path_smoothness: float = Field(
-        0.0, 
-        description="보행 편의성 가중치 (경사도, 노면 상태)", 
+        description="공원/가로수길 지수", 
         ge=0.0, le=1.0
     )
