@@ -11,7 +11,7 @@ from src.database.postgresql import health_check
 from src.client.weather_client import get_environment_info
 from src.service.route_service import get_route
 from src.repository.graph_repository import load_graph
-from src.service.map_service import fetch_local_db_lines, fetch_local_db_points
+from src.service.map_service import fetch_local_db_lines_optimized, fetch_local_db_points
 
 
 @st.cache_resource
@@ -187,16 +187,17 @@ if st.session_state.route_coordinates:
         center_lat, center_lon = center[0], center[1]
 
         # 1레이어: 도보 네트워크 선 렌더링 
-        df_lines = fetch_local_db_lines(center_lat, center_lon, radius_m=300)
+        df_lines = fetch_local_db_lines_optimized(center_lat, center_lon, radius_m=300)
         if not df_lines.empty:
             for _, row in df_lines.iterrows():
-                folium.GeoJson(
-                    row["geometry"],
-                    style_function=lambda x: {
-                        "color": "#00BFFF",
-                        "weight": 2,
-                        "opacity": 0.4,
-                    },
+                # [중요] row["path"]의 [lon, lat]을 [lat, lon]으로 순서 변경
+                flipped_path = [[coord[1], coord[0]] for coord in row["path"]]
+
+                folium.PolyLine(
+                    locations=flipped_path,
+                    color="#00BFFF",
+                    weight=2,
+                    opacity=0.4,
                 ).add_to(m)
 
         # 1.5레이어: CCTV 점 렌더링 (마찬가지로 반경 1000m 제한)
