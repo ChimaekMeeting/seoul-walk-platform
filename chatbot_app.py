@@ -8,7 +8,9 @@ weather_api = WeatherAPITester()
 prewalk_api = PrewalkAPITester()
 
 async def init_session():
-    """사용자 UUID 생성 및 서버 세션 초기화"""
+    """
+    사용자 UUID 생성 및 서버 세션을 초기화합니다.
+    """
     if "user_uuid" not in st.session_state:
         # 1. 유저 생성
         user_res = await user_api.post_user()
@@ -33,7 +35,10 @@ async def init_session():
         
         st.session_state.initialized = True
 
-async def chat(prompt: str):
+async def chat_and_assign_weights(prompt: str):
+    """
+    LLM과의 상호작용을 통해 가중치를 결정합니다.
+    """
     # 유저 메시지 표시 및 저장
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -78,9 +83,9 @@ async def main():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # 챗봇 입력창
+    # 챗봇 + 가중치 결정 로직
     if prompt := st.chat_input("챗봇과 자유롭게 대화를 나눠보세요!"):
-        chat(prompt)
+        await chat_and_assign_weights(prompt)
 
 if __name__ == "__main__":
     asyncio.run(main())
