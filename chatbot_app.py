@@ -8,7 +8,9 @@ weather_api = WeatherAPITester()
 prewalk_api = PrewalkAPITester()
 
 async def init_session():
-    """사용자 UUID 생성 및 서버 세션 초기화"""
+    """
+    사용자 UUID 생성 및 서버 세션을 초기화합니다.
+    """
     if "user_uuid" not in st.session_state:
         # 1. 유저 생성
         user_res = await user_api.post_user()
@@ -33,6 +35,38 @@ async def init_session():
         
         st.session_state.initialized = True
 
+async def chat_and_assign_weights(prompt: str):
+    """
+    LLM과의 상호작용을 통해 가중치를 결정합니다.
+    """
+    # 유저 메시지 표시 및 저장
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # 챗봇 응답 생성
+    with st.chat_message("assistant"):
+        with st.spinner("생각 중..."):
+            # 1. 의도 파악 및 대화 진행 API 호출
+            response = await prewalk_api.post_intent(
+                thread_id=st.session_state.thread_id, 
+                user_prompt=prompt
+            )
+                
+            answer = response.get("message", "죄송합니다. 응답을 이해하지 못했습니다.")
+            state = response.get("state")
+            next_node = state.get("next_node")
+
+            st.markdown(answer)
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+
+            # 2. 만약 대화가 완료되었다면(next_node == 'end') 가중치 정보 가져오기
+            if next_node == "end":
+                weights = await prewalk_api.get_weights(st.session_state.thread_id)
+                st.success("📍 산책 정보 수집 완료! 경로 생성을 시작합니다.")
+                st.json(weights) # 가중치 결과 확인용
+                st.session_state.weights = weights
+
 async def main():
     st.set_page_config(page_title="산책 메이트 챗봇", page_icon="🤖")
     st.title("🤖 AI 산책 메이트")
@@ -49,34 +83,9 @@ async def main():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # 챗봇 입력창
+    # 챗봇 + 가중치 결정 로직
     if prompt := st.chat_input("챗봇과 자유롭게 대화를 나눠보세요!"):
-        # 유저 메시지 표시 및 저장
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # 챗봇 응답 생성
-        with st.chat_message("assistant"):
-            with st.spinner("생각 중..."):
-                # 1. 의도 파악 및 대화 진행 API 호출
-                response = await prewalk_api.post_intent(
-                    thread_id=st.session_state.thread_id, 
-                    user_prompt=prompt
-                )
-                
-                answer = response.get("message", "죄송합니다. 응답을 이해하지 못했습니다.")
-                state = response.get("state")
-                next_node = state.get("next_node")
-
-                st.markdown(answer)
-                st.session_state.messages.append({"role": "assistant", "content": answer})
-
-                # 2. 만약 대화가 완료되었다면(next_node == 'end') 가중치 정보 가져오기
-                if next_node == "end":
-                    weights_res = await prewalk_api.get_weights(st.session_state.thread_id)
-                    st.success("📍 산책 정보 수집 완료! 경로 생성을 시작합니다.")
-                    st.json(weights_res) # 가중치 결과 확인용
+        await chat_and_assign_weights(prompt)
 
 if __name__ == "__main__":
     asyncio.run(main())
