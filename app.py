@@ -16,7 +16,9 @@ from src.service.map_service import fetch_local_db_lines_optimized, fetch_local_
 
 @st.cache_resource
 def get_graph():
-    return load_graph()
+    G = load_graph()
+    print(list(G.nodes(data=True))[:3])
+    return G
 
 
 G = get_graph()
@@ -317,7 +319,7 @@ if st.session_state.start:
             }
             weights = {"safety": safety_w, "nature": nature_w}
 
-            result = get_route(context, weights)
+            result = get_route(context, weights, G)
             st.session_state.route_coordinates = result["coordinates"]
             st.session_state.route_distance = result["total_distance_km"]
             st.session_state.route_result = result

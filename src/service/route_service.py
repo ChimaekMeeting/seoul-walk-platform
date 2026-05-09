@@ -2,6 +2,7 @@
 import networkx as nx
 from src.repository.graph_repository import load_graph_near
 from src.service.path_finder import *
+import time
 
 # ─────────────────────────────────────────
 # Intent → 가중치 조정
@@ -41,7 +42,7 @@ def apply_intent_weights(G: nx.Graph, weights: dict) -> nx.Graph:
 # 메인 서비스 함수
 # ─────────────────────────────────────────
 
-def get_route(context: dict, weights: dict) -> dict:
+def get_route(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
     """
     경로 추천 메인 함수 (app.py에서 호출)
     Args:
@@ -61,6 +62,7 @@ def get_route(context: dict, weights: dict) -> dict:
             "total_distance_km": float
         }
     """
+
     start_lat = context["origin"]["coordinate"]["lat"]
     start_lng = context["origin"]["coordinate"]["lon"]
     is_circular = context.get("is_circular", True)
@@ -68,13 +70,25 @@ def get_route(context: dict, weights: dict) -> dict:
 
     radius_m = distance_km * 1000 * 1.5  # 목표 거리의 1.5배 반경으로 그래프 로드
 
+    t0 = time.time()
+
     # 1. DB에서 그래프 로드
-    G = load_graph_near(start_lat, start_lng, radius_m=radius_m)
+    if G_full is not None:
+        # 메모리에서 반경 필터링
+        G = extract_subgraph_near(G_full, start_lat, start_lng, radius_m)
+    else:
+        G = load_graph_near(start_lat, start_lng, radius_m=radius_m)
+
+    print(f"[1] load_graph_near: {time.time()-t0:.2f}s")
+    t1 = time.time()
+
     if G.number_of_nodes() == 0:
         return {"mode": None, "coordinates": [], "total_distance_km": 0.0, "error": "경로 데이터 없음"}
 
     # 2. 가중치 조정
     G = apply_intent_weights(G, weights)
+    print(f"[2] apply_intent_weights: {time.time()-t1:.2f}s")
+    t2 = time.time()
 
     # 3. 알고리즘 분기
     intent = {"weight": "custom_score", "distance_km": distance_km}
@@ -90,12 +104,30 @@ def get_route(context: dict, weights: dict) -> dict:
         end_node = find_nearest_node(G, end_lat, end_lng)
         result = dijkstra_route(G, start_node, end_node, weight="custom_score")
         result["mode"] = "dijkstra"
+    print(f"[3] route algorithm: {time.time()-t2:.2f}s")
+    t3 = time.time()
     
     # 가지치기 후처리
     pruned_nodes = prune_dead_ends(result["nodes"], G, max_branch_length=100)
     result["nodes"] = pruned_nodes
     result["coordinates"] = extract_coordinates(G, pruned_nodes)
-
-    # print(f"결과: {result}")
+    print(f"[4] prune+extract: {time.time()-t3:.2f}s")
+    
+    print(f"[total] {time.time()-t0:.2f}s")
 
     return result
+
+
+def extract_subgraph_near(G: nx.Graph, lat: float, lng: float, radius_m: float) -> nx.Graph:
+    import math
+    
+    # 위도 1도 ≈ 111km
+    deg = radius_m / 111000
+    
+    nodes = [
+        n for n, d in G.nodes(data=True)
+        if "y" in d and "x" in d
+        and abs(d["y"] - lat) <= deg 
+        and abs(d["x"] - lng) <= deg * 1.3
+    ]
+    return G.subgraph(nodes).copy()

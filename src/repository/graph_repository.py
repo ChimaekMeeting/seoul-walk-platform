@@ -115,18 +115,16 @@ def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.Graph:
 
         edge_rows = db.execute(text("""
             SELECT
-                link_id,
-                start_node,
-                end_node,
-                length_m,
-                road_type,
-                path_type,
-                safety_score,
-                slope_score
+                link_id, start_node, end_node,
+                length_m, road_type, path_type,
+                safety_score, slope_score
             FROM walk_edges
-            WHERE start_node = ANY(:node_ids)
-              AND end_node   = ANY(:node_ids)
-        """), {"node_ids": list(node_ids)}).fetchall()
+            WHERE ST_DWithin(
+                geom::geography,
+                ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+                :radius
+            )
+        """), {"lat": lat, "lng": lng, "radius": radius_m}).fetchall()
 
         for row in edge_rows:
             G.add_edge(
@@ -147,3 +145,4 @@ def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.Graph:
     print(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
 
     return G
+
