@@ -9,7 +9,7 @@ from streamlit.components.v1 import html
 
 from src.database.postgresql import health_check
 from src.client.weather_client import get_environment_info
-from src.service.route_service import get_route
+from src.service.route.route_service import get_route
 from src.repository.graph_repository import load_graph
 from src.service.map_service import fetch_local_db_lines_optimized, fetch_local_db_points
 
