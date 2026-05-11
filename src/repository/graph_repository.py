@@ -1,7 +1,7 @@
 import networkx as nx
 from sqlalchemy import text
 from src.database.postgresql import get_postgresql_db
-from src.service.path_finder import remove_dead_ends
+from src.service.route.path_utils import remove_dead_ends
 
 
 def load_graph() -> nx.Graph:

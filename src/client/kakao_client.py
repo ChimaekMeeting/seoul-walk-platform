@@ -12,7 +12,7 @@ class KakaoClient:
         경위도 좌표를 주소로 변환하는 함수입니다.
         """
         headers= {
-            "Authorization": f"KakaoAK {os.getenv("KAKAO_API_KEY")}"
+            "Authorization": f"KakaoAK {os.getenv('KAKAO_API_KEY')}"
         }
         base_url = f"https://dapi.kakao.com/v2/local/geo/coord2address.json"
 
@@ -50,7 +50,7 @@ class KakaoClient:
         특정 키워드를 기반으로 주소를 반환하는 함수입니다.
         """
         headers= {
-            "Authorization": f"KakaoAK {os.getenv("KAKAO_API_KEY")}"
+            "Authorization": f"KakaoAK {os.getenv('KAKAO_API_KEY')}"
         }
         base_url = f"https://dapi.kakao.com/v2/local/search/keyword.json"
 
@@ -74,7 +74,7 @@ class KakaoClient:
         ['대형마트', '편의점', '어린이집, 유치원', '학교', '학원', '주유소, 충전소', '은행', '문화시설', '중개업소', '공공기관', '숙박', '음식점', '카페', '병원', '약국', '주차장', '지하철역', '관광명소']
         """
         headers= {
-            "Authorization": f"KakaoAK {os.getenv("KAKAO_API_KEY")}"
+            "Authorization": f"KakaoAK {os.getenv('KAKAO_API_KEY')}"
         }
         base_url = f"https://dapi.kakao.com/v2/local/search/category.json"
 
