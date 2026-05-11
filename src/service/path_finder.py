@@ -50,15 +50,10 @@ def random_walk_route(G: nx.Graph, start_node: int, target_distance_km: float = 
         weights = []
         for n in neighbors:
             edge_key = tuple(sorted([current, n]))
-            visit_count = visited_edges.get(edge_key, 0)
+            edge_visited = visited_edges.get(edge_key, 0)
 
-            # 2회 이상 방문 차단, 1회는 페널티
-            if visit_count >= 2:
-                penalty = 0.0
-            elif visit_count == 1:
-                penalty = 1 / 6  # 1 / (1 + 1 * 5)
-            else:
-                penalty = 1.0
+            edge_penalty = 1.0 / (1 + edge_visited * 7)
+            degree_penalty = 1.0 / (1 + max(0, 3 - G.degree(n)))  # degree 1→0.25, 2→0.5, 3→1.0
 
             edge_data = G.get_edge_data(current, n) or {}
             w = edge_data.get(weight, 1.0)
@@ -71,17 +66,7 @@ def random_walk_route(G: nx.Graph, start_node: int, target_distance_km: float = 
                 dist_from_start = ((nx_ - start_x)**2 + (ny_ - start_y)**2) ** 0.5
                 w = w / ((dist_from_start + 1e-6) ** 2)
             
-            weights.append((1.0 / w) * penalty)
-
-        # 전부 차단된 경우 fallback: 페널티 무시하고 최소 방문 엣지로
-        if all(w == 0.0 for w in weights):
-            weights = []
-            for n in neighbors:
-                edge_key = tuple(sorted([current, n]))
-                visit_count = visited_edges.get(edge_key, 0)
-                edge_data = G.get_edge_data(current, n) or {}
-                w = edge_data.get(weight, 1.0)
-                weights.append((1.0 / w) / (1 + visit_count * 10))
+            weights.append((1.0 / w) * edge_penalty * degree_penalty)
 
         total_w = sum(weights)
         probs = [w / total_w for w in weights]
