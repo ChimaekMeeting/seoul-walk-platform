@@ -2,20 +2,24 @@ from dotenv import load_dotenv
 import os
 from redis import asyncio
 from pathlib import Path
-load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env", override=True)
+import ssl
+import redis.asyncio as asyncio
+
+
+load_dotenv()
 
 VALKEY_URI = os.getenv("VALKEY_URI")
+
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
 
 valkey_pool = asyncio.ConnectionPool.from_url(
     VALKEY_URI,
     decode_responses=True,
-    ssl_cert_reqs=None
 )
 
 def get_valkey_db():
-    """
-    Valkey(Redis) 클라이언트를 반환합니다.
-    """
     return asyncio.Redis(connection_pool=valkey_pool)
 
 async def health_check_valkey() -> bool:
