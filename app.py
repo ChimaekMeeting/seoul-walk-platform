@@ -11,13 +11,17 @@ from src.database.postgresql import health_check
 from src.client.weather_client import get_environment_info
 from src.service.route_service import get_route
 from src.repository.graph_repository import load_graph
-from src.service.map_service import fetch_local_db_lines, fetch_local_db_points
+from src.service.map_service import fetch_local_db_lines_optimized, fetch_local_db_points
 
+import time
+
+t = time.time()
 
 @st.cache_resource
 def get_graph():
-    return load_graph()
-
+    G = load_graph()
+    print(list(G.nodes(data=True))[:3])
+    return G
 
 G = get_graph()
 
@@ -25,6 +29,7 @@ load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
 
 MAPBOX_TOKEN = os.getenv("MAPBOX_API_KEY")
 SEOUL_CENTER = [37.5665, 126.9780]
+print(f"dotenv: {time.time()-t:.2f}s"); t = time.time()
 
 st.set_page_config(page_title="서울 산책 플랫폼", page_icon="🚶", layout="wide")
 st.title("🚶 서울시 산책 경로 추천")
@@ -51,31 +56,39 @@ navigator.geolocation.getCurrentPosition(
 """,
     height=0,
 )
+print(f"html gps: {time.time()-t:.2f}s"); t = time.time()
 
 # URL 파라미터에서 위치 가져오기 (없으면 서울시청 기본값)
 params = st.query_params
 lat = float(params.get("lat", 37.5665))
 lng = float(params.get("lng", 126.9780))
+print(f"query_params: {time.time()-t:.2f}s"); t = time.time()
 
 # FastAPI 호출
-try:
-    res = requests.get(
-        "http://localhost:8080/api/weather", params={"lat": lat, "lng": lng}, timeout=3
-    )
-    # 🌟 API 응답이 [ {날씨 딕셔너리}, "메시지" ] 리스트 형태이므로 첫 번째([0])를 꺼냅니다!
-    response_data = res.json()
-    env = response_data[0] if isinstance(response_data, list) else response_data
-except Exception as e:
-    st.error("API 서버 연결 실패")
-    env = {
-        "weather_status": "알 수 없음",
-        "weather_msg": "서버 연결 실패",
-        "air_status": "알 수 없음",
-        "air_msg": "",
-    }
+@st.cache_data(ttl=300)
+def get_weather(lat, lng):
+    try:
+        res = requests.get(
+            "http://localhost:8080/api/weather", params={"lat": lat, "lng": lng}, timeout=3
+        )
+        response_data = res.json()
+        return response_data[0] if isinstance(response_data, list) else response_data
+    except Exception:
+        return {
+            "weather_status": "알 수 없음",
+            "weather_msg": "서버 연결 실패",
+            "air_status": "알 수 없음",
+            "air_msg": "",
+        }
+
+env = get_weather(lat, lng)
+print(f"weather: {time.time()-t:.2f}s"); t = time.time()
+
 
 # DB 상태
+t3 = time.time()
 db_ok = health_check()
+print(f"health_check: {time.time()-t3:.2f}s")
 st.sidebar.markdown("### 시스템 상태")
 
 if db_ok:
@@ -187,16 +200,17 @@ if st.session_state.route_coordinates:
         center_lat, center_lon = center[0], center[1]
 
         # 1레이어: 도보 네트워크 선 렌더링 
-        df_lines = fetch_local_db_lines(center_lat, center_lon, radius_m=300)
+        df_lines = fetch_local_db_lines_optimized(center_lat, center_lon, radius_m=300)
         if not df_lines.empty:
             for _, row in df_lines.iterrows():
-                folium.GeoJson(
-                    row["geometry"],
-                    style_function=lambda x: {
-                        "color": "#00BFFF",
-                        "weight": 2,
-                        "opacity": 0.4,
-                    },
+                # [중요] row["path"]의 [lon, lat]을 [lat, lon]으로 순서 변경
+                flipped_path = [[coord[1], coord[0]] for coord in row["path"]]
+
+                folium.PolyLine(
+                    locations=flipped_path,
+                    color="#00BFFF",
+                    weight=2,
+                    opacity=0.4,
                 ).add_to(m)
 
         # 1.5레이어: CCTV 점 렌더링 (마찬가지로 반경 1000m 제한)
@@ -221,6 +235,7 @@ if st.session_state.start and st.session_state.end:
 
 # 지도 렌더링
 map_data = st_folium(m, width="100%", height=520, returned_objects=["last_clicked"])
+print(f"st_folium: {time.time()-t:.2f}s"); t = time.time()
 
 # 클릭 이벤트 처리
 if map_data and map_data.get("last_clicked"):
@@ -316,7 +331,7 @@ if st.session_state.start:
             }
             weights = {"safety": safety_w, "nature": nature_w}
 
-            result = get_route(context, weights)
+            result = get_route(context, weights, G)
             st.session_state.route_coordinates = result["coordinates"]
             st.session_state.route_distance = result["total_distance_km"]
             st.session_state.route_result = result
