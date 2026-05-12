@@ -1,4 +1,3 @@
-from langchain_core.output_parsers import PydanticOutputParser
 from typing import Union
 
 from src.schema.prewalk_schema import (

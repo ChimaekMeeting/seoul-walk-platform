@@ -6,9 +6,9 @@ from src.repository.user_repository import UserRepository
 from src.repository.chat_session_repository import ChatSessionRepository
 from src.repository.chat_state_repository import ChatStateRepository
 from src.service.weather.weather_checker import WeatherChecker
-from src.service.node.extractor import Extractor
-from src.service.node.interviewer import Interviewer
-from src.service.node.weight_assigner import WeightAssigner
+from src.service.prewalk.extractor import Extractor
+from src.service.prewalk.interviewer import Interviewer
+from src.service.prewalk.weight_assigner import WeightAssigner
 from src.schema.prewalk_schema import ChatResponse, State, Location
 
 class PrewalkOrchestrator:
