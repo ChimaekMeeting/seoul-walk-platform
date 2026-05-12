@@ -6,7 +6,7 @@ from langchain_core.prompts import PromptTemplate, load_prompt
 
 from src.client.gpt_client import GPTClient
 from src.client.kakao_client import KakaoClient
-from src.service.common.utils import PromptUtils
+from src.service.prewalk.chatbot_utils import PromptUtils
 
 class StateManager:
     @staticmethod
@@ -81,7 +81,7 @@ class Interviewer(GPTClient):
         self.prompt_utils = PromptUtils()
 
         # tool 바인딩
-        self.llm_with_tools = self.llm.bind_tools(self.tool_provider.tools)
+        self.model = self.llm.bind_tools(self.tool_provider.tools)
 
         self.json_parser = JsonOutputParser()
         self.str_parser = StrOutputParser()
@@ -136,7 +136,7 @@ class Interviewer(GPTClient):
 
         prompt_template = await self.create_prompt(state, is_complete, missing_info)
 
-        chain = prompt_template | self.llm_with_tools
+        chain = prompt_template | self.model
         raw_response = await chain.ainvoke({"user_input": state.get("user_prompt", "")})
 
         if raw_response.tool_calls:
