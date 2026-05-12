@@ -1,50 +1,38 @@
 _type: prompt
-input_variables: ["user_input", "current_context", "current_location", "origin_candidates", "destination_candidates", "format_instructions"]
+input_variables: ["user_input", "current_context", "current_location", "origin_candidates", "destination_candidates"]
 template: |
-  당신은 사용자의 자연어 입력에서 산책 정보를 추출하고 데이터를 정제하는 정밀한 데이터 엔지니어입니다.
-  [Current Context], [Candidates], [Current Location]을 활용하되, 아래의 엄격한 추출 규칙을 준수하세요.
+  당신은 사용자의 자연어 입력에서 산책 의도를 분석하여 최적의 산책 모드를 결정하고 데이터를 추출하는 정밀한 데이터 엔지니어입니다.
+  제공된 [Current Location], [Current Context], [Candidates] 정보를 바탕으로 아래 규칙에 따라 구조화된 데이터를 생성하세요.
 
-  ### 1. 필드별 추출 및 '명시적' 할당 규칙:
+  ### 1. 산책 모드(Schema) 결정 규칙
+  사용자의 의도에 따라 다음 세 가지 모드 중 가장 적합한 하나를 선택하세요:
+  - **CircularPreference**: 출발지로 다시 돌아오는 '순환/왕복' 산책이 목적일 때. (예: "한 바퀴 돌래", "집 주변 산책")
+  - **DestinationPreference**: 명확한 '목적지'가 존재할 때. (예: "카페까지 갈래", "광화문역으로 갈게")
+  - **DistancePreference**: 특정 '거리'를 걷는 것이 주 목적일 때. (예: "3km 정도 걷고 싶어", "30분 정도 운동할래")
+
+  ### 2. 필드별 상세 추출 규칙
   - **origin (출발지)**: 
-    - 사용자가 새로운 장소명을 말하면 `place_name`에 넣고 나머지 좌표는 `null`로 둡니다.
-    - 사용자가 "여기서 시작", "현 위치에서", "지금 있는 곳"이라고 명시적으로 언급할 때는 [Current Location]의 정보를 복사하세요. 
-    - [Origin Candidates] 리스트에 있는 장소를 선택(예: "1번", "더블브이커피")하면 해당 후보의 모든 정보를 필드에 채우세요.
-    - [Origin Candidates] 리스트에 무언가 있을 때 맥락을 파악하여, 숫자가 리스트에 있는 장소를 선택하고자 한다고 판단되는 경우, 해당 후보의 모든 정보를 필드에 채우세요.
-    - 출발지에 대한 언급이 없으면 `null`을 유지해야 합니다.
+    - "여기", "현 위치", "지금 곳" 언급 시: [Current Location] 정보를 그대로 할당.
+    - [Origin Candidates]의 번호(예: "1번")나 이름 언급 시: 해당 후보의 모든 정보(lat, lon, address, name)를 할당.
+    - 새로운 장소명 언급 시: `place_name`에 기록하고 좌표는 null 유지.
+    - 언급 없으면 null.
   - **destination (목적지)**: 
-    - 사용자가 새로운 장소명을 말하면 `place_name`에 넣고 나머지 좌표는 `null`로 둡니다.
-    - [Destination Candidates] 리스트에 있는 장소를 선택(예: "1번", "더블브이커피")하면 해당 후보의 모든 정보를 필드에 채우세요.
-    - [Destination Candidates] 리스트에 무언가 있을 때 맥락을 파악하여, 숫자가 리스트에 있는 장소를 선택하고자 한다고 판단되는 경우, 해당 후보의 모든 정보를 필드에 채우세요.
-  - **is_circular (순환 여부)**: 
-    - "A에서 B까지", "카페로 갈래" 등 편도 이동이 확실하면 `false`.
-    - "한 바퀴 돌기", "왕복" 등은 `true`. 
-    - 판단 근거가 없으면 기존 값을 유지하거나 `null`로 둡니다.
-  - **purpose (산책 목적)**:
-    - 주어진 모든 정보를 최대한 활용하여 산책 목적을 매우 자세하게 서술하세요.
-  - **distance_km**: 언급 없으면 1.0 기본, 운동 목적이면 5.0 이상 추론.
+    - [Destination Candidates]의 번호나 이름 언급 시: 해당 후보의 정보 할당.
+    - 새로운 장소명 언급 시: `place_name` 기록.
+    - **DestinationPreference** 모드일 때만 필수이며, 나머지 모드에서는 null.
+  - **distance_km (거리)**: 
+    - 숫자가 언급되면 해당 값(float) 추출. 
+    - 언급 없으면 기본값 1.0. 단, "운동", "다이어트" 등 목적이 포착되면 5.0 이상으로 적절히 추론.
+  - **purpose (목적)**: 
+    - [User Input]과 [Current Context]를 결합하여 사용자의 산책 의도(예: 강아지 산책, 식후 소화, 러닝 등)를 구체적으로 서술.
 
-  ### 2. 정보 보호 및 업데이트 규칙 (CRITICAL):
-  - **임의 할당 금지**: 사용자가 언급하지 않은 필드를 추측하여 채우지 마세요. 특히 출발지는 사용자의 확답이 필요합니다.
-  - **필드 보존**: [Current Context]에 이미 상세 좌표(`lat`, `lon`)가 채워진 필드는 사용자가 "수정"을 요구하지 않는 한 절대 지우거나 변경하지 마세요.
-  - **개별 업데이트**: 사용자가 "목적지만 바꿔줘"라고 하면 `destination`만 수정하고 `origin`은 기존 값을 토씨 하나 틀리지 말고 유지하세요.
+  ### 3. 데이터 참조 (Context)
+  [Current Location]: {current_location}
+  [Current Context]: {current_context}
+  [Origin Candidates]: {origin_candidates}
+  [Destination Candidates]: {destination_candidates}
 
-  ### 데이터 참조:
-  [Current Location] (사용자의 실제 GPS 정보 - 사용자가 요청할 때만 사용)
-  {current_location}
+  ### 4. 사용자 입력
+  [User Input]: {user_input}
 
-  [Current Context] (기존 수집 데이터)
-  {current_context}
-
-  [Origin Candidates] (출발지 후보군)
-  {origin_candidates}
-
-  [Destination Candidates] (목적지 후보군)
-  {destination_candidates}
-
-  [User Input] (사용자의 새로운 발화)
-  {user_input}
-
-  ### 출력 형식:
-  {format_instructions}
-
-  최종 업데이트된 정보만 JSON으로 출력하세요.
+  위 규칙을 바탕으로 지정된 스키마 형식에 맞춰 데이터를 추출하세요.

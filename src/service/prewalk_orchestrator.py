@@ -9,7 +9,7 @@ from src.service.weather.weather_checker import WeatherChecker
 from src.service.node.extractor import Extractor
 from src.service.node.interviewer import Interviewer
 from src.service.node.weight_assigner import WeightAssigner
-from src.schema.prewalk_schema import ChatResponse
+from src.schema.prewalk_schema import ChatResponse, State, Location
 
 class PrewalkOrchestrator:
     def __init__(self):
@@ -35,38 +35,21 @@ class PrewalkOrchestrator:
         current_location = await self.kakao_client.get_address_from_coords.ainvoke({"lat": lat, "lon": lon})
 
         # 초기 상태 정의
-        initial_state = {
-            "user_uuid": user_uuid,
-            "current_location": {
-                "lat": lat,
-                "lon": lon,
-                "address": current_location.get("place_address"),
-                "place_name": current_location.get("place_name")
-            },
-            "origin_candidate": None,       # 출발지 후보군
-            "destination_candidate": None,  # 목적지 후보군
-            "user_context": {
-                "is_circular": None,        # 순환 여부 (True: 순환, False: 편도)
-                "origin": {
-                    "lat": None,
-                    "lon": None,
-                    "address": None,
-                    "place_name": None
-                },
-                "destination": {
-                    "lat": None,
-                    "lon": None,
-                    "address": None,
-                    "place_name": None
-                },
-                "purpose": None,            # 산책 목적
-                "distance_km": 1.0,         # 산책 거리
-            },
-            "weather_data": weather_data,   # 실시간 기상 정보
-            "is_confirmed": False,          # 요약된 산책 조건에 대한 유저의 최종 승인 여부
-            "user_prompt": "",              # 유저 프롬프트
-            "next_node": "interview"        # 다음 단계: "interview", "end"
-        }
+        initial_state = State(
+            user_uuid=user_uuid,
+            current_location=Location(
+                lat=lat,
+                lon=lon,
+                address=current_location.get("place_address"),
+                place_name=current_location.get("place_name")
+            ),
+            user_context=None,
+            origin_candidate=None,
+            destination_candidate=None,
+            weather_data=weather_data,
+            user_prompt="",
+            next_node="interviewer"
+        )
 
         # Valkey에 초기 상태 저장
         await ChatStateRepository.save_state(

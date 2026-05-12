@@ -1,19 +1,37 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Union, List
+from enum import Enum
 
 class InitRequest(BaseModel):
-    user_uuid: str
+    """
+    챗봇 세션 생성을 위한 입력 스키마
+    """
+    user_uuid: str  # 추후 실제 id(<-SNS 로그인)로 바꿀 예정
     lat: float
     lon: float
 
 class ChatRequest(BaseModel):
+    """
+    챗봇과 상호작용을 위한 입력 스키마
+    """
     thread_id: str
     user_prompt: str
 
 class ChatResponse(BaseModel):
+    """
+    챗봇과 상호작용을 통해 제공되는 출력 스키마
+    """
     thread_id: str
     message: str
     state: dict
+
+class PathMode(Enum):
+    """
+    산책 모드 관련 Enum class
+    """
+    CIRCULAR = "Circular"        # 순환 산책
+    DESTINATION = "Destination"  # '목적지'가 정해져 있는 편도 산책
+    DISTANCE = "Distance"        # '거리(km)'가 정해져 있는 편도 산책
 
 class Location(BaseModel):
     """
@@ -24,15 +42,48 @@ class Location(BaseModel):
     address: Optional[str] = Field(None, description="지번 주소 또는 도로명 주소")
     place_name: Optional[str] = Field(None, description="장소 명칭")
 
-class UserPreferenceContext(BaseModel):
+class BasePreference(BaseModel):
     """
-    산책 경로 추천을 위해 꼭 필요한 스키마
+    산책 경로 추천을 위해 필요한 기본 정보 관련 스키마
     """
-    is_circular: Optional[bool] = Field(None, description="순환/원점회귀 여부")
-    origin: Optional[Location] = Field(None, description="출발지 정보 (좌표 포함)")
+    origin: Optional[Location] = Field(None, description = "")
+    purpose: Optional[str] = Field(None, description="")
+
+class CircularPreference(BasePreference):
+    """
+    순환 산책 모드 선택 시, 산책 경로 추천을 위해 필요한 정보 관련 스키마
+    """
+    pass
+
+class DestinationPreference(BasePreference):
+    """
+    '목적지'가 정해져 있는 산책 모드 선택 시, 산책 경로 추천을 위해 필요한 정보 관련 스키마
+    """
     destination: Optional[Location] = Field(None, description="목적지 정보 (좌표 포함)")
-    purpose: Optional[str] = Field(None, description="산책 목적")
+
+class DistancePreference(BasePreference):
+    """
+    '거리'가 정해져 있는 산책 모드 선택 시, 산책 경로 추천을 위해 필요한 정보 관련 스키마
+    """
     distance_km: Optional[float] = Field(None, description="산책 거리(km)")
+
+class State(BaseModel):
+    """
+    대화 상태 관련 스키마
+    """
+    user_uuid: str
+    current_location: Location
+
+    user_context: Optional[
+        Union[CircularPreference, DestinationPreference, DistancePreference]
+    ] = None
+
+    origin_candidate: Optional[List[Location]] = None
+    destination_candidate: Optional[List[Location]] = None
+
+    weather_data: dict = {}
+    user_prompt: str = ""
+    next_node: str = "interviewer"  # interviewer or end
 
 class Weights(BaseModel):
     """
