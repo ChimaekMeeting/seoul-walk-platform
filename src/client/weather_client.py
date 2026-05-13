@@ -112,7 +112,6 @@ def get_weather_korea(nx: int = 60, ny: int = 127) -> tuple[str, str]:
             "ny":         ny,
         }
         resp  = requests.get(url, params=params, timeout=5)
-        print("응답 전체:", resp.text)
         items = resp.json()["response"]["body"]["items"]["item"]
 
         pty_map = {"0": "없음", "1": "비", "2": "비", "3": "눈", "4": "소나기"}
@@ -133,7 +132,6 @@ def get_weather_korea(nx: int = 60, ny: int = 127) -> tuple[str, str]:
         return status, get_weather_message(status)
 
     except Exception as e:
-        print(f"[날씨 API 실패] {e}")
         return "맑음", get_weather_message("맑음")
 
 def get_air_quality(station: str = "서울") -> tuple[str, str]:
@@ -162,7 +160,6 @@ def get_air_quality(station: str = "서울") -> tuple[str, str]:
         return status, get_air_message(status)
 
     except Exception as e:
-        print(f"[대기질 API 실패] {e}")
         return "보통", get_air_message("보통")
 
 def get_environment_info(lat: float = 37.5665,
