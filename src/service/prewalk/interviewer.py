@@ -3,10 +3,17 @@ from langchain_core.output_parsers import (
     StrOutputParser
 )
 from langchain_core.prompts import PromptTemplate, load_prompt
+from typing import Tuple, Any
 
 from src.client.gpt_client import GPTClient
 from src.client.kakao_client import KakaoClient
 from src.service.prewalk.chatbot_utils import PromptUtils
+from src.schema.prewalk_schema import (
+    DestinationPreference,
+    DistancePreference,
+    State,
+    Location
+)
 
 class StateManager:
     @staticmethod
@@ -15,14 +22,23 @@ class StateManager:
         산책 경로 추천을 위해 필요한 항목 중 어떤 항목을 더 채워야하는지 확인합니다.
         """
         missing = []
-        origin = user_context.get("origin") or {}
-        destination = user_context.get("destination") or {}
-        is_circular = user_context.get("is_circular")
+        if not user_context:
+            return ["산책 모드 설정"]
+        
+        if not user_context.origin or not user_context.origin.lat:
+            missing.append("출발지 상세 위치")
 
-        if not origin.get("lat"): missing.append("출발지 상세 위치")
-        if is_circular is None: missing.append("순환 여부")
-        if is_circular is False and not destination.get("lat"): missing.append("목적지 상세 위치")
-        if not user_context.get("distance_km"): missing.append("산책 거리")
+        if isinstance(user_context, DestinationPreference):
+            if not user_context.destination or not user_context.destination.lat:
+                missing.append("목적지 상세 위치")
+        
+        if isinstance(user_context, DistancePreference):
+            if not user_context.distance_km:
+                missing.append("산책 거리")
+
+        if not user_context.purpose:
+            missing.append("산책 목적")
+
         return missing
     
     def is_complete(self, user_context):
@@ -61,12 +77,12 @@ class KakaoToolProvider:
             # 데이터 가공 로직
             if "documents" in output:
                 candidates[f"{target}_candidate"] = [
-                    {
-                        "place_name": d["place_name"],
-                        "address": d["address_name"],
-                        "lat": float(d["y"]),
-                        "lon": float(d["x"])
-                    } for d in output["documents"]
+                    Location(
+                        lat=float(d["y"]),
+                        lon=float(d["x"]),
+                        address=d["address_name"],
+                        place_name=d["place_name"]
+                    ) for d in output["documents"]
                 ]
             results.append({"tool": name, "result": output})
             
@@ -109,12 +125,12 @@ class Interviewer(GPTClient):
         format_rule = "반드시 생성하는 프롬프트 내에 사용자의 입력을 받는 '{user_input}' 변수를 포함시켜야 합니다."
         return f"{location_context}\n{instruction}\n{format_rule}"
     
-    async def create_prompt(self, state, is_complete, missing_info):
+    async def create_prompt(self, state: State, is_complete, missing_info):
         """
         state 정보를 분석하여 맞춤형 PromptTemplate 객체를 생성하고 반환합니다.
         """
-        user_context = state.get("user_context", {})
-        current_location = state.get("current_location", {})
+        user_context = state.user_context
+        current_location = state.current_location
 
         raw_template_text = load_prompt("src/prompt/interview.yaml", encoding="utf-8")
         formatted_text = raw_template_text.format(
@@ -128,27 +144,32 @@ class Interviewer(GPTClient):
             template=formatted_text
         )
 
-    async def run(self, state):
+    async def run(self, state: State) -> Tuple[str, State]:
         """
         .yaml 프롬프트를 기반으로 GPT가 생성한 응답을 반환합니다.
         """
-        is_complete, missing_info = self.state_manager.is_complete(state.get("user_context"))
+        is_complete, missing_info = self.state_manager.is_complete(state.user_context)
 
         prompt_template = await self.create_prompt(state, is_complete, missing_info)
 
         chain = prompt_template | self.model
-        raw_response = await chain.ainvoke({"user_input": state.get("user_prompt", "")})
+        raw_response = await chain.ainvoke({"user_input": state.user_prompt})
 
         if raw_response.tool_calls:
             tool_results, candidates = await self.tool_provider.execute_and_format(raw_response.tool_calls)
-            state.update(candidates) # 후보지 정보 업데이트
+            
+            # 후보지 업데이트
+            if "origin_candidate" in candidates:
+                state.origin_candidate = candidates["origin_candidate"]
+            if "destination_candidate" in candidates:
+                state.destination_candidate = candidates["destination_candidate"]
 
             response = await super().get_response(
                 prompt_name="location_formatter", # 검색 결과를 문장으로 다듬어주는 별도 yaml 필요
                 input_variables={
                     "tool_calls": str(tool_results),
-                    "user_input": state.get("user_prompt", ""),
-                    "current_location": state.get("current_location")
+                    "user_input": state.user_prompt,
+                    "current_location": self.prompt_utils.format_for_prompt(state.current_location)
                 },
                 parser=self.str_parser
             )
@@ -156,6 +177,6 @@ class Interviewer(GPTClient):
             response = raw_response.content
 
         # 다음 노드 결정
-        state["next_node"] = "end" if is_complete else "interview"
+        state.next_node= "end" if is_complete else "interview"
 
         return response, state

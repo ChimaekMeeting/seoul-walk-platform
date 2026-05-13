@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Union, List
+from typing import Optional, Union, List, Literal
 from enum import Enum
 
 class InitRequest(BaseModel):
@@ -16,14 +16,6 @@ class ChatRequest(BaseModel):
     """
     thread_id: str
     user_prompt: str
-
-class ChatResponse(BaseModel):
-    """
-    챗봇과 상호작용을 통해 제공되는 출력 스키마
-    """
-    thread_id: str
-    message: str
-    state: dict
 
 class PathMode(Enum):
     """
@@ -46,26 +38,36 @@ class BasePreference(BaseModel):
     """
     산책 경로 추천을 위해 필요한 기본 정보 관련 스키마
     """
-    origin: Optional[Location] = Field(None, description = "")
-    purpose: Optional[str] = Field(None, description="")
+    origin: Optional[Location] = Field(None, description="출발지 정보")
+    purpose: Optional[str] = Field(None, description="산책 목적")
 
 class CircularPreference(BasePreference):
     """
     순환 산책 모드 선택 시, 산책 경로 추천을 위해 필요한 정보 관련 스키마
     """
-    pass
+    mode: Literal["Circular"] = "Circular"
 
 class DestinationPreference(BasePreference):
     """
     '목적지'가 정해져 있는 산책 모드 선택 시, 산책 경로 추천을 위해 필요한 정보 관련 스키마
     """
-    destination: Optional[Location] = Field(None, description="목적지 정보 (좌표 포함)")
+    mode: Literal["Destination"] = "Destination"
+    destination: Optional[Location] = Field(None, description="목적지 정보")
 
 class DistancePreference(BasePreference):
     """
     '거리'가 정해져 있는 산책 모드 선택 시, 산책 경로 추천을 위해 필요한 정보 관련 스키마
     """
+    mode: Literal["Distance"] = "Distance"
     distance_km: Optional[float] = Field(None, description="산책 거리(km)")
+
+class WalkPreferenceExtraction(BaseModel):
+    """
+    사용자의 의도를 분석하여 선택된 산책 모드 정보
+    """
+    preference: Union[CircularPreference, DestinationPreference, DistancePreference] = Field(
+        ..., discriminator="mode"
+    )
 
 class State(BaseModel):
     """
@@ -85,18 +87,25 @@ class State(BaseModel):
     user_prompt: str = ""
     next_node: str = "interviewer"  # interviewer or end
 
+class ChatResponse(BaseModel):
+    """
+    챗봇과 상호작용을 통해 제공되는 출력 스키마
+    """
+    thread_id: str
+    message: str
+    state: State
+
 class Weights(BaseModel):
     """
     산책 경로 생성을 위한 요소별 가중치 스키마
-    모든 가중치의 합은 1.0(100%)이 되는 것을 권장합니다.
     """
     safety: float = Field(
-        0.0, 
-        description="가로등/CCTV 보안 지수", 
+        0.5, 
+        description="가로등/CCTV/안전/보안 지수", 
         ge=0.0, le=1.0  # ge(Greater than or Equal to), le(Less than or Equal to)
     )
     nature: float = Field(
-        0.0, 
-        description="공원/가로수길 지수", 
+        0.5, 
+        description="공원/가로수길/상쾌함 지수", 
         ge=0.0, le=1.0
     )

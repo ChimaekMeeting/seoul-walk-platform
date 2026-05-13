@@ -12,10 +12,10 @@ template: |
 
   ### 2. 필드별 상세 추출 규칙
   - **origin (출발지)**: 
-    - "여기", "현 위치", "지금 곳" 언급 시: [Current Location] 정보를 그대로 할당.
-    - [Origin Candidates]의 번호(예: "1번")나 이름 언급 시: 해당 후보의 모든 정보(lat, lon, address, name)를 할당.
-    - 새로운 장소명 언급 시: `place_name`에 기록하고 좌표는 null 유지.
-    - 언급 없으면 null.
+    - 우선순위1 - 규칙1. 새로운 장소명 언급 시: `place_name`에 기록하고 좌표는 null 유지.
+    - 우선순위1 - 규칙2. [Origin Candidates]의 번호(예: "1번")나 이름 언급 시: 해당 후보의 모든 정보(lat, lon, address, name)를 할당.
+    - 우선순위2. "여기", "현 위치", "지금 곳" 언급 시: [Current Location] 정보를 그대로 할당.
+    - 우선순위3. 언급 없으면 null.
   - **destination (목적지)**: 
     - [Destination Candidates]의 번호나 이름 언급 시: 해당 후보의 정보 할당.
     - 새로운 장소명 언급 시: `place_name` 기록.

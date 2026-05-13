@@ -10,6 +10,7 @@ from src.service.prewalk.extractor import Extractor
 from src.service.prewalk.interviewer import Interviewer
 from src.service.prewalk.weight_assigner import WeightAssigner
 from src.schema.prewalk_schema import ChatResponse, State, Location
+from src.service.prewalk.chatbot_utils import PydanticUtils
 
 class PrewalkOrchestrator:
     def __init__(self):
@@ -71,18 +72,22 @@ class PrewalkOrchestrator:
         state = await ChatStateRepository.get_state(thread_id)
 
         # user_prompt 업데이트
-        state["user_prompt"] = user_prompt
+        state.user_prompt = user_prompt
 
-        # user_context 업데이트
-        extracted_data = await self.extractor.run(state)
-        if hasattr(extracted_data, "model_dump"):
-            state["user_context"] = extracted_data.model_dump()
-        else:
-            state["user_context"] = extracted_data
+        # 정보 추출 -> user_context 업데이트
+        state = await self.extractor.run(state)
+        print("extractor 결과\n")
+        print(state.origin_candidate)
+        print(state.destination_candidate)
+        print(state.user_context)
 
         # user_context 외 정보 업데이트
         response, state = await self.interviewer.run(state)
-        
+        print("interviewer 결과\n")
+        print(state.origin_candidate)
+        print(state.destination_candidate)
+        print(state.user_context)
+
         # state 저장
         await ChatStateRepository.save_state(thread_id, state)
         
