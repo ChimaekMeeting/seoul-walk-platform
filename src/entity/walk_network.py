@@ -22,5 +22,6 @@ class WalkEdge(Base):
     road_type: Mapped[str] = mapped_column(String(20), nullable=True) 
     path_type: Mapped[str] = mapped_column(String(20), default="sidewalk")
     safety_score: Mapped[float] = mapped_column(Float, default=0.0)
+    nature_score: Mapped[float] = mapped_column(Float, default=0.0)
     slope_score: Mapped[float] = mapped_column(Float, default=0.0)
     geom = mapped_column(Geometry("LINESTRING", srid=4326), nullable=False)
