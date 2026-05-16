@@ -57,8 +57,6 @@ async def chat_and_assign_weights(prompt: str):
             state = response.get("state")
             next_node = state.get("next_node")
 
-            print(state)
-
             st.markdown(answer)
             st.session_state.messages.append({"role": "assistant", "content": answer})
 
@@ -66,8 +64,10 @@ async def chat_and_assign_weights(prompt: str):
             if next_node == "end":
                 weights = await prewalk_api.get_weights(st.session_state.thread_id)
                 st.success("📍 산책 정보 수집 완료! 경로 생성을 시작합니다.")
-                st.json(weights) # 가중치 결과 확인용
                 st.session_state.weights = weights
+                st.session_state.state = state
+                st.json(weights) # 가중치 결과 확인용
+                st.json(state)  # state 결과 확인용
 
 async def main():
     st.set_page_config(page_title="산책 메이트 챗봇", page_icon="🤖")
