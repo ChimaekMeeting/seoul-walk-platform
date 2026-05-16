@@ -19,7 +19,6 @@ BANNERS = {
         "hot_morning": {"emoji": "🌅", "text": "더워지기 전에 먼저 걸어볼까요?",         "sub": "상쾌한 새벽 산책 코스"},
     },
     "fixed": {
-        "running": {"emoji": "🏃", "text": "오늘 달리기 딱 좋은 날이에요",             "sub": "근처 러닝 코스 추천"},
         "dog":     {"emoji": "🐶", "text": "강아지랑 함께 걷기 좋은 길이에요",         "sub": "반려견 동반 가능 코스"},
         "healing": {"emoji": "🌿", "text": "조용하게 걷고 싶을 때 추천해요",           "sub": "힐링 숲길 코스"},
         "night":   {"emoji": "🌃", "text": "저녁에 걷기 좋은 야경 코스예요",           "sub": "야경 명소 산책로"},
@@ -67,6 +66,32 @@ def _get_event_text(event: dict) -> dict:
 
     return {"emoji": emoji, "text": text, "sub": sub}
 
+def _get_event_text(event: dict) -> dict:
+    diff  = event["diff"]
+    name  = event["name"]
+    loc   = event["location"]
+    emoji = event["emoji"]
+    event_date = event["date"]  
+
+    if diff == 0:
+        text = f"오늘 {name} 대회날이에요!"
+        sub  = f"{loc} 근처 산책코스 추천해드려요"
+    elif diff <= 3:
+        text = f"이번 주말 {name}!"
+        sub  = f"D-{diff} · {loc} · 코스 미리 확인해보세요"
+    else:
+        text = f"{name} 미리 준비해볼까요?"
+        sub  = f"D-{diff} · {loc}"
+
+    return {
+        "emoji":    emoji,
+        "text":     text,
+        "sub":      sub,
+        "is_event": True,           # ← 추가
+        "date":     str(event_date), # ← 추가
+        "location": loc,             # ← 추가
+        "url": f"https://marathongo.co.kr/raceDetail/domestic/{event.get('slug', '')}"  # ← 추가
+    }
 
 # ── 날씨 헬퍼 함수 ─────────────────────────────────────────────
 
@@ -123,9 +148,9 @@ def get_banner_list(weather: dict, hour: int | None = None) -> list:
 
     # 3순위: 고정 배너 (시간대 기반 전체 추가)
     if hour < 17:
-        keys = ["running", "dog", "healing"]
+        keys = ["dog", "healing"]
     elif hour < 21:
-        keys = ["running", "dog", "healing", "night"]
+        keys = ["dog", "healing", "night"]
     else:
         keys = ["night"]
 
