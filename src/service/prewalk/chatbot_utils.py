@@ -1,6 +1,18 @@
 from typing import Any
 import json
+from pydantic import BaseModel
 
+class PydanticUtils:
+    @staticmethod
+    def dump(obj: Any) -> Any:
+        if isinstance(obj, BaseModel):
+            return obj.model_dump()
+        elif isinstance(obj, list):
+            return [PydanticUtils.dump(item) for item in obj]
+        elif isinstance(obj, dict):
+            return {key: PydanticUtils.dump(value) for key, value in obj.items()}
+        return obj
+        
 class PromptUtils:
     @staticmethod
     def escape_braces(text: str) -> str:
@@ -21,6 +33,9 @@ class PromptUtils:
         if obj is None or obj == "" or obj == []:
             return "없음"
         
+        # pydantic 객체인 경우
+        obj = PydanticUtils.dump(obj)
+
         # 딕셔너리나 리스트인 경우 JSON 문자열로 예쁘게 변환
         if isinstance(obj, (dict, list)):
             json_str = json.dumps(obj, ensure_ascii=False, indent=2)

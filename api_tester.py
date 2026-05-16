@@ -5,7 +5,7 @@ class WeatherAPITester:
         self.base_url = "http://localhost:8080/api/weather"
 
     async def get_weather(self, lat: float, lon: float):
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             params = {
                 "lat": lat,
                 "lon": lon
@@ -18,7 +18,7 @@ class UserAPITester:
         self.base_url = "http://localhost:8080/api/user"
 
     async def post_user(self):
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(f"{self.base_url}/init")
             return response.json()
 
@@ -27,7 +27,7 @@ class PrewalkAPITester:
         self.base_url = "http://localhost:8080/api/prewalk"
 
     async def post_init(self, user_uuid: str, lat: float, lon: float):
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             params = {
                 "user_uuid": user_uuid,
                 "lat": lat,
@@ -37,7 +37,7 @@ class PrewalkAPITester:
             return response.json()
         
     async def post_intent(self, thread_id: str, user_prompt: str):
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             params = {
                 "thread_id": thread_id,
                 "user_prompt": user_prompt
@@ -46,7 +46,7 @@ class PrewalkAPITester:
             return response.json()
         
     async def get_weights(self, thread_id: str):
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             params = {
                 "thread_id": thread_id
             }

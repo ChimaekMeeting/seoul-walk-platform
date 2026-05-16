@@ -57,6 +57,8 @@ async def chat_and_assign_weights(prompt: str):
             state = response.get("state")
             next_node = state.get("next_node")
 
+            print(state)
+
             st.markdown(answer)
             st.session_state.messages.append({"role": "assistant", "content": answer})
 
