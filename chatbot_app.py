@@ -7,6 +7,14 @@ user_api = UserAPITester()
 weather_api = WeatherAPITester()
 prewalk_api = PrewalkAPITester()
 
+def run_async(coro):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
+
 async def init_session():
     """
     사용자 UUID 생성 및 서버 세션을 초기화합니다.
@@ -41,35 +49,25 @@ async def chat_and_assign_weights(prompt: str):
     """
     # 유저 메시지 표시 및 저장
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
 
-    # 챗봇 응답 생성
-    with st.chat_message("assistant"):
-        with st.spinner("생각 중..."):
-            # 1. 의도 파악 및 대화 진행 API 호출
-            response = await prewalk_api.post_intent(
-                thread_id=st.session_state.thread_id, 
-                user_prompt=prompt
-            )
+    response = await prewalk_api.post_intent(
+        thread_id=st.session_state.thread_id, 
+        user_prompt=prompt
+    )
                 
-            answer = response.get("message", "죄송합니다. 응답을 이해하지 못했습니다.")
-            state = response.get("state")
-            next_node = state.get("next_node")
+    answer = response.get("message", "죄송합니다. 응답을 이해하지 못했습니다.")
+    state = response.get("state")
+    next_node = state.get("next_node")
 
-            st.markdown(answer)
-            st.session_state.messages.append({"role": "assistant", "content": answer})
+    st.session_state.messages.append({"role": "assistant", "content": answer})
+    st.session_state.state = state
 
-            # 2. 만약 대화가 완료되었다면(next_node == 'end') 가중치 정보 가져오기
-            if next_node == "end":
-                weights = await prewalk_api.get_weights(st.session_state.thread_id)
-                st.success("📍 산책 정보 수집 완료! 경로 생성을 시작합니다.")
-                st.session_state.weights = weights
-                st.session_state.state = state
-                st.json(weights) # 가중치 결과 확인용
-                st.json(state)  # state 결과 확인용
+    # 2. 만약 대화가 완료되었다면(next_node == 'end') 가중치 정보 가져오기
+    if next_node == "end":
+        weights = await prewalk_api.get_weights(st.session_state.thread_id)
+        st.session_state.weights = weights
 
-async def main():
+def main():
     st.set_page_config(page_title="산책 메이트 챗봇", page_icon="🤖")
     st.title("🤖 AI 산책 메이트")
     st.caption("당신에게 딱 맞는 산책 경로를 설계해 드립니다.")
@@ -77,7 +75,7 @@ async def main():
     # 세션 초기화 실행
     if "initialized" not in st.session_state:
         with st.spinner("세션을 연결 중입니다..."):
-            await init_session()
+            run_async(init_session())
             st.rerun()
 
     # 대화 기록 표시
@@ -87,7 +85,19 @@ async def main():
 
     # 챗봇 + 가중치 결정 로직
     if prompt := st.chat_input("챗봇과 자유롭게 대화를 나눠보세요!"):
-        await chat_and_assign_weights(prompt)
+        with st.spinner("생각 중..."):
+            run_async(chat_and_assign_weights(prompt))
+        st.rerun()
+
+    if "state" in st.session_state and st.session_state.state:
+        state = st.session_state.state
+        if state.get("next_node") == "end":
+            st.success("📍 산책 정보 수집 완료! 경로 생성을 시작합니다.")
+            st.json(st.session_state.weights)  # [추후 삭제] 경로 생성 알고리즘과 연동한 이후에는 삭제해도 무방합니다.
+            st.json(st.session_state.state)    # [추후 삭제] 경로 생성 알고리즘과 연동한 이후에는 삭제해도 무방합니다.
+
+            # print(state)  # state를 터미널에서 확인하려면 주석을 해제해주세요!
+            # 여기에 경로 생성 알고리즘을 작성하면 됩니다!
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
