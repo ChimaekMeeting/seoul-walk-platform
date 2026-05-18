@@ -46,6 +46,7 @@ class CircularPreference(BasePreference):
     순환 산책 모드 선택 시, 산책 경로 추천을 위해 필요한 정보 관련 스키마
     """
     mode: Literal["Circular"] = "Circular"
+    distance_km: Optional[float] = Field(None, description="산책 거리(km)")
 
 class DestinationPreference(BasePreference):
     """
