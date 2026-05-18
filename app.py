@@ -18,6 +18,7 @@ from src.service.banner_service import (
     get_banner, get_active_event, _get_event_text, BANNERS, _is_hot, _is_humid
 )
 from datetime import datetime
+from streamlit_modal import Modal
 
 import time
 
@@ -118,9 +119,9 @@ def get_banner_list(weather: dict) -> list:
 
     # 3순위: 고정 배너 (시간대 기반 전체 추가)
     if hour < 17:
-        keys = ["running", "dog", "healing"]
+        keys = ["dog", "healing"]
     elif hour < 21:
-        keys = ["running", "dog", "healing", "night"]
+        keys = ["dog", "healing", "night"]
     else:
         keys = ["night"]
 
@@ -130,6 +131,13 @@ def get_banner_list(weather: dict) -> list:
     return banners
 
 banners = get_banner_list(weather=env)
+
+# ── 모달 초기화 ──
+modal = Modal(key="banner_modal", title="")
+
+# ── 세션 상태 초기화 ──
+if "selected_banner" not in st.session_state:
+    st.session_state.selected_banner = None
 
 # ── 배너 캐러셀 HTML/JS ───────────────────────
 banner_items = ""
@@ -243,6 +251,39 @@ carousel_html = f"""
 """
 
 st_html(carousel_html, height=160)
+
+# ── 배너 선택 버튼 ──
+cols = st.columns(len(banners))
+for i, (col, banner) in enumerate(zip(cols, banners)):
+    with col:
+        if st.button(f"{banner['emoji']}", key=f"banner_btn_{i}"):
+            st.session_state.selected_banner = banner
+            modal.open()
+
+# ── 모달 팝업 내용 ──
+if modal.is_open():
+    with modal.container():
+        b = st.session_state.selected_banner
+        if b:
+            st.markdown(f"### {b['emoji']} {b['text']}")
+            st.markdown(f"{b['sub']}")
+            st.divider()
+
+            # 마라톤 배너일 때
+            if b.get("is_event"):
+                st.markdown(f"📅 **날짜:** {b['date']}")
+                st.markdown(f"📍 **장소:** {b['location']}")
+                if b.get("url"):
+                    st.link_button("상세 정보 보기", b["url"])
+                if st.button("🏃 마라톤 코스 체험하기"):
+                    modal.close()
+                    # 추후 코스 생성 연동
+            else:
+                # 일반 배너일 때
+                if st.button("🗺️ 코스 추천받기"):
+                    modal.close()
+                    # 추후 챗봇 연동
+
 
 # DB 상태
 t3 = time.time()

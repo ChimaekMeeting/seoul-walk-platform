@@ -73,6 +73,7 @@ def fetch_marathon_events(region: str = "서울") -> list[dict]:
             "date":     event_date,
             "location": f"{region} · {location}",
             "emoji":    "🏅",
+            "slug":     link["href"].split("/")[-1],
         })
 
     return sorted(events, key=lambda x: x["date"])

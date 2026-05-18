@@ -2,7 +2,7 @@ from src.entity.base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import Integer, String, DateTime, func
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List
 
 # 실행 시점이 아닌 타입 체크 시점에만 참조(순환 참조 방지)
 if TYPE_CHECKING:
@@ -19,29 +19,12 @@ class User(Base):
         primary_key=True,
         autoincrement=True
     )
-
+    
     uuid: Mapped[str] = mapped_column(
         String(36),
         unique=True,
         nullable=False,
         index=True
-    )
-
-    provider_id: Mapped[Optional[int]] = mapped_column(
-        Integer,
-        unique=True,
-        nullable=True,
-        index=True
-    )
-
-    nickname: Mapped[Optional[str]] = mapped_column(
-        String(50),
-        nullable=True
-    )
-
-    kakao_refresh_token: Mapped[Optional[str]] = mapped_column(
-        String(500),
-        nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(
