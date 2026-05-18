@@ -46,8 +46,9 @@ def apply_intent_weights(G: nx.Graph, weights: dict) -> nx.Graph:
     # ─────────────────────────────────────────
 
 
+
 def get_route(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
-      """
+    """
     경로 추천 메인 함수 (app.py에서 호출)
     Args:
         context: {
@@ -100,18 +101,18 @@ def get_route(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
     if mode == "circular":
         result = random_walk_route(G, start_node, distance_km, weight="custom_score")
         result["mode"] = "random_walk"
-    elif mode == "oneway_random":
+    elif mode in ["oneway_random", "oneway_shortest"]:
+        if not context.get("destination"):
+            return {"mode": mode, "coordinates": [], "total_distance_km": 0.0, "error": "편도 모드에서는 목적지가 필요합니다"}
         end_lat = context["destination"]["coordinate"]["lat"]
         end_lng = context["destination"]["coordinate"]["lon"]
         end_node = find_nearest_node(G, end_lat, end_lng)
-        result = oneway_random_route(G, start_node, end_node, distance_km, weight="custom_score")
-        result["mode"] = "oneway_random"
-    else: # oneway_shortest
-        end_lat = context["destination"]["coordinate"]["lat"]
-        end_lng = context["destination"]["coordinate"]["lon"]
-        end_node = find_nearest_node(G, end_lat, end_lng)
-        result = dijkstra_route(G, start_node, end_node, weight="custom_score")
-        result["mode"] = "dijkstra"
+        if mode == "oneway_random":
+            result = oneway_random_route(G, start_node, end_node, distance_km, weight="custom_score")
+            result["mode"] = "oneway_random"
+        else:
+            result = dijkstra_route(G, start_node, end_node, weight="custom_score")
+            result["mode"] = "dijkstra"
 
     print(f"[3] route algorithm: {time.time()-t2:.2f}s")
     t3 = time.time()

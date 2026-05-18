@@ -12,6 +12,14 @@ from src.client.weather_client import get_environment_info
 from src.service.route.route_service import get_route
 from src.repository.graph_repository import load_graph
 from src.service.map_service import fetch_local_db_lines_optimized, fetch_local_db_points
+from src.service.banner_service import get_banner
+from streamlit.components.v1 import html as st_html
+from chatbot_app import init_session, chat_and_assign_weights, run_async
+from src.service.banner_service import (
+    get_banner, get_active_event, _get_event_text, BANNERS, _is_hot, _is_humid
+)
+from datetime import datetime
+from streamlit_modal import Modal
 
 import time
 
@@ -38,24 +46,24 @@ st.markdown("---")
 # ── 브라우저에서 GPS 위치 받아오기 ──────────
 html(
     """
-<script>
-navigator.geolocation.getCurrentPosition(
-    function(pos) {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        const url = new URL(window.parent.location.href);
-        if (!url.searchParams.get("lat")) {
-            url.searchParams.set("lat", lat);
-            url.searchParams.set("lng", lng);
-            window.parent.location.href = url.toString();
+    <script>
+    navigator.geolocation.getCurrentPosition(
+        function(pos) {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            const url = new URL(window.parent.location.href);
+            if (!url.searchParams.get("lat")) {
+                url.searchParams.set("lat", lat);
+                url.searchParams.set("lng", lng);
+                window.parent.location.href = url.toString();
+            }
+        },
+        function(err) {
+            console.log("위치 권한 거부:", err);
         }
-    },
-    function(err) {
-        console.log("위치 권한 거부:", err);
-    }
-);
-</script>
-""",
+    );
+    </script>
+    """,
     height=0,
 )
 print(f"html gps: {time.time()-t:.2f}s"); t = time.time()
@@ -101,18 +109,25 @@ else:
 st.sidebar.markdown("### 경로 설정")
 
 # 경로 모드 선택 UI 추가 (selectbox 방식 선언)
+input_mode = st.sidebar.radio("입력 방식", ["직접 설정", "AI 챗봇"])
+
 mode_options = {
     "순환 산책 (제자리 돌아오기)": "circular",
     "최단 거리 편도 (목적지 직행)": "oneway_shortest",
     "거리 설정 편도 (목적지 우회)": "oneway_random"
 }
-selected_mode_label = st.sidebar.selectbox("경로 모드", options=list(mode_options.keys()))
-selected_mode = mode_options[selected_mode_label]
 
-distance_km = st.sidebar.slider("목표 거리 (km)", 1.0, 10.0, 3.0, 0.5)
-safety_w = st.sidebar.slider("안전 가중치", 0.1, 3.0, 1.0, 0.1)
-nature_w = st.sidebar.slider("자연 가중치", 0.1, 3.0, 1.0, 0.1)
-purpose = st.sidebar.text_input("산책 목적", value="산책")
+if input_mode == "직접 설정":
+    selected_mode_label = st.sidebar.selectbox("경로 모드", options=list(mode_options.keys()), key="route_mode_select")
+    selected_mode = mode_options[selected_mode_label]
+    distance_km = st.sidebar.slider("목표 거리 (km)", 1.0, 10.0, 3.0, 0.5, key="distance_km")
+    safety_w = st.sidebar.slider("안전 가중치", 0.1, 3.0, 1.0, 0.1, key="safety_w")
+    nature_w = st.sidebar.slider("자연 가중치", 0.1, 3.0, 1.0, 0.1, key="nature_w")
+else:
+    selected_mode = "circular"
+    distance_km = 3.0
+    safety_w = 0.5
+    nature_w = 0.5
 
 # 메인 대시보드 UI 출력
 col1, col2, col3 = st.columns(3)
@@ -126,31 +141,70 @@ with col2:
 with col3:
     st.metric("추천 경로", "3개", "평균 3.2km")
 
-# 세션 상태 초기화 및 관리 통합
-if "start" not in st.session_state: st.session_state.start = None
-if "end" not in st.session_state: st.session_state.end = None
-if "mode" not in st.session_state: st.session_state.mode = "start"
-if "route_coordinates" not in st.session_state: st.session_state.route_coordinates = None
-if "route_distance" not in st.session_state: st.session_state.route_distance = None
-if "route_result" not in st.session_state: st.session_state.route_result = None
+if input_mode == "AI 챗봇":
+    st.markdown("### 🤖 AI 산책 메이트")
 
-# 위치 설정 변경 인터랙션
-mode = st.radio(
-    "설정 모드",
-    options=["start", "end"],
-    format_func=lambda x: "출발지 설정" if x == "start" else "도착지 설정",
-    horizontal=True,
-    key="mode",
-)
+    if "initialized" not in st.session_state:
+        with st.spinner("세션을 연결 중입니다..."):
+            run_async(init_session())
+            st.rerun()
 
-label = "출발지" if st.session_state.mode == "start" else "도착지"
-st.info(f"📍 **{label}** 설정 중 — 지도를 클릭하세요")
+    for message in st.session_state.get("messages", []):
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
+    if prompt := st.chat_input("챗봇과 자유롭게 대화를 나눠보세요!"):
+        with st.spinner("생각 중..."):
+            run_async(chat_and_assign_weights(prompt))
+        st.rerun()
+
+    state = st.session_state.get("state", {})
+    if state and state.get("next_node") == "end":
+        st.success("📍 산책 정보 수집 완료! 아래 지도에서 출발지를 확인하고 경로를 추천받으세요.")
+        weights_data = st.session_state.get("weights", {})
+        safety_w = weights_data.get("safety", 0.5)
+        nature_w = weights_data.get("nature", 0.5)
+        with st.expander("챗봇 반환 JSON 확인"):
+            st.json({"state": state, "weights": weights_data})
+        user_context = state.get("user_context", {})
+        if user_context:
+            mode_map = {"Circular": "circular", "Destination": "oneway_shortest", "Distance": "oneway_random"}
+            selected_mode = mode_map.get(user_context.get("mode", "Circular"), "circular")
+            if user_context.get("distance_km"):
+                distance_km = user_context["distance_km"]
+
+# 세션 상태 초기화
+if "start" not in st.session_state:
+    st.session_state.start = None
+if "end" not in st.session_state:
+    st.session_state.end = None
+if "mode" not in st.session_state:
+    st.session_state.mode = "start"
+if "route_coordinates" not in st.session_state:
+    st.session_state.route_coordinates = None
+if "route_distance" not in st.session_state:
+    st.session_state.route_distance = None
+if "route_distance" not in st.session_state:
+    st.session_state.route_distance = None
+if "route_result" not in st.session_state:  
+    st.session_state.route_result = None    
+
+if input_mode == "직접 설정":
+    mode = st.radio(
+        "설정 모드",
+        options=["start", "end"],
+        format_func=lambda x: "출발지 설정" if x == "start" else "도착지 설정",
+        horizontal=True,
+        key="mode",
+    )
+
+    label = "출발지" if st.session_state.mode == "start" else "도착지"
+    st.info(f"📍 **{label}** 설정 중 — 지도를 클릭하세요")
 
 # 지도 인스턴스 생성
 center = st.session_state.start if st.session_state.start else SEOUL_CENTER
 
-m = folium.Map(location=center, zoom_start=15, tiles="cartodbpositron") # 기본 타일 사용 (Mapbox 토큰 없을 시 대비)
+m = folium.Map(location=center, zoom_start=15, tiles="cartodbpositron")
 if MAPBOX_TOKEN:
     folium.TileLayer(
         tiles=f"https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{{z}}/{{x}}/{{y}}?access_token={MAPBOX_TOKEN}",
@@ -298,8 +352,8 @@ if st.session_state.get("route_result"):
         for i, (lat_val, lng_val) in enumerate(result["coordinates"]):
             st.text(f"{i+1}. lat: {lat_val:.5f}, lng: {lng_val:.5f}")
 
-# 경로 계산 엔진 트리거 및 예외 처리 가드 클로저
-if st.session_state.start:
+# 경로 추천 버튼
+if input_mode == "직접 설정" and st.session_state.start:
     st.divider()
     if st.button("🚶 경로 추천받기", type="primary", use_container_width=True):
         if selected_mode in ["oneway_shortest", "oneway_random"] and not st.session_state.end:
@@ -332,9 +386,7 @@ if st.session_state.start:
                     "purpose": purpose,
                 }
                 weights = {"safety": safety_w, "nature": nature_w}
-
                 result = get_route(context, weights, G)
-                
                 if "error" in result:
                     st.error(f"오류 발생: {result['error']}")
                 else:
@@ -342,3 +394,40 @@ if st.session_state.start:
                     st.session_state.route_distance = result["total_distance_km"]
                     st.session_state.route_result = result
                     st.rerun()
+elif input_mode == "AI 챗봇":
+    state = st.session_state.get("state", {})
+    if state and state.get("next_node") == "end" and not st.session_state.route_coordinates:
+        user_context = state.get("user_context", {})
+        origin = user_context.get("origin", {})
+        destination = user_context.get("destination")
+        with st.spinner("최적의 경로를 계산하는 중..."):
+            context = {
+                "mode": selected_mode,
+                "distance_km": distance_km,
+                "origin": {
+                    "place_name": origin.get("place_name", ""),
+                    "address": origin.get("address", ""),
+                    "coordinate": {
+                        "lat": origin.get("lat", lat),
+                        "lon": origin.get("lon", lng),
+                    },
+                },
+                "destination": {
+                    "place_name": destination.get("place_name", ""),
+                    "address": destination.get("address", ""),
+                    "coordinate": {
+                        "lat": destination.get("lat"),
+                        "lon": destination.get("lon"),
+                    },
+                } if destination else None,
+                "purpose": user_context.get("purpose", "산책"),
+            }
+            weights = {"safety": safety_w, "nature": nature_w}
+            result = get_route(context, weights, G)
+            if "error" in result:
+                st.error(f"오류 발생: {result['error']}")
+            else:
+                st.session_state.route_coordinates = result["coordinates"]
+                st.session_state.route_distance = result["total_distance_km"]
+                st.session_state.route_result = result
+                st.rerun()
