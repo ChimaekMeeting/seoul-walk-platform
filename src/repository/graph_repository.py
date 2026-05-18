@@ -48,6 +48,7 @@ def load_graph() -> nx.Graph:
                 road_type,
                 path_type,
                 safety_score,
+                nature_score,
                 slope_score
             FROM walk_edges
         """)).fetchall()
@@ -61,6 +62,7 @@ def load_graph() -> nx.Graph:
                 road_type=row.road_type,
                 path_type=row.path_type,
                 safety_score=row.safety_score,
+                nature_score=row.nature_score,
                 slope_score=row.slope_score,
             )
 
@@ -117,7 +119,7 @@ def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.Graph:
             SELECT
                 link_id, start_node, end_node,
                 length_m, road_type, path_type,
-                safety_score, slope_score
+                safety_score, nature_score, slope_score
             FROM walk_edges
             WHERE ST_DWithin(
                 geom::geography,
@@ -135,6 +137,7 @@ def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.Graph:
                 road_type=row.road_type,
                 path_type=row.path_type,
                 safety_score=row.safety_score,
+                nature_score=row.nature_score,
                 slope_score=row.slope_score,
             )
 
