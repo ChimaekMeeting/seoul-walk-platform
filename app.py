@@ -94,8 +94,197 @@ def get_weather(lat, lng):
 env = get_weather(lat, lng)
 print(f"weather: {time.time()-t:.2f}s"); t = time.time()
 
+def get_banner_list(weather: dict) -> list:
+    """
+    홈 화면에 노출할 배너 목록을 반환합니다.
+    이벤트 배너가 있으면 맨 앞에 추가하고,
+    나머지는 날씨/시간대 기반 고정 배너로 채웁니다.
+    """
+    hour = datetime.now().hour
+    banners = []
 
-# DB 상태 확인
+    # 1순위: 이벤트 배너 (있으면 맨 앞에)
+    active_event = get_active_event()
+    if active_event:
+        banners.append(_get_event_text(active_event))
+
+    # 2순위: 시즌 배너 (날씨 기반)
+    status = weather.get("weather_status", "")
+    msg    = weather.get("weather_msg", "")
+    if _is_hot(msg):
+        if 6 <= hour < 9:
+            banners.append(BANNERS["season"]["hot_morning"])
+        elif _is_humid(status):
+            banners.append(BANNERS["season"]["hot_humid"])
+        else:
+            banners.append(BANNERS["season"]["hot_sunny"])
+    # 3순위: 고정 배너 (시간대 기반 전체 추가)
+    if hour < 17:
+        keys = ["dog", "healing"]
+    elif hour < 21:
+        keys = ["dog", "healing", "night"]
+    else:
+        keys = ["night"]
+
+    for key in keys:
+        banners.append(BANNERS["fixed"][key])
+
+    return banners
+
+banners = get_banner_list(weather=env)
+
+# ── 모달 초기화 ──
+modal = Modal(key="banner_modal", title="")
+
+# ── 세션 상태 초기화 ──
+if "selected_banner" not in st.session_state:
+    st.session_state.selected_banner = None
+
+# ── 배너 캐러셀 HTML/JS ───────────────────────
+banner_items = ""
+dots = ""
+for i, b in enumerate(banners):
+    active_class = "active" if i == 0 else ""
+    banner_items += f"""
+    <div class="banner-item {active_class}">
+        <div class="banner-label">오늘의 추천 산책</div>
+        <div class="banner-text">{b['emoji']} {b['text']}</div>
+        <div class="banner-sub">{b['sub']}</div>
+    </div>
+    """
+    dots += f'<div class="dot {"active" if i == 0 else ""}" onclick="goTo({i})"></div>'
+
+carousel_html = f"""
+<div style="width:100%; margin-bottom: 20px;">
+    <div class="carousel-wrap">
+        <div class="carousel">
+            {banner_items}
+        </div>
+        <div class="dots">{dots}</div>
+    </div>
+</div>
+
+<style>
+    .carousel-wrap {{
+        background: linear-gradient(135deg, #e8f5e9 0%, #e3f2fd 100%);
+        border-radius: 16px;
+        border: 1px solid #c8e6c9;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        padding: 20px 24px 14px;
+        position: relative;
+        overflow: hidden;
+    }}
+    .carousel {{
+        position: relative;
+        min-height: 80px;
+    }}
+    .banner-item {{
+        display: none;
+        animation: fadeIn 0.5s ease;
+    }}
+    .banner-item.active {{
+        display: block;
+    }}
+    @keyframes fadeIn {{
+        from {{ opacity: 0; transform: translateY(6px); }}
+        to   {{ opacity: 1; transform: translateY(0); }}
+    }}
+    .banner-label {{
+        font-size: 12px;
+        color: #888;
+        margin-bottom: 6px;
+    }}
+    .banner-text {{
+        font-size: 20px;
+        font-weight: 700;
+        color: #1b5e20;
+        margin-bottom: 4px;
+    }}
+    .banner-sub {{
+        font-size: 14px;
+        color: #555;
+    }}
+    .dots {{
+        display: flex;
+        justify-content: center;
+        gap: 6px;
+        margin-top: 14px;
+    }}
+    .dot {{
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #c8e6c9;
+        cursor: pointer;
+        transition: background 0.3s;
+    }}
+    .dot.active {{
+        background: #2e7d32;
+    }}
+</style>
+
+<script>
+    const items = document.querySelectorAll('.banner-item');
+    const dots  = document.querySelectorAll('.dot');
+    let current = 0;
+    let timer;
+
+    function goTo(index) {{
+        items[current].classList.remove('active');
+        dots[current].classList.remove('active');
+        current = index;
+        items[current].classList.add('active');
+        dots[current].classList.add('active');
+        resetTimer();
+    }}
+
+    function next() {{
+        goTo((current + 1) % items.length);
+    }}
+
+    function resetTimer() {{
+        clearInterval(timer);
+        timer = setInterval(next, 3500); // 3.5초마다 자동 넘김
+    }}
+
+    resetTimer();
+</script>
+"""
+
+st_html(carousel_html, height=160)
+
+# ── 배너 선택 버튼 ──
+cols = st.columns(len(banners))
+for i, (col, banner) in enumerate(zip(cols, banners)):
+    with col:
+        if st.button(f"{banner['emoji']}", key=f"banner_btn_{i}"):
+            st.session_state.selected_banner = banner
+            modal.open()
+
+# ── 모달 팝업 내용 ──
+if modal.is_open():
+    with modal.container():
+        b = st.session_state.selected_banner
+        if b:
+            st.markdown(f"### {b['emoji']} {b['text']}")
+            st.markdown(f"{b['sub']}")
+            st.divider()
+
+            # 마라톤 배너일 때
+            if b.get("is_event"):
+                st.markdown(f"📅 **날짜:** {b['date']}")
+                st.markdown(f"📍 **장소:** {b['location']}")
+                if b.get("url"):
+                    st.link_button("상세 정보 보기", b["url"])
+                if st.button("🏃 마라톤 코스 체험하기"):
+                    modal.close()
+                    # 추후 코스 생성 연동
+            else:
+                # 일반 배너일 때
+                if st.button("🗺️ 코스 추천받기"):
+                    modal.close()
+                    # 추후 챗봇 연동
+                    
 t3 = time.time()
 db_ok = health_check()
 print(f"health_check: {time.time()-t3:.2f}s")
@@ -285,6 +474,20 @@ if st.session_state.route_coordinates:
                     fill_opacity=0.7,
                     tooltip="CCTV",
                 ).add_to(m)
+        df_poi = fetch_local_db_points(
+            center_lat, center_lon, "poi_layer", "poi_type", None, radius_m=1000
+        )
+        if not df_poi.empty:
+            for _, row in df_poi.iterrows():
+                folium.CircleMarker(
+                    location=[row["lat"], row["lon"]],
+                    radius=3,
+                    color="#2ECC71",
+                    fill=True,
+                    fill_color="#2ECC71",
+                    fill_opacity=0.7,
+                    tooltip=row.get("poi_type", "POI"),
+                ).add_to(m)
 
 # 출발지/도착지 양방 매핑 시 지도 뷰포트 피팅 조절
 if st.session_state.start and st.session_state.end:
@@ -334,7 +537,7 @@ if st.session_state.get("route_result"):
     st.success(f"✅ 경로 생성 완료! ({result['mode']})")
     st.markdown("### 📊 경로 정보")
 
-    col_res1, col_res2, col_res3 = st.columns(3)
+    col_res1, col_res2, col_res3, col_res4, col_res5 = st.columns(5)
     with col_res1:
         st.metric("총 거리", f"{result['total_distance_km']} km")
     with col_res2:
@@ -344,13 +547,14 @@ if st.session_state.get("route_result"):
         avg_speed = 4.0  # 도보 평균 속도 km/h
         time_min = round(result["total_distance_km"] / avg_speed * 60)
         st.metric("예상 소요 시간", f"{time_min} 분")
+    with col_res4:
+        st.metric("안전 지수", f"{result.get('safety_index', '-')} / 10 점")
+    with col_res5:
+        st.metric("자연 지수", f"{result.get('nature_index', '-')} / 10 점")
 
     st.markdown(f"**총 노드 수:** {len(result['nodes'])}개")
     st.markdown(f"**알고리즘:** {result['mode']}")
-
-    with st.expander("📍 경로 좌표 상세보기"):
-        for i, (lat_val, lng_val) in enumerate(result["coordinates"]):
-            st.text(f"{i+1}. lat: {lat_val:.5f}, lng: {lng_val:.5f}")
+    
 
 # 경로 추천 버튼
 if input_mode == "직접 설정" and st.session_state.start:
@@ -383,7 +587,7 @@ if input_mode == "직접 설정" and st.session_state.start:
                         if st.session_state.end
                         else None
                     ),
-                    "purpose": purpose,
+                    "purpose": "산책",
                 }
                 weights = {"safety": safety_w, "nature": nature_w}
                 result = get_route(context, weights, G)
