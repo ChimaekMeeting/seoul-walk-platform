@@ -284,9 +284,7 @@ if modal.is_open():
                 if st.button("🗺️ 코스 추천받기"):
                     modal.close()
                     # 추후 챗봇 연동
-
-
-# DB 상태
+                    
 t3 = time.time()
 db_ok = health_check()
 print(f"health_check: {time.time()-t3:.2f}s")
