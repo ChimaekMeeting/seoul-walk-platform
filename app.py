@@ -94,7 +94,30 @@ def get_weather(lat, lng):
 env = get_weather(lat, lng)
 print(f"weather: {time.time()-t:.2f}s"); t = time.time()
 
+def get_banner_list(weather: dict) -> list:
+    """
+    홈 화면에 노출할 배너 목록을 반환합니다.
+    이벤트 배너가 있으면 맨 앞에 추가하고,
+    나머지는 날씨/시간대 기반 고정 배너로 채웁니다.
+    """
+    hour = datetime.now().hour
+    banners = []
 
+    # 1순위: 이벤트 배너 (있으면 맨 앞에)
+    active_event = get_active_event()
+    if active_event:
+        banners.append(_get_event_text(active_event))
+
+    # 2순위: 시즌 배너 (날씨 기반)
+    status = weather.get("weather_status", "")
+    msg    = weather.get("weather_msg", "")
+    if _is_hot(msg):
+        if 6 <= hour < 9:
+            banners.append(BANNERS["season"]["hot_morning"])
+        elif _is_humid(status):
+            banners.append(BANNERS["season"]["hot_humid"])
+        else:
+            banners.append(BANNERS["season"]["hot_sunny"])
     # 3순위: 고정 배너 (시간대 기반 전체 추가)
     if hour < 17:
         keys = ["dog", "healing"]
@@ -453,6 +476,20 @@ if st.session_state.route_coordinates:
                     fill_opacity=0.7,
                     tooltip="CCTV",
                 ).add_to(m)
+        df_poi = fetch_local_db_points(
+            center_lat, center_lon, "poi_layer", "poi_type", None, radius_m=1000
+        )
+        if not df_poi.empty:
+            for _, row in df_poi.iterrows():
+                folium.CircleMarker(
+                    location=[row["lat"], row["lon"]],
+                    radius=3,
+                    color="#2ECC71",
+                    fill=True,
+                    fill_color="#2ECC71",
+                    fill_opacity=0.7,
+                    tooltip=row.get("poi_type", "POI"),
+                ).add_to(m)
 
 # 출발지/도착지 양방 매핑 시 지도 뷰포트 피팅 조절
 if st.session_state.start and st.session_state.end:
@@ -502,7 +539,7 @@ if st.session_state.get("route_result"):
     st.success(f"✅ 경로 생성 완료! ({result['mode']})")
     st.markdown("### 📊 경로 정보")
 
-    col_res1, col_res2, col_res3 = st.columns(3)
+    col_res1, col_res2, col_res3, col_res4, col_res5 = st.columns(5)
     with col_res1:
         st.metric("총 거리", f"{result['total_distance_km']} km")
     with col_res2:
@@ -512,13 +549,14 @@ if st.session_state.get("route_result"):
         avg_speed = 4.0  # 도보 평균 속도 km/h
         time_min = round(result["total_distance_km"] / avg_speed * 60)
         st.metric("예상 소요 시간", f"{time_min} 분")
+    with col_res4:
+        st.metric("안전 지수", f"{result.get('safety_index', '-')} / 10 점")
+    with col_res5:
+        st.metric("자연 지수", f"{result.get('nature_index', '-')} / 10 점")
 
     st.markdown(f"**총 노드 수:** {len(result['nodes'])}개")
     st.markdown(f"**알고리즘:** {result['mode']}")
-
-    with st.expander("📍 경로 좌표 상세보기"):
-        for i, (lat_val, lng_val) in enumerate(result["coordinates"]):
-            st.text(f"{i+1}. lat: {lat_val:.5f}, lng: {lng_val:.5f}")
+    
 
 # 경로 추천 버튼
 if input_mode == "직접 설정" and st.session_state.start:
@@ -551,7 +589,7 @@ if input_mode == "직접 설정" and st.session_state.start:
                         if st.session_state.end
                         else None
                     ),
-                    "purpose": purpose,
+                    "purpose": "산책",
                 }
                 weights = {"safety": safety_w, "nature": nature_w}
                 result = get_route(context, weights, G)
