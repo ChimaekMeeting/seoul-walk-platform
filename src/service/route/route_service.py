@@ -125,6 +125,32 @@ def get_route(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
     print(f"[4] prune+extract: {time.time()-t3:.2f}s") 
     print(f"[total] {time.time()-t0:.2f}s") 
 
+    # 5. 경로 품질 지수 계산
+    total_length = 0.0
+    safety_sum = 0.0
+    nature_sum = 0.0
+
+    for i in range(len(pruned_nodes) - 1):
+        u, v = pruned_nodes[i], pruned_nodes[i+1]
+        if G.has_edge(u, v):
+            data = G[u][v]
+            length = data.get("length", 0.0) or 0.0
+            safety = data.get("safety_score", 1.0) or 1.0
+            nature = data.get("nature_score", 1.0) or 1.0
+            total_length += length
+            safety_sum += safety * length
+            nature_sum += nature * length
+
+        if total_length > 0:
+            safety_avg = safety_sum / total_length
+            nature_avg = nature_sum / total_length
+        else:
+            safety_avg = 1.0
+            nature_avg = 1.0
+
+        result["safety_index"] = round((safety_avg - 1.0) * 10, 1)
+        result["nature_index"] = round((nature_avg - 1.0) * 10, 1)
+
     return result
 
 def extract_subgraph_near(G: nx.Graph, lat: float, lng: float, radius_m: float) -> nx.Graph:
