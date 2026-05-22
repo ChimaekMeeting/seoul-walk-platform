@@ -90,10 +90,29 @@ def get_weather(lat, lng):
             "air_status": "알 수 없음",
             "air_msg": "",
         }
+    
+# ── [배너] get_banner_list 함수 ──────────────────
+def get_banner_list(weather: dict, hour: int | None = None) -> list:
+    if hour is None:
+        hour = datetime.now().hour
 
-env = get_weather(lat, lng)
-print(f"weather: {time.time()-t:.2f}s"); t = time.time()
+    status = weather.get("weather_status", "")
+    msg    = weather.get("weather_msg", "")
+    banners = []
 
+    # 1순위: 이벤트 배너
+    active_event = get_active_event()
+    if active_event:
+        banners.append(_get_event_text(active_event))
+
+    # 2순위: 시즌 배너 (날씨 기반)
+    if _is_hot(msg):
+        if 6 <= hour < 9:
+            banners.append(BANNERS["season"]["hot_morning"])
+        elif _is_humid(status):
+            banners.append(BANNERS["season"]["hot_humid"])
+        else:
+            banners.append(BANNERS["season"]["hot_sunny"])
 
     # 3순위: 고정 배너 (시간대 기반 전체 추가)
     if hour < 17:
@@ -107,6 +126,12 @@ print(f"weather: {time.time()-t:.2f}s"); t = time.time()
         banners.append(BANNERS["fixed"][key])
 
     return banners
+# ─────────────────────────────────────────────────
+
+env = get_weather(lat, lng)
+
+env = get_weather(lat, lng)
+print(f"weather: {time.time()-t:.2f}s"); t = time.time()
 
 banners = get_banner_list(weather=env)
 
