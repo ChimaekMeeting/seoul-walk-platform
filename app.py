@@ -576,7 +576,7 @@ if input_mode == "직접 설정" and st.session_state.start:
                         if st.session_state.end
                         else None
                     ),
-                    "purpose": purpose,
+                    "purpose": "산책",
                 }
                 weights = {"safety": safety_w, "nature": nature_w}
                 result = get_route(context, weights, G)
