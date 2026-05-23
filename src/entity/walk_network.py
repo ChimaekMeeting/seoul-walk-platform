@@ -24,4 +24,5 @@ class WalkEdge(Base):
     safety_score: Mapped[float] = mapped_column(Float, default=0.0)
     nature_score: Mapped[float] = mapped_column(Float, default=0.0)
     slope_score: Mapped[float] = mapped_column(Float, default=0.0)
+    landmark_score: Mapped[float] = mapped_column(Float, default=0.0)
     geom = mapped_column(Geometry("LINESTRING", srid=4326), nullable=False)
