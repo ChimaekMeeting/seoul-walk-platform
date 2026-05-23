@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from src.repository.user_repository import UserRepository
+from src.repository.user.user_repository import UserRepository
 from src.entity.user import User
 from src.service.auth_service import AuthService
 

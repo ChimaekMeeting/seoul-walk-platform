@@ -1,21 +1,11 @@
 from dotenv import load_dotenv
 import os
-from redis import asyncio
-from pathlib import Path
-import ssl
 import redis.asyncio as asyncio
-
 
 load_dotenv()
 
-VALKEY_URI = os.getenv("VALKEY_URI")
-
-ssl_context = ssl.create_default_context()
-ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE
-
 valkey_pool = asyncio.ConnectionPool.from_url(
-    VALKEY_URI,
+    os.getenv("VALKEY_URI"),
     decode_responses=True,
 )
 

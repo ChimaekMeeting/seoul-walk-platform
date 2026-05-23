@@ -4,7 +4,7 @@
 # 역할   : 시간대 + 날씨 + 이벤트 기반으로 배너 목록을 결정하는 서비스
 # ================================================================
 
-from src.data.collectors.marathon_crawler import fetch_marathon_events
+from src.client.marathon_client import fetch_marathon_events
 from datetime import datetime, date
 import random
 import re

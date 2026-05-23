@@ -16,8 +16,8 @@ from typing import Optional
 
 import networkx as nx
 
-from src.repository.course_repository import get_courses_near
-from src.repository.graph_repository import load_graph_near
+from src.repository.route.course_repository import get_courses_near
+from src.repository.route.graph_repository import load_graph_near
 from src.service.route.path_circular_random import random_walk_route
 from src.service.route.path_oneway_dijkstra import dijkstra_route
 from src.service.route.path_oneway_random import oneway_random_route
