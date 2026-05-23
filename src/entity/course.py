@@ -53,7 +53,7 @@ class Course(Base):
 
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     course_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, comment="river | park | bike_track"
+        String(50), nullable=False, comment="river | park | bike_track | trail"
     )
     is_circular: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, comment="True=순환, False=편도"

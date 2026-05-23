@@ -43,4 +43,9 @@ if __name__ == "__main__":
 
     # 테이블 생성 후 바로 데이터 삽입하려면 아래 주석 해제
     # from src.data.collectors.running_course_collector import collect_running_courses
-    # collect_running_courses()
+    # collect_running_courses(
+    #     park_file     = "src/data/raw/서울시 주요 공원현황.xlsx",
+    #     trail_file    = "src/data/raw/서울 둘레길.csv",
+    #     river_geojson = "src/data/raw/서울시 하천.geojson",
+    #     bike_file     = "src/data/raw/서울시 자전거도로.csv",
+    # )

@@ -95,12 +95,10 @@ def get_weather(lat, lng):
 def get_banner_list(weather: dict, hour: int | None = None) -> list:
     if hour is None:
         hour = datetime.now().hour
-
     status = weather.get("weather_status", "")
     msg    = weather.get("weather_msg", "")
     banners = []
 
-<<<<<<< HEAD
     # 1순위: 이벤트 배너
     active_event = get_active_event()
     if active_event:
@@ -114,32 +112,7 @@ def get_banner_list(weather: dict, hour: int | None = None) -> list:
             banners.append(BANNERS["season"]["hot_humid"])
         else:
             banners.append(BANNERS["season"]["hot_sunny"])
-=======
-def get_banner_list(weather: dict) -> list:
-    """
-    홈 화면에 노출할 배너 목록을 반환합니다.
-    이벤트 배너가 있으면 맨 앞에 추가하고,
-    나머지는 날씨/시간대 기반 고정 배너로 채웁니다.
-    """
-    hour = datetime.now().hour
-    banners = []
->>>>>>> d98f30ab6ccf46028e9b40fae1f97f8905c18124
 
-    # 1순위: 이벤트 배너 (있으면 맨 앞에)
-    active_event = get_active_event()
-    if active_event:
-        banners.append(_get_event_text(active_event))
-
-    # 2순위: 시즌 배너 (날씨 기반)
-    status = weather.get("weather_status", "")
-    msg    = weather.get("weather_msg", "")
-    if _is_hot(msg):
-        if 6 <= hour < 9:
-            banners.append(BANNERS["season"]["hot_morning"])
-        elif _is_humid(status):
-            banners.append(BANNERS["season"]["hot_humid"])
-        else:
-            banners.append(BANNERS["season"]["hot_sunny"])
     # 3순위: 고정 배너 (시간대 기반 전체 추가)
     if hour < 17:
         keys = ["dog", "healing"]

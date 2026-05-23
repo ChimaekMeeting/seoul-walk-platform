@@ -28,7 +28,7 @@ from src.service.route.path_utils import (
 )
 
 # 런닝 모드에서 선호하는 코스 유형
-RUNNING_COURSE_TYPES = ["river", "park", "bike_track"]
+RUNNING_COURSE_TYPES = ["river", "park", "bike_track", "trail"]
 
 # 런닝 모드 기본 태그 필터
 RUNNING_TAGS = ["런닝"]
