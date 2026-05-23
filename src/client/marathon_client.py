@@ -1,6 +1,6 @@
 # ================================================================
-# 파일명 : marathon_crawler.py
-# 위치   : src/data/collectors/marathon_crawler.py
+# 파일명 : marathon_client.py
+# 위치   : src/client/marathon_client.py
 # 역할   : 마라톤GO 목록 페이지 HTML에서 수도권 대회 파싱
 # ================================================================
 
@@ -21,7 +21,7 @@ def fetch_marathon_events(region: str = "서울") -> list[dict]:
         res.encoding = 'utf-8'
         res.raise_for_status()
     except Exception as e:
-        print(f"[marathon_crawler] 요청 실패: {e}")
+        print(f"[marathon_client] 요청 실패: {e}")
         return []
 
     soup = BeautifulSoup(res.content, 'html.parser', from_encoding='utf-8')

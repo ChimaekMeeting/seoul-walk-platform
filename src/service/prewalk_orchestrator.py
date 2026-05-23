@@ -2,9 +2,9 @@ from uuid import uuid4
 
 from src.client.gpt_client import GPTClient
 from src.client.kakao_client import KakaoClient
-from src.repository.user_repository import UserRepository
-from src.repository.chat_session_repository import ChatSessionRepository
-from src.repository.chat_state_repository import ChatStateRepository
+from src.repository.user.user_repository import UserRepository
+from src.repository.chat.chat_session_repository import ChatSessionRepository
+from src.repository.chat.chat_state_repository import ChatStateRepository
 from src.service.weather.weather_checker import WeatherChecker
 from src.service.prewalk.extractor import Extractor
 from src.service.prewalk.interviewer import Interviewer

@@ -20,6 +20,4 @@ class UserRepository:
         """
         with get_postgresql_db() as db:
             user = db.query(User).filter_by(uuid=uuid).first()
-            if user is None:
-                return None
             return user.id
