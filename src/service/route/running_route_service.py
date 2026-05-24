@@ -11,6 +11,7 @@ get_oneway_route(lat, lng, end_lat, end_lng, ...) → 출발점 → 도착점 �
 
 from __future__ import annotations
 
+import math
 import time
 from typing import Optional
 
@@ -38,27 +39,60 @@ RUNNING_TAGS = ["런닝"]
 # 내부 헬퍼
 # ──────────────────────────────────────────────────────────────
 
-def _apply_running_weights(G: nx.Graph) -> nx.Graph:
+def _apply_running_weights(
+    G: nx.Graph,
+    slope_weight: float = 1.0,
+    type_bonus: float = 2.0,
+) -> nx.Graph:
     """
-    런닝 모드 전용 엣지 가중치 적용.
+    런닝 모드 전용 ``custom_score``를 각 엣지에 세팅합니다.
 
-    하천변·공원 path_type 엣지를 선호하도록 custom_score 를 낮춥니다.
-    - path_type 이 'river' 또는 'park' 이면 가중치 보너스 ×2
-    - safety_score, nature_score 를 균등하게 반영
+    ``circular_running_route`` / ``oneway_running_route`` 호출 전에
+    반드시 먼저 실행해야 합니다. 그래프를 in-place로 수정하고 반환합니다.
+
+    가중치 공식::
+
+        slope_factor        = 1.0 + slope_score * slope_weight
+        effective_type_bonus = type_bonus  (river/park/bike_track/trail)
+                             | 1.0         (일반 엣지)
+        length_bonus        = 1.0 + log1p(length / 50.0)
+
+        custom_score = (length * slope_factor)
+                       / (safety * nature * effective_type_bonus * length_bonus + 1e-6)
+
+    ``custom_score``가 낮을수록 경로 탐색 알고리즘이 선호합니다.
+
+    Args:
+        G            (nx.Graph) : 엣지에 ``length``, ``safety_score``, ``nature_score``,
+                                  ``slope_score``, ``path_type`` 속성이 있는 그래프.
+        slope_weight (float)    : 평지 선호도. 높을수록 경사 엣지 페널티 강화.
+                                  범위 권장: 1.0 ~ 3.0. 기본값 1.0.
+        type_bonus   (float)    : 공원·하천 선호도. river / park / bike_track / trail
+                                  path_type 엣지에 적용되는 분모 배수.
+                                  범위 권장: 1.0 ~ 3.0. 기본값 2.0.
+
+    Returns:
+        nx.Graph: ``custom_score``가 추가된 그래프 (입력 G와 동일 객체).
     """
     PREFERRED_PATH_TYPES = {"river", "park", "bike_track", "trail"}
 
     for u, v, data in G.edges(data=True):
-        length     = data.get("length", 1.0) or 1.0
-        safety     = data.get("safety_score", 1.0) or 1.0
-        nature     = data.get("nature_score", 1.0) or 1.0
-        path_type  = data.get("path_type", "") or ""
+        length      = data.get("length", 1.0) or 1.0
+        safety      = data.get("safety_score", 1.0) or 1.0
+        nature      = data.get("nature_score", 1.0) or 1.0
+        slope       = data.get("slope_score", 0.0) or 0.0
+        path_type   = data.get("path_type", "") or ""
 
-        # 하천변·공원 경로 보너스
-        type_bonus = 2.0 if path_type.lower() in PREFERRED_PATH_TYPES else 1.0
+        # 하천·공원·자전거도로 보너스 (파라미터로 제어)
+        effective_type_bonus = type_bonus if path_type.lower() in PREFERRED_PATH_TYPES else 1.0
 
-        # custom_score 낮을수록 알고리즘이 선호
-        custom_score = length / ((safety * nature * type_bonus) + 1e-6)
+        # 경사 패널티: slope_weight로 강도 조절
+        slope_factor = 1.0 + slope * slope_weight
+
+        # 길이 보너스: 긴 엣지일수록 분모 증가 → 짧은 골목 회피
+        length_bonus = 1.0 + math.log1p(length / 50.0)
+
+        custom_score = (length * slope_factor) / (safety * nature * effective_type_bonus * length_bonus + 1e-6)
         G[u][v]["custom_score"] = custom_score
 
     return G
@@ -70,7 +104,26 @@ def _build_result(
     mode: str,
     matched_courses: list[dict],
 ) -> dict:
-    """공통 응답 딕셔너리 생성"""
+    """
+    경로 노드 목록을 응답 딕셔너리로 변환합니다.
+
+    dead-end 가지치기(max_branch_length=300m) → 좌표 추출 → 총 거리 계산 순으로 처리합니다.
+
+    Args:
+        G               (nx.Graph)   : 경로 생성에 사용된 그래프.
+        nodes           (list[int])  : 경로 노드 ID 목록.
+        mode            (str)        : 응답에 포함할 모드 문자열.
+                                       예: ``"circular_running"``, ``"oneway_running_random"``
+        matched_courses (list[dict]) : DB에서 조회된 추천 코스 목록 (그대로 전달).
+
+    Returns:
+        dict: 아래 키를 포함하는 딕셔너리.
+
+        - ``mode``              (str)        : 입력 ``mode`` 값.
+        - ``coordinates``       (list)       : ``[[lat, lng], ...]`` 형태의 좌표 목록.
+        - ``total_distance_km`` (float)      : 가지치기 후 경로의 총 거리 (km).
+        - ``matched_courses``   (list[dict]) : 입력 ``matched_courses`` 값.
+    """
     pruned = prune_dead_ends(nodes, G, max_branch_length=300)
     coords = extract_coordinates(G, pruned)
     total_m = sum(
@@ -97,25 +150,33 @@ def get_circular_route(
     G: Optional[nx.Graph] = None,
 ) -> dict:
     """
-    출발점 기준 순환(루프) 런닝 코스를 반환합니다.
+    출발점 기준 순환(루프) 런닝 코스를 반환합니다. (**자체 완결형**)
 
-    1단계: DB에서 출발점 반경 내 순환 코스(하천변·공원) 조회
-    2단계: 그래프 기반 random_walk 알고리즘으로 실제 경로 생성
-    3단계: 두 결과를 합쳐 응답 반환
+    그래프 로드·가중치 적용·경로 생성을 모두 내부에서 처리합니다.
+    ``circular_running_route()``와 달리 외부에서 G를 준비하거나
+    ``_apply_running_weights()``를 호출할 필요가 없습니다.
+
+    .. note::
+        ``running_router.py``는 현재 이 함수 대신
+        ``circular_running_route()``를 직접 호출합니다.
+        이 함수는 ``running_route_service``를 단독으로 사용하는
+        컨텍스트(예: 스크립트, 배치)에서 사용하세요.
 
     Args:
-        lat, lng    : 출발점 위경도
-        target_km   : 목표 거리 (km, 기본 5km)
-        radius_m    : DB 코스 검색 반경 (미터)
-        G           : 미리 로드된 NetworkX 그래프 (없으면 DB에서 로드)
+        lat       (float)              : 출발점 위도.
+        lng       (float)              : 출발점 경도.
+        target_km (float)              : 목표 거리 (km). 기본값 5.0.
+        radius_m  (float)              : DB 코스 검색 반경 (미터). 기본값 5,000.
+        G         (nx.Graph, optional) : 미리 로드된 그래프. ``None``이면 DB에서 로드.
 
     Returns:
-        {
-            "mode": "circular_running",
-            "coordinates": [[lat, lng], ...],
-            "total_distance_km": float,
-            "matched_courses": [...]   # 반경 내 추천 코스 목록
-        }
+        dict: 아래 키를 포함하는 딕셔너리.
+
+        - ``mode``              (str)        : ``"circular_running"``
+        - ``coordinates``       (list)       : ``[[lat, lng], ...]`` 형태의 좌표 목록.
+        - ``total_distance_km`` (float)      : 총 거리 (km).
+        - ``matched_courses``   (list[dict]) : 반경 내 DB 추천 코스 목록.
+        - ``error``             (str)        : 경로 생성 실패 시에만 포함.
     """
     t0 = time.time()
 
@@ -188,29 +249,38 @@ def get_oneway_route(
     G: Optional[nx.Graph] = None,
 ) -> dict:
     """
-    출발점 → 도착점 편도 런닝 코스를 반환합니다.
+    출발점 → 도착점 편도 런닝 코스를 반환합니다. (**자체 완결형**)
 
-    1단계: DB에서 출발점 반경 내 편도 코스(하천변·공원) 조회
-    2단계: 그래프 기반 경로 알고리즘으로 실제 경로 생성
-           - use_random=True  → oneway_random (우회 경로, 더 긴 거리)
-           - use_random=False → dijkstra (최단 경로)
-    3단계: 두 결과를 합쳐 응답 반환
+    그래프 로드·가중치 적용·경로 생성을 모두 내부에서 처리합니다.
+    ``use_random`` 값에 따라 알고리즘이 분기됩니다.
+
+    .. note::
+        ``running_router.py``는 현재 이 함수 대신
+        ``oneway_running_route()``를 직접 호출하며 ``use_random`` 분기를 지원하지 않습니다.
+        이 함수는 ``running_route_service``를 단독으로 사용하는
+        컨텍스트(예: ``running_app.py`` 이전 방식, 스크립트)에서 사용하세요.
 
     Args:
-        start_lat, start_lng : 출발점 위경도
-        end_lat, end_lng     : 도착점 위경도
-        target_km            : 목표 거리 (km, use_random=True 일 때만 사용)
-        use_random           : True=우회 경로, False=최단 경로
-        radius_m             : DB 코스 검색 반경 (미터)
-        G                    : 미리 로드된 NetworkX 그래프
+        start_lat  (float)              : 출발점 위도.
+        start_lng  (float)              : 출발점 경도.
+        end_lat    (float)              : 도착점 위도.
+        end_lng    (float)              : 도착점 경도.
+        target_km  (float, optional)    : 목표 거리 (km). ``use_random=True``일 때만 사용.
+                                          ``None``이면 직선 거리 기반으로 자동 설정.
+        use_random (bool)               : ``True`` → Edge Penalty 우회 경로 (oneway_random).
+                                          ``False`` → Dijkstra 최단 경로.
+        radius_m   (float)              : DB 코스 검색 반경 (미터). 기본값 5,000.
+        G          (nx.Graph, optional) : 미리 로드된 그래프. ``None``이면 DB에서 로드.
 
     Returns:
-        {
-            "mode": "oneway_running_random" | "oneway_running_shortest",
-            "coordinates": [[lat, lng], ...],
-            "total_distance_km": float,
-            "matched_courses": [...]
-        }
+        dict: 아래 키를 포함하는 딕셔너리.
+
+        - ``mode``              (str)        : ``"oneway_running_random"`` 또는
+                                               ``"oneway_running_shortest"``
+        - ``coordinates``       (list)       : ``[[lat, lng], ...]`` 형태의 좌표 목록.
+        - ``total_distance_km`` (float)      : 총 거리 (km).
+        - ``matched_courses``   (list[dict]) : 반경 내 DB 추천 코스 목록.
+        - ``error``             (str)        : 경로 생성 실패 시에만 포함.
     """
     t0 = time.time()
 

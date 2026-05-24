@@ -1,7 +1,12 @@
 """
-런닝/다이어트 코스 레포지토리
+런닝/다이어트 코스 레포지토리.
 
-PostGIS ST_DWithin 을 활용해 출발점 반경 내 코스를 조회합니다.
+PostGIS ``ST_DWithin``을 활용해 출발점 반경 내 코스를 조회합니다.
+
+공개 함수
+---------
+- ``get_courses_near``  : 반경 내 코스 목록 조회 (필터·태그 지원)
+- ``get_course_by_id``  : 단일 코스 상세 조회
 """
 
 from __future__ import annotations
@@ -31,34 +36,42 @@ def get_courses_near(
     """
     출발점 반경 내 코스를 조회합니다.
 
+    내부에서 ``get_postgresql_db()``로 DB 연결을 자체 관리하므로
+    외부에서 세션을 주입할 필요가 없습니다.
+
+    결과는 ``distance_from_origin_m`` 오름차순으로 정렬됩니다.
+    (``results[0]``이 출발점에 가장 가까운 코스)
+
     Args:
-        lat, lng    : 출발점 위경도
-        radius_m    : 검색 반경 (미터, 기본 5km)
-        is_circular : True=순환, False=편도, None=전체
-        course_types: ['river', 'park', 'bike_track'] 중 복수 선택 가능
-        tags        : 포함해야 할 태그 목록 (AND 조건)
-        limit       : 최대 반환 건수
+        lat          (float)            : 출발점 위도.
+        lng          (float)            : 출발점 경도.
+        radius_m     (float)            : 검색 반경 (미터). 기본값 5,000.
+        is_circular  (bool, optional)   : ``True``=순환, ``False``=편도, ``None``=전체.
+        course_types (list[str], optional): 포함할 코스 유형 목록 (OR 조건).
+                                           예: ``["river", "park", "bike_track"]``
+        tags         (list[str], optional): 모두 포함해야 할 태그 목록 (**AND 조건**).
+                                           예: ``["런닝", "야간가능"]`` → 두 태그 모두 있는 코스만.
+        limit        (int)              : 최대 반환 건수. 기본값 10.
 
     Returns:
-        코스 정보 딕셔너리 리스트
-        [
+        list[dict]: 코스 정보 딕셔너리 리스트. 코스가 없으면 빈 리스트.
+        각 딕셔너리의 구조::
+
             {
-                "id": int,
-                "name": str,
-                "course_type": str,
-                "is_circular": bool,
-                "distance_m": float | None,
-                "difficulty": str | None,
-                "description": str | None,
-                "tags": [str, ...],
-                "start_lat": float,
-                "start_lng": float,
-                "end_lat": float | None,
-                "end_lng": float | None,
-                "distance_from_origin_m": float,   # 출발점까지 거리
-            },
-            ...
-        ]
+                "id"                    : int,
+                "name"                  : str,
+                "course_type"           : str,   # "river" | "park" | "bike_track" | "trail"
+                "is_circular"           : bool,
+                "distance_m"            : float | None,
+                "difficulty"            : str | None,  # "easy" | "medium" | "hard"
+                "description"           : str | None,
+                "tags"                  : list[str],
+                "start_lat"             : float,
+                "start_lng"             : float,
+                "end_lat"               : float | None,
+                "end_lng"               : float | None,
+                "distance_from_origin_m": float,  # 출발점까지의 거리 (미터)
+            }
     """
     with get_postgresql_db() as db:
         # ── 동적 WHERE 절 구성 ──────────────────────────────
@@ -157,7 +170,33 @@ def get_courses_near(
 
 
 def get_course_by_id(course_id: int) -> Optional[dict]:
-    """단일 코스 상세 조회"""
+    """
+    단일 코스를 상세 조회합니다.
+
+    Args:
+        course_id (int): 조회할 코스 PK.
+
+    Returns:
+        dict | None: 코스가 존재하면 딕셔너리, 없으면 ``None``.
+        딕셔너리 구조::
+
+            {
+                "id"          : int,
+                "name"        : str,
+                "course_type" : str,
+                "is_circular" : bool,
+                "distance_m"  : float | None,
+                "difficulty"  : str | None,
+                "description" : str | None,
+                "source"      : str | None,
+                "tags"        : list[str],
+                "start_lat"   : float | None,
+                "start_lng"   : float | None,
+                "end_lat"     : float | None,
+                "end_lng"     : float | None,
+                "geojson"     : str | None,  # GeoJSON 문자열 (경로 전체 선형)
+            }
+    """
     with get_postgresql_db() as db:
         row = db.execute(
             text("""
