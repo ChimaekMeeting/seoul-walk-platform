@@ -1,8 +1,19 @@
 """
-런닝/다이어트 모드 전용 코스 엔티티
+런닝/다이어트 모드 전용 코스 엔티티.
 
-COURSE      : 하천변·공원 기반 코스 메타데이터
-COURSE_TAG  : 코스에 붙는 태그 (런닝, 다이어트, 하천변, 공원 등)
+테이블
+------
+- ``courses``     : 하천변·공원 기반 코스 메타데이터 (:class:`Course`)
+- ``course_tags`` : 코스에 붙는 태그 (:class:`CourseTag`)
+
+PostGIS 컬럼 사용
+-----------------
+``geom``, ``start_geom``, ``end_geom``은 GeoAlchemy2 ``Geometry`` 타입이며,
+SRID 4326 (WGS84) 기준입니다. DB에 PostGIS 확장이 설치되어 있어야 합니다.
+
+관계
+----
+``Course.tags`` ↔ ``CourseTag.course`` : one-to-many (cascade delete)
 """
 
 from __future__ import annotations

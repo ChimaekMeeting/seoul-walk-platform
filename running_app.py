@@ -1,15 +1,50 @@
 """
-런닝/다이어트 경로 테스트 Streamlit 앱
+런닝/다이어트 경로 테스트 Streamlit 앱.
 
-실행 방법:
+실행 방법
+---------
     streamlit run running_app.py
+
+화면 구성
+---------
+- 사이드바 : 코스 유형(순환/편도), 목표 거리, 검색 반경,
+             평지 선호도(slope_weight), 공원·하천 선호도(type_bonus) 설정
+- 지도     : folium + Mapbox 타일. 클릭으로 출발지·도착지 설정.
+             경로 PolyLine, DB 추천 코스 마커 렌더링.
+- 결과 패널: 총 거리, 모드, 예상 시간, DB 추천 코스 목록.
+
+경로 생성 흐름 (버튼 클릭 시)
+------------------------------
+1. ``load_graph_near()``           — PostGIS에서 그래프 로드
+2. 좌표 없는 노드 제거
+3. ``_apply_running_weights(G, slope_weight, type_bonus)``
+4. ``circular_running_route()``    — 순환 모드
+   또는 ``oneway_running_route()`` — 편도 모드
+
+의존 모듈
+---------
+- ``src.repository.route.graph_repository.load_graph_near``
+- ``src.service.route.running_route_service._apply_running_weights``
+- ``src.service.route.path_circular_running.circular_running_route``
+- ``src.service.route.path_oneway_running.oneway_running_route``
 """
+
+import math
+import os
+from pathlib import Path
 
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
+from dotenv import load_dotenv
 
-from src.service.route.running_route_service import get_circular_route, get_oneway_route
+from src.repository.route.graph_repository import load_graph_near
+from src.service.route.running_route_service import _apply_running_weights
+from src.service.route.path_circular_running import circular_running_route
+from src.service.route.path_oneway_running import oneway_running_route
+
+load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
+MAPBOX_TOKEN = os.getenv("MAPBOX_API_KEY")
 
 # ──────────────────────────────────────────────
 # 페이지 설정
@@ -46,12 +81,14 @@ with st.sidebar:
 
     route_mode = st.radio(
         "코스 유형",
-        ["순환 (출발지로 돌아오기)", "편도 — 랜덤 우회", "편도 — 최단거리"],
+        ["순환 (출발지로 돌아오기)", "편도 — 랜덤 우회"],
         key="route_mode",
     )
 
-    target_km = st.slider("목표 거리 (km)", 1.0, 20.0, 5.0, 0.5)
-    radius_m  = st.slider("DB 코스 검색 반경 (m)", 500, 15000, 5000, 500)
+    target_km   = st.slider("목표 거리 (km)", 1.0, 20.0, 5.0, 0.5)
+    radius_m    = st.slider("DB 코스 검색 반경 (m)", 500, 1500, 1000, 100)
+    slope_weight = st.slider("평지 선호도", 1.0, 3.0, 1.5, 0.1)
+    type_bonus   = st.slider("공원/하천 선호도", 1.0, 3.0, 2.0, 0.1)
 
     st.divider()
 
@@ -104,18 +141,42 @@ with st.sidebar:
         with st.spinner("경로 계산 중..."):
             try:
                 if route_mode == "순환 (출발지로 돌아오기)":
-                    result = get_circular_route(
-                        lat=s_lat, lng=s_lng,
-                        target_km=target_km, radius_m=radius_m,
+                    graph_radius = target_km * 1000 * 2.5
+                    G = load_graph_near(s_lat, s_lng, radius_m=graph_radius)
+                    invalid = [n for n, d in G.nodes(data=True) if "x" not in d or "y" not in d]
+                    if invalid:
+                        G = G.copy()
+                        G.remove_nodes_from(invalid)
+                    G = _apply_running_weights(G, slope_weight=slope_weight, type_bonus=type_bonus)
+                    result = circular_running_route(
+                        G=G,
+                        start_lat=s_lat,
+                        start_lng=s_lng,
+                        target_m=target_km * 1000,
+                        radius_m=radius_m,
+                        session=None,
                     )
                 else:
                     e_lat, e_lng = st.session_state.end
-                    result = get_oneway_route(
-                        start_lat=s_lat, start_lng=s_lng,
-                        end_lat=e_lat,   end_lng=e_lng,
-                        target_km=target_km,
-                        use_random=(route_mode == "편도 — 랜덤 우회"),
+                    straight_m = math.sqrt((s_lat - e_lat) ** 2 + (s_lng - e_lng) ** 2) * 111_000
+                    graph_radius = max(straight_m * 1.5, 3_000)
+                    mid_lat = (s_lat + e_lat) / 2
+                    mid_lng = (s_lng + e_lng) / 2
+                    G = load_graph_near(mid_lat, mid_lng, radius_m=graph_radius)
+                    invalid = [n for n, d in G.nodes(data=True) if "x" not in d or "y" not in d]
+                    if invalid:
+                        G = G.copy()
+                        G.remove_nodes_from(invalid)
+                    G = _apply_running_weights(G, slope_weight=slope_weight, type_bonus=type_bonus)
+                    result = oneway_running_route(
+                        G=G,
+                        start_lat=s_lat,
+                        start_lng=s_lng,
+                        dest_lat=e_lat,
+                        dest_lng=e_lng,
+                        target_m=target_km * 1000,
                         radius_m=radius_m,
+                        session=None,
                     )
                 st.session_state.result = result
                 st.rerun()
@@ -130,6 +191,12 @@ SEOUL_CENTER = [37.5665, 126.9780]
 center = st.session_state.start or SEOUL_CENTER
 
 m = folium.Map(location=center, zoom_start=14, tiles="cartodbpositron")
+if MAPBOX_TOKEN:
+    folium.TileLayer(
+        tiles=f"https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{{z}}/{{x}}/{{y}}?access_token={MAPBOX_TOKEN}",
+        attr="Mapbox",
+        name="Mapbox Streets",
+    ).add_to(m)
 
 # 출발지 마커
 if st.session_state.start:

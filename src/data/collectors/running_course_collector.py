@@ -160,15 +160,23 @@ def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 
 def _point_wkt(lat: float, lng: float) -> str:
+    """위경도 → ``SRID=4326;POINT(lng lat)`` WKT 문자열 반환."""
     return f"SRID=4326;POINT({lng} {lat})"
 
 
 def _line_wkt(start_lat: float, start_lng: float, end_lat: float, end_lng: float) -> str:
-    """단순 직선 LINESTRING (실제 경로 데이터가 없을 때 대체용)"""
+    """두 좌표를 잇는 직선 ``SRID=4326;LINESTRING`` WKT 반환. 실제 경로 데이터가 없을 때 대체용."""
     return f"SRID=4326;LINESTRING({start_lng} {start_lat}, {end_lng} {end_lat})"
 
 
 def _classify_difficulty(distance_m: Optional[float]) -> str:
+    """
+    거리(미터) 기반 난이도 분류.
+
+    Returns:
+        str: ``"easy"`` (< 5km) | ``"medium"`` (5–10km) | ``"hard"`` (≥ 10km).
+             ``distance_m``이 ``None``이면 ``"easy"`` 반환.
+    """
     if distance_m is None:
         return "easy"
     if distance_m < 5_000:
@@ -187,7 +195,14 @@ def _find_col(df: "pd.DataFrame", candidates: list[str]) -> Optional[str]:
 
 
 def _shapely_to_linestring_wkt(geom) -> Optional[str]:
-    """Shapely LineString/MultiLineString → SRID=4326;LINESTRING WKT (없으면 None)"""
+    """
+    Shapely LineString / MultiLineString → ``SRID=4326;LINESTRING(...)`` WKT 변환.
+
+    MultiLineString은 가장 긴 하위 지오메트리를 사용합니다.
+
+    Returns:
+        str | None: WKT 문자열. 변환 불가하거나 빈 지오메트리면 ``None``.
+    """
     if isinstance(geom, MultiLineString):
         geom = max(geom.geoms, key=lambda g: g.length)
     if not isinstance(geom, LineString) or geom.is_empty:
@@ -201,7 +216,17 @@ def _shapely_to_linestring_wkt(geom) -> Optional[str]:
 # ──────────────────────────────────────────────────────────────
 
 def _insert_course(session: Session, course_data: dict, tags: list[str]) -> None:
-    """Course + CourseTag 레코드를 세션에 추가 (commit은 호출부에서)"""
+    """
+    ``Course`` + ``CourseTag`` 레코드를 세션에 추가합니다. commit은 호출부에서 수행합니다.
+
+    Args:
+        session     (Session)   : SQLAlchemy 세션.
+        course_data (dict)      : Course 모델에 대응하는 필드 딕셔너리.
+                                  필수 키: ``name``, ``course_type``, ``is_circular``.
+                                  선택 키: ``distance_m``, ``difficulty``, ``description``,
+                                  ``source``, ``geom``, ``start_geom``, ``end_geom``.
+        tags        (list[str]) : 연결할 태그 문자열 목록.
+    """
     course = Course(
         name=course_data["name"],
         course_type=course_data["course_type"],
@@ -222,7 +247,15 @@ def _insert_course(session: Session, course_data: dict, tags: list[str]) -> None
 
 
 def load_river_courses(session: Session) -> int:
-    """하천변 코스 정적 데이터 삽입"""
+    """
+    ``RIVER_COURSES`` 정적 데이터를 DB에 삽입합니다.
+
+    Args:
+        session (Session): SQLAlchemy 세션.
+
+    Returns:
+        int: 삽입된 코스 건수.
+    """
     count = 0
     for item in RIVER_COURSES:
         s_lat, s_lng = item["start_lat"], item["start_lng"]
@@ -662,11 +695,15 @@ _TRAIL_COORDS: dict[str, tuple[tuple[float, float], tuple[float, float]]] = {
 
 def update_trail_coords(session: Session) -> int:
     """
-    DB에 저장된 trail 코스 중 start_geom 이 NULL인 행에
-    _TRAIL_COORDS 좌표를 채워 UPDATE합니다.
+    DB의 ``trail`` 코스 중 ``start_geom``이 NULL인 행에 ``_TRAIL_COORDS`` 좌표를 채웁니다.
+
+    ``collect_running_courses()`` 실행 후 둘레길 CSV에 좌표가 없었던 경우를 보정합니다.
+
+    Args:
+        session (Session): SQLAlchemy 세션.
 
     Returns:
-        업데이트된 행 수
+        int: 업데이트된 행 수.
     """
     from sqlalchemy import text as _text
 

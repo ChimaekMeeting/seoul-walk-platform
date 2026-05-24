@@ -1,5 +1,21 @@
 """
-런닝/다이어트 모드 요청·응답 스키마
+런닝/다이어트 모드 요청·응답 Pydantic 스키마.
+
+스키마 구조
+-----------
+요청
+~~~~
+- :class:`CircularRunningRequest`  : ``POST /api/running/circular`` 요청 바디
+- :class:`OnewayRunningRequest`    : ``POST /api/running/oneway``   요청 바디
+
+응답
+~~~~
+- :class:`CircularRunningResponse` : ``POST /api/running/circular`` 응답
+- :class:`OnewayRunningResponse`   : ``POST /api/running/oneway``   응답
+
+공통
+~~~~
+- :class:`CourseInfo`              : 응답에 포함되는 DB 추천 코스 요약 정보
 """
 
 from __future__ import annotations
@@ -14,7 +30,13 @@ from pydantic import BaseModel, Field
 # ──────────────────────────────────────────────────────────────
 
 class CourseInfo(BaseModel):
-    """DB에서 조회된 추천 코스 요약 정보"""
+    """
+    DB에서 조회된 추천 코스 요약 정보.
+
+    ``get_courses_near()`` 반환 딕셔너리를 그대로 언팩(``**c``)해서 생성합니다.
+    ``distance_from_origin_m``은 요청 출발점까지의 거리(미터)이며,
+    정렬 기준으로 활용됩니다.
+    """
     id: int
     name: str
     course_type: str                        # river | park | bike_track
@@ -64,9 +86,14 @@ class CircularRunningResponse(BaseModel):
 
 class OnewayRunningRequest(BaseModel):
     """
-    편도 런닝 코스 요청
+    편도 런닝 코스 요청.
 
     출발점 → 도착점 단방향 코스를 반환합니다.
+
+    .. note::
+        ``running_router.py``는 현재 ``use_random`` 값과 무관하게
+        항상 Edge Penalty + 랜덤 경유지 알고리즘(우회 경로)을 사용합니다.
+        최단 경로 분기는 ``running_route_service.get_oneway_route()``에서만 지원됩니다.
     """
     start_lat: float = Field(..., description="출발점 위도")
     start_lng: float = Field(..., description="출발점 경도")
