@@ -10,3 +10,7 @@ src/data/raw/
 __pycache__/        
 *.csv
 *.xlsx
+!src/data/
+!src/data/raw/
+!src/data/raw/child_protection_zones_2025_12.xlsx
+venv/
