@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeoulWalk 하이브리드 에이전틱 아키텍처 플랜</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({startOnLoad:true, theme: 'default', securityLevel: 'loose'});</script>
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --surface-color: rgba(255, 255, 255, 0.95);
+            --border-color: rgba(0, 0, 0, 0.1);
+            --text-primary: #1e293b;
+            --text-secondary: #475569;
+            --openclaw-color: #3b82f6; /* Blue */
+            --openclaw-glow: rgba(59, 130, 246, 0.2);
+            --hermes-color: #8b5cf6; /* Purple */
+            --hermes-glow: rgba(139, 92, 246, 0.2);
+            --gradient-text: linear-gradient(135deg, var(--openclaw-color), var(--hermes-color));
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-image: 
+                radial-gradient(circle at 15% 50%, var(--openclaw-glow) 0%, transparent 50%),
+                radial-gradient(circle at 85% 30%, var(--hermes-glow) 0%, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 4rem;
+            animation: fadeInDown 0.8s ease-out;
+        }
+
+        h1 {
+            font-size: 3rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            background: var(--gradient-text);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+            margin-bottom: 4rem;
+        }
+
+        .card {
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 2.5rem;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 4px;
+            background: var(--border-color);
+            transition: all 0.3s ease;
+        }
+
+        .card.openclaw:hover::before { background: var(--openclaw-color); }
+        .card.hermes:hover::before { background: var(--hermes-color); }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.35rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .badge.openclaw { background: var(--openclaw-glow); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+        .badge.hermes { background: var(--hermes-glow); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); }
+
+        h2 { font-size: 1.75rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem; }
+        h3 { font-size: 1.25rem; font-weight: 600; color: #e2e8f0; margin-top: 2rem; margin-bottom: 1rem; }
+        
+        p { color: var(--text-secondary); margin-bottom: 1.5rem; }
+
+        ul.feature-list {
+            list-style: none; padding: 0; margin: 0;
+        }
+
+        ul.feature-list li {
+            position: relative; padding-left: 1.75rem; margin-bottom: 1rem; color: #cbd5e1;
+        }
+
+        ul.feature-list li::before {
+            content: "✦"; position: absolute; left: 0; font-size: 1.1rem;
+        }
+        .card.openclaw ul.feature-list li::before { color: var(--openclaw-color); }
+        .card.hermes ul.feature-list li::before { color: var(--hermes-color); }
+
+        /* Vibe Architecture Diagram CSS */
+        .vibe-arch-section {
+            margin-top: 2rem;
+            padding: 2rem 0;
+            overflow-x: auto;
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            backdrop-filter: blur(12px);
+        }
+        
+        .vibe-arch-title {
+            text-align: center;
+            margin-bottom: 2rem;
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+
+        .vibe-diagram-container {
+            display: flex;
+            align-items: stretch;
+            justify-content: center;
+            gap: 4rem;
+            min-width: 1000px;
+            padding: 2rem;
+        }
+
+        .vibe-col {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 1.5rem;
+            position: relative;
+            padding: 1rem 0;
+        }
+
+        .vibe-col.left {
+            border-right: 2px solid #64748b;
+            padding-right: 2rem;
+        }
+        .vibe-col.right {
+            border-left: 2px solid #64748b;
+            padding-left: 2rem;
+        }
+
+        .vibe-box {
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            text-align: center;
+            font-size: 0.85rem;
+            color: #cbd5e1;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            width: 130px;
+            position: relative;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            transition: transform 0.2s;
+        }
+        
+        .vibe-box:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255,255,255,0.3);
+        }
+
+        .vibe-box .icon {
+            font-size: 1.8rem;
+            margin-bottom: 0.2rem;
+            opacity: 0.9;
+        }
+
+        .vibe-col.left .vibe-box::after {
+            content: ''; position: absolute; right: -2rem; top: 50%;
+            width: 2rem; height: 2px; background: #64748b;
+        }
+        .vibe-col.right .vibe-box::before {
+            content: ''; position: absolute; left: -2rem; top: 50%;
+            width: 2rem; height: 2px; background: #64748b;
+        }
+
+        .main-line-in {
+            position: absolute; right: -4rem; top: 50%; width: 4rem; height: 2px; background: #64748b;
+        }
+        .main-arrow-in {
+            position: absolute; right: -4rem; top: 50%; transform: translateY(-50%);
+            color: #64748b; font-size: 24px; z-index: 10;
+        }
+        .main-line-out {
+            position: absolute; left: -4rem; top: 50%; width: 4rem; height: 2px; background: #64748b;
+        }
+        .main-arrow-out {
+            position: absolute; left: -10px; top: 50%; transform: translateY(-50%);
+            color: #64748b; font-size: 24px; z-index: 10; background: var(--surface-color);
+        }
+
+        .vibe-core {
+            border: 3px dashed #64748b;
+            border-radius: 24px;
+            padding: 3rem 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            background: rgba(15, 23, 42, 0.4);
+            flex: 1;
+            max-width: 650px;
+        }
+
+        .vibe-core::before {
+            content: 'Agent Platform Core';
+            position: absolute; top: -14px; left: 2rem;
+            background: var(--bg-color); padding: 0 1rem;
+            color: #f59e0b; font-weight: 800; font-size: 1.1rem; letter-spacing: 0.05em;
+        }
+
+        .vibe-core-flow {
+            display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 1rem;
+        }
+
+        .vibe-storage-group {
+            display: flex; flex-direction: column; gap: 1rem; position: relative;
+        }
+        .vibe-storage-group::before {
+            content: ''; position: absolute; left: -1rem; top: 20%; bottom: 20%; width: 2px; background: #64748b;
+        }
+        .vibe-storage-group::after {
+            content: ''; position: absolute; right: -1rem; top: 20%; bottom: 20%; width: 2px; background: #64748b;
+        }
+        .vibe-storage-group .vibe-box::before {
+            content: ''; position: absolute; left: -1rem; top: 50%; width: 1rem; height: 2px; background: #64748b;
+        }
+        .vibe-storage-group .vibe-box::after {
+            content: ''; position: absolute; right: -1rem; top: 50%; width: 1rem; height: 2px; background: #64748b;
+        }
+
+        .flow-arrow { color: #64748b; font-size: 20px; }
+
+        .vibe-box.ext { border-top: 3px solid #94a3b8; }
+        .vibe-box.gw { border-top: 3px solid #f59e0b; width: 110px; }
+        .vibe-box.db { border-top: 3px solid #3b82f6; width: 120px; }
+        .vibe-box.worker { border-top: 3px solid #ec4899; width: 110px; }
+        .vibe-box.client { border-top: 3px solid #10b981; }
+        .vibe-box.tool { border-top: 3px solid #a855f7; width: 110px; }
+        
+        .admin-node {
+            display: flex; flex-direction: column; align-items: center; margin-top: 2rem; color: #cbd5e1; font-size: 0.9rem;
+        }
+        .admin-icon { font-size: 2.5rem; }
+
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-up { animation: fadeInUp 0.8s ease-out backwards; }
+        .delay-1 { animation-delay: 0.1s; }
+        .delay-2 { animation-delay: 0.2s; }
+        .delay-3 { animation-delay: 0.3s; }
+        
+        .mermaid-section {
+            margin-top: 4rem;
+            padding: 3rem 2rem;
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            backdrop-filter: blur(12px);
+        }
+        
+        .mermaid-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .mermaid-card {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 1.5rem;
+        }
+        
+        .mermaid-card h3 {
+            margin-top: 0;
+            text-align: center;
+            color: #f8fafc;
+        }
+        
+        @media (max-width: 900px) {
+            .mermaid-container { grid-template-columns: 1fr; }
+        }
+        @keyframes fadePanelIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Hide the original grid since it's now in the modal */
+        .grid {
+            display: none;
+        }
+        
+        /* Pointer for clickable mermaid nodes */
+        .mermaid .node {
+            cursor: pointer;
+        }
+        
+        /* Center all mermaid diagrams */
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>SeoulWalk AI Agent Architecture</h1>
+        <p class="subtitle">오픈클로(OpenClaw)의 마이크로서비스 오케스트레이션과 헤르메스(Hermes)의 자율 3계층 메모리 아키텍처를 결합한 차세대 산책 추천 에이전트 설계안입니다.</p>
+    </header>
+
+    <div class="grid">
+        <!-- OpenClaw Card -->
+        <div class="card openclaw animate-up delay-1">
+            <span class="badge openclaw">OpenClaw Style</span>
+            <h2>API Gateway & Orchestrator</h2>
+            <p><strong>적용 범위:</strong> <code>seoul-walk-platform</code> (Backend)의 중앙 라우팅 엔진</p>
+            <p>SeoulWalkApp(React Native)에서 발생하는 이벤트를 실시간으로 수신하고, 복잡한 외부 서비스를 매끄럽게 연결하는 마이크로서비스 컨트롤 타워 역할을 수행합니다.</p>
+            
+            <h3>핵심 구현 방안</h3>
+            <ul class="feature-list">
+                <li><strong>이벤트 라우팅:</strong> 사용자의 '산책 시작', '경로 이탈', '날씨 조회' 이벤트를 Trigger로 받아 적절한 모듈로 분배합니다.</li>
+                <li><strong>Tool Orchestration:</strong> Mapbox Directions API, 기상청 날씨 API 등 독립된 외부 서비스를 하나의 에이전틱 파이프라인으로 묶어 실행합니다.</li>
+                <li><strong>Stateless Fast API:</strong> 사용자 요청에 즉각 반응하기 위해 상태를 가지지 않는 가벼운 API 게이트웨이 패턴을 <code>app.py</code>에 적용합니다.</li>
+            </ul>
+        </div>
+
+        <!-- Hermes Card -->
+        <div class="card hermes animate-up delay-2">
+            <span class="badge hermes">Hermes Style</span>
+            <h2>Autonomous Loop & 3-Tier Memory</h2>
+            <p><strong>적용 범위:</strong> Geo-AI Profile Engine & Background Daemon</p>
+            <p>사용자가 앱을 끄더라도 백그라운드에서 자율 루프를 돌며 사용자의 "Taste Drift(취향 변화)"를 학습하고 3계층 메모리를 업데이트하는 지능형 워커입니다.</p>
+            
+            <h3>핵심 구현 방안</h3>
+            <ul class="feature-list">
+                <li><strong>Background Daemon:</strong> Celery 또는 Asyncio 기반으로 정해진 주기에 맞춰 사용자의 미완료 산책 피드백을 분석하고 모델을 조정합니다.</li>
+                <li><strong>3-Tier 하이브리드 메모리:</strong> 
+                    <br/>- <em>Working:</em> 현재 산책 중인 세션 데이터 (Redis)
+                    <br/>- <em>Episodic:</em> 과거 산책 기록과 달성률 로그 (PostgreSQL JSONB)
+                    <br/>- <em>Semantic:</em> 사용자 취향과 불변 선호도 정보를 벡터화 (ChromaDB/PGVector)
+                </li>
+                <li><strong>스킬(Skill) 자동 생성:</strong> 고비용의 LLM 추론이 성공적인 산책 경로를 도출하면, 이를 '캐싱된 스킬 레시피'로 저장하여 이후 유사 요청 시 재사용합니다 (비용/속도 최적화).</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Unified Master Blueprint -->
+    <div class="mermaid-section animate-up delay-3" style="margin-top: 2rem;">
+        <h2 class="vibe-arch-title">Unified Master Blueprint: 1-Server Agentic Lifecycle</h2>
+        <p style="text-align: center; max-width: 800px; margin: 0 auto 2rem auto; color: var(--text-secondary);">
+            단일 서버(Docker 환경) 안에서 여러 역할(App)이 어떻게 나뉘어 있으며, <b>사용자의 실시간 요청(실선)</b>과 <b>자율 데몬의 성장/추론(두꺼운 선)</b>이 어떻게 맞물려 돌아가는지 한눈에 보여주는 마스터 다이아그램입니다.
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 2rem; max-width: 1200px; margin: 0 auto;">
+            <div style="width: 100%; box-sizing: border-box;">
+                <div class="mermaid" style="background: var(--surface-color); padding: 2rem; border-radius: 16px; border: 1px solid var(--border-color); width: 100%; box-sizing: border-box; box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow-x: auto;">
+flowchart TB
+    %% Styling
+    classDef server fill:#f8fafc,stroke:#e2e8f0,stroke-width:2px,color:#0f172a
+    classDef gateway fill:#eff6ff,stroke:#bfdbfe,stroke-width:2px,color:#1e40af
+    classDef worker fill:#faf5ff,stroke:#e9d5ff,stroke-width:2px,color:#6b21a8
+    classDef db fill:#f0fdf4,stroke:#bbf7d0,stroke-width:2px,color:#166534
+    classDef external fill:#f1f5f9,stroke:#cbd5e1,stroke-width:1px,color:#334155
+    classDef user fill:#fff7ed,stroke:#fed7aa,stroke-width:2px,color:#9a3412
+
+    User((📱 사용자<br/>React Native 앱)):::user
+
+    subgraph Server ["☁️ Single Cloud Server (Docker Containers)"]
+        direction TB
+        
+        subgraph Realtime ["⚡ 실시간 처리 구역"]
+            GW["🚪 API Gateway<br/>(Orchestrator/Python)"]:::gateway
+            Presence["📡 Presence Server<br/>(Node.js/WebSocket)"]:::gateway
+        end
+        
+        subgraph Memory ["🧠 3-Tier 하이브리드 메모리"]
+            direction LR
+            Redis[("⚡ Redis<br/>(Working)")]:::db
+            PG[("💾 PostgreSQL<br/>(Episodic: 원시 로그)")]:::db
+            Chroma[("🎯 ChromaDB<br/>(Semantic: 취향 프로필)")]:::db
+        end
+        
+        subgraph Autonomous ["⚙️ 자율 성장 (celery/daemon)"]
+            Worker["🛠️ Background Worker<br/>(자율 분석 데몬)"]:::worker
+            LLM["🤖 추론 엔진<br/>(LLM Context 압축)"]:::worker
+        end
+    end
+
+    ExternalTools["🗺️ 외부 API<br/>(Mapbox, 날씨 등)"]:::external
+
+    %% Real-time Request Flow (Solid lines)
+    User -- "1. 산책 기분/조건 입력" --> GW
+    GW -- "2. 프로필 조회" --> Chroma
+    GW -- "3. 도구(API) 조립" --> ExternalTools
+    GW -- "4. 맞춤 경로 반환" --> User
+
+    %% Real-time Tracking (WebSockets)
+    User == "🏃 실시간 GPS/상태 (WebSocket)" === Presence
+    Presence -. "임시 위치 캐싱" .-> Redis
+
+    %% Data Accumulation Flow (Dotted lines)
+    User -. "5. 피드백 (경로 이탈/완주)" .-> GW
+    GW -. "6. 원시 로그 저장" .-> PG
+
+    %% Autonomous Growth Flow (Thick dashed lines)
+    Worker == "7. 새벽 로그 수집" ==> PG
+    Worker == "8. 취향 압축/추론" ==> LLM
+    Worker == "9. 성장된 프로필 업데이트" ==> Chroma
+
+    %% Interactivity
+    click GW href "javascript:showDetails('gateway');" "API Gateway 상세 정보 보기"
+    click Presence href "javascript:showDetails('presence');" "Presence Server 상세 정보 보기"
+    click Worker href "javascript:showDetails('worker');" "Background Worker 상세 정보 보기"
+    click LLM href "javascript:showDetails('llm');" "추론 엔진 상세 정보 보기"
+    click Redis href "javascript:showDetails('memory');" "하이브리드 메모리 상세 정보 보기"
+    click PG href "javascript:showDetails('memory');" "하이브리드 메모리 상세 정보 보기"
+    click Chroma href "javascript:showDetails('memory');" "하이브리드 메모리 상세 정보 보기"
+    click ExternalTools href "javascript:showDetails('tools');" "외부 API 상세 정보 보기"
+                </div>
+            </div>
+            
+            <!-- Details Panel -->
+            <div id="detailPanel" style="width: 100%; box-sizing: border-box; background: var(--surface-color); padding: 2rem; border-radius: 16px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05); min-height: 200px;">
+                <div style="text-align: center; color: var(--text-secondary); padding: 5rem 1rem;">
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">👆</div>
+                    <p style="font-size: 1.1rem; line-height: 1.6;">다이아그램의 특정 컴포넌트를 클릭하시면<br>상세 정보와 시퀀스가 이곳에 표시됩니다.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    function showDetails(type) {
+        const panel = document.getElementById('detailPanel');
+        
+        let contentHtml = '';
+        if (type === 'gateway') {
+            contentHtml = document.querySelector('.card.openclaw').innerHTML + `
+                <div style="margin-top:2rem; padding:1.5rem; background:rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-radius:16px;">
+                    <h3 style="margin-top:0; color:#3b82f6; font-size:1.15rem;">✨ 원자적 함수 조합 (Atomic Tool Composition)</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.95rem;">'조용한 여성안심길 순환함수'처럼 거대한 테마별 함수(Monolith)를 미리 다 만들어두는 것은 비효율적이며 완벽한 개인화가 불가능합니다. API Gateway는 <strong>잘게 쪼개진 원자적(Atomic) 함수들을 LLM이 상황에 맞게 레고 블록처럼 동적으로 조립(Chaining)</strong>하여 세상에 하나뿐인 경로를 창조합니다.</p>
+                    <div class="mermaid">
+                    sequenceDiagram
+                        participant User as React Native 앱
+                        participant GW as API Gateway (에이전트)
+                        participant Tools as 외부 API (함수풀)
+                        User->>GW: "조용하고 안전한 공원 산책 (순환)"
+                        Note over GW: 거대 테마 함수 1개 호출 (X)<br/>원자적 함수 조립 (O)
+                        GW->>Tools: 1. find_quiet_paths() 호출
+                        GW->>Tools: 2. filter_safe_zone() 호출
+                        GW->>Tools: 3. generate_circular_route() 호출
+                        Tools-->>GW: 각각의 결과값 반환 및 융합
+                        GW-->>User: 완벽히 개인화된 조합형 경로 반환
+                    </div>
+                </div>`;
+        } else if (type === 'worker') {
+            contentHtml = document.querySelector('.card.hermes').innerHTML + `
+                <div style="margin-top:2rem; padding:1.5rem; background:rgba(139, 92, 246, 0.05); border: 1px solid rgba(139, 92, 246, 0.2); border-radius:16px;">
+                    <h3 style="margin-top:0; color:#8b5cf6; font-size:1.15rem;">🧠 헤르메스 압축 및 성장(Taste Drift) 방법론</h3>
+                    <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1rem;">우리(SeoulWalk) 시스템에 바로 적용할 수 있는 구체적인 컨텍스트 압축 및 자율 성장 알고리즘입니다.</p>
+                    <ul class="feature-list" style="margin-bottom: 1.5rem; font-size: 0.95rem;">
+                        <li style="color: #475569; margin-bottom: 0.75rem;">✦ <strong>1. 에피소딕(Episodic) 로그 수집:</strong> 매일 새벽, 유저의 행동 원시 데이터(PostgreSQL)를 모읍니다. <em>(예: "경로 B 이탈", "경사도 15도 구간에서 산책 포기")</em></li>
+                        <li style="color: #475569; margin-bottom: 0.75rem;">✦ <strong>2. LLM 의미 압축 (Semantic Compression):</strong> 방대한 데이터를 전부 프롬프트에 넣으면 토큰 비용이 폭발합니다. 따라서 LLM에게 <strong>"행동 패턴 중심의 명제"</strong>로 압축하도록 지시합니다. <em>(예: "최근 오르막길을 극도로 기피함")</em></li>
+                        <li style="color: #475569; margin-bottom: 0.75rem;">✦ <strong>3. 취향 표류(Taste Drift) 반영 및 성장:</strong> 과거 ChromaDB에 저장된 취향 벡터와 오늘의 압축 결과를 비교하여 <strong>가중치(Weight)를 업데이트</strong>합니다. 예전엔 등산을 좋아했어도 최근 연달아 평지를 걸었다면, 시스템이 이를 인지하고 최신 프로필로 '자율 성장'합니다.</li>
+                    </ul>
+                    <div class="mermaid">
+                    sequenceDiagram
+                        participant DB as Postgres (원시로그)
+                        participant Worker as 자율 분석 데몬
+                        participant LLM as 추론 엔진 (요약)
+                        participant Vector as ChromaDB (프로필)
+                        Worker->>DB: 최근 산책 이탈/완주 기록 조회
+                        DB-->>Worker: "경사도 15도에서 연속 2회 취소"
+                        Worker->>LLM: "과거 기록과 비교해 취향 변화 압축 요약"
+                        LLM-->>Worker: "Update: 오르막 기피 성향 증가"
+                        Worker->>Vector: 기존 프로필 벡터에 덧씌워 저장 (성장)
+                    </div>
+                </div>`;
+        } else if (type === 'presence') {
+            contentHtml = `
+                <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">Realtime Style</span>
+                <h2 style="font-size: 1.75rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem;">Presence Server (Node.js/WebSocket)</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem;"><strong>적용 범위:</strong> 실시간 사용자 상태 및 위치 추적 서버</p>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">수만 명의 동시 접속자가 발생시키는 실시간 GPS 이벤트를 가볍고 빠르게 처리하기 위한 특화 계층입니다.</p>
+                <h3 style="font-size: 1.25rem; font-weight: 600; color: #334155; margin-top: 2rem; margin-bottom: 1rem;">핵심 구현 방안</h3>
+                <ul class="feature-list" style="list-style:none; padding-left:0; margin:0;">
+                    <li style="position: relative; padding-left: 1.75rem; margin-bottom: 1rem; color: #475569;">✦ <strong>WebSocket:</strong> 실시간 양방향 통신으로 산책 이탈 여부를 즉시 파악합니다.</li>
+                    <li style="position: relative; padding-left: 1.75rem; margin-bottom: 1rem; color: #475569;">✦ <strong>임시 캐싱:</strong> 수집된 위치 데이터를 무거운 DB가 아닌 Redis에 1초 단위로 캐싱합니다.</li>
+                </ul>
+            `;
+        } else if (type === 'memory') {
+             contentHtml = `
+                <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">Storage Style</span>
+                <h2 style="font-size: 1.75rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem;">3-Tier 하이브리드 메모리</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem;"><strong>적용 범위:</strong> 데이터 저장 및 에이전트 컨텍스트 보관소</p>
+                <h3 style="font-size: 1.25rem; font-weight: 600; color: #334155; margin-top: 2rem; margin-bottom: 1rem;">메모리 계층</h3>
+                <ul class="feature-list" style="list-style:none; padding-left:0; margin:0;">
+                    <li style="position: relative; padding-left: 1.75rem; margin-bottom: 1rem; color: #475569;">✦ <strong>Redis (Working):</strong> 산책 중인 유저의 실시간 상태를 담는 초고속 휘발성 메모리입니다.</li>
+                    <li style="position: relative; padding-left: 1.75rem; margin-bottom: 1rem; color: #475569;">✦ <strong>PostgreSQL (Episodic):</strong> 과거 산책 기록, 통계, 결제 등 무결성이 중요한 영구 장부입니다.</li>
+                    <li style="position: relative; padding-left: 1.75rem; margin-bottom: 1rem; color: #475569;">✦ <strong>ChromaDB (Semantic):</strong> LLM이 빠르게 읽을 수 있도록 유저의 취향을 요약 압축해 놓은 인공지능용 벡터 DB입니다.</li>
+                </ul>
+            `;
+        } else if (type === 'llm') {
+             contentHtml = `
+                <span class="badge" style="background: rgba(139, 92, 246, 0.2); color: #8b5cf6; border: 1px solid rgba(139, 92, 246, 0.3);">Inference Style</span>
+                <h2 style="font-size: 1.75rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem;">LLM 추론 엔진</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem;"><strong>적용 범위:</strong> 사용자 취향 분석 및 에이전틱 태스크 플래닝</p>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">단순한 키워드 매칭을 넘어, 복잡한 사용자 의도를 파악하고 외부 도구를 사용할지 결정하는 '두뇌' 역할을 수행합니다.</p>
+                <h3 style="font-size: 1.25rem; font-weight: 600; color: #334155; margin-top: 2rem; margin-bottom: 1rem;">핵심 기술 (RAG & Prompt Engineering)</h3>
+                <ul class="feature-list" style="list-style:none; padding-left:0; margin:0;">
+                    <li style="position: relative; padding-left: 1.75rem; margin-bottom: 1rem; color: #475569;">✦ <strong>RAG (검색 증강 생성):</strong> ChromaDB(벡터 DB)에 저장된 유저의 과거 취향 컨텍스트를 유사도 기반으로 정확히 추출(Retrieve)하여 프롬프트에 주입, 할루시네이션(환각) 없는 초개인화된 경로를 설계합니다.</li>
+                    <li style="position: relative; padding-left: 1.75rem; margin-bottom: 1rem; color: #475569;">✦ <strong>고도화된 프롬프트 엔지니어링:</strong> "비가 오면 실내 POI 도구를 사용해라"와 같이 에이전트가 상황에 맞는 외부 API(Tool Calling)를 스스로 판단하도록, 강력한 System Prompt와 제약 조건을 설계합니다.</li>
+                    <li style="position: relative; padding-left: 1.75rem; margin-bottom: 1rem; color: #475569;">✦ <strong>Context 압축:</strong> 방대한 원시 산책 로그를 매일 새벽 3줄 요약 등의 형태로 의미 압축(Semantic)하여 ChromaDB로 넘깁니다.</li>
+                </ul>
+                <div style="margin-top: 1.5rem; padding: 1.2rem; background: rgba(59, 130, 246, 0.05); border-left: 4px solid #3b82f6; border-radius: 8px;">
+                    <h4 style="margin-top:0; color:#1e293b; font-size: 1.1rem; margin-bottom: 0.75rem;">💡 Geo-AI 최신 레퍼런스 아이디어</h4>
+                    <ul style="font-size: 0.95rem; color: #475569; padding-left: 1.2rem; margin-bottom: 0;">
+                        <li style="margin-bottom:0.5rem"><strong>UrbanRAG (공간 검색 증강):</strong> 텍스트뿐만 아니라 '사용자 반경 5km 내 미세먼지, 그늘량' 등 공간 데이터를 ChromaDB에서 추출해 프롬프트에 결합합니다.</li>
+                        <li style="margin-bottom:0.5rem"><strong>RouteLLM (계층형 라우팅):</strong> 단일 프롬프트가 아닌 의도 분석 ➔ 도구 검색 ➔ 경로 검증 형식으로 체인(Chain)을 나누어 설계합니다.</li>
+                        <li><strong>Experiential Navigation:</strong> 단순 최단 경로가 아닌, 경로 주변 '버퍼 존(1~2km)' 내의 취향 저격 카페나 스팟을 실시간 우회(Deviation) 경유지로 추가합니다.</li>
+                    </ul>
+                </div>
+            `;
+        } else if (type === 'tools') {
+             contentHtml = `
+                <span class="badge" style="background: rgba(100, 116, 139, 0.2); color: #475569; border: 1px solid rgba(100, 116, 139, 0.3);">External Style</span>
+                <h2 style="font-size: 1.75rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem;">외부 API (원자적 도구 풀)</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem;"><strong>적용 범위:</strong> LLM 에이전트가 레고 블록처럼 조립할 수 있는 기능 단위의 API 모음</p>
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">거대한 테마별 완성형 함수가 아닙니다. 에이전트가 자유롭게 조합할 수 있도록 목적이 단일하고 명확한 <strong>원자적(Atomic) 함수</strong>들로 쪼개어 구성합니다.</p>
+                <h3 style="font-size: 1.25rem; font-weight: 600; color: #334155; margin-top: 2rem; margin-bottom: 1rem;">조립형 도구 예시 (Atomic Functions)</h3>
+                <ul class="feature-list" style="list-style:none; padding-left:0; margin:0;">
+                    <li style="position: relative; padding-left: 1.75rem; margin-bottom: 1rem; color: #475569;">✦ <strong>find_quiet_paths(radius):</strong> 주변의 소음도가 낮고 한적한 길만 추출하는 도구 (특성 필터)</li>
+                    <li style="position: relative; padding-left: 1.75rem; margin-bottom: 1rem; color: #475569;">✦ <strong>filter_safe_zone(paths):</strong> 추출된 길 중 CCTV가 많고 밝은 '여성안심구역'만 남기는 도구 (보안 필터)</li>
+                    <li style="position: relative; padding-left: 1.75rem; margin-bottom: 1rem; color: #475569;">✦ <strong>generate_circular_route(nodes):</strong> 남은 점들을 이어 원점 회귀형(순환) 경로를 그리는 도구 (라우팅 모듈)</li>
+                </ul>
+            `;
+        }
+        panel.innerHTML = contentHtml;
+        panel.style.animation = 'none';
+        void panel.offsetWidth;
+        panel.style.animation = 'fadePanelIn 0.4s ease-out forwards';
+        
+        // 부드럽게 스크롤 이동 (모바일 환경 등에서 유용)
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        
+        const mermaidNodes = panel.querySelectorAll('.mermaid');
+        if (mermaidNodes.length > 0) {
+            try {
+                mermaid.run({
+                    nodes: mermaidNodes
+                });
+            } catch (e) {
+                console.error("Mermaid parsing failed", e);
+            }
+        }
+    }
+</script>
+
+    <!-- Product & UX Strategy FAQ -->
+    <div class="card animate-up delay-3" style="margin-top: 4rem; max-width: 1200px; margin-left: auto; margin-right: auto; margin-bottom: 4rem; background: var(--surface-color);">
+        <h2 style="font-size: 1.8rem; font-weight: 800; text-align: center; margin-bottom: 2.5rem; background: var(--gradient-text); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Product & UX Strategy FAQ</h2>
+        
+        <div style="display: grid; grid-template-columns: 1fr; gap: 2rem;">
+            <!-- Repo Architecture -->
+            <div style="background: rgba(0,0,0,0.02); padding: 2rem; border-radius: 16px; border: 1px solid var(--border-color);">
+                <h3 style="margin-top: 0; color: #1e293b; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;"><span style="font-size: 1.5rem;">📦</span> Q1. 이 플랫폼을 위해 총 몇 개의 Git 레포지토리(Repo)가 필요한가요?</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 0; line-height: 1.6; font-size: 0.95rem;">
+                    마이크로서비스 아키텍처 특성상 <strong>최소 3개, 권장 4개</strong>의 레포지토리 분리를 권장합니다.<br><br>
+                    <span style="color: #3b82f6; font-weight: 600;">① Frontend Repo:</span> React Native 기반 모바일 앱 (SeoulWalkApp)<br>
+                    <span style="color: #3b82f6; font-weight: 600;">② API Gateway & Agent Repo:</span> Python(FastAPI) 기반 메인 오케스트레이터 및 LLM 프롬프트/라우팅 로직<br>
+                    <span style="color: #8b5cf6; font-weight: 600;">③ Background Worker Repo:</span> Python/Celery 기반의 새벽 취향 압축 자율 데몬 (Gateway와 분리 권장)<br>
+                    <span style="color: #10b981; font-weight: 600;">④ Presence Server Repo:</span> Node.js 기반 실시간 웹소켓 서버 (GPS 및 상태 추적 전용)
+                </p>
+            </div>
+
+            <!-- UX Strategy (Pokemon Go) -->
+            <div style="background: rgba(0,0,0,0.02); padding: 2rem; border-radius: 16px; border: 1px solid var(--border-color);">
+                <h3 style="margin-top: 0; color: #1e293b; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;"><span style="font-size: 1.5rem;">🗺️</span> Q2. 포켓몬고 스타일의 3D 근방 메인 뷰 + 하단 전체 스냅샷 UX는 괜찮은가요?</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 0; font-size: 0.95rem;">
+                    <strong>매우 훌륭하고 이상적인 접근입니다.</strong> 산책 앱의 본질은 목적지 도달이 아니라 <strong>'지금 내가 걷고 있는 주변의 공간적 몰입감'</strong>입니다. Mapbox의 3D Terrain 및 Building 레이어를 활용해 1인칭 뷰(Pitch ~60도)로 근방을 보여주면 보행자에게 강한 현장감을 줍니다. 동시에 하단 미니맵(전체 스냅샷)으로 전체 남은 거리와 이탈 여부를 확인하게 하면 길 잃을 불안감을 완벽히 해소할 수 있습니다.
+                </p>
+            </div>
+
+            <!-- Latency Strategy -->
+            <div style="background: rgba(0,0,0,0.02); padding: 2rem; border-radius: 16px; border: 1px solid var(--border-color);">
+                <h3 style="margin-top: 0; color: #1e293b; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;"><span style="font-size: 1.5rem;">⏱️</span> Q3. 에이전트 생성에 30초 이상 걸릴 경우, 유저의 흥미를 어떻게 유지하나요?</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 0; font-size: 0.95rem;">
+                    다중 에이전트 라우팅은 외부 API 여러 개를 호출하므로 지연(Latency)이 불가피합니다. 이를 해결하기 위한 두 가지 장치가 필요합니다.<br><br>
+                    <strong>1. 사고 과정의 시각화 (Streaming UI):</strong> 단순한 로딩 스피너 대신, 에이전트가 무슨 생각을 하는지 실시간 텍스트로 노출합니다. <em>(예: "현재 위치 미세먼지 확인 중..." ➔ "그늘 많은 공원 탐색 중..." ➔ "날씨 고려해 경로 최적화 중...")</em><br>
+                    <strong>2. 캐시 퍼스트 (Skill Caching):</strong> 백그라운드 워커가 미리 유저 근처의 좋은 산책로 템플릿(Skill)을 구워둡니다. 요청 시 1~2초 만에 캐시된 기본 경로를 먼저 띄워주고, 백그라운드에서 추가 최적화를 거쳐 부드럽게 경로를 업데이트(Patch)합니다.
+                </p>
+            </div>
+
+            <!-- No Screen Strategy -->
+            <div style="background: rgba(0,0,0,0.02); padding: 2rem; border-radius: 16px; border: 1px solid var(--border-color);">
+                <h3 style="margin-top: 0; color: #1e293b; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;"><span style="font-size: 1.5rem;">🌿</span> Q4. "자연을 보러 와서 폰만 보게 되지 않나?" 이 모순을 어떻게 극복하나요?</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 0; font-size: 0.95rem;">
+                    앱의 최종 가치는 역설적이게도 <strong>'Screen-free (화면을 보지 않는) 경험'</strong>에 있어야 합니다. 폰을 끄고도 자연을 즐길 수 있도록 다음 기능이 필요합니다.<br><br>
+                    <strong>1. 햅틱 및 오디오 네비게이션:</strong> 교차로, 뷰 포인트 등에 도달했을 때 스마트폰 진동 패턴이나 부드러운 오디오(예: "오른쪽 벚꽃길로 진입합니다")로 화면을 보지 않고도 안내합니다.<br>
+                    <strong>2. 관대한 이탈 감지 (주머니 속 수호천사):</strong> 유저가 의도적으로 샛길로 빠져 자연을 탐험할 때 시끄럽게 경고하지 않고 '탐험 모드'로 인지해 침묵합니다. 진짜 막다른 길일 때만 개입합니다.<br>
+                    <strong>3. 산책 후의 회고 (Episodic Report):</strong> 산책 중에는 앱의 존재감을 지우고, 종료 후 걸었던 궤적, 심박수, 머물렀던 스팟 등을 엮어 아름다운 <strong>'산책 리포트'</strong>를 생성해주면 앱의 리텐션이 크게 상승합니다.
+                </p>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
