@@ -1,5 +1,5 @@
 services:
-  db:   # 이름은 다를 수 있습니다 (postgres 등)
+  db:
     platform: linux/amd64
     build: .
     environment:
@@ -16,5 +16,13 @@ services:
       ports:
         - "6379:6379"
 
+  valkey:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_data:/data
+
 volumes:
   postgres_data:
+  valkey_data:

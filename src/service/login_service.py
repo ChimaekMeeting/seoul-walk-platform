@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 
 from src.service.user_service import UserService
 from src.service.auth_service import AuthService
-from src.repository.user_repository import UserRepository
+from src.repository.user.user_repository import UserRepository
 from src.schema.login_schema import LoginUrlResponse
 from src.schema.auth_schema import Status
 

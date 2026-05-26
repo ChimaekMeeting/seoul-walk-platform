@@ -11,7 +11,7 @@ app = FastAPI()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # DB 초기화
-    # init_db()
+    init_db()
 
     yield
 

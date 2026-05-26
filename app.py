@@ -10,6 +10,7 @@ from streamlit.components.v1 import html
 from src.database.postgresql import health_check
 from src.client.weather_client import get_environment_info
 from src.service.route.route_service import get_route
+from src.service.route.child_walk_route import get_child_friendly_route
 from src.repository.graph_repository import load_graph
 from src.service.map_service import fetch_local_db_lines_optimized, fetch_local_db_points
 from src.service.banner_service import get_banner
@@ -90,27 +91,21 @@ def get_weather(lat, lng):
             "air_status": "알 수 없음",
             "air_msg": "",
         }
-
-env = get_weather(lat, lng)
-print(f"weather: {time.time()-t:.2f}s"); t = time.time()
-
-def get_banner_list(weather: dict) -> list:
-    """
-    홈 화면에 노출할 배너 목록을 반환합니다.
-    이벤트 배너가 있으면 맨 앞에 추가하고,
-    나머지는 날씨/시간대 기반 고정 배너로 채웁니다.
-    """
-    hour = datetime.now().hour
+    
+# ── [배너] get_banner_list 함수 ──────────────────
+def get_banner_list(weather: dict, hour: int | None = None) -> list:
+    if hour is None:
+        hour = datetime.now().hour
+    status = weather.get("weather_status", "")
+    msg    = weather.get("weather_msg", "")
     banners = []
 
-    # 1순위: 이벤트 배너 (있으면 맨 앞에)
+    # 1순위: 이벤트 배너
     active_event = get_active_event()
     if active_event:
         banners.append(_get_event_text(active_event))
 
     # 2순위: 시즌 배너 (날씨 기반)
-    status = weather.get("weather_status", "")
-    msg    = weather.get("weather_msg", "")
     if _is_hot(msg):
         if 6 <= hour < 9:
             banners.append(BANNERS["season"]["hot_morning"])
@@ -118,6 +113,7 @@ def get_banner_list(weather: dict) -> list:
             banners.append(BANNERS["season"]["hot_humid"])
         else:
             banners.append(BANNERS["season"]["hot_sunny"])
+
     # 3순위: 고정 배너 (시간대 기반 전체 추가)
     if hour < 17:
         keys = ["dog", "healing"]
@@ -130,6 +126,12 @@ def get_banner_list(weather: dict) -> list:
         banners.append(BANNERS["fixed"][key])
 
     return banners
+# ─────────────────────────────────────────────────
+
+env = get_weather(lat, lng)
+
+env = get_weather(lat, lng)
+print(f"weather: {time.time()-t:.2f}s"); t = time.time()
 
 banners = get_banner_list(weather=env)
 
@@ -310,11 +312,13 @@ if input_mode == "직접 설정":
     selected_mode_label = st.sidebar.selectbox("경로 모드", options=list(mode_options.keys()), key="route_mode_select")
     selected_mode = mode_options[selected_mode_label]
     distance_km = st.sidebar.slider("목표 거리 (km)", 1.0, 10.0, 3.0, 0.5, key="distance_km")
+    child_friendly = st.sidebar.checkbox("아이와 함께 산책", value=False, key="child_friendly")
     safety_w = st.sidebar.slider("안전 가중치", 0.1, 3.0, 1.0, 0.1, key="safety_w")
     nature_w = st.sidebar.slider("자연 가중치", 0.1, 3.0, 1.0, 0.1, key="nature_w")
 else:
     selected_mode = "circular"
     distance_km = 3.0
+    child_friendly = False
     safety_w = 0.5
     nature_w = 0.5
 
@@ -552,6 +556,23 @@ if st.session_state.get("route_result"):
     with col_res5:
         st.metric("자연 지수", f"{result.get('nature_index', '-')} / 10 점")
 
+    if "child_index" in result:
+        st.markdown("### 👨‍👩‍👧 아이 동반 산책 정보")
+        child_profile = result.get("child_profile", {})
+        col_child1, col_child2, col_child3 = st.columns(3)
+        with col_child1:
+            st.metric("아이 동반 지수", f"{result.get('child_index', '-')} / 10 점")
+        with col_child2:
+            st.metric("주변 보호구역", f"{child_profile.get('nearby_protection_zone_count', 0)} 곳")
+        with col_child3:
+            st.metric("주변 놀이시설", f"{child_profile.get('nearby_play_facility_count', 0)} 곳")
+
+        nearby_child_places = child_profile.get("nearby_child_places", [])
+        if nearby_child_places:
+            st.dataframe(nearby_child_places, use_container_width=True)
+        elif child_profile.get("coordinated_child_place_count", 0) == 0:
+            st.caption("KAKAO_API_KEY 또는 공공데이터 API 키가 없으면 시설 좌표 기반 평가는 제한됩니다.")
+
     st.markdown(f"**총 노드 수:** {len(result['nodes'])}개")
     st.markdown(f"**알고리즘:** {result['mode']}")
     
@@ -590,7 +611,10 @@ if input_mode == "직접 설정" and st.session_state.start:
                     "purpose": "산책",
                 }
                 weights = {"safety": safety_w, "nature": nature_w}
-                result = get_route(context, weights, G)
+                if child_friendly:
+                    result = get_child_friendly_route(context, weights, G)
+                else:
+                    result = get_route(context, weights, G)
                 if "error" in result:
                     st.error(f"오류 발생: {result['error']}")
                 else:

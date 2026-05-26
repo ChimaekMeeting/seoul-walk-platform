@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 import os, httpx
 from langchain_core.tools import tool
-from typing import Literal
+from typing import Literal, Optional
 
 load_dotenv()
 
@@ -45,7 +45,7 @@ class KakaoClient:
                 }
 
     @tool
-    async def get_address_from_keyword(keyword: str, lat: float, lon: float, target: Literal["origin", "destination"]):
+    async def get_address_from_keyword(keyword: str, lat: float, lon: float, target: Optional[Literal["origin", "destination"]] = None):
         """
         특정 키워드를 기반으로 주소를 반환하는 함수입니다.
         """
@@ -67,7 +67,7 @@ class KakaoClient:
             return response.json()
 
     @tool
-    async def get_address_from_category(category: str, lat: float, lon: float, target: Literal["origin", "destination"]):
+    async def get_address_from_category(category: str, lat: float, lon: float, target: Optional[Literal["origin", "destination"]] = None):
         """
         특정 카테고리를 기반으로 주소를 반환하는 함수입니다.
         category 인자에는 반드시 다음 중 하나만 입력하세요:
