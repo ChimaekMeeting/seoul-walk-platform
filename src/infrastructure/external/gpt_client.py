@@ -1,20 +1,36 @@
-from typing import Any
+from dotenv import load_dotenv
+import os
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import load_prompt
+from typing import Optional, Any
 
-def request_llm_response(prompt_name: str, variables: dict[str, Any]) -> dict[str, Any]:
-    """
-    LLM/GPT 호출 예정 함수.
-    agent/application은 이 함수의 구현에 직접 의존하지 않고, 추후 adapter 형태로 사용한다.
+load_dotenv()
 
-    담당:
-    - prompt_name과 variables를 받아 LLM provider에 전달할 예정
-    - raw LLM response 또는 structured response를 반환할 예정
+class GPTClient:
+    def __init__(self):
+        self.llm = ChatOpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            model="gpt-4o-mini",
+            temperature=0.1
+        )
 
-    금지:
-    - 현재 단계에서 openai/langchain 등 실제 provider import 금지
-    - route_engine 내부에서 이 함수를 직접 호출하는 구조 금지
+    async def get_response(
+        self,
+        prompt_name,
+        input_variables,
+        parser: Optional[Any] = None,
+        llm: Optional[Any] = None
+    ):
+        """
+        .yaml 프롬프트를 기반으로 GPT가 생성한 응답을 반환합니다.
+        """
+        prompt_template = load_prompt(path=f"src/prompt/{prompt_name}.yaml", encoding="utf-8")
+        
+        target_llm = llm if llm else self.llm
 
-    TODO:
-    - prompt registry 위치를 prompts/로 둘지 agent/ 내부로 둘지 정한다.
-    - structured output parsing 책임을 agent/application 중 어디에 둘지 정한다.
-    """
-    pass
+        if parser:
+            chain = prompt_template | target_llm | parser
+        else:
+            chain = prompt_template | target_llm
+        
+        return await chain.ainvoke(input_variables)
