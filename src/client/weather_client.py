@@ -1,13 +1,12 @@
-# [이승리] 기상청 + 에어코리아 API
-# src/client/weather_client.py
-import requests
+import httpx
 import os
 import math
+import asyncio
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+
 load_dotenv()
 
-# ── 날씨 상태 → 메시지 딕셔너리 ──────────────────────────────
 WEATHER_MESSAGE: dict[str, str] = {
     "맑음":     "산책하기 딱 좋은 날씨예요! ☀️",
     "구름많음": "구름이 조금 있지만 산책하기 좋아요 🌤",
@@ -40,67 +39,87 @@ AIR_TO_PREFERENCE: dict[str, str | None] = {
     "매우나쁨": "safety",
 }
 
+# 모듈 레벨 헬퍼 (하위 호환)
 def get_weather_message(condition: str) -> str:
     return WEATHER_MESSAGE.get(condition, "날씨 정보를 불러오는 중...")
 
 def get_air_message(condition: str) -> str:
     return AIR_MESSAGE.get(condition, "대기질 정보를 불러오는 중...")
 
-def latlon_to_grid(lat: float, lng: float) -> tuple[int, int]:
-    RE = 6371.00877
-    GRID = 5.0
-    SLAT1, SLAT2 = 30.0, 60.0
-    OLON, OLAT = 126.0, 38.0
-    XO, YO = 43, 136
-    DEGRAD = math.pi / 180.0
 
-    re = RE / GRID
-    slat1 = SLAT1 * DEGRAD
-    slat2 = SLAT2 * DEGRAD
-    olon  = OLON  * DEGRAD
-    olat  = OLAT  * DEGRAD
+class WeatherClient:
+    def __init__(self):
+        WEATHER_URL = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst"
+        AIR_URL     = "http://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty"
 
-    sn = math.log(math.cos(slat1) / math.cos(slat2))
-    sn /= math.log(math.tan(math.pi * 0.25 + slat2 * 0.5) /
-                   math.tan(math.pi * 0.25 + slat1 * 0.5))
-    sf = math.pow(math.tan(math.pi * 0.25 + slat1 * 0.5), sn)
-    sf *= math.cos(slat1) / sn
-    ro = re * sf / math.pow(math.tan(math.pi * 0.25 + olat * 0.5), sn)
+    async def get_environment_info(self, lat: float, lng: float) -> dict:
+        """
+        날씨 + 대기질을 병렬 조회 후 통합 결과 반환
+        """
+        nx, ny = self._latlon_to_grid(lat, lng)
+        (weather_status, weather_msg), (air_status, air_msg) = await asyncio.gather(
+            self._get_weather(nx, ny),
+            self._get_air_quality(),
+        )
 
-    ra = re * sf / math.pow(math.tan(math.pi * 0.25 + lat * DEGRAD * 0.5), sn)
-    theta = lng * DEGRAD - olon
-    if theta > math.pi:  theta -= 2.0 * math.pi
-    if theta < -math.pi: theta += 2.0 * math.pi
-    theta *= sn
+        auto_pref = (
+            WEATHER_TO_PREFERENCE.get(weather_status) or
+            AIR_TO_PREFERENCE.get(air_status)
+        )
 
-    nx = int(ra * math.sin(theta) + XO + 0.5)
-    ny = int(ro - ra * math.cos(theta) + YO + 0.5)
-    return nx, ny
+        return {
+            "weather_status": weather_status,
+            "weather_msg":    weather_msg,
+            "air_status":     air_status,
+            "air_msg":        air_msg,
+            "auto_pref":      auto_pref,
+            "display_msg":    f"{weather_msg}\n{air_msg}",
+            "env_data": {
+                "weather":   weather_status,
+                "air":       air_status,
+                "auto_pref": auto_pref,
+                "lat":       lat,
+                "lng":       lng,
+            },
+        }
 
-def get_weather_korea(nx: int = 60, ny: int = 127) -> tuple[str, str]:
-    api_key = os.getenv("WEATHER_API_KEY", "")
-    if not api_key:
-        return "맑음", get_weather_message("맑음")
+    async def _get_weather(self, nx: int, ny: int) -> tuple[str, str]:
+        """
+        날씨 예보 조회 및 상태 결정
+        """
+        api_key = os.getenv("WEATHER_API_KEY", "")
+        if not api_key:
+            return "맑음", get_weather_message("맑음")
 
-    try:
-        now = datetime.now()
+        base_date, base_time = self._get_base_time()
+        items = await self._fetch_weather_forecast(nx, ny, base_date, base_time, api_key)
+        if items is None:
+            return "맑음", get_weather_message("맑음")
 
-        hours = [2, 5, 8, 11, 14, 17, 20, 23]
+        status = self._parse_weather_status(items)
+        return status, get_weather_message(status)
 
-        # 🔥 현재 시간보다 이전 발표 시간 선택
-        valid_hours = [h for h in hours if h < now.hour]
+    async def _get_air_quality(self, station: str = "서울") -> tuple[str, str]:
+        """
+        대기질 조회 및 상태 결정
+        """
+        api_key = os.getenv("AIR_API_KEY", "")
+        if not api_key:
+            return "좋음", get_air_message("좋음")
 
-        if not valid_hours:
-            # 🔥 자정~2시 사이 → 전날 23시 사용
-            base_hour = 23
-            base_date = (now - timedelta(days=1)).strftime("%Y%m%d")
-        else:
-            base_hour = max(valid_hours)
-            base_date = now.strftime("%Y%m%d")
+        item = await self._fetch_air_quality_data(station, api_key)
+        if item is None:
+            return "보통", get_air_message("보통")
 
-        base_time = f"{base_hour:02d}00"
+        status = self._parse_air_status(item)
+        return status, get_air_message(status)
 
-        url    = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst"
+    async def _fetch_weather_forecast(
+        self, nx: int, ny: int, base_date: str, base_time: str, api_key: str
+    ) -> list | None:
+        """
+        날씨 예보 API HTTP 요청
+        """
         params = {
             "serviceKey": api_key,
             "pageNo":     1,
@@ -111,9 +130,37 @@ def get_weather_korea(nx: int = 60, ny: int = 127) -> tuple[str, str]:
             "nx":         nx,
             "ny":         ny,
         }
-        resp  = requests.get(url, params=params, timeout=5)
-        items = resp.json()["response"]["body"]["items"]["item"]
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.get(self.WEATHER_URL, params=params, timeout=5)
+                return res.json()["response"]["body"]["items"]["item"]
+        except Exception:
+            return None
 
+    async def _fetch_air_quality_data(self, station: str, api_key: str) -> dict | None:
+        """
+        대기질 API HTTP 요청
+        """
+        params = {
+            "serviceKey":  api_key,
+            "returnType":  "json",
+            "numOfRows":   1,
+            "pageNo":      1,
+            "stationName": station,
+            "dataTerm":    "DAILY",
+            "ver":         "1.0",
+        }
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.get(self.AIR_URL, params=params, timeout=5)
+                return res.json()["response"]["body"]["items"][0]
+        except Exception:
+            return None
+
+    def _parse_weather_status(self, items: list) -> str:
+        """
+        예보 아이템에서 날씨 상태 문자열 추출
+        """
         pty_map = {"0": "없음", "1": "비", "2": "비", "3": "눈", "4": "소나기"}
         sky_map = {"1": "맑음", "3": "구름많음", "4": "흐림"}
 
@@ -125,66 +172,64 @@ def get_weather_korea(nx: int = 60, ny: int = 127) -> tuple[str, str]:
                 sky = item["fcstValue"]
 
         if pty != "0":
-            status = pty_map.get(pty, "맑음")
-        else:
-            status = sky_map.get(sky, "맑음")
+            return pty_map.get(pty, "맑음")
+        return sky_map.get(sky, "맑음")
 
-        return status, get_weather_message(status)
-
-    except Exception as e:
-        return "맑음", get_weather_message("맑음")
-
-def get_air_quality(station: str = "서울") -> tuple[str, str]:
-    api_key = os.getenv("AIR_API_KEY", "")
-    if not api_key:
-        return "좋음", get_air_message("좋음")
-
-    try:
-        url    = "http://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty"
-        params = {
-            "serviceKey":  api_key,
-            "returnType":  "json",
-            "numOfRows":   1,
-            "pageNo":      1,
-            "stationName": station,
-            "dataTerm":    "DAILY",
-            "ver":         "1.0",
-        }
-        resp  = requests.get(url, params=params, timeout=5)
-        item  = resp.json()["response"]["body"]["items"][0]
-        grade = item.get("pm10Grade1h", "1")
-
+    def _parse_air_status(self, item: dict) -> str:
+        """
+        대기질 아이템에서 등급 문자열 추출
+        """
         grade_map = {"1": "좋음", "2": "보통", "3": "나쁨", "4": "매우나쁨"}
-        status = grade_map.get(str(grade), "보통")
+        grade = item.get("pm10Grade1h", "1")
+        return grade_map.get(str(grade), "보통")
 
-        return status, get_air_message(status)
+    def _get_base_time(self) -> tuple[str, str]:
+        """
+        API 호출에 사용할 발표 기준 날짜·시간 계산
+        """
+        now = datetime.now()
+        hours = [2, 5, 8, 11, 14, 17, 20, 23]
+        valid_hours = [h for h in hours if h < now.hour]
 
-    except Exception as e:
-        return "보통", get_air_message("보통")
+        if not valid_hours:
+            return (now - timedelta(days=1)).strftime("%Y%m%d"), "2300"
 
-def get_environment_info(lat: float = 37.5665,
-                         lng: float = 126.9780) -> dict:
-    nx, ny = latlon_to_grid(lat, lng)
-    weather_status, weather_msg = get_weather_korea(nx, ny)
-    air_status,     air_msg     = get_air_quality()
+        base_hour = max(valid_hours)
+        return now.strftime("%Y%m%d"), f"{base_hour:02d}00"
 
-    auto_pref = (
-        WEATHER_TO_PREFERENCE.get(weather_status) or
-        AIR_TO_PREFERENCE.get(air_status)
-    )
+    @staticmethod
+    def _latlon_to_grid(lat: float, lng: float) -> tuple[int, int]:
+        """
+        위경도 → 기상청 격자 좌표 변환
+        """
+        RE = 6371.00877
+        GRID = 5.0
+        SLAT1, SLAT2 = 30.0, 60.0
+        OLON, OLAT = 126.0, 38.0
+        XO, YO = 43, 136
+        DEGRAD = math.pi / 180.0
 
-    return {
-        "weather_status": weather_status,
-        "weather_msg":    weather_msg,
-        "air_status":     air_status,
-        "air_msg":        air_msg,
-        "auto_pref":      auto_pref,
-        "display_msg":    f"{weather_msg}\n{air_msg}",
-        "env_data": {
-            "weather":   weather_status,
-            "air":       air_status,
-            "auto_pref": auto_pref,
-            "lat":       lat,
-            "lng":       lng,
-        }
-    }
+        re    = RE / GRID
+        slat1 = SLAT1 * DEGRAD
+        slat2 = SLAT2 * DEGRAD
+        olon  = OLON  * DEGRAD
+        olat  = OLAT  * DEGRAD
+
+        sn = math.log(math.cos(slat1) / math.cos(slat2))
+        sn /= math.log(
+            math.tan(math.pi * 0.25 + slat2 * 0.5) /
+            math.tan(math.pi * 0.25 + slat1 * 0.5)
+        )
+        sf = math.pow(math.tan(math.pi * 0.25 + slat1 * 0.5), sn)
+        sf *= math.cos(slat1) / sn
+        ro = re * sf / math.pow(math.tan(math.pi * 0.25 + olat * 0.5), sn)
+
+        ra    = re * sf / math.pow(math.tan(math.pi * 0.25 + lat * DEGRAD * 0.5), sn)
+        theta = lng * DEGRAD - olon
+        if theta >  math.pi: theta -= 2.0 * math.pi
+        if theta < -math.pi: theta += 2.0 * math.pi
+        theta *= sn
+
+        nx = int(ra * math.sin(theta) + XO + 0.5)
+        ny = int(ro - ra * math.cos(theta) + YO + 0.5)
+        return nx, ny

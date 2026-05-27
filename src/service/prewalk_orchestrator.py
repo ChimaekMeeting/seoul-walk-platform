@@ -31,7 +31,7 @@ class PrewalkOrchestrator:
         ChatSessionRepository.save(user_id, thread_id)
 
         # 날씨 정보 획득
-        weather_data, init_message = self.weather_checker.generate_init_message(lat, lon)
+        weather_data, init_message = await self.weather_checker.generate_init_message(lat, lon)
         current_location = await self.kakao_client.get_address_from_coords(lat, lon)
 
         # 초기 상태 정의
