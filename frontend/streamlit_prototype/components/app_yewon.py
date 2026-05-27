@@ -22,10 +22,10 @@ from frontend.streamlit_prototype.services.map_service import (
     fetch_local_db_lines_optimized,
     fetch_local_db_points,
 )
-from src.service.banner_service import get_banner
+from src.service.route.banner_service import get_banner
 from streamlit.components.v1 import html as st_html
 from chatbot_app import init_session, chat_and_assign_weights, run_async
-from src.service.banner_service import (
+from src.service.route.banner_service import (
     get_banner,
     get_active_event,
     _get_event_text,

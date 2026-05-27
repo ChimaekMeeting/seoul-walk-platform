@@ -3,7 +3,7 @@ import json
 import pandas as pd
 import streamlit as st
 
-from src.service.map_service import fetch_kakao_facilities, fetch_db_points, fetch_db_lines
+from src.service.route.map_service import fetch_kakao_facilities, fetch_db_points, fetch_db_lines
 
 
 @st.cache_data(ttl=3600)

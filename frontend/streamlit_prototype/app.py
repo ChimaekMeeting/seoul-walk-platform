@@ -12,10 +12,10 @@ from src.service.route.route_service import get_route
 from src.service.route.child_walk_route import get_child_friendly_route
 from src.repository.graph_repository_v2 import load_graph_v2 as load_graph
 from frontend.streamlit_prototype.services.map_service import fetch_local_db_lines_optimized, fetch_local_db_points
-from src.service.banner_service import get_banner
+from src.service.route.banner_service import get_banner
 from streamlit.components.v1 import html as st_html
 from chatbot_app import init_session, chat_and_assign_weights, run_async
-from src.service.banner_service import (
+from src.service.route.banner_service import (
     get_banner, get_active_event, _get_event_text, BANNERS, _is_hot, _is_humid
 )
 from datetime import datetime

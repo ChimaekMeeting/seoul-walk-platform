@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from src.repository.user.user_repository import UserRepository
 from src.entity.user import User
-from src.service.auth_service import AuthService
+from src.service.user.auth_service import AuthService
 
 class UserService:
     def __init__(self, auth_service: AuthService):

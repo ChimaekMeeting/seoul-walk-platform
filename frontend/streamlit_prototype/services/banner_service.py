@@ -1,6 +1,6 @@
 import streamlit as st
 
-from src.service.banner_service import get_events
+from src.service.route.banner_service import get_events
 
 
 @st.cache_data(ttl=3600)

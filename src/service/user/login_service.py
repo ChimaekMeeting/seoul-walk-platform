@@ -4,8 +4,8 @@ import os
 from typing import Optional
 from urllib.parse import urlencode
 
-from src.service.user_service import UserService
-from src.service.auth_service import AuthService
+from src.service.user.user_service import UserService
+from src.service.user.auth_service import AuthService
 from src.repository.user.user_repository import UserRepository
 from src.interfaces.schema.login_schema import LoginUrlResponse
 from src.interfaces.schema.auth_schema import Status
