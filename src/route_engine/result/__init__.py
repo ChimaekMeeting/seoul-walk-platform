@@ -1,3 +1,0 @@
-"""
-Result Builder Layer
-"""
