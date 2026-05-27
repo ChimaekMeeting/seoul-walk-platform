@@ -1,19 +1,22 @@
+import asyncio
 import pandas as pd
 import streamlit as st
 import json
 from sqlalchemy import text
 from src.entity.base import engine  # 프로젝트 설정에 따른 DB 엔진 임포트
-from src.api.kakao_api import get_kakao_places_page
+from src.infrastructure.external.client.kakao_client import KakaoClient
+
+kakao_client = KakaoClient()
 
 # --- 1. 카카오 API 시설물 조회 (기존 기능 유지) ---
 @st.cache_data(ttl=3600)
-def fetch_kakao_facilities_df(lat, lon, category_code=None, keyword=None, radius=2000):
+async def fetch_kakao_facilities_df(lat, lon, category_code=None, keyword=None, radius=2000):
     """
     카카오 API 결과물을 지도에 표시하기 좋은 데이터프레임으로 변환합니다.
     """
     all_places = []
     for page in range(1, 4):  # 최대 45개 수집
-        data = get_kakao_places_page(lat, lon, page, radius, category_code, keyword)
+        data = await kakao_client.search_places(lat, lon, page, radius, category_code=category_code, keyword=keyword)
         if not data:
             break
         places = data.get("documents", [])

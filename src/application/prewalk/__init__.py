@@ -1,3 +1,0 @@
-"""
-Prewalk Flow Assembly
-"""

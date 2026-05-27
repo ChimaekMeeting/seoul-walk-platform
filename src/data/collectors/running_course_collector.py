@@ -59,8 +59,8 @@ RIVER_COURSES: list[dict] = [
         "difficulty": "easy",
         "description": "반포한강공원 ~ 이촌한강공원 편도 구간. 평탄하고 신호등 없음.",
         "source": "서울시 열린데이터광장",
-        "start_lat": 37.5121, "start_lng": 126.9994,
-        "end_lat":   37.5228, "end_lng": 126.9706,
+        "start_lat": 37.5121, "start_lon": 126.9994,
+        "end_lat":   37.5228, "end_lon": 126.9706,
         "tags": ["런닝", "다이어트", "하천변", "야간가능"],
     },
     {
@@ -71,8 +71,8 @@ RIVER_COURSES: list[dict] = [
         "difficulty": "easy",
         "description": "여의도한강공원 순환 루프. 자전거도로 겸용 트랙 포함.",
         "source": "서울시 열린데이터광장",
-        "start_lat": 37.5285, "start_lng": 126.9326,
-        "end_lat":   37.5285, "end_lng": 126.9326,
+        "start_lat": 37.5285, "start_lon": 126.9326,
+        "end_lat":   37.5285, "end_lon": 126.9326,
         "tags": ["런닝", "다이어트", "하천변", "자전거도로", "야간가능"],
     },
     {
@@ -83,8 +83,8 @@ RIVER_COURSES: list[dict] = [
         "difficulty": "easy",
         "description": "청계광장 ~ 고산자교 편도. 도심 속 평탄 하천변 코스.",
         "source": "서울시 열린데이터광장",
-        "start_lat": 37.5700, "start_lng": 126.9784,
-        "end_lat":   37.5637, "end_lng": 127.0636,
+        "start_lat": 37.5700, "start_lon": 126.9784,
+        "end_lat":   37.5637, "end_lon": 127.0636,
         "tags": ["런닝", "다이어트", "하천변"],
     },
     {
@@ -95,8 +95,8 @@ RIVER_COURSES: list[dict] = [
         "difficulty": "easy",
         "description": "안양천 서울 구간 편도. 한강 합류 지점까지 평탄 직선 코스.",
         "source": "서울시 열린데이터광장",
-        "start_lat": 37.5270, "start_lng": 126.8560,
-        "end_lat":   37.5390, "end_lng": 126.8780,
+        "start_lat": 37.5270, "start_lon": 126.8560,
+        "end_lat":   37.5390, "end_lon": 126.8780,
         "tags": ["런닝", "다이어트", "하천변"],
     },
     {
@@ -107,8 +107,8 @@ RIVER_COURSES: list[dict] = [
         "difficulty": "medium",
         "description": "중랑천 서울 구간 편도. 자전거도로 겸용 트랙 포함.",
         "source": "서울시 열린데이터광장",
-        "start_lat": 37.6490, "start_lng": 127.0760,
-        "end_lat":   37.5390, "end_lng": 127.0780,
+        "start_lat": 37.6490, "start_lon": 127.0760,
+        "end_lat":   37.5390, "end_lon": 127.0780,
         "tags": ["런닝", "다이어트", "하천변", "자전거도로"],
     },
 ]
@@ -159,9 +159,9 @@ def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def _point_wkt(lat: float, lng: float) -> str:
-    """위경도 → ``SRID=4326;POINT(lng lat)`` WKT 문자열 반환."""
-    return f"SRID=4326;POINT({lng} {lat})"
+def _point_wkt(lat: float, lon: float) -> str:
+    """위경도 → ``SRID=4326;POINT(lon lat)`` WKT 문자열 반환."""
+    return f"SRID=4326;POINT({lon} {lat})"
 
 
 def _line_wkt(start_lat: float, start_lng: float, end_lat: float, end_lng: float) -> str:
@@ -258,8 +258,8 @@ def load_river_courses(session: Session) -> int:
     """
     count = 0
     for item in RIVER_COURSES:
-        s_lat, s_lng = item["start_lat"], item["start_lng"]
-        e_lat, e_lng = item["end_lat"],   item["end_lng"]
+        s_lat, s_lon = item["start_lat"], item["start_lon"]
+        e_lat, e_lon = item["end_lat"],   item["end_lon"]
 
         course_data = {
             "name":        item["name"],
@@ -269,9 +269,9 @@ def load_river_courses(session: Session) -> int:
             "difficulty":  item.get("difficulty", _classify_difficulty(item.get("distance_m"))),
             "description": item.get("description"),
             "source":      item.get("source"),
-            "geom":        _line_wkt(s_lat, s_lng, e_lat, e_lng),
-            "start_geom":  _point_wkt(s_lat, s_lng),
-            "end_geom":    _point_wkt(e_lat, e_lng),
+            "geom":        _line_wkt(s_lat, s_lon, e_lat, e_lon),
+            "start_geom":  _point_wkt(s_lat, s_lon),
+            "end_geom":    _point_wkt(e_lat, e_lon),
         }
         _insert_course(session, course_data, item["tags"])
         count += 1
@@ -318,19 +318,19 @@ def load_park_courses(session: Session, xlsx_path: str) -> int:
     count = 0
     for _, row in df_running.iterrows():
         # WGS84 좌표 사용 (X=경도, Y=위도)
-        lng = row.get("X좌표(WGS84)")
+        lon = row.get("X좌표(WGS84)")
         lat = row.get("Y좌표(WGS84)")
 
-        if pd.isna(lng) or pd.isna(lat):
+        if pd.isna(lon) or pd.isna(lat):
             continue
 
         try:
-            lat, lng = float(lat), float(lng)
+            lat, lon = float(lat), float(lon)
         except (ValueError, TypeError):
             continue
 
         # 좌표 유효성 검사 (서울 범위)
-        if not (37.4 <= lat <= 37.7 and 126.7 <= lng <= 127.2):
+        if not (37.4 <= lat <= 37.7 and 126.7 <= lon <= 127.2):
             continue
 
         park_name = str(row["공원명"]).strip()
@@ -373,8 +373,8 @@ def load_park_courses(session: Session, xlsx_path: str) -> int:
             "description": f"{park_name} 내부 순환 런닝 코스.",
             "source":      "서울시 열린데이터광장 — 서울시 주요 공원현황",
             "geom":        None,
-            "start_geom":  _point_wkt(lat, lng),
-            "end_geom":    _point_wkt(lat, lng),  # 순환이므로 동일
+            "start_geom":  _point_wkt(lat, lon),
+            "end_geom":    _point_wkt(lat, lon),  # 순환이므로 동일
         }
         _insert_course(session, course_data, config["tags"])
         count += 1
@@ -407,9 +407,9 @@ def load_trail_courses(session: Session, csv_path: str) -> int:
     diff_col  = _find_col(df, ["난이도[한글]", "난이도", "difficulty"])
     desc_col  = _find_col(df, ["둘레길 설명", "코스설명", "설명"])
     s_lat_col = _find_col(df, ["출발지위도", "출발위도", "시작위도", "START_LAT"])
-    s_lng_col = _find_col(df, ["출발지경도", "출발경도", "시작경도", "START_LNG"])
+    s_lon_col = _find_col(df, ["출발지경도", "출발경도", "시작경도", "START_LNG"])
     e_lat_col = _find_col(df, ["도착지위도", "도착위도", "종료위도", "END_LAT"])
-    e_lng_col = _find_col(df, ["도착지경도", "도착경도", "종료경도", "END_LNG"])
+    e_lon_col = _find_col(df, ["도착지경도", "도착경도", "종료경도", "END_LNG"])
 
     if not name_col:
         print(
@@ -420,7 +420,7 @@ def load_trail_courses(session: Session, csv_path: str) -> int:
     # 난이도 한글 → 영문 변환
     _diff_map = {"상급": "hard", "중급": "medium", "하급": "easy", "초급": "easy"}
 
-    no_coord = not (s_lat_col and s_lng_col)
+    no_coord = not (s_lat_col and s_lon_col)
     if no_coord:
         print("  ℹ️  좌표 컬럼 없음 — 둘레길 코스를 좌표 NULL로 삽입합니다.")
 
@@ -461,19 +461,19 @@ def load_trail_courses(session: Session, csv_path: str) -> int:
         else:
             try:
                 s_lat = float(row[s_lat_col])
-                s_lng = float(row[s_lng_col])
+                s_lon = float(row[s_lon_col])
             except (ValueError, TypeError):
                 continue
-            if not (37.4 <= s_lat <= 37.7 and 126.7 <= s_lng <= 127.2):
+            if not (37.4 <= s_lat <= 37.7 and 126.7 <= s_lon <= 127.2):
                 continue
             try:
                 e_lat = float(row[e_lat_col]) if e_lat_col else s_lat
-                e_lng = float(row[e_lng_col]) if e_lng_col else s_lng
+                e_lon = float(row[e_lon_col]) if e_lon_col else s_lon
             except (ValueError, TypeError):
-                e_lat, e_lng = s_lat, s_lng
+                e_lat, e_lon = s_lat, s_lon
             if dist_m is None:
-                dist_m = _haversine_m(s_lat, s_lng, e_lat, e_lng)
-            is_circular = _haversine_m(s_lat, s_lng, e_lat, e_lng) < 200
+                dist_m = _haversine_m(s_lat, s_lon, e_lat, e_lon)
+            is_circular = _haversine_m(s_lat, s_lon, e_lat, e_lon) < 200
             course_data = {
                 "name":        f"{name} 둘레길",
                 "course_type": "trail",
@@ -482,9 +482,9 @@ def load_trail_courses(session: Session, csv_path: str) -> int:
                 "difficulty":  difficulty,
                 "description": desc,
                 "source":      "서울시 열린데이터광장 — 서울 둘레길",
-                "geom":        _line_wkt(s_lat, s_lng, e_lat, e_lng),
-                "start_geom":  _point_wkt(s_lat, s_lng),
-                "end_geom":    _point_wkt(e_lat, e_lng),
+                "geom":        _line_wkt(s_lat, s_lon, e_lat, e_lon),
+                "start_geom":  _point_wkt(s_lat, s_lon),
+                "end_geom":    _point_wkt(e_lat, e_lon),
             }
 
         _insert_course(session, course_data, ["런닝", "다이어트", "둘레길"])
@@ -544,16 +544,16 @@ def load_river_geojson_courses(session: Session, geojson_path: str) -> int:
         if dist_m is None:
             dist_m = geom.length * 111_000  # degree → 미터 근사
 
-        # 시작·끝 좌표 (lng, lat 순서)
+        # 시작·끝 좌표 (lon, lat 순서)
         base_geom = (
             max(geom.geoms, key=lambda g: g.length)
             if isinstance(geom, MultiLineString)
             else geom
         )
-        s_lng, s_lat = base_geom.coords[0][:2]
-        e_lng, e_lat = base_geom.coords[-1][:2]
+        s_lon, s_lat = base_geom.coords[0][:2]
+        e_lon, e_lat = base_geom.coords[-1][:2]
 
-        if not (37.4 <= s_lat <= 37.7 and 126.7 <= s_lng <= 127.2):
+        if not (37.4 <= s_lat <= 37.7 and 126.7 <= s_lon <= 127.2):
             continue
 
         course_data = {
@@ -565,8 +565,8 @@ def load_river_geojson_courses(session: Session, geojson_path: str) -> int:
             "description": f"{name} 하천변 런닝 코스.",
             "source":      "서울시 열린데이터광장 — 서울시 하천",
             "geom":        wkt,
-            "start_geom":  _point_wkt(s_lat, s_lng),
-            "end_geom":    _point_wkt(e_lat, e_lng),
+            "start_geom":  _point_wkt(s_lat, s_lon),
+            "end_geom":    _point_wkt(e_lat, e_lon),
         }
         _insert_course(session, course_data, ["런닝", "다이어트", "하천변"])
         count += 1
@@ -597,11 +597,11 @@ def load_bike_courses(session: Session, csv_path: str) -> int:
     name_col  = _find_col(df, ["노선명", "구간명", "자전거도로명", "시설명"])
     dist_col  = _find_col(df, ["총길이(km)", "연장(m)", "연장", "거리(m)", "구간길이", "거리(km)", "거리"])
     s_lat_col = _find_col(df, ["기점위도", "시작위도", "출발위도", "Y좌표시작(WGS84)", "시작Y", "START_LAT"])
-    s_lng_col = _find_col(df, ["기점경도", "시작경도", "출발경도", "X좌표시작(WGS84)", "시작X", "START_LNG"])
+    s_lon_col = _find_col(df, ["기점경도", "시작경도", "출발경도", "X좌표시작(WGS84)", "시작X", "START_LNG"])
     e_lat_col = _find_col(df, ["종점위도", "종료위도", "도착위도", "Y좌표끝(WGS84)", "끝Y", "END_LAT"])
-    e_lng_col = _find_col(df, ["종점경도", "종료경도", "도착경도", "X좌표끝(WGS84)", "끝X", "END_LNG"])
+    e_lon_col = _find_col(df, ["종점경도", "종료경도", "도착경도", "X좌표끝(WGS84)", "끝X", "END_LNG"])
 
-    if not all([name_col, s_lat_col, s_lng_col]):
+    if not all([name_col, s_lat_col, s_lon_col]):
         print(
             f"  ⚠️  필수 컬럼(이름·출발좌표) 없음 — 자전거도로 삽입 건너뜀. "
             f"실제 컬럼: {list(df.columns)}"
@@ -616,18 +616,18 @@ def load_bike_courses(session: Session, csv_path: str) -> int:
 
         try:
             s_lat = float(row[s_lat_col])
-            s_lng = float(row[s_lng_col])
+            s_lon = float(row[s_lon_col])
         except (ValueError, TypeError):
             continue
 
-        if not (37.4 <= s_lat <= 37.7 and 126.7 <= s_lng <= 127.2):
+        if not (37.4 <= s_lat <= 37.7 and 126.7 <= s_lon <= 127.2):
             continue
 
         try:
             e_lat = float(row[e_lat_col]) if e_lat_col else s_lat
-            e_lng = float(row[e_lng_col]) if e_lng_col else s_lng
+            e_lon = float(row[e_lon_col]) if e_lon_col else s_lon
         except (ValueError, TypeError):
-            e_lat, e_lng = s_lat, s_lng
+            e_lat, e_lon = s_lat, s_lon
 
         dist_m: Optional[float] = None
         if dist_col:
@@ -641,7 +641,7 @@ def load_bike_courses(session: Session, csv_path: str) -> int:
             except (ValueError, TypeError):
                 pass
         if dist_m is None:
-            dist_m = _haversine_m(s_lat, s_lng, e_lat, e_lng)
+            dist_m = _haversine_m(s_lat, s_lon, e_lat, e_lon)
 
         course_data = {
             "name":        f"{name} 자전거도로",
@@ -651,9 +651,9 @@ def load_bike_courses(session: Session, csv_path: str) -> int:
             "difficulty":  _classify_difficulty(dist_m),
             "description": f"{name} 구간 자전거도로 런닝 코스.",
             "source":      "서울시 열린데이터광장 — 서울시 자전거도로",
-            "geom":        _line_wkt(s_lat, s_lng, e_lat, e_lng),
-            "start_geom":  _point_wkt(s_lat, s_lng),
-            "end_geom":    _point_wkt(e_lat, e_lng),
+            "geom":        _line_wkt(s_lat, s_lon, e_lat, e_lon),
+            "start_geom":  _point_wkt(s_lat, s_lon),
+            "end_geom":    _point_wkt(e_lat, e_lon),
         }
         _insert_course(session, course_data, ["런닝", "다이어트", "자전거도로"])
         count += 1
@@ -727,8 +727,8 @@ def update_trail_coords(session: Session) -> int:
         if coords is None:
             continue
 
-        (s_lat, s_lng), (e_lat, e_lng) = coords
-        dist_m = round(_haversine_m(s_lat, s_lng, e_lat, e_lng), 0)
+        (s_lat, s_lon), (e_lat, e_lon) = coords
+        dist_m = round(_haversine_m(s_lat, s_lon, e_lat, e_lon), 0)
 
         session.execute(
             _text("""
@@ -740,9 +740,9 @@ def update_trail_coords(session: Session) -> int:
                 WHERE id = :id
             """),
             {
-                "geom":       f"LINESTRING({s_lng} {s_lat}, {e_lng} {e_lat})",
-                "start_geom": f"POINT({s_lng} {s_lat})",
-                "end_geom":   f"POINT({e_lng} {e_lat})",
+                "geom":       f"LINESTRING({s_lon} {s_lat}, {e_lon} {e_lat})",
+                "start_geom": f"POINT({s_lon} {s_lat})",
+                "end_geom":   f"POINT({e_lon} {e_lat})",
                 "dist_m":     dist_m,
                 "id":         course_id,
             },

@@ -64,9 +64,9 @@ class BaseNetworkCollector:
                 "node_id":        nid,
                 "is_underground": False,
                 "is_overpass":    False,
-                "geom":           WKTElement(f"POINT({lng} {lat})", srid=4326),
+                "geom":           WKTElement(f"POINT({lon} {lat})", srid=4326),
             }
-            for nid, (lng, lat) in node_map.items()
+            for nid, (lon, lat) in node_map.items()
         ]
 
     def save(self):

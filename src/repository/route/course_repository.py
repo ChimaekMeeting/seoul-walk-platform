@@ -26,7 +26,7 @@ from src.entity.course import Course, CourseTag
 
 def get_courses_near(
     lat: float,
-    lng: float,
+    lon: float,
     radius_m: float = 5_000,
     is_circular: Optional[bool] = None,
     course_types: Optional[list[str]] = None,
@@ -44,7 +44,7 @@ def get_courses_near(
 
     Args:
         lat          (float)            : 출발점 위도.
-        lng          (float)            : 출발점 경도.
+        lon          (float)            : 출발점 경도.
         radius_m     (float)            : 검색 반경 (미터). 기본값 5,000.
         is_circular  (bool, optional)   : ``True``=순환, ``False``=편도, ``None``=전체.
         course_types (list[str], optional): 포함할 코스 유형 목록 (OR 조건).
@@ -67,18 +67,18 @@ def get_courses_near(
                 "description"           : str | None,
                 "tags"                  : list[str],
                 "start_lat"             : float,
-                "start_lng"             : float,
+                "start_lon"             : float,
                 "end_lat"               : float | None,
-                "end_lng"               : float | None,
+                "end_lon"               : float | None,
                 "distance_from_origin_m": float,  # 출발점까지의 거리 (미터)
             }
     """
     with get_postgresql_db() as db:
         # ── 동적 WHERE 절 구성 ──────────────────────────────
         conditions = [
-            "ST_DWithin(c.start_geom::geography, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :radius)"
+            "ST_DWithin(c.start_geom::geography, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, :radius)"
         ]
-        params: dict = {"lat": lat, "lng": lng, "radius": radius_m, "limit": limit}
+        params: dict = {"lat": lat, "lon": lon, "radius": radius_m, "limit": limit}
 
         if is_circular is not None:
             conditions.append("c.is_circular = :is_circular")
@@ -118,12 +118,12 @@ def get_courses_near(
                 c.difficulty,
                 c.description,
                 ST_Y(c.start_geom::geometry)  AS start_lat,
-                ST_X(c.start_geom::geometry)  AS start_lng,
+                ST_X(c.start_geom::geometry)  AS start_lon,
                 ST_Y(c.end_geom::geometry)    AS end_lat,
-                ST_X(c.end_geom::geometry)    AS end_lng,
+                ST_X(c.end_geom::geometry)    AS end_lon,
                 ST_Distance(
                     c.start_geom::geography,
-                    ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography
+                    ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography
                 ) AS distance_from_origin_m
             FROM courses c
             WHERE {where_clause}
@@ -160,9 +160,9 @@ def get_courses_near(
                 "description":            row.description,
                 "tags":                   tags_map.get(row.id, []),
                 "start_lat":              row.start_lat,
-                "start_lng":              row.start_lng,
+                "start_lon":              row.start_lon,
                 "end_lat":                row.end_lat,
-                "end_lng":                row.end_lng,
+                "end_lon":                row.end_lon,
                 "distance_from_origin_m": round(row.distance_from_origin_m, 1),
             }
             for row in rows
@@ -191,9 +191,9 @@ def get_course_by_id(course_id: int) -> Optional[dict]:
                 "source"      : str | None,
                 "tags"        : list[str],
                 "start_lat"   : float | None,
-                "start_lng"   : float | None,
+                "start_lon"   : float | None,
                 "end_lat"     : float | None,
-                "end_lng"     : float | None,
+                "end_lon"     : float | None,
                 "geojson"     : str | None,  # GeoJSON 문자열 (경로 전체 선형)
             }
     """
@@ -204,9 +204,9 @@ def get_course_by_id(course_id: int) -> Optional[dict]:
                     c.id, c.name, c.course_type, c.is_circular,
                     c.distance_m, c.difficulty, c.description, c.source,
                     ST_Y(c.start_geom::geometry) AS start_lat,
-                    ST_X(c.start_geom::geometry) AS start_lng,
+                    ST_X(c.start_geom::geometry) AS start_lon,
                     ST_Y(c.end_geom::geometry)   AS end_lat,
-                    ST_X(c.end_geom::geometry)   AS end_lng,
+                    ST_X(c.end_geom::geometry)   AS end_lon,
                     ST_AsGeoJSON(c.geom)          AS geojson
                 FROM courses c
                 WHERE c.id = :course_id
@@ -233,8 +233,8 @@ def get_course_by_id(course_id: int) -> Optional[dict]:
             "source":      row.source,
             "tags":        [tr.tag for tr in tag_rows],
             "start_lat":   row.start_lat,
-            "start_lng":   row.start_lng,
+            "start_lon":   row.start_lon,
             "end_lat":     row.end_lat,
-            "end_lng":     row.end_lng,
+            "end_lon":     row.end_lon,
             "geojson":     row.geojson,
         }

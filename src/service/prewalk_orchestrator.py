@@ -1,24 +1,22 @@
 from uuid import uuid4
 
-from src.client.gpt_client import GPTClient
-from src.client.kakao_client import KakaoClient
+from src.infrastructure.external.client.kakao_client import KakaoClient
 from src.repository.user.user_repository import UserRepository
 from src.repository.chat.chat_session_repository import ChatSessionRepository
 from src.repository.chat.chat_state_repository import ChatStateRepository
-from src.service.weather.weather_checker import WeatherChecker
-from src.service.prewalk.extractor import Extractor
-from src.service.prewalk.interviewer import Interviewer
-from src.service.prewalk.weight_assigner import WeightAssigner
+from src.agent.nodes.weather_checker import WeatherChecker
+from src.agent.nodes.extractor import Extractor
+from src.agent.nodes.interviewer import Interviewer
+from src.agent.nodes.weight_assigner import WeightAssigner
 from src.schema.prewalk_schema import ChatResponse, State, Location
 
 class PrewalkOrchestrator:
     def __init__(self):
-        self.gpt_client = GPTClient()
         self.weather_checker = WeatherChecker()
         self.kakao_client = KakaoClient()
 
         self.extractor = Extractor()
-        self.interviewer = Interviewer(self.kakao_client)
+        self.interviewer = Interviewer()
         self.weight_assigner = WeightAssigner()
 
     async def get_init_message(self, user_uuid: str, lat: float, lon: float) -> ChatResponse:
@@ -31,8 +29,8 @@ class PrewalkOrchestrator:
         ChatSessionRepository.save(user_id, thread_id)
 
         # 날씨 정보 획득
-        weather_data, init_message = self.weather_checker.generate_init_message(lat, lon)
-        current_location = await self.kakao_client.get_address_from_coords.ainvoke({"lat": lat, "lon": lon})
+        weather_data, init_message = await self.weather_checker.generate_init_message(lat, lon)
+        current_location = await self.kakao_client.get_address_from_coords(lat, lon)
 
         # 초기 상태 정의
         initial_state = State(

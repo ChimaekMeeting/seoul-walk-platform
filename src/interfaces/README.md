@@ -1,15 +1,25 @@
 # Interfaces Layer
 
-## 1. 목적
-외부 클라이언트(React Native 앱, 웹 프론트엔드 등)가 백엔드 서비스와 소통하기 위한 진입점(Entrypoint)을 정의합니다.
+## 1. 소개
+- FE와 직접 소통하는 진입점입니다.
+- 구조는 아래와 같습니다.
+```
+- dependencies.py
+- api/
+- schema/
+```
 
-## 2. 분리 사유
-기존 `src/api` 폴더와 헷갈리지 않도록 명확한 "외부 인터페이스" 역할을 규정하기 위해 새롭게 분리된 뼈대입니다. 이 안에는 FastAPI 기반의 API 라우터나 WebSocket 연결부 등이 위치하게 됩니다.
+## 2. 싱글톤 패턴 준수
+- service 계층의 클래스를 interfaces/dependencies.py에서 단 한 번만 선언하여, 이를 전역적으로 공유합니다.
+- dependencies.py에서 선언한 인스턴스는 api 파일에서 아래와 같이 사용할 수 있습니다.
+```
+@router.get("/users/me")
+def get_my_profile(user_service: UserService = Depends(get_user_service)):
+    return user_service.get_profile(...)
+```
 
-현재 단계에서는 실제 FastAPI 구현이 아니라 API 계약 scaffold입니다.
-기존 `src/api/`는 수정하거나 이동하지 않습니다.
+## 3. 명칭 규칙
+- api 내 파일명은 {기능}_router.py로 통일합니다.
 
-## 3. 금지사항
-- 이 계층은 오직 HTTP/WebSocket 요청을 받고 응답을 내보내는 **'문지기'** 역할만 합니다.
-- 따라서 이곳에서 **비즈니스 로직 연산, DB 쿼리, 라우팅 수학 연산 등을 직접 구현하는 것을 엄격히 금지**합니다. (모두 `application`이나 `agent` 계층으로 위임합니다.)
-- 최종 응답은 `UIEvent` 목록 또는 `domain` 결과 계약을 기준으로 맞춥니다.
+## 4. 주석 작성 규칙
+- """\n~~~\n""" 형식에 맞게 작성합니다.

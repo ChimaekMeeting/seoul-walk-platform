@@ -4,8 +4,9 @@
 # 역할   : 시간대 + 날씨 + 이벤트 기반으로 배너 목록을 결정하는 서비스
 # ================================================================
 
-from src.client.marathon_client import fetch_marathon_events
+from src.infrastructure.external.client.marathon_client import MarathonClient
 from datetime import datetime, date
+import asyncio
 import random
 import re
 import streamlit as st
@@ -28,13 +29,21 @@ BANNERS = {
 
 # ── 이벤트 관련 함수 ───────────────────────────────────────────
 
+async def _fetch_all_events() -> list[dict]:
+    """서울/경기/인천 이벤트를 병렬로 조회"""
+    client = MarathonClient()
+    results = await asyncio.gather(
+        client.get_events("서울"),
+        client.get_events("경기"),
+        client.get_events("인천"),
+    )
+    return [event for region_events in results for event in region_events]
+
+
 @st.cache_data(ttl=3600)  # 1시간마다 갱신
 def get_events_cached() -> list[dict]:
-    """크롤링 결과를 1시간 캐싱"""
-    seoul   = fetch_marathon_events("서울")
-    gyeonggi = fetch_marathon_events("경기")
-    incheon = fetch_marathon_events("인천")
-    return seoul + gyeonggi + incheon
+    """크롤링 결과를 1시간 캐싱 (Streamlit 동기 컨텍스트 브리지)"""
+    return asyncio.run(_fetch_all_events())
 
 
 def get_active_event() -> dict | None:
@@ -48,30 +57,10 @@ def get_active_event() -> dict | None:
 
 
 def _get_event_text(event: dict) -> dict:
-    """D-day에 따라 배너 문구를 다르게 반환"""
-    diff  = event["diff"]
-    name  = event["name"]
-    loc   = event["location"]
-    emoji = event["emoji"]
-
-    if diff == 0:
-        text = f"오늘 {name} 대회날이에요!"
-        sub  = f"{loc} 근처 산책코스 추천해드려요"
-    elif diff <= 3:
-        text = f"이번 주말 {name}!"
-        sub  = f"D-{diff} · {loc} · 코스 미리 확인해보세요"
-    else:
-        text = f"{name} 미리 준비해볼까요?"
-        sub  = f"D-{diff} · {loc}"
-
-    return {"emoji": emoji, "text": text, "sub": sub}
-
-def _get_event_text(event: dict) -> dict:
-    diff  = event["diff"]
-    name  = event["name"]
-    loc   = event["location"]
-    emoji = event["emoji"]
-    event_date = event["date"]  
+    diff       = event["diff"]
+    name       = event["name"]
+    loc        = event["location"]
+    event_date = event["date"]
 
     if diff == 0:
         text = f"오늘 {name} 대회날이에요!"
@@ -84,7 +73,7 @@ def _get_event_text(event: dict) -> dict:
         sub  = f"D-{diff} · {loc}"
 
     return {
-        "emoji":    emoji,
+        "emoji":    "🏅",
         "text":     text,
         "sub":      sub,
         "is_event": True,           # ← 추가

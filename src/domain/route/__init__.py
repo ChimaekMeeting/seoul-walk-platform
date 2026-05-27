@@ -1,3 +1,0 @@
-"""
-Domain Route Contracts
-"""

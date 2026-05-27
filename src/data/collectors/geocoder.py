@@ -25,9 +25,9 @@ def get_lat_lng_from_kakao(address: str):
     try:
         response = requests.get(url, headers=headers).json()
         if response.get('documents'):
-            lng = float(response['documents'][0]['x']) # 경도
+            lon = float(response['documents'][0]['x']) # 경도
             lat = float(response['documents'][0]['y']) # 위도
-            return lat, lng
+            return lat, lon
         else:
             return None, None
     except Exception as e:
@@ -51,21 +51,21 @@ def geocode_excel_file(input_excel_path: str, address_col: str, output_csv_path:
         return
 
     lat_list = []
-    lng_list = []
-    
+    lon_list = []
+
     total = len(df)
     for i, row in df.iterrows():
         address = str(row[address_col]).strip()
-        lat, lng = get_lat_lng_from_kakao(address)
+        lat, lon = get_lat_lng_from_kakao(address)
         lat_list.append(lat)
-        lng_list.append(lng)
+        lon_list.append(lon)
         
         # 100건마다 진행 상황 출력
         if (i+1) % 100 == 0:
             print(f"진행 상황: {i+1} / {total} 완료")
 
     df['위도'] = lat_list
-    df['경도'] = lng_list
+    df['경도'] = lon_list
     
     failed = df['위도'].isna().sum()
     print(f"✅ 변환 완료: 전체 {total}건 중 {total - failed}건 성공 (실패 {failed}건)")
