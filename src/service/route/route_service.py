@@ -1,6 +1,6 @@
 # src/service/route_service.py
 import networkx as nx
-from src.repository.graph_repository_v2 import load_graph_near_v2 as load_graph_near
+from src.repository.route.graph_repository import GraphRepository
 from src.route_engine.path_utils import find_nearest_node, extract_coordinates, prune_dead_ends
 from src.route_engine.path_circular_random import random_walk_route
 from src.route_engine.path_oneway_dijkstra import dijkstra_route
@@ -82,7 +82,7 @@ def get_route(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
          # 메모리에서 반경 필터링
         G = extract_subgraph_near(G_full, start_lat, start_lon, radius_m)
     else:
-        G = load_graph_near(start_lat, start_lon, radius_m=radius_m)
+        G = GraphRepository.load_graph_near(start_lat, start_lon, radius_m=radius_m)
 
     print(f"[1] load_graph_near: {time.time()-t0:.2f}s")
     t1 = time.time()

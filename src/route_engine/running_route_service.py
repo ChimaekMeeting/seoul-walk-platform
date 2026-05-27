@@ -17,8 +17,8 @@ from typing import Optional
 
 import networkx as nx
 
-from src.repository.route.course_repository import get_courses_near
-from src.repository.route.graph_repository import load_graph_near
+from src.repository.route.course_repository import CourseRepository
+from src.repository.route.graph_repository import GraphRepository
 from src.interfaces.schema.running_schema import (
     CircularRunningResponse,
     CourseInfo,
@@ -180,7 +180,7 @@ def get_circular_route(
     t0 = time.time()
 
     # ── 1. DB 코스 조회 ────────────────────────────────────────
-    matched_courses = get_courses_near(
+    matched_courses = CourseRepository.get_courses_near(
         lat=lat,
         lon=lon,
         radius_m=radius_m,
@@ -195,7 +195,7 @@ def get_circular_route(
     t1 = time.time()
     graph_radius = target_km * 1000 * 2.5  # 목표 거리의 2.5배 반경
     if G is None:
-        G = load_graph_near(lat, lon, radius_m=graph_radius)
+        G = GraphRepository.load_graph_near(lat, lon, radius_m=graph_radius)
     print(f"[running/circular] 그래프 로드 ({time.time()-t1:.2f}s)")
 
     courses = [CourseInfo(**c) for c in matched_courses]
@@ -285,7 +285,7 @@ def get_oneway_route(
     t0 = time.time()
 
     # ── 1. DB 코스 조회 ────────────────────────────────────────
-    matched_courses = get_courses_near(
+    matched_courses = CourseRepository.get_courses_near(
         lat=start_lat,
         lon=start_lon,
         radius_m=radius_m,
@@ -309,7 +309,7 @@ def get_oneway_route(
         # 출발·도착 중간 지점 기준으로 로드
         mid_lat = (start_lat + end_lat) / 2
         mid_lon = (start_lon + end_lon) / 2
-        G = load_graph_near(mid_lat, mid_lon, radius_m=graph_radius)
+        G = GraphRepository.load_graph_near(mid_lat, mid_lon, radius_m=graph_radius)
     print(f"[running/oneway] 그래프 로드 ({time.time()-t1:.2f}s)")
 
     if G.number_of_nodes() == 0:

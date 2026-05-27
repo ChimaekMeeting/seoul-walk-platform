@@ -15,7 +15,7 @@
 
 경로 생성 흐름 (버튼 클릭 시)
 ------------------------------
-1. ``load_graph_near()``           — PostGIS에서 그래프 로드
+1. ``GraphRepository.load_graph_near()``           — PostGIS에서 그래프 로드
 2. 좌표 없는 노드 제거
 3. ``_apply_running_weights(G, slope_weight, type_bonus)``
 4. ``circular_running_route()``    — 순환 모드
@@ -38,7 +38,7 @@ import folium
 from streamlit_folium import st_folium
 from dotenv import load_dotenv
 
-from src.repository.route.graph_repository import load_graph_near
+from src.repository.route.graph_repository import GraphRepository
 from src.route_engine.running_route_service import _apply_running_weights
 from src.route_engine.path_circular_running import circular_running_route
 from src.route_engine.path_oneway_running import oneway_running_route
@@ -142,7 +142,7 @@ with st.sidebar:
             try:
                 if route_mode == "순환 (출발지로 돌아오기)":
                     graph_radius = target_km * 1000 * 2.5
-                    G = load_graph_near(s_lat, s_lng, radius_m=graph_radius)
+                    G = GraphRepository.load_graph_near(s_lat, s_lng, radius_m=graph_radius)
                     invalid = [n for n, d in G.nodes(data=True) if "x" not in d or "y" not in d]
                     if invalid:
                         G = G.copy()
@@ -162,7 +162,7 @@ with st.sidebar:
                     graph_radius = max(straight_m * 1.5, 3_000)
                     mid_lat = (s_lat + e_lat) / 2
                     mid_lng = (s_lng + e_lng) / 2
-                    G = load_graph_near(mid_lat, mid_lng, radius_m=graph_radius)
+                    G = GraphRepository.load_graph_near(mid_lat, mid_lng, radius_m=graph_radius)
                     invalid = [n for n, d in G.nodes(data=True) if "x" not in d or "y" not in d]
                     if invalid:
                         G = G.copy()

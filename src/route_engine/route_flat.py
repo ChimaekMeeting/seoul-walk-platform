@@ -31,7 +31,7 @@ import streamlit as st
 import folium
 from pydantic import BaseModel, Field
 
-from src.repository.graph_repository_v2 import load_graph_near_v2
+from src.repository.route.graph_repository import GraphRepository
 from src.route_engine.path_utils import (
     find_nearest_node,
     extract_coordinates,
@@ -126,7 +126,7 @@ def get_route_v2(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
     if G_full is not None:
         G = _extract_subgraph_near(G_full, start_lat, start_lon, radius_m)
     else:
-        G = load_graph_near_v2(start_lat, start_lon, radius_m=radius_m)
+        G = GraphRepository.load_graph_near(start_lat, start_lon, radius_m=radius_m)
 
     print(f"[v2][1] load_graph: {time.time()-t0:.2f}s")
 

@@ -17,7 +17,7 @@ from src.service.route.route_flat import (
     draw_route_connectors,
     get_mode_label,
 )
-from src.repository.graph_repository_v2 import load_graph_v2 as load_graph
+from src.repository.route.graph_repository import GraphRepository
 from frontend.streamlit_prototype.services.map_service import (
     fetch_local_db_lines_optimized,
     fetch_local_db_points,
@@ -46,7 +46,7 @@ t = time.time()
 
 @st.cache_resource
 def get_graph():
-    G = load_graph()
+    G = GraphRepository.load_graph()
     print(list(G.nodes(data=True))[:3])
     return G
 

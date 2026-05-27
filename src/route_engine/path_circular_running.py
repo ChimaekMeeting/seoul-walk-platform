@@ -19,7 +19,7 @@ import networkx as nx
 
 from src.route_engine.path_circular_random import random_walk_route
 from src.route_engine.path_utils import find_nearest_node
-from src.repository.route.course_repository import get_courses_near
+from src.repository.route.course_repository import CourseRepository
 
 RUNNING_COURSE_TYPES = ["river", "park", "bike_track"]
 
@@ -62,7 +62,7 @@ def circular_running_route(
         - ``matched_courses``   (list[dict]) : 반경 내 조회된 코스 목록.
           코스가 없으면 빈 리스트. 각 항목은 ``get_courses_near()`` 반환 형식과 동일.
     """
-    courses = get_courses_near(
+    courses = CourseRepository.get_courses_near(
         lat=start_lat,
         lon=start_lon,
         radius_m=radius_m,
