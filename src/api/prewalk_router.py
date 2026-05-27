@@ -1,17 +1,12 @@
 from fastapi import APIRouter, Depends
 from src.schema.prewalk_schema import InitRequest, ChatRequest, ChatResponse, Weights
 from src.service.prewalk_orchestrator import PrewalkOrchestrator
+from src.api.dependencies import get_prewalk_orchestrator
+
 router = APIRouter(
     prefix="/api/prewalk",
     tags=["prewalk"]
 )
-
-# 싱글톤 인스턴스
-prewalk_orchestrator = PrewalkOrchestrator()
-
-#서비스 인스턴스를 관리하는 함수(의존성 주입용)
-def get_prewalk_orchestrator() -> PrewalkOrchestrator:
-    return prewalk_orchestrator
 
 @router.post("/init", response_model=ChatResponse)
 async def read_init_message(

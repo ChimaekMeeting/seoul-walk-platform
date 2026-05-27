@@ -1,18 +1,12 @@
 # src/api/weather_router.py
 from fastapi import APIRouter, Depends
 from src.service.weather.weather_checker import WeatherChecker
+from src.api.dependencies import get_weather_checker
 
 router = APIRouter(
     prefix="/api/weather",
     tags=["weather"]
 )
-
-# 싱글톤 인스턴스
-weather_checker = WeatherChecker()
-
-#서비스 인스턴스를 관리하는 함수(의존성 주입용)
-def get_weather_checker() -> WeatherChecker:
-    return weather_checker
 
 @router.get("/")
 def get_weather(
