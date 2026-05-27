@@ -38,6 +38,12 @@ poetry run streamlit run app.py
 ```
 > 실행 후 브라우저에서 `http://localhost:8501`로 접속하여 확인할 수 있습니다.
 
+### 4. 데이터 초기화 (Data Setup)
+```bash
+# OSM 녹지 데이터 적재 (최초 1회)
+poetry run python data/collectors/fetch_osm_green.py
+⚠️ osmnx, geopandas 패키지 필요. poetry install 후 실행하세요.
+
 ---
 
 ## 🌿 깃/브랜치 전략 (Git Strategy)
