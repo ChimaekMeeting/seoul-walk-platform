@@ -18,7 +18,7 @@ class PrewalkOrchestrator:
         self.kakao_client = KakaoClient()
 
         self.extractor = Extractor()
-        self.interviewer = Interviewer(self.kakao_client)
+        self.interviewer = Interviewer()
         self.weight_assigner = WeightAssigner()
 
     async def get_init_message(self, user_uuid: str, lat: float, lon: float) -> ChatResponse:
@@ -32,7 +32,7 @@ class PrewalkOrchestrator:
 
         # 날씨 정보 획득
         weather_data, init_message = self.weather_checker.generate_init_message(lat, lon)
-        current_location = await self.kakao_client.get_address_from_coords.ainvoke({"lat": lat, "lon": lon})
+        current_location = await self.kakao_client.get_address_from_coords(lat, lon)
 
         # 초기 상태 정의
         initial_state = State(

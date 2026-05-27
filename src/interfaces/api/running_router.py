@@ -1,0 +1,51 @@
+import traceback
+
+from fastapi import APIRouter, HTTPException
+
+from src.schema.running_schema import (
+    CircularRunningRequest,
+    CircularRunningResponse,
+    OnewayRunningRequest,
+    OnewayRunningResponse,
+)
+from src.service.route.running_route_service import get_circular_route, get_oneway_route
+
+router = APIRouter(
+    prefix="/api/running",
+    tags=["running"],
+)
+
+@router.post("/circular", response_model=CircularRunningResponse)
+async def circular_running(request: CircularRunningRequest):
+    """
+    출발점 기준 순환(루프) 런닝 코스를 추천합니다.
+    """
+    try:
+        return get_circular_route(
+            lat=request.lat,
+            lng=request.lng,
+            target_km=request.target_km,
+            radius_m=request.radius_m,
+        )
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/oneway", response_model=OnewayRunningResponse)
+async def oneway_running(request: OnewayRunningRequest):
+    """
+    출발점에서 도착점까지 편도 런닝 코스를 추천합니다.
+    """
+    try:
+        return get_oneway_route(
+            start_lat=request.start_lat,
+            start_lng=request.start_lng,
+            end_lat=request.end_lat,
+            end_lng=request.end_lng,
+            target_km=request.target_km,
+            use_random=request.use_random,
+            radius_m=request.radius_m,
+        )
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

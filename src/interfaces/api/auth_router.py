@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Cookie, Response
 
-from src.api.dependencies import get_auth_service
+from src.interfaces.dependencies import get_auth_service
 from src.service.auth_service import AuthService
 from src.schema.auth_schema import AuthResponse
 
@@ -14,6 +14,9 @@ def check_access_token(
     access_token: str = Cookie(None),
     service: AuthService = Depends(get_auth_service)
 ):
+    """
+    쿠키의 access_token 유효성을 검사합니다.
+    """
     status, _ = service.check_access_token(access_token)
     return AuthResponse(status=status)
 
@@ -23,6 +26,9 @@ def check_refresh_token(
     refresh_token: str = Cookie(None),
     service: AuthService = Depends(get_auth_service)
 ):
+    """
+    refresh_token으로 access_token을 재발급하고 쿠키에 저장합니다.
+    """
     status, access_token, _ = service.check_refresh_token(refresh_token)
 
     response.set_cookie(

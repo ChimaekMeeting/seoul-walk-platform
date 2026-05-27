@@ -19,6 +19,11 @@ import networkx as nx
 
 from src.repository.route.course_repository import get_courses_near
 from src.repository.route.graph_repository import load_graph_near
+from src.schema.running_schema import (
+    CircularRunningResponse,
+    CourseInfo,
+    OnewayRunningResponse,
+)
 from src.service.route.path_circular_random import random_walk_route
 from src.service.route.path_oneway_dijkstra import dijkstra_route
 from src.service.route.path_oneway_random import oneway_random_route
@@ -148,19 +153,13 @@ def get_circular_route(
     target_km: float = 5.0,
     radius_m: float = 5_000,
     G: Optional[nx.Graph] = None,
-) -> dict:
+) -> CircularRunningResponse:
     """
     출발점 기준 순환(루프) 런닝 코스를 반환합니다. (**자체 완결형**)
 
     그래프 로드·가중치 적용·경로 생성을 모두 내부에서 처리합니다.
     ``circular_running_route()``와 달리 외부에서 G를 준비하거나
     ``_apply_running_weights()``를 호출할 필요가 없습니다.
-
-    .. note::
-        ``running_router.py``는 현재 이 함수 대신
-        ``circular_running_route()``를 직접 호출합니다.
-        이 함수는 ``running_route_service``를 단독으로 사용하는
-        컨텍스트(예: 스크립트, 배치)에서 사용하세요.
 
     Args:
         lat       (float)              : 출발점 위도.
@@ -199,14 +198,16 @@ def get_circular_route(
         G = load_graph_near(lat, lng, radius_m=graph_radius)
     print(f"[running/circular] 그래프 로드 ({time.time()-t1:.2f}s)")
 
+    courses = [CourseInfo(**c) for c in matched_courses]
+
     if G.number_of_nodes() == 0:
-        return {
-            "mode": "circular_running",
-            "coordinates": [],
-            "total_distance_km": 0.0,
-            "matched_courses": matched_courses,
-            "error": "해당 위치 주변에 경로 데이터가 없습니다.",
-        }
+        return CircularRunningResponse(
+            mode="circular_running",
+            coordinates=[],
+            total_distance_km=0.0,
+            matched_courses=courses,
+            error="해당 위치 주변에 경로 데이터가 없습니다.",
+        )
 
     # ── 3. 좌표 없는 노드 제거 (KeyError 방지) ────────────────
     invalid_nodes = [n for n, d in G.nodes(data=True) if "x" not in d or "y" not in d]
@@ -216,13 +217,13 @@ def get_circular_route(
         print(f"[running/circular] 좌표 없는 노드 {len(invalid_nodes)}개 제거")
 
     if G.number_of_nodes() == 0:
-        return {
-            "mode": "circular_running",
-            "coordinates": [],
-            "total_distance_km": 0.0,
-            "matched_courses": matched_courses,
-            "error": "유효한 노드가 없습니다.",
-        }
+        return CircularRunningResponse(
+            mode="circular_running",
+            coordinates=[],
+            total_distance_km=0.0,
+            matched_courses=courses,
+            error="유효한 노드가 없습니다.",
+        )
 
     # ── 4. 런닝 가중치 적용 ────────────────────────────────────
     G = _apply_running_weights(G)
@@ -235,7 +236,12 @@ def get_circular_route(
 
     result = _build_result(G, raw["nodes"], "circular_running", matched_courses)
     print(f"[running/circular] 총 소요 {time.time()-t0:.2f}s")
-    return result
+    return CircularRunningResponse(
+        mode=result["mode"],
+        coordinates=result["coordinates"],
+        total_distance_km=result["total_distance_km"],
+        matched_courses=courses,
+    )
 
 
 def get_oneway_route(
@@ -247,18 +253,12 @@ def get_oneway_route(
     use_random: bool = True,
     radius_m: float = 5_000,
     G: Optional[nx.Graph] = None,
-) -> dict:
+) -> OnewayRunningResponse:
     """
     출발점 → 도착점 편도 런닝 코스를 반환합니다. (**자체 완결형**)
 
     그래프 로드·가중치 적용·경로 생성을 모두 내부에서 처리합니다.
     ``use_random`` 값에 따라 알고리즘이 분기됩니다.
-
-    .. note::
-        ``running_router.py``는 현재 이 함수 대신
-        ``oneway_running_route()``를 직접 호출하며 ``use_random`` 분기를 지원하지 않습니다.
-        이 함수는 ``running_route_service``를 단독으로 사용하는
-        컨텍스트(예: ``running_app.py`` 이전 방식, 스크립트)에서 사용하세요.
 
     Args:
         start_lat  (float)              : 출발점 위도.
@@ -296,9 +296,10 @@ def get_oneway_route(
     )
     print(f"[running/oneway] DB 코스 {len(matched_courses)}건 조회 ({time.time()-t0:.2f}s)")
 
+    courses = [CourseInfo(**c) for c in matched_courses]
+
     # ── 2. 그래프 로드 ─────────────────────────────────────────
     t1 = time.time()
-    import math
     straight_m = math.sqrt(
         (start_lat - end_lat) ** 2 + (start_lng - end_lng) ** 2
     ) * 111_000  # 위도 1도 ≈ 111km
@@ -312,13 +313,13 @@ def get_oneway_route(
     print(f"[running/oneway] 그래프 로드 ({time.time()-t1:.2f}s)")
 
     if G.number_of_nodes() == 0:
-        return {
-            "mode": "oneway_running",
-            "coordinates": [],
-            "total_distance_km": 0.0,
-            "matched_courses": matched_courses,
-            "error": "해당 위치 주변에 경로 데이터가 없습니다.",
-        }
+        return OnewayRunningResponse(
+            mode="oneway_running",
+            coordinates=[],
+            total_distance_km=0.0,
+            matched_courses=courses,
+            error="해당 위치 주변에 경로 데이터가 없습니다.",
+        )
 
     # ── 3. 좌표 없는 노드 제거 (KeyError 방지) ────────────────
     invalid_nodes = [n for n, d in G.nodes(data=True) if "x" not in d or "y" not in d]
@@ -328,18 +329,18 @@ def get_oneway_route(
         print(f"[running/oneway] 좌표 없는 노드 {len(invalid_nodes)}개 제거")
 
     if G.number_of_nodes() == 0:
-        return {
-            "mode": "oneway_running",
-            "coordinates": [],
-            "total_distance_km": 0.0,
-            "matched_courses": matched_courses,
-            "error": "유효한 노드가 없습니다.",
-        }
+        return OnewayRunningResponse(
+            mode="oneway_running",
+            coordinates=[],
+            total_distance_km=0.0,
+            matched_courses=courses,
+            error="유효한 노드가 없습니다.",
+        )
 
     # ── 4. 런닝 가중치 적용 ────────────────────────────────────
     G = _apply_running_weights(G)
 
-    # ── 4. 편도 경로 생성 ──────────────────────────────────────
+    # ── 5. 편도 경로 생성 ──────────────────────────────────────
     t2 = time.time()
     start_node = find_nearest_node(G, start_lat, start_lng)
     end_node   = find_nearest_node(G, end_lat, end_lng)
@@ -355,4 +356,9 @@ def get_oneway_route(
 
     result = _build_result(G, raw["nodes"], mode_label, matched_courses)
     print(f"[running/oneway] 총 소요 {time.time()-t0:.2f}s")
-    return result
+    return OnewayRunningResponse(
+        mode=result["mode"],
+        coordinates=result["coordinates"],
+        total_distance_km=result["total_distance_km"],
+        matched_courses=courses,
+    )
