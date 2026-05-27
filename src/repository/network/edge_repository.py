@@ -1,4 +1,6 @@
-from sqlalchemy import func, select, update, insert, inspect, text
+import pandas as pd
+from sqlalchemy import func, select, update, insert, inspect, text, cast
+from geoalchemy2 import Geography
 from src.database.postgresql import get_postgresql_db, engine
 from src.entity.walk_network import WalkEdge
 from typing import List
@@ -74,3 +76,32 @@ class EdgeRepository:
         with get_postgresql_db() as db:
             db.execute(update(WalkEdge), updates)
             db.commit()
+
+    @staticmethod
+    def fetch_nearby_lines(lat: float, lon: float, radius_m: int = 2000) -> pd.DataFrame:
+        """
+        주어진 좌표 반경 내의 도보 네트워크 라인 데이터를 조회합니다.
+
+        Args:
+            lat      : 중심 위도.
+            lon      : 중심 경도.
+            radius_m : 탐색 반경(미터). 기본값 2,000.
+
+        Returns:
+            pd.DataFrame: geometry(GeoJSON 문자열), link_id 컬럼을 포함한 데이터프레임.
+        """
+        center = cast(func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326), Geography())
+        try:
+            with get_postgresql_db() as db:
+                rows = db.execute(
+                    select(
+                        func.ST_AsGeoJSON(func.ST_Simplify(WalkEdge.geom, 0.00005)).label("geometry"),
+                        WalkEdge.link_id,
+                    ).where(
+                        func.ST_DWithin(cast(WalkEdge.geom, Geography()), center, radius_m)
+                    )
+                ).fetchall()
+            return pd.DataFrame(rows, columns=["geometry", "link_id"])
+        except Exception as e:
+            print(f"DB 라인 조회 실패: {e}")
+            return pd.DataFrame()
