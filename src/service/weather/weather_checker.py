@@ -17,5 +17,5 @@ class WeatherChecker:
     async def generate_init_message(self, lat: float, lon: float) -> Tuple[dict, str]:
         """날씨 조회 후 초기 메시지를 조립하여 반환"""
         weather_data = await self._client.get_environment_info(lat, lon)
-        weather_message = weather_data.get("display_msg")
-        return weather_data, f"{weather_message}\n{self.init_message}"
+        weather_msg = weather_data.get("display_msg")
+        return weather_data, f"{weather_msg}\n{self.init_message}"

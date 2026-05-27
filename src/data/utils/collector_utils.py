@@ -9,8 +9,8 @@ from src.repository.route.node_repository import NodeRepository
 class CollectorUtils:
 
     @staticmethod
-    def make_point(lat: float, lng: float) -> WKTElement:
-        return WKTElement(f"POINT({lng} {lat})", srid=4326)
+    def make_point(lat: float, lon: float) -> WKTElement:
+        return WKTElement(f"POINT({lon} {lat})", srid=4326)
 
     @staticmethod
     def register_nodes(

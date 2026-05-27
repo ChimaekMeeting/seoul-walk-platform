@@ -38,11 +38,11 @@ class WeatherClient:
     def get_air_message(self, condition: str) -> str:
         return AIR_MESSAGE.get(condition)
 
-    async def get_environment_info(self, lat: float, lng: float) -> EnvironmentInfo:
+    async def get_environment_info(self, lat: float, lon: float) -> EnvironmentInfo:
         """
         날씨 + 대기질을 병렬 조회 후 통합 결과 반환
         """
-        nx, ny = self._latlon_to_grid(lat, lng)
+        nx, ny = self._latlon_to_grid(lat, lon)
         (weather_status, weather_msg), (air_status, air_msg) = await asyncio.gather(
             self._get_weather(nx, ny),
             self._get_air_quality(),
@@ -163,7 +163,7 @@ class WeatherClient:
         return now.strftime("%Y%m%d"), f"{base_hour:02d}00"
 
     @staticmethod
-    def _latlon_to_grid(lat: float, lng: float) -> tuple[int, int]:
+    def _latlon_to_grid(lat: float, lon: float) -> tuple[int, int]:
         """
         위경도 → 기상청 격자 좌표 변환
         """
@@ -190,7 +190,7 @@ class WeatherClient:
         ro = re * sf / math.pow(math.tan(math.pi * 0.25 + olat * 0.5), sn)
 
         ra    = re * sf / math.pow(math.tan(math.pi * 0.25 + lat * DEGRAD * 0.5), sn)
-        theta = lng * DEGRAD - olon
+        theta = lon * DEGRAD - olon
         if theta >  math.pi: theta -= 2.0 * math.pi
         if theta < -math.pi: theta += 2.0 * math.pi
         theta *= sn

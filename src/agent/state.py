@@ -5,7 +5,7 @@ class AgentState:
     Agent workflow에서 공유할 상태 계약(State Contract) Skeleton.
 
     예상 필드:
-    - session_id: str
+    - thread_id: str
     - user_id: str
     - user_message: str
     - extracted_intent: dict[str, Any]
@@ -19,7 +19,7 @@ class AgentState:
     금지:
     - 실제 dataclass/Pydantic 구현 금지.
     """
-    session_id: str | None
+    thread_id: str | None
     user_id: str | None
     user_message: str | None
     extracted_intent: dict[str, Any] | None

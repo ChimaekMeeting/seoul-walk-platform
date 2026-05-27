@@ -24,9 +24,9 @@ def build_weather_card_event(payload: dict[str, Any]) -> dict[str, Any]:
 
     예상 payload:
     - weather_status
-    - weather_message
+    - weather_msg
     - air_status
-    - air_message
+    - air_msg
     """
     pass
 

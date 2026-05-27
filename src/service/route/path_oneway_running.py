@@ -27,9 +27,9 @@ RUNNING_COURSE_TYPES = ["river", "park", "bike_track"]
 def oneway_running_route(
     G: nx.Graph,
     start_lat: float,
-    start_lng: float,
+    start_lon: float,
     dest_lat: float,
-    dest_lng: float,
+    dest_lon: float,
     target_m: float,
     radius_m: float,
     session,
@@ -51,9 +51,9 @@ def oneway_running_route(
     Args:
         G         (nx.Graph)  : ``custom_score``가 세팅된 NetworkX 그래프.
         start_lat (float)     : 사용자 출발 위도.
-        start_lng (float)     : 사용자 출발 경도.
+        start_lon (float)     : 사용자 출발 경도.
         dest_lat  (float)     : 목적지 위도.
-        dest_lng  (float)     : 목적지 경도.
+        dest_lon  (float)     : 목적지 경도.
         target_m  (float)     : 목표 거리 (미터). 경유지 위치 계산에 사용됩니다.
         radius_m  (float)     : DB 코스 검색 반경 (미터).
         session               : 미사용. 서명 통일 목적으로만 존재.
@@ -62,24 +62,24 @@ def oneway_running_route(
         dict: 아래 키를 포함하는 딕셔너리.
 
         - ``mode``              (str)        : ``"oneway_running"``
-        - ``coordinates``       (list)       : ``[[lat, lng], ...]`` 형태의 경로 좌표 목록.
+        - ``coordinates``       (list)       : ``[[lat, lon], ...]`` 형태의 경로 좌표 목록.
         - ``total_distance_km`` (float)      : 생성된 경로의 총 거리 (km).
         - ``matched_courses``   (list[dict]) : 반경 내 조회된 코스 목록.
           코스가 없으면 빈 리스트. 각 항목은 ``get_courses_near()`` 반환 형식과 동일.
     """
     courses = get_courses_near(
         lat=start_lat,
-        lng=start_lng,
+        lon=start_lon,
         radius_m=radius_m,
         is_circular=False,
         course_types=RUNNING_COURSE_TYPES,
     )
 
-    end_node = find_nearest_node(G, dest_lat, dest_lng)
+    end_node = find_nearest_node(G, dest_lat, dest_lon)
 
     # 매칭 코스 없으면 사용자 위치에서 폴백
     if not courses:
-        start_node = find_nearest_node(G, start_lat, start_lng)
+        start_node = find_nearest_node(G, start_lat, start_lon)
         result = oneway_random_route(G, start_node, end_node, target_m / 1000, weight="custom_score")
         result["mode"] = "oneway_running"
         result["matched_courses"] = []
@@ -87,7 +87,7 @@ def oneway_running_route(
 
     # get_courses_near는 distance_from_origin_m 오름차순 정렬 → 가장 가까운 코스 사용
     best_course = courses[0]
-    start_node = find_nearest_node(G, best_course["start_lat"], best_course["start_lng"])
+    start_node = find_nearest_node(G, best_course["start_lat"], best_course["start_lon"])
 
     result = oneway_random_route(G, start_node, end_node, target_m / 1000, weight="custom_score")
     result["mode"] = "oneway_running"

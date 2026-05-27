@@ -2,17 +2,17 @@ import networkx as nx
 from typing import Optional
 import math
 
-def find_nearest_node(G: nx.Graph, lat: float, lng: float) -> int:
+def find_nearest_node(G: nx.Graph, lat: float, lon: float) -> int:
     """위경도 → 가장 가까운 그래프 노드 ID (OSMnx 없이 직접 계산)"""
     min_dist = float("inf")
     nearest = None
 
     for node_id, data in G.nodes(data=True):
         node_lat = data.get("y")
-        node_lng = data.get("x")
-        if node_lat is None or node_lng is None:
+        node_lon = data.get("x")
+        if node_lat is None or node_lon is None:
             continue
-        dist = math.sqrt((lat - node_lat) ** 2 + (lng - node_lng) ** 2)
+        dist = math.sqrt((lat - node_lat) ** 2 + (lon - node_lon) ** 2)
         if dist < min_dist:
             min_dist = dist
             nearest = node_id
@@ -20,7 +20,7 @@ def find_nearest_node(G: nx.Graph, lat: float, lng: float) -> int:
     return nearest
 
 def extract_coordinates(G: nx.Graph, node_list: list) -> list:
-    """노드 ID 리스트 → [[lat, lng], ...] 변환"""
+    """노드 ID 리스트 → [[lat, lon], ...] 변환"""
     return [
         [G.nodes[n]["y"], G.nodes[n]["x"]]
         for n in node_list

@@ -21,18 +21,18 @@ class WeatherCardPayload:
 
     필드:
     - weather_status: 맑음/흐림/비 등 요약 상태
-    - weather_message: 산책 추천에 사용할 날씨 문구
+    - weather_msg: 산책 추천에 사용할 날씨 문구
     - air_status: 미세먼지 상태
-    - air_message: 미세먼지 안내 문구
+    - air_msg: 미세먼지 안내 문구
     - raw: optional. 디버깅 또는 상세 렌더링용 원본 context
 
     금지:
     - 이 schema에서 외부 날씨 API 호출 금지
     """
     weather_status: str
-    weather_message: str
+    weather_msg: str
     air_status: str | None
-    air_message: str | None
+    air_msg: str | None
     raw: dict[str, Any] | None
     pass
 

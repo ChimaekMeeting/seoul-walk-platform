@@ -19,7 +19,6 @@ class UserLocationContext:
     }
 
     TODO:
-    - 프론트에서 lng/lon 중 어떤 key를 보낼지 확정한다.
     - 출발지와 현재 위치가 다를 때 우선순위 정책을 정한다.
     """
     current: dict[str, float] | None

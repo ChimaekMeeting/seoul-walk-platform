@@ -10,10 +10,10 @@ router = APIRouter(
 @router.get("/")
 async def get_weather(
     lat: float,
-    lng: float,
+    lon: float,
     service: WeatherChecker = Depends(get_weather_checker)
 ):
     """
     현재 위치 기반 날씨와 대기질을 반환합니다.
     """
-    return await service.generate_init_message(lat, lng)
+    return await service.generate_init_message(lat, lon)
