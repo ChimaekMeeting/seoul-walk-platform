@@ -1,18 +1,19 @@
-from typing import Any
+from fastapi import APIRouter, Depends
+from src.service.weather.weather_checker import WeatherChecker
+from src.interfaces.dependencies import get_weather_checker
 
-def get_weather_context(request: dict[str, Any]) -> dict[str, Any]:
+router = APIRouter(
+    prefix="/api/weather",
+    tags=["weather"]
+)
+
+@router.get("/")
+def get_weather(
+    lat: float,
+    lng: float,
+    service: WeatherChecker = Depends(get_weather_checker)
+):
     """
-    현재 위치 기준 날씨/미세먼지 context 조회 API 계약.
-
-    예상 요청:
-    - lat
-    - lon
-
-    예정 흐름:
-    - application 또는 agent tool을 통해 weather context 반환
-
-    금지:
-    - 실제 weather API 호출 구현 금지
-    - 현재 단계에서 실제 application/agent 호출 구현 금지
+    현재 위치 기반 날씨와 대기질을 반환합니다.
     """
-    pass
+    return service.generate_init_message(lat, lng)

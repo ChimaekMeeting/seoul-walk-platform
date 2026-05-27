@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from src.api.dependencies import get_user_service
+from src.interfaces.dependencies import get_user_service
 from src.schema.user_schema import UuidResponse
 from src.service.user_service import UserService
 

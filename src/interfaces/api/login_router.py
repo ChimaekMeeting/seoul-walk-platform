@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from src.service.login_service import KakaoLoginService
 from src.schema.login_schema import LoginUrlResponse, LoginResponse
 from src.schema.auth_schema import AuthResponse, Status
-from src.api.dependencies import get_kakao_login_service
+from src.interfaces.dependencies import get_kakao_login_service
 
 router = APIRouter(
     prefix="/api/login",
@@ -13,6 +13,9 @@ router = APIRouter(
 def get_kakao_login_url(
     service: KakaoLoginService = Depends(get_kakao_login_service)
 ):
+    """
+    카카오 OAuth 로그인 페이지 URL을 반환합니다.
+    """
     url = service.get_login_url()
     return LoginUrlResponse(url=url)
 
@@ -22,6 +25,9 @@ async def kakao_callback(
     code: str = Query(...),
     service: KakaoLoginService = Depends(get_kakao_login_service)
 ):
+    """
+    카카오 인가 코드로 로그인을 처리하고 access/refresh 토큰을 쿠키에 저장합니다.
+    """
     access_token, refresh_token, nickname, display_id = await service.login(code)
 
     response.set_cookie(
