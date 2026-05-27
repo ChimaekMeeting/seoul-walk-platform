@@ -38,7 +38,7 @@ import folium
 from streamlit_folium import st_folium
 from dotenv import load_dotenv
 
-from src.repository.route.graph_repository import GraphRepository
+from src.repository.network.graph_repository import GraphRepository
 from src.route_engine.running_route_service import _apply_running_weights
 from src.route_engine.path_circular_running import circular_running_route
 from src.route_engine.path_oneway_running import oneway_running_route

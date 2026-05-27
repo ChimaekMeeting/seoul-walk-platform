@@ -31,7 +31,7 @@ import streamlit as st
 import folium
 from pydantic import BaseModel, Field
 
-from src.repository.route.graph_repository import GraphRepository
+from src.repository.network.graph_repository import GraphRepository
 from src.route_engine.path_utils import (
     find_nearest_node,
     extract_coordinates,

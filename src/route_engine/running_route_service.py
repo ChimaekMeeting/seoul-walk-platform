@@ -17,8 +17,8 @@ from typing import Optional
 
 import networkx as nx
 
-from src.repository.route.course_repository import CourseRepository
-from src.repository.route.graph_repository import GraphRepository
+from src.repository.layer.course_repository import CourseRepository
+from src.repository.network.graph_repository import GraphRepository
 from src.interfaces.schema.running_schema import (
     CircularRunningResponse,
     CourseInfo,

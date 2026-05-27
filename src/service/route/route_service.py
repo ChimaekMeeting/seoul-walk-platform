@@ -1,6 +1,6 @@
 # src/service/route_service.py
 import networkx as nx
-from src.repository.route.graph_repository import GraphRepository
+from src.repository.network.graph_repository import GraphRepository
 from src.route_engine.path_utils import find_nearest_node, extract_coordinates, prune_dead_ends
 from src.route_engine.path_circular_random import random_walk_route
 from src.route_engine.path_oneway_dijkstra import dijkstra_route

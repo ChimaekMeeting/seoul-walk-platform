@@ -10,7 +10,7 @@ from streamlit.components.v1 import html
 from src.database.postgresql import health_check
 from src.service.route.route_service import get_route
 from src.service.route.child_walk_route import get_child_friendly_route
-from src.repository.route.graph_repository import GraphRepository
+from src.repository.network.graph_repository import GraphRepository
 from frontend.streamlit_prototype.services.map_service import fetch_local_db_lines_optimized, fetch_local_db_points
 from src.service.route.banner_service import get_banner
 from streamlit.components.v1 import html as st_html

@@ -3,7 +3,7 @@ from uuid import uuid4
 from src.infrastructure.external.client.kakao_client import KakaoClient
 from src.repository.user.user_repository import UserRepository
 from src.repository.chat.chat_session_repository import ChatSessionRepository
-from src.repository.chat.chat_state_repository import ChatStateRepository
+from src.infrastructure.cache.repository.chat_state_repository import ChatStateRepository
 from src.agent.nodes.weather_checker import WeatherChecker
 from src.agent.nodes.extractor import Extractor
 from src.agent.nodes.interviewer import Interviewer

@@ -19,7 +19,7 @@ import networkx as nx
 
 from src.route_engine.path_circular_random import random_walk_route
 from src.route_engine.path_utils import find_nearest_node
-from src.repository.route.course_repository import CourseRepository
+from src.repository.layer.course_repository import CourseRepository
 
 RUNNING_COURSE_TYPES = ["river", "park", "bike_track"]
 
