@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from src.schema.prewalk_schema import InitRequest, ChatRequest, ChatResponse, Weights
+from src.interfaces.schema.prewalk_schema import InitRequest, ChatRequest, ChatResponse, Weights
 from src.service.prewalk_orchestrator import PrewalkOrchestrator
 from src.interfaces.dependencies import get_prewalk_orchestrator
 

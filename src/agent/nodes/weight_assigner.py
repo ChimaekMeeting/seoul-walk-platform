@@ -1,6 +1,7 @@
 from langchain_core.output_parsers import PydanticOutputParser
 from src.infrastructure.external.client.gpt_client import GPTClient
-from src.schema.prewalk_schema import Weights, State
+from src.interfaces.schema.prewalk_schema import Weights
+from src.schema.prewalk_schema import State
 from src.service.prewalk.chatbot_utils import PromptUtils, PydanticUtils
 
 class WeightAssigner(GPTClient):

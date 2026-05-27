@@ -1,10 +1,10 @@
 # src/service/route_service.py
 import networkx as nx
 from src.repository.graph_repository_v2 import load_graph_near_v2 as load_graph_near
-from src.service.route.path_utils import find_nearest_node, extract_coordinates, prune_dead_ends
-from src.service.route.path_circular_random import random_walk_route
-from src.service.route.path_oneway_dijkstra import dijkstra_route
-from src.service.route.path_oneway_random import oneway_random_route
+from src.route_engine.path_utils import find_nearest_node, extract_coordinates, prune_dead_ends
+from src.route_engine.path_circular_random import random_walk_route
+from src.route_engine.path_oneway_dijkstra import dijkstra_route
+from src.route_engine.path_oneway_random import oneway_random_route
 import time
 
 # ─────────────────────────────────────────

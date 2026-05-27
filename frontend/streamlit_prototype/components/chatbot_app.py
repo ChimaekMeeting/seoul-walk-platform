@@ -1,6 +1,6 @@
 import streamlit as st
 import asyncio
-from api_tester import UserAPITester, WeatherAPITester, PrewalkAPITester
+from frontend.streamlit_prototype.api.api_tester import UserAPITester, WeatherAPITester, PrewalkAPITester
 
 # API 클라이언트 초기화
 user_api = UserAPITester()

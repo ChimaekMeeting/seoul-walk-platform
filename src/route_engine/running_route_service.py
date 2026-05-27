@@ -19,7 +19,7 @@ import networkx as nx
 
 from src.repository.route.course_repository import get_courses_near
 from src.repository.route.graph_repository import load_graph_near
-from src.schema.running_schema import (
+from src.interfaces.schema.running_schema import (
     CircularRunningResponse,
     CourseInfo,
     OnewayRunningResponse,

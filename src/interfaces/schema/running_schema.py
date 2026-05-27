@@ -1,25 +1,3 @@
-"""
-런닝/다이어트 모드 요청·응답 Pydantic 스키마.
-
-스키마 구조
------------
-요청
-~~~~
-- :class:`CircularRunningRequest`  : ``POST /api/running/circular`` 요청 바디
-- :class:`OnewayRunningRequest`    : ``POST /api/running/oneway``   요청 바디
-
-응답
-~~~~
-- :class:`CircularRunningResponse` : ``POST /api/running/circular`` 응답
-- :class:`OnewayRunningResponse`   : ``POST /api/running/oneway``   응답
-
-공통
-~~~~
-- :class:`CourseInfo`              : 응답에 포함되는 DB 추천 코스 요약 정보
-"""
-
-from __future__ import annotations
-
 from typing import List, Optional
 
 from pydantic import BaseModel, Field

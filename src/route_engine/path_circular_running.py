@@ -17,8 +17,8 @@ DB에서 river·park·bike_track 코스를 조회한 뒤,
 
 import networkx as nx
 
-from src.service.route.path_circular_random import random_walk_route
-from src.service.route.path_utils import find_nearest_node
+from src.route_engine.path_circular_random import random_walk_route
+from src.route_engine.path_utils import find_nearest_node
 from src.repository.route.course_repository import get_courses_near
 
 RUNNING_COURSE_TYPES = ["river", "park", "bike_track"]

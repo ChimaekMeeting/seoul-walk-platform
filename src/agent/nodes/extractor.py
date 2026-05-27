@@ -3,7 +3,7 @@ from src.schema.prewalk_schema import (
     State
 )
 from src.infrastructure.external.client.gpt_client import GPTClient
-from src.service.prewalk.chatbot_utils import PromptUtils
+from src.agent.utils.chatbot_utils import PromptUtils
 
 class Extractor(GPTClient):
     def __init__(self):

@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from src.schema.user_schema import UserResponse
+from src.interfaces.schema.user_schema import UserResponse
 
 class LoginUrlResponse(BaseModel):
     url: str

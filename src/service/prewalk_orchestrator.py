@@ -8,7 +8,8 @@ from src.agent.nodes.weather_checker import WeatherChecker
 from src.agent.nodes.extractor import Extractor
 from src.agent.nodes.interviewer import Interviewer
 from src.agent.nodes.weight_assigner import WeightAssigner
-from src.schema.prewalk_schema import ChatResponse, State, Location
+from src.interfaces.schema.prewalk_schema import ChatResponse
+from src.schema.prewalk_schema import State, Location
 
 class PrewalkOrchestrator:
     def __init__(self):

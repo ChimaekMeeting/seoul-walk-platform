@@ -1,5 +1,5 @@
 import networkx as nx
-from src.service.route.path_utils import extract_coordinates
+from src.route_engine.path_utils import extract_coordinates
 
 
 def landmark_circular_route(

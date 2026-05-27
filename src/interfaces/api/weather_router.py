@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from src.service.weather.weather_checker import WeatherChecker
+from src.agent.nodes.weather_checker import WeatherChecker
 from src.interfaces.dependencies import get_weather_checker
 
 router = APIRouter(

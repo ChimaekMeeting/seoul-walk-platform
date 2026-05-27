@@ -2,7 +2,7 @@
 import networkx as nx
 import math
 import random
-from src.service.route.path_utils import extract_coordinates, find_nearest_node
+from src.route_engine.path_utils import extract_coordinates, find_nearest_node
 
 def oneway_random_route(G: nx.Graph, start_node: int, end_node: int, target_distance_km: float, weight: str = "custom_score") -> dict:
     """
@@ -63,5 +63,5 @@ def oneway_random_route(G: nx.Graph, start_node: int, end_node: int, target_dist
             "mode": "oneway_random"
         }
     except:
-        from src.service.route.path_oneway_dijkstra import dijkstra_route
+        from src.route_engine.path_oneway_dijkstra import dijkstra_route
         return dijkstra_route(G, start_node, end_node, weight=weight)

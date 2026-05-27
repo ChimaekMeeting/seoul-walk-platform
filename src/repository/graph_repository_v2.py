@@ -18,7 +18,7 @@ graph_repository_v2.py
 import networkx as nx
 from sqlalchemy import text
 from src.database.postgresql import get_postgresql_db
-from src.service.route.path_utils import remove_dead_ends
+from src.route_engine.path_utils import remove_dead_ends
 
 
 def load_graph_v2() -> nx.Graph:

@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 
-from src.schema.auth_schema import Status
+from src.interfaces.schema.auth_schema import Status
 
 class UuidResponse(BaseModel):
     """

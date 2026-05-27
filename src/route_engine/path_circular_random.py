@@ -1,6 +1,6 @@
 import networkx as nx
 import random
-from src.service.route.path_utils import extract_coordinates
+from src.route_engine.path_utils import extract_coordinates
 
 def random_walk_route(G: nx.Graph, start_node: int, target_distance_km: float = 3.0, weight: str = "length") -> dict:
     target_m = target_distance_km * 1000

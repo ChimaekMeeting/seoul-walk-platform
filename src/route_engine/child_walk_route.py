@@ -14,7 +14,7 @@ import networkx as nx
 import requests
 from dotenv import load_dotenv
 
-from src.service.route.route_service import get_route
+from src.service.route_service import get_route
 
 
 load_dotenv()

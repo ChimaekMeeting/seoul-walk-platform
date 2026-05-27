@@ -5,7 +5,7 @@ from typing import Optional
 from jwt.exceptions import ExpiredSignatureError, InvalidSignatureError, DecodeError, InvalidTokenError
 
 from src.repository.user.user_repository import UserRepository
-from src.schema.auth_schema import Status
+from src.interfaces.schema.auth_schema import Status
 
 load_dotenv()
 

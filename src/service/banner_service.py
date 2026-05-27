@@ -9,7 +9,6 @@ from datetime import datetime, date
 import asyncio
 import random
 import re
-import streamlit as st
 
 
 # ── 고정/시즌 배너 데이터 ──────────────────────────────────────
@@ -40,16 +39,15 @@ async def _fetch_all_events() -> list[dict]:
     return [event for region_events in results for event in region_events]
 
 
-@st.cache_data(ttl=3600)  # 1시간마다 갱신
-def get_events_cached() -> list[dict]:
-    """크롤링 결과를 1시간 캐싱 (Streamlit 동기 컨텍스트 브리지)"""
+def get_events() -> list[dict]:
+    """이벤트 목록을 조회합니다."""
     return asyncio.run(_fetch_all_events())
 
 
 def get_active_event() -> dict | None:
     """D-14 이내 이벤트 반환"""
     today = date.today()
-    for event in get_events_cached():
+    for event in get_events():
         diff = (event["date"] - today).days
         if -1 <= diff <= 14:
             return {**event, "diff": diff}

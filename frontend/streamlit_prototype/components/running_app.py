@@ -39,9 +39,9 @@ from streamlit_folium import st_folium
 from dotenv import load_dotenv
 
 from src.repository.route.graph_repository import load_graph_near
-from src.service.route.running_route_service import _apply_running_weights
-from src.service.route.path_circular_running import circular_running_route
-from src.service.route.path_oneway_running import oneway_running_route
+from src.route_engine.running_route_service import _apply_running_weights
+from src.route_engine.path_circular_running import circular_running_route
+from src.route_engine.path_oneway_running import oneway_running_route
 
 load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
 MAPBOX_TOKEN = os.getenv("MAPBOX_API_KEY")

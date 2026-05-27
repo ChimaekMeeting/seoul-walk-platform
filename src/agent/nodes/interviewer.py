@@ -7,7 +7,7 @@ from typing import Tuple
 
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.tools.place_tool import PlaceTool
-from src.service.prewalk.chatbot_utils import PromptUtils
+from src.agent.utils.chatbot_utils import PromptUtils
 from src.schema.prewalk_schema import (
     DestinationPreference,
     DistancePreference,

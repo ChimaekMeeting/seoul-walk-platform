@@ -1,7 +1,7 @@
 from src.service.login_service import KakaoLoginService
 from src.service.user_service import UserService
 from src.service.auth_service import AuthService
-from src.service.weather.weather_checker import WeatherChecker
+from src.agent.nodes.weather_checker import WeatherChecker
 from src.service.prewalk_orchestrator import PrewalkOrchestrator
 
 # 이 파일에서 정의된 서비스 객체를 다른 API 파일에서 전역적으로 사용하시면 됩니다!
