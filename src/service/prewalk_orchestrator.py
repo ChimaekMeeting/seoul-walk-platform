@@ -1,7 +1,7 @@
 from uuid import uuid4
 
-from src.client.gpt_client import GPTClient
-from src.client.kakao_client import KakaoClient
+from src.infrastructure.external.client.gpt_client import GPTClient
+from src.infrastructure.external.client.kakao_client import KakaoClient
 from src.repository.user.user_repository import UserRepository
 from src.repository.chat.chat_session_repository import ChatSessionRepository
 from src.repository.chat.chat_state_repository import ChatStateRepository
@@ -31,7 +31,7 @@ class PrewalkOrchestrator:
         ChatSessionRepository.save(user_id, thread_id)
 
         # 날씨 정보 획득
-        weather_data, init_message = self.weather_checker.generate_init_message(lat, lon)
+        weather_data, init_message = await self.weather_checker.generate_init_message(lat, lon)
         current_location = await self.kakao_client.get_address_from_coords(lat, lon)
 
         # 초기 상태 정의

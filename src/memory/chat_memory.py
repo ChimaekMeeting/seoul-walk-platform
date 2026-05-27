@@ -1,6 +1,6 @@
 from typing import Any
 
-def load_chat_history(session_id: str) -> list[dict[str, Any]]:
+def load_chat_history(thread_id: str) -> list[dict[str, Any]]:
     """
     특정 세션의 대화 이력을 불러올 예정인 함수.
 
@@ -12,7 +12,7 @@ def load_chat_history(session_id: str) -> list[dict[str, Any]]:
     """
     pass
 
-def append_chat_message(session_id: str, role: str, content: str, metadata: dict[str, Any] | None = None) -> None:
+def append_chat_message(thread_id: str, role: str, content: str, metadata: dict[str, Any] | None = None) -> None:
     """
     사용자와 에이전트 간의 대화 내역(Chat History)을 추가한다.
 
@@ -24,7 +24,7 @@ def append_chat_message(session_id: str, role: str, content: str, metadata: dict
     """
     pass
 
-def get_chat_history(session_id: str, limit: int = 10) -> list[dict[str, Any]]:
+def get_chat_history(thread_id: str, limit: int = 10) -> list[dict[str, Any]]:
     """
     특정 세션의 대화 내역을 가져온다.
 

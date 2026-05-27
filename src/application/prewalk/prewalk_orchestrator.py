@@ -12,7 +12,7 @@ def start_prewalk_session(request: dict[str, Any]) -> list[Any]:
     """
     pass
 
-def handle_user_message(session_id: str, message: str) -> list[Any]:
+def handle_user_message(thread_id: str, message: str) -> list[Any]:
     """
     사용자가 채팅 메시지를 보냈을 때의 전체 흐름을 조립한다.
 

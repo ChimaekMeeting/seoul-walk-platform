@@ -23,7 +23,7 @@ async def circular_running(request: CircularRunningRequest):
     try:
         return get_circular_route(
             lat=request.lat,
-            lng=request.lng,
+            lon=request.lon,
             target_km=request.target_km,
             radius_m=request.radius_m,
         )
@@ -39,9 +39,9 @@ async def oneway_running(request: OnewayRunningRequest):
     try:
         return get_oneway_route(
             start_lat=request.start_lat,
-            start_lng=request.start_lng,
+            start_lon=request.start_lon,
             end_lat=request.end_lat,
-            end_lng=request.end_lng,
+            end_lon=request.end_lon,
             target_km=request.target_km,
             use_random=request.use_random,
             radius_m=request.radius_m,

@@ -5,8 +5,8 @@
 
 주요 함수
 ---------
-get_circular_route(lat, lng, target_km, ...)  → 출발점 기준 루프 코스
-get_oneway_route(lat, lng, end_lat, end_lng, ...) → 출발점 → 도착점 단방향 코스
+get_circular_route(lat, lon, target_km, ...)  → 출발점 기준 루프 코스
+get_oneway_route(lat, lon, end_lat, end_lon, ...) → 출발점 → 도착점 단방향 코스
 """
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ def _build_result(
         dict: 아래 키를 포함하는 딕셔너리.
 
         - ``mode``              (str)        : 입력 ``mode`` 값.
-        - ``coordinates``       (list)       : ``[[lat, lng], ...]`` 형태의 좌표 목록.
+        - ``coordinates``       (list)       : ``[[lat, lon], ...]`` 형태의 좌표 목록.
         - ``total_distance_km`` (float)      : 가지치기 후 경로의 총 거리 (km).
         - ``matched_courses``   (list[dict]) : 입력 ``matched_courses`` 값.
     """
@@ -149,7 +149,7 @@ def _build_result(
 
 def get_circular_route(
     lat: float,
-    lng: float,
+    lon: float,
     target_km: float = 5.0,
     radius_m: float = 5_000,
     G: Optional[nx.Graph] = None,
@@ -163,7 +163,7 @@ def get_circular_route(
 
     Args:
         lat       (float)              : 출발점 위도.
-        lng       (float)              : 출발점 경도.
+        lon       (float)              : 출발점 경도.
         target_km (float)              : 목표 거리 (km). 기본값 5.0.
         radius_m  (float)              : DB 코스 검색 반경 (미터). 기본값 5,000.
         G         (nx.Graph, optional) : 미리 로드된 그래프. ``None``이면 DB에서 로드.
@@ -172,7 +172,7 @@ def get_circular_route(
         dict: 아래 키를 포함하는 딕셔너리.
 
         - ``mode``              (str)        : ``"circular_running"``
-        - ``coordinates``       (list)       : ``[[lat, lng], ...]`` 형태의 좌표 목록.
+        - ``coordinates``       (list)       : ``[[lat, lon], ...]`` 형태의 좌표 목록.
         - ``total_distance_km`` (float)      : 총 거리 (km).
         - ``matched_courses``   (list[dict]) : 반경 내 DB 추천 코스 목록.
         - ``error``             (str)        : 경로 생성 실패 시에만 포함.
@@ -182,7 +182,7 @@ def get_circular_route(
     # ── 1. DB 코스 조회 ────────────────────────────────────────
     matched_courses = get_courses_near(
         lat=lat,
-        lng=lng,
+        lon=lon,
         radius_m=radius_m,
         is_circular=True,
         course_types=RUNNING_COURSE_TYPES,
@@ -195,7 +195,7 @@ def get_circular_route(
     t1 = time.time()
     graph_radius = target_km * 1000 * 2.5  # 목표 거리의 2.5배 반경
     if G is None:
-        G = load_graph_near(lat, lng, radius_m=graph_radius)
+        G = load_graph_near(lat, lon, radius_m=graph_radius)
     print(f"[running/circular] 그래프 로드 ({time.time()-t1:.2f}s)")
 
     courses = [CourseInfo(**c) for c in matched_courses]
@@ -230,7 +230,7 @@ def get_circular_route(
 
     # ── 5. 순환 경로 생성 ──────────────────────────────────────
     t2 = time.time()
-    start_node = find_nearest_node(G, lat, lng)
+    start_node = find_nearest_node(G, lat, lon)
     raw = random_walk_route(G, start_node, target_km, weight="custom_score")
     print(f"[running/circular] 경로 생성 ({time.time()-t2:.2f}s)")
 
@@ -246,9 +246,9 @@ def get_circular_route(
 
 def get_oneway_route(
     start_lat: float,
-    start_lng: float,
+    start_lon: float,
     end_lat: float,
-    end_lng: float,
+    end_lon: float,
     target_km: Optional[float] = None,
     use_random: bool = True,
     radius_m: float = 5_000,
@@ -262,9 +262,9 @@ def get_oneway_route(
 
     Args:
         start_lat  (float)              : 출발점 위도.
-        start_lng  (float)              : 출발점 경도.
+        start_lon  (float)              : 출발점 경도.
         end_lat    (float)              : 도착점 위도.
-        end_lng    (float)              : 도착점 경도.
+        end_lon    (float)              : 도착점 경도.
         target_km  (float, optional)    : 목표 거리 (km). ``use_random=True``일 때만 사용.
                                           ``None``이면 직선 거리 기반으로 자동 설정.
         use_random (bool)               : ``True`` → Edge Penalty 우회 경로 (oneway_random).
@@ -277,7 +277,7 @@ def get_oneway_route(
 
         - ``mode``              (str)        : ``"oneway_running_random"`` 또는
                                                ``"oneway_running_shortest"``
-        - ``coordinates``       (list)       : ``[[lat, lng], ...]`` 형태의 좌표 목록.
+        - ``coordinates``       (list)       : ``[[lat, lon], ...]`` 형태의 좌표 목록.
         - ``total_distance_km`` (float)      : 총 거리 (km).
         - ``matched_courses``   (list[dict]) : 반경 내 DB 추천 코스 목록.
         - ``error``             (str)        : 경로 생성 실패 시에만 포함.
@@ -287,7 +287,7 @@ def get_oneway_route(
     # ── 1. DB 코스 조회 ────────────────────────────────────────
     matched_courses = get_courses_near(
         lat=start_lat,
-        lng=start_lng,
+        lon=start_lon,
         radius_m=radius_m,
         is_circular=False,
         course_types=RUNNING_COURSE_TYPES,
@@ -301,15 +301,15 @@ def get_oneway_route(
     # ── 2. 그래프 로드 ─────────────────────────────────────────
     t1 = time.time()
     straight_m = math.sqrt(
-        (start_lat - end_lat) ** 2 + (start_lng - end_lng) ** 2
+        (start_lat - end_lat) ** 2 + (start_lon - end_lon) ** 2
     ) * 111_000  # 위도 1도 ≈ 111km
     graph_radius = max(straight_m * 1.5, 3_000)  # 직선 거리의 1.5배, 최소 3km
 
     if G is None:
         # 출발·도착 중간 지점 기준으로 로드
         mid_lat = (start_lat + end_lat) / 2
-        mid_lng = (start_lng + end_lng) / 2
-        G = load_graph_near(mid_lat, mid_lng, radius_m=graph_radius)
+        mid_lon = (start_lon + end_lon) / 2
+        G = load_graph_near(mid_lat, mid_lon, radius_m=graph_radius)
     print(f"[running/oneway] 그래프 로드 ({time.time()-t1:.2f}s)")
 
     if G.number_of_nodes() == 0:
@@ -342,8 +342,8 @@ def get_oneway_route(
 
     # ── 5. 편도 경로 생성 ──────────────────────────────────────
     t2 = time.time()
-    start_node = find_nearest_node(G, start_lat, start_lng)
-    end_node   = find_nearest_node(G, end_lat, end_lng)
+    start_node = find_nearest_node(G, start_lat, start_lon)
+    end_node   = find_nearest_node(G, end_lat, end_lon)
 
     if use_random and target_km:
         raw = oneway_random_route(G, start_node, end_node, target_km, weight="custom_score")

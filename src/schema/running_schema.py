@@ -46,9 +46,9 @@ class CourseInfo(BaseModel):
     description: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     start_lat: float
-    start_lng: float
+    start_lon: float
     end_lat: Optional[float] = None
-    end_lng: Optional[float] = None
+    end_lon: Optional[float] = None
     distance_from_origin_m: float           # 출발점까지 거리
 
 
@@ -63,7 +63,7 @@ class CircularRunningRequest(BaseModel):
     출발점 좌표와 목표 거리를 받아 루프 코스를 반환합니다.
     """
     lat: float = Field(..., description="출발점 위도")
-    lng: float = Field(..., description="출발점 경도")
+    lon: float = Field(..., description="출발점 경도")
     target_km: float = Field(5.0, ge=1.0, le=30.0, description="목표 거리 (km)")
     radius_m: float = Field(5_000, ge=500, le=20_000, description="코스 검색 반경 (미터)")
 
@@ -71,7 +71,7 @@ class CircularRunningRequest(BaseModel):
 class CircularRunningResponse(BaseModel):
     """순환 런닝 코스 응답"""
     mode: str                                       # "circular_running"
-    coordinates: List[List[float]]                  # [[lat, lng], ...]
+    coordinates: List[List[float]]                  # [[lat, lon], ...]
     total_distance_km: float
     matched_courses: List[CourseInfo] = Field(
         default_factory=list,
@@ -92,9 +92,9 @@ class OnewayRunningRequest(BaseModel):
 
     """
     start_lat: float = Field(..., description="출발점 위도")
-    start_lng: float = Field(..., description="출발점 경도")
+    start_lon: float = Field(..., description="출발점 경도")
     end_lat: float   = Field(..., description="도착점 위도")
-    end_lng: float   = Field(..., description="도착점 경도")
+    end_lon: float   = Field(..., description="도착점 경도")
     target_km: Optional[float] = Field(
         None, ge=1.0, le=30.0,
         description="목표 거리 (km). use_random=True 일 때만 사용됩니다.",
@@ -109,7 +109,7 @@ class OnewayRunningRequest(BaseModel):
 class OnewayRunningResponse(BaseModel):
     """편도 런닝 코스 응답"""
     mode: str                                       # "oneway_running_random" | "oneway_running_shortest"
-    coordinates: List[List[float]]                  # [[lat, lng], ...]
+    coordinates: List[List[float]]                  # [[lat, lon], ...]
     total_distance_km: float
     matched_courses: List[CourseInfo] = Field(
         default_factory=list,

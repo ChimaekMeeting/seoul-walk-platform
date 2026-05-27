@@ -63,7 +63,7 @@ def get_route(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
     Returns:
         {
             "mode": "random_walk" | "dijkstra",
-            "coordinates": [[lat, lng], ...],
+            "coordinates": [[lat, lon], ...],
             "total_distance_km": float
         }
     """
@@ -71,7 +71,7 @@ def get_route(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
     # 0. 매개변수 추출
     mode = context.get("mode", "circular")
     start_lat = context["origin"]["coordinate"]["lat"]
-    start_lng = context["origin"]["coordinate"]["lon"]
+    start_lon = context["origin"]["coordinate"]["lon"]
     distance_km = context.get("distance_km", 3.0)
 
     radius_m = distance_km * 1000 * 3.0
@@ -80,9 +80,9 @@ def get_route(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
     # 1. DB에서 그래프 로드
     if G_full is not None:
          # 메모리에서 반경 필터링
-        G = extract_subgraph_near(G_full, start_lat, start_lng, radius_m)
+        G = extract_subgraph_near(G_full, start_lat, start_lon, radius_m)
     else:
-        G = load_graph_near(start_lat, start_lng, radius_m=radius_m)
+        G = load_graph_near(start_lat, start_lon, radius_m=radius_m)
 
     print(f"[1] load_graph_near: {time.time()-t0:.2f}s")
     t1 = time.time()
@@ -96,7 +96,7 @@ def get_route(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
     t2 = time.time()
 
     # 3. 알고리즘 분기
-    start_node = find_nearest_node(G, start_lat, start_lng)
+    start_node = find_nearest_node(G, start_lat, start_lon)
 
     if mode == "circular":
         result = random_walk_route(G, start_node, distance_km, weight="custom_score")
@@ -105,8 +105,8 @@ def get_route(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
         if not context.get("destination"):
             return {"mode": mode, "coordinates": [], "total_distance_km": 0.0, "error": "편도 모드에서는 목적지가 필요합니다"}
         end_lat = context["destination"]["coordinate"]["lat"]
-        end_lng = context["destination"]["coordinate"]["lon"]
-        end_node = find_nearest_node(G, end_lat, end_lng)
+        end_lon = context["destination"]["coordinate"]["lon"]
+        end_node = find_nearest_node(G, end_lat, end_lon)
         if mode == "oneway_random":
             result = oneway_random_route(G, start_node, end_node, distance_km, weight="custom_score")
             result["mode"] = "oneway_random"
@@ -153,7 +153,7 @@ def get_route(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
 
     return result
 
-def extract_subgraph_near(G: nx.Graph, lat: float, lng: float, radius_m: float) -> nx.Graph:
+def extract_subgraph_near(G: nx.Graph, lat: float, lon: float, radius_m: float) -> nx.Graph:
     import math
 
     # 위도 1도 ≈ 111km
@@ -161,7 +161,7 @@ def extract_subgraph_near(G: nx.Graph, lat: float, lng: float, radius_m: float) 
     nodes = [
         n for n, d in G.nodes(data=True)
         if "y" in d and "x" in d
-        and abs(d["y"] - lat) <= deg 
-        and abs(d["x"] - lng) <= deg * 1.3
+        and abs(d["y"] - lat) <= deg
+        and abs(d["x"] - lon) <= deg * 1.3
     ]
     return G.subgraph(nodes).copy()

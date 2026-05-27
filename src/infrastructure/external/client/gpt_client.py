@@ -9,9 +9,9 @@ load_dotenv()
 class GPTClient:
     def __init__(self):
         self.llm = ChatOpenAI(
-            api_key=os.getenv("OPENAI_API"),
+            api_key=os.getenv("OPENAI_API_KEY"),
             model="gpt-4o-mini",
-            temperature=0.7
+            temperature=0.1
         )
 
     async def get_response(

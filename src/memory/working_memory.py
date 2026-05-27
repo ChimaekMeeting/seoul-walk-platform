@@ -15,7 +15,7 @@ class WorkingMemory:
     - 실제 Redis/Valkey 연결 구현 금지
     - DB query 구현 금지
     """
-    session_id: str | None
+    thread_id: str | None
     current_intent: dict[str, Any] | None
     current_route_request: dict[str, Any] | None
     current_route_context: dict[str, Any] | None
@@ -25,7 +25,7 @@ class WorkingMemory:
 
     pass
 
-def save_working_memory(session_id: str, key: str, value: Any) -> None:
+def save_working_memory(thread_id: str, key: str, value: Any) -> None:
     """
     단일 요청(Request)이나 짧은 세션 동안만 유지되는 임시 작업 기억을 저장한다.
 
@@ -40,7 +40,7 @@ def save_working_memory(session_id: str, key: str, value: Any) -> None:
     """
     pass
 
-def load_working_memory(session_id: str, key: str) -> Any:
+def load_working_memory(thread_id: str, key: str) -> Any:
     """
     임시 작업 기억을 로드한다.
     """

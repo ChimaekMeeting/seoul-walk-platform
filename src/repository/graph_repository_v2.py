@@ -28,7 +28,7 @@ def load_graph_v2() -> nx.Graph:
 
     Returns:
         G: Graph
-            - node 속성: node_type, is_underground, is_overpass, x(lng), y(lat)
+            - node 속성: node_type, is_underground, is_overpass, x(lon), y(lat)
             - edge 속성: link_id, length, road_type, path_type,
                          safety_score, nature_score, slope_score  ← 3개 모두
     """
@@ -42,7 +42,7 @@ def load_graph_v2() -> nx.Graph:
                 node_type,
                 is_underground,
                 is_overpass,
-                ST_X(geom) AS lng,
+                ST_X(geom) AS lon,
                 ST_Y(geom) AS lat
             FROM walk_nodes
         """)).fetchall()
@@ -50,7 +50,7 @@ def load_graph_v2() -> nx.Graph:
         for row in node_rows:
             G.add_node(
                 row.node_id,
-                x=row.lng,
+                x=row.lon,
                 y=row.lat,
                 node_type=row.node_type,
                 is_underground=row.is_underground,
@@ -99,13 +99,13 @@ def load_graph_v2() -> nx.Graph:
     return G
 
 
-def load_graph_near_v2(lat: float, lng: float, radius_m: float = 3000) -> nx.Graph:
+def load_graph_near_v2(lat: float, lon: float, radius_m: float = 3000) -> nx.Graph:
     """
     특정 위치 반경 내 노드/엣지만 로드 (전체 로드보다 빠름).
     기존 load_graph_near()에서 nature_score 컬럼 누락을 보완한 버전.
 
     Args:
-        lat, lng : 중심 위경도
+        lat, lon : 중심 위경도
         radius_m : 반경 (미터)
     """
     G = nx.Graph()
@@ -118,22 +118,22 @@ def load_graph_near_v2(lat: float, lng: float, radius_m: float = 3000) -> nx.Gra
                 node_type,
                 is_underground,
                 is_overpass,
-                ST_X(geom) AS lng,
+                ST_X(geom) AS lon,
                 ST_Y(geom) AS lat
             FROM walk_nodes
             WHERE ST_DWithin(
                 geom::geography,
-                ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+                ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
                 :radius
             )
         """),
-            {"lat": lat, "lng": lng, "radius": radius_m},
+            {"lat": lat, "lon": lon, "radius": radius_m},
         ).fetchall()
 
         for row in node_rows:
             G.add_node(
                 row.node_id,
-                x=row.lng,
+                x=row.lon,
                 y=row.lat,
                 node_type=row.node_type,
                 is_underground=row.is_underground,
@@ -149,11 +149,11 @@ def load_graph_near_v2(lat: float, lng: float, radius_m: float = 3000) -> nx.Gra
             FROM walk_edges
             WHERE ST_DWithin(
                 geom::geography,
-                ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+                ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
                 :radius
             )
         """),
-            {"lat": lat, "lng": lng, "radius": radius_m},
+            {"lat": lat, "lon": lon, "radius": radius_m},
         ).fetchall()
 
         for row in edge_rows:

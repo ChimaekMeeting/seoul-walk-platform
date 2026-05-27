@@ -2,7 +2,7 @@ from src.schema.prewalk_schema import (
     WalkPreferenceExtraction,
     State
 )
-from src.client.gpt_client import GPTClient
+from src.infrastructure.external.client.gpt_client import GPTClient
 from src.service.prewalk.chatbot_utils import PromptUtils
 
 class Extractor(GPTClient):

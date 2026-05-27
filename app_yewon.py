@@ -8,7 +8,6 @@ import requests
 from streamlit.components.v1 import html
 
 from src.database.postgresql import health_check
-from src.client.weather_client import get_environment_info
 from src.service.route.route_flat import (
     get_route_v2 as get_route,
     get_flat_mode_options,
