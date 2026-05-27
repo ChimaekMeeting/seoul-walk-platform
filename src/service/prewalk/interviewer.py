@@ -6,7 +6,11 @@ from langchain_core.prompts import PromptTemplate, load_prompt
 from typing import Tuple, Any
 
 from src.client.gpt_client import GPTClient
-from src.client.kakao_client import KakaoClient
+from src.agent.tools.poi_tool import (
+    get_address_from_coords,
+    get_address_from_keyword,
+    get_address_from_category,
+)
 from src.service.prewalk.chatbot_utils import PromptUtils
 from src.schema.prewalk_schema import (
     DestinationPreference,
@@ -49,13 +53,13 @@ class StateManager:
         return len(missing_info) == 0, missing_info
     
 class KakaoToolProvider:
-    def __init__(self, kakao_client):
-        self.client = kakao_client
+    def __init__(self):
         self._tools = [
-            self.client.get_address_from_category,
-            self.client.get_address_from_coords,
-            self.client.get_address_from_keyword
+            get_address_from_coords,
+            get_address_from_keyword,
+            get_address_from_category,
         ]
+        self._tool_map = {t.name: t for t in self._tools}
 
     @property
     def tools(self):
@@ -67,33 +71,32 @@ class KakaoToolProvider:
         """
         results = []
         candidates = {}
-        
+
         for call in tool_calls:
             name, args = call["name"], call["args"]
             target = args.get("target", "destination")
-            func = getattr(self.client, name)
-            output = await func.ainvoke(args)
-            
-            # 데이터 가공 로직
+            output = await self._tool_map[name].ainvoke(args)
+
             if "documents" in output:
                 candidates[f"{target}_candidate"] = [
                     Location(
                         lat=float(d["y"]),
                         lon=float(d["x"]),
                         address=d["address_name"],
-                        place_name=d["place_name"]
-                    ) for d in output["documents"]
+                        place_name=d["place_name"],
+                    )
+                    for d in output["documents"]
                 ]
             results.append({"tool": name, "result": output})
-            
+
         return results, candidates
 
 class Interviewer(GPTClient):
-    def __init__(self, kakao_client: KakaoClient):
+    def __init__(self):
         super().__init__()
 
         self.state_manager = StateManager()
-        self.tool_provider = KakaoToolProvider(kakao_client)
+        self.tool_provider = KakaoToolProvider()
         self.prompt_utils = PromptUtils()
 
         # tool 바인딩
