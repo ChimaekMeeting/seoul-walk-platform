@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 import os, httpx
-from typing import Literal, Optional
+from typing import Optional
 
 from src.infrastructure.external.schema import (
     PlaceInfo,
@@ -70,7 +70,6 @@ class KakaoClient:
         keyword: str,
         lat: float,
         lon: float,
-        target: Optional[Literal["origin", "destination"]] = None,
     ) -> Optional[PlaceSearchResult]:
         """
         특정 키워드를 기반으로 주소를 반환합니다.
@@ -82,7 +81,6 @@ class KakaoClient:
         category: str,
         lat: float,
         lon: float,
-        target: Optional[Literal["origin", "destination"]] = None,
     ) -> Optional[PlaceSearchResult]:
         """
         특정 카테고리를 기반으로 주소를 반환합니다.
