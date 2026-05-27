@@ -90,10 +90,6 @@ class OnewayRunningRequest(BaseModel):
 
     출발점 → 도착점 단방향 코스를 반환합니다.
 
-    .. note::
-        ``running_router.py``는 현재 ``use_random`` 값과 무관하게
-        항상 Edge Penalty + 랜덤 경유지 알고리즘(우회 경로)을 사용합니다.
-        최단 경로 분기는 ``running_route_service.get_oneway_route()``에서만 지원됩니다.
     """
     start_lat: float = Field(..., description="출발점 위도")
     start_lng: float = Field(..., description="출발점 경도")
