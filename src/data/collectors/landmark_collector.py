@@ -3,7 +3,7 @@ from typing import List
 
 import pandas as pd
 
-from src.client.kakao_client import KakaoClient
+from src.infrastructure.external.client.kakao_client import KakaoClient
 from src.data.utils import CollectorUtils
 from src.repository.route.edge_repository import EdgeRepository
 from src.repository.route.poi_repository import LandmarkRepository

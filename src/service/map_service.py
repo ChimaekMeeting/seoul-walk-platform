@@ -4,7 +4,7 @@ import streamlit as st
 import json
 from sqlalchemy import text
 from src.entity.base import engine  # 프로젝트 설정에 따른 DB 엔진 임포트
-from src.client.kakao_client import KakaoClient
+from src.infrastructure.external.client.kakao_client import KakaoClient
 
 kakao_client = KakaoClient()
 

@@ -3,13 +3,15 @@ from bs4 import BeautifulSoup
 from datetime import datetime, date
 import re
 
+from src.infrastructure.external.schema import MarathonEvent
+
 
 class MarathonClient:
     def __init__(self):
         self.BASE_URL = "https://marathongo.co.kr/raceSchedule/domestic"
         self.HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-    async def get_events(self, region: str = "서울") -> list[dict]:
+    async def get_events(self, region: str = "서울") -> list[MarathonEvent]:
         """
         전체 파이프라인 실행: 요청 → 파싱 → 필터 → 정렬
         """
@@ -59,7 +61,7 @@ class MarathonClient:
         soup = BeautifulSoup(html, "html.parser", from_encoding="utf-8")
         return soup.find_all("a", href=re.compile(r"/raceDetail/domestic/"))
 
-    def _build_event(self, link_tag, text: str, region: str) -> dict | None:
+    def _build_event(self, link_tag, text: str, region: str) -> MarathonEvent | None:
         """
         링크 태그와 텍스트로부터 이벤트 딕셔너리 생성
         """
@@ -74,13 +76,12 @@ class MarathonClient:
         location = self._parse_location(text, region)
         slug = link_tag["href"].split("/")[-1]
 
-        return {
-            "name":     name,
-            "date":     event_date,
-            "location": f"{region} · {location}",
-            "emoji":    "🏅",
-            "slug":     slug,
-        }
+        return MarathonEvent(
+            name=name,
+            date=event_date,
+            location=f"{region} · {location}",
+            slug=slug,
+        )
 
     def _parse_date(self, text: str) -> date | None:
         """

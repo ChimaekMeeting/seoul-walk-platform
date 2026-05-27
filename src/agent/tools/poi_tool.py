@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 from langchain_core.tools import tool
 
-from src.client.kakao_client import KakaoClient
+from src.infrastructure.external.client.kakao_client import KakaoClient
 
 _client = KakaoClient()
 

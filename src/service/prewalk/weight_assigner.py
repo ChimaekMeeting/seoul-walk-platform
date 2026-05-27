@@ -1,5 +1,5 @@
 from langchain_core.output_parsers import PydanticOutputParser
-from src.client.gpt_client import GPTClient
+from src.infrastructure.external.client.gpt_client import GPTClient
 from src.schema.prewalk_schema import Weights, State
 from src.service.prewalk.chatbot_utils import PromptUtils, PydanticUtils
 

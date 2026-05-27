@@ -1,4 +1,4 @@
-from src.client.weather_client import WeatherClient
+from src.infrastructure.external.client.weather_client import WeatherClient
 from typing import Tuple
 import textwrap
 

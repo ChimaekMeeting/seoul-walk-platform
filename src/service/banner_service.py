@@ -4,7 +4,7 @@
 # 역할   : 시간대 + 날씨 + 이벤트 기반으로 배너 목록을 결정하는 서비스
 # ================================================================
 
-from src.client.marathon_client import MarathonClient
+from src.infrastructure.external.client.marathon_client import MarathonClient
 from datetime import datetime, date
 import asyncio
 import random
@@ -57,30 +57,10 @@ def get_active_event() -> dict | None:
 
 
 def _get_event_text(event: dict) -> dict:
-    """D-day에 따라 배너 문구를 다르게 반환"""
-    diff  = event["diff"]
-    name  = event["name"]
-    loc   = event["location"]
-    emoji = event["emoji"]
-
-    if diff == 0:
-        text = f"오늘 {name} 대회날이에요!"
-        sub  = f"{loc} 근처 산책코스 추천해드려요"
-    elif diff <= 3:
-        text = f"이번 주말 {name}!"
-        sub  = f"D-{diff} · {loc} · 코스 미리 확인해보세요"
-    else:
-        text = f"{name} 미리 준비해볼까요?"
-        sub  = f"D-{diff} · {loc}"
-
-    return {"emoji": emoji, "text": text, "sub": sub}
-
-def _get_event_text(event: dict) -> dict:
-    diff  = event["diff"]
-    name  = event["name"]
-    loc   = event["location"]
-    emoji = event["emoji"]
-    event_date = event["date"]  
+    diff       = event["diff"]
+    name       = event["name"]
+    loc        = event["location"]
+    event_date = event["date"]
 
     if diff == 0:
         text = f"오늘 {name} 대회날이에요!"
@@ -93,7 +73,7 @@ def _get_event_text(event: dict) -> dict:
         sub  = f"D-{diff} · {loc}"
 
     return {
-        "emoji":    emoji,
+        "emoji":    "🏅",
         "text":     text,
         "sub":      sub,
         "is_event": True,           # ← 추가

@@ -2,6 +2,11 @@ from dotenv import load_dotenv
 import os, httpx
 from typing import Literal, Optional
 
+from src.infrastructure.external.schema import (
+    PlaceInfo,
+    PlaceSearchResult
+)
+
 load_dotenv()
 
 CATEGORY_GROUP_CODE = {
@@ -32,7 +37,7 @@ class KakaoClient:
     def get_headers(self) -> dict:
         return {"Authorization": f"KakaoAK {self.KAKAO_API_KEY}"}
 
-    async def get_address_from_coords(self, lat: float, lon: float) -> dict:
+    async def get_address_from_coords(self, lat: float, lon: float) -> PlaceInfo:
         """
         경위도 좌표를 주소로 변환합니다.
         """
@@ -47,18 +52,18 @@ class KakaoClient:
             address = docs.get("address")
 
             if road_address:
-                return {
-                    "place_address": road_address.get("address_name"),
-                    "place_name": road_address.get("building_name", "현 위치"),
-                    "place_lat": lat,
-                    "place_lon": lon,
-                }
-            return {
-                "place_address": address.get("address_name"),
-                "place_name": address.get("building_name", "현 위치"),
-                "place_lat": lat,
-                "place_lon": lon,
-            }
+                return PlaceInfo(
+                    place_address=road_address.get("address_name"),
+                    place_name=road_address.get("building_name") or "현 위치",
+                    place_lat=lat,
+                    place_lon=lon,
+                )
+            return PlaceInfo(
+                place_address=address.get("address_name"),
+                place_name=address.get("building_name") or "현 위치",
+                place_lat=lat,
+                place_lon=lon,
+            )
 
     async def get_address_from_keyword(
         self,
@@ -66,7 +71,7 @@ class KakaoClient:
         lat: float,
         lon: float,
         target: Optional[Literal["origin", "destination"]] = None,
-    ) -> dict:
+    ) -> Optional[PlaceSearchResult]:
         """
         특정 키워드를 기반으로 주소를 반환합니다.
         """
@@ -78,7 +83,7 @@ class KakaoClient:
         lat: float,
         lon: float,
         target: Optional[Literal["origin", "destination"]] = None,
-    ) -> dict:
+    ) -> Optional[PlaceSearchResult]:
         """
         특정 카테고리를 기반으로 주소를 반환합니다.
         category 인자에는 반드시 다음 중 하나만 입력하세요:
@@ -97,7 +102,7 @@ class KakaoClient:
         size: int = 3,
         category_code: Optional[str] = None,
         keyword: Optional[str] = None,
-    ) -> Optional[dict]:
+    ) -> Optional[PlaceSearchResult]:
         """
         카카오 로컬 API를 통해 주변 장소(카테고리/키워드)를 검색합니다.
         keyword가 있으면 키워드 검색, 없으면 category_code로 카테고리 검색을 수행합니다.
@@ -116,10 +121,10 @@ class KakaoClient:
 
         async with httpx.AsyncClient() as client:
             res = await client.get(url, headers=self.get_headers(), params=params, timeout=5)
-            return res.json()
+            return PlaceSearchResult(**res.json())
         return None
 
-    async def get_kakao_geocode(self, address: str) -> Optional[list]:
+    async def get_kakao_geocode(self, address: str) -> Optional[tuple[float, float]]:
         """
         텍스트 주소를 위경도 좌표 [x, y]로 변환합니다.
         """
@@ -130,5 +135,5 @@ class KakaoClient:
                 params={"query": address},
             )
             docs = res.json().get("documents")
-            return [float(docs[0]["x"]), float(docs[0]["y"])]
+            return (float(docs[0]["x"]), float(docs[0]["y"]))
         return None

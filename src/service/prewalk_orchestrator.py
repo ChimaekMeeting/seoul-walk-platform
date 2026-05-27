@@ -1,7 +1,7 @@
 from uuid import uuid4
 
-from src.client.gpt_client import GPTClient
-from src.client.kakao_client import KakaoClient
+from src.infrastructure.external.client.gpt_client import GPTClient
+from src.infrastructure.external.client.kakao_client import KakaoClient
 from src.repository.user.user_repository import UserRepository
 from src.repository.chat.chat_session_repository import ChatSessionRepository
 from src.repository.chat.chat_state_repository import ChatStateRepository

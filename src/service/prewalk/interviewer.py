@@ -5,7 +5,7 @@ from langchain_core.output_parsers import (
 from langchain_core.prompts import PromptTemplate, load_prompt
 from typing import Tuple, Any
 
-from src.client.gpt_client import GPTClient
+from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.tools.poi_tool import (
     get_address_from_coords,
     get_address_from_keyword,
