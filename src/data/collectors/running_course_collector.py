@@ -42,7 +42,7 @@ from shapely.geometry import LineString, MultiLineString
 from sqlalchemy.orm import Session
 
 from src.database.postgresql import engine
-from src.entity.course import Course, CourseTag
+from src.entity.layer.running_layer import Course, CourseTag
 
 
 # ──────────────────────────────────────────────────────────────

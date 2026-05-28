@@ -1,7 +1,8 @@
 import math
 
-from src.repository.route.edge_repository import EdgeRepository
-from src.repository.route.poi_repository import NatureRepository, SafetyRepository
+from src.repository.network.edge_repository import EdgeRepository
+from src.repository.layer.nature_repository import NatureRepository
+from src.repository.layer.safety_repository import SafetyRepository
 
 
 class ScoreCalculator:

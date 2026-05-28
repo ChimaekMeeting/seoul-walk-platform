@@ -1,8 +1,8 @@
 import re
 import pandas as pd
 from geoalchemy2.elements import WKTElement
-from src.repository.route.node_repository import NodeRepository
-from src.repository.route.edge_repository import EdgeRepository
+from src.repository.network.node_repository import NodeRepository
+from src.repository.network.edge_repository import EdgeRepository
 
 
 class BaseNetworkCollector:

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, Request, Response
-from src.service.login_service import KakaoLoginService
-from src.schema.login_schema import LoginUrlResponse, LoginResponse
-from src.schema.auth_schema import AuthResponse, Status
+from src.service.user.login_service import KakaoLoginService
+from src.interfaces.schema.login_schema import LoginUrlResponse, LoginResponse
+from src.interfaces.schema.auth_schema import AuthResponse, Status
 from src.interfaces.dependencies import get_kakao_login_service
 
 router = APIRouter(

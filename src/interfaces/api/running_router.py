@@ -2,7 +2,7 @@ import traceback
 
 from fastapi import APIRouter, HTTPException
 
-from src.schema.running_schema import (
+from src.interfaces.schema.running_schema import (
     CircularRunningRequest,
     CircularRunningResponse,
     OnewayRunningRequest,

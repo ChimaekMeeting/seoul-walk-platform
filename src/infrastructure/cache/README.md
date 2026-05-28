@@ -1,11 +1,19 @@
 # Cache Layer
 
-**목적:** 짧은 TTL의 임시 데이터(현재 요청 중 주변 POI, 날씨/미세먼지 캐시, 채팅 세션 임시 상태 등) 저장을 담당합니다.
+## 1. 소개
+- Valkey 세션에 대한 CRUD를 구현합니다.
+- PostgreSQL DB에 대한 CRUD는 `src/repository`에서 구현합니다.
+- 구조는 아래와 같습니다.
+```
+- valkey.py  <- 수정할 필요 X
+- repository/
+```
 
-**금지사항:**
-- 실제 Redis/Valkey 연결 구현 금지
+## 2. 코드 작성 규칙
+- class로 작성합니다.
 
-**유의사항:**
-- 이 곳은 임시 저장 공간이며, 영구 보존용 저장소(DB)가 아닙니다.
-- 실시간 POI, 날씨, 미세먼지처럼 자주 바뀌는 Layer 1.5 데이터에 짧은 TTL을 적용할 수 있습니다.
-- cache miss 시에는 application이 external client 호출과 context 표준화 흐름을 다시 수행합니다.
+## 3. 파일 명명 규칙
+- repository 내 파일명은 {기능}_repository.py로 통일합니다.
+
+## 4. 주석 작성 규칙
+- """\n~~~\n""" 형식에 맞게 작성합니다.

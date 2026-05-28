@@ -1,8 +1,8 @@
 import pandas as pd
 
 from src.data.utils import CollectorUtils
-from src.repository.route.edge_repository import EdgeRepository
-from src.repository.route.poi_repository import NatureRepository
+from src.repository.network.edge_repository import EdgeRepository
+from src.repository.layer.nature_repository import NatureRepository
 
 
 class NatureCollector:
