@@ -2,15 +2,15 @@ import math
 
 from geoalchemy2.elements import WKTElement
 
-from src.repository.route.edge_repository import EdgeRepository
-from src.repository.route.node_repository import NodeRepository
+from src.repository.network.edge_repository import EdgeRepository
+from src.repository.network.node_repository import NodeRepository
 
 
 class CollectorUtils:
 
     @staticmethod
-    def make_point(lat: float, lng: float) -> WKTElement:
-        return WKTElement(f"POINT({lng} {lat})", srid=4326)
+    def make_point(lat: float, lon: float) -> WKTElement:
+        return WKTElement(f"POINT({lon} {lat})", srid=4326)
 
     @staticmethod
     def register_nodes(

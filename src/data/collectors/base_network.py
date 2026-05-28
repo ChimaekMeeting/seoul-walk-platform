@@ -1,8 +1,8 @@
 import re
 import pandas as pd
 from geoalchemy2.elements import WKTElement
-from src.repository.route.node_repository import NodeRepository
-from src.repository.route.edge_repository import EdgeRepository
+from src.repository.network.node_repository import NodeRepository
+from src.repository.network.edge_repository import EdgeRepository
 
 
 class BaseNetworkCollector:
@@ -64,9 +64,9 @@ class BaseNetworkCollector:
                 "node_id":        nid,
                 "is_underground": False,
                 "is_overpass":    False,
-                "geom":           WKTElement(f"POINT({lng} {lat})", srid=4326),
+                "geom":           WKTElement(f"POINT({lon} {lat})", srid=4326),
             }
-            for nid, (lng, lat) in node_map.items()
+            for nid, (lon, lat) in node_map.items()
         ]
 
     def save(self):

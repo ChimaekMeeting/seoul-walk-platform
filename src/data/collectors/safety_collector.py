@@ -1,7 +1,7 @@
 import pandas as pd
 
-from src.repository.route.edge_repository import EdgeRepository
-from src.repository.route.poi_repository import SafetyRepository
+from src.repository.network.edge_repository import EdgeRepository
+from src.repository.layer.safety_repository import SafetyRepository
 from src.data.utils import CollectorUtils
 
 

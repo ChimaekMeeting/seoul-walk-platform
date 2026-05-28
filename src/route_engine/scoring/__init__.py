@@ -1,3 +1,0 @@
-"""
-Scoring Layer
-"""

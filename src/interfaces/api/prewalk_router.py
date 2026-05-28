@@ -1,49 +1,40 @@
-from typing import Any
+from fastapi import APIRouter, Depends
+from src.interfaces.schema.prewalk_schema import InitRequest, ChatRequest, ChatResponse, Weights
+from src.service.chat.prewalk_service import PrewalkOrchestrator
+from src.interfaces.dependencies import get_prewalk_orchestrator
 
-def init_prewalk_session(request: dict[str, Any]) -> dict[str, Any]:
+router = APIRouter(
+    prefix="/api/prewalk",
+    tags=["prewalk"]
+)
+
+@router.post("/init", response_model=ChatResponse)
+async def read_init_message(
+    request: InitRequest,
+    service: PrewalkOrchestrator = Depends(get_prewalk_orchestrator)
+):
     """
-    앱 최초 진입 시 호출될 예정인 API endpoint 계약.
-
-    예상 요청:
-    - user_id
-    - current_location
-    - client_type: streamlit | react_native
-    - locale/timezone
-
-    예정 흐름:
-    1. application/prewalk.start_prewalk_session 호출
-    2. weather/location context 준비
-    3. 초기 UIEvent 목록 반환
-
-    반환 예정:
-    {
-        "session_id": str,
-        "events": list[UIEvent]
-    }
-
-    금지:
-    - 현재 단계에서 FastAPI decorator 구현 금지
-    - 실제 application 호출 구현 금지
+    산책 추천 챗봇의 첫 번째 메시지입니다.
+    현재 좌표의 날씨 정보를 분석하여 환영 인사를 반환합니다.
     """
-    pass
+    return await service.get_init_message(request.user_uuid, request.lat, request.lon)
 
-def send_prewalk_message(request: dict[str, Any]) -> dict[str, Any]:
+@router.post("/intent", response_model=ChatResponse)
+async def read_message(
+    request: ChatRequest,
+    service: PrewalkOrchestrator = Depends(get_prewalk_orchestrator)
+):
     """
-    사용자가 채팅 메시지를 보냈을 때 호출될 예정인 API endpoint 계약.
-
-    예상 요청:
-    - session_id
-    - message
-    - current_location
-
-    반환 예정:
-    {
-        "session_id": str,
-        "events": list[UIEvent]
-    }
-
-    금지:
-    - 현재 단계에서 FastAPI decorator 구현 금지
-    - 실제 agent/application 호출 구현 금지
+    사용자가 메시지를 보낼 때마다 호출됩니다.
     """
-    pass
+    return await service.orchestrator(request.thread_id, request.user_prompt)
+
+@router.get("/weights", response_model=Weights)
+async def read_weights(
+    thread_id: str,
+    service: PrewalkOrchestrator = Depends(get_prewalk_orchestrator)
+):
+    """
+    사용자와 LLM 간 대화 요약본 및 날씨를 기반으로 가중치를 반환합니다.
+    """
+    return await service.assign_weight(thread_id)

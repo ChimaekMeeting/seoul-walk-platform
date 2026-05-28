@@ -3,14 +3,15 @@ from typing import List
 
 import pandas as pd
 
-from src.client.kakao_client import KakaoClient
+from src.infrastructure.external.client.kakao_client import KakaoClient
 from src.data.utils import CollectorUtils
-from src.repository.route.edge_repository import EdgeRepository
-from src.repository.route.poi_repository import LandmarkRepository
+from src.repository.network.edge_repository import EdgeRepository
+from src.repository.layer.landmark_repository import LandmarkRepository
 
 
-class LandmarkCollector(KakaoClient):
+class LandmarkCollector:
     def __init__(self):
+        self.kakao_client = KakaoClient()
         self.url = "https://docs.google.com/spreadsheets/d/1h4PPOJ6qSIBRghrqn0cXT-UrlToyMIM-NTSNtATF0gc/export?format=csv&hl=ko&gid=0#gid=0"
         self.data = self.load_data()
 
@@ -25,11 +26,11 @@ class LandmarkCollector(KakaoClient):
         Kakao API로 키워드에 해당하는 장소 후보를 조회합니다.
         """
         print(keyword)
-        res = await self.get_address_from_keyword.ainvoke({
-            "keyword": keyword,
-            "lat": 37.5665,
-            "lon": 126.9780,
-        })
+        res = await self.kakao_client.get_address_from_keyword(
+            keyword=keyword,
+            lat=37.5665,
+            lon=126.9780,
+        )
         docs = res.get("documents")
         return [
             {
