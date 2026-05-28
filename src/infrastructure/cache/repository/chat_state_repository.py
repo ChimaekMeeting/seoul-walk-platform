@@ -1,7 +1,7 @@
 import json
 from typing import Optional
 
-from src.database.valkey import get_valkey_db
+from src.infrastructure.cache.valkey import get_valkey_db
 from src.schema.prewalk_schema import State
 from src.agent.utils.chatbot_utils import PydanticUtils
 
