@@ -13,7 +13,7 @@ from geoalchemy2.functions import (
 from sqlalchemy import distinct, func, select
 
 from src.database.postgresql import get_postgresql_db
-from src.entity.course import Course, CourseTag
+from src.entity.layer.running_layer import Course, CourseTag
 
 
 class CourseRepository:

@@ -3,7 +3,7 @@ from typing import List
 from sqlalchemy import func, select, insert, text
 
 from src.database.postgresql import get_postgresql_db, engine
-from src.entity.poi_network import PoiPoint
+from src.entity.layer.nature_layer import NaturePoint
 
 
 class NatureRepository:
@@ -25,7 +25,7 @@ class NatureRepository:
             records : 저장할 POI 딕셔너리 목록.
         """
         with get_postgresql_db() as db:
-            db.execute(insert(PoiPoint), records)
+            db.execute(insert(NaturePoint), records)
             db.commit()
 
     @staticmethod
@@ -37,7 +37,7 @@ class NatureRepository:
             dict[str, int]: {h3_cell: count} 형태의 딕셔너리.
         """
         with get_postgresql_db() as db:
-            h3_expr = func.h3_lat_lng_to_cell(PoiPoint.geom, 9)
+            h3_expr = func.h3_lat_lng_to_cell(NaturePoint.geom, 9)
             rows = db.execute(
                 select(h3_expr.label("h3_cell"), func.count().label("cnt"))
                 .group_by(h3_expr)

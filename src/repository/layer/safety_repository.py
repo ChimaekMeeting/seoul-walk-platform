@@ -3,7 +3,7 @@ from typing import List
 from sqlalchemy import func, select, insert, text
 
 from src.database.postgresql import get_postgresql_db, engine
-from src.entity.poi_network import SafetyPoint
+from src.entity.layer.safety_layer import SafetyPoint
 
 
 class SafetyRepository:

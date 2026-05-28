@@ -2,7 +2,7 @@ import pandas as pd
 from sqlalchemy import func, select, update, insert, inspect, text, cast
 from geoalchemy2 import Geography
 from src.database.postgresql import get_postgresql_db, engine
-from src.entity.walk_network import WalkEdge
+from src.entity.network.walk_edge import WalkEdge
 from typing import List
 
 

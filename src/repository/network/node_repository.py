@@ -1,6 +1,6 @@
 from sqlalchemy import func, select, insert, text
 from src.database.postgresql import get_postgresql_db, engine
-from src.entity.walk_network import WalkNode
+from src.entity.network.walk_node import WalkNode
 from typing import List
 
 

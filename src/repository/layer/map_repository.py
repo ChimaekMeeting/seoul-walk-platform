@@ -3,11 +3,13 @@ from sqlalchemy import func, select, cast
 from geoalchemy2 import Geography
 
 from src.database.postgresql import get_postgresql_db
-from src.entity.poi_network import SafetyPoint, PoiPoint, Landmark
+from src.entity.layer.safety_layer import SafetyPoint
+from src.entity.layer.nature_layer import NaturePoint
+from src.entity.layer.landmark_layer import Landmark
 
 _TABLE_ENTITY_MAP: dict[str, type] = {
     "safety_layer": SafetyPoint,
-    "poi_layer": PoiPoint,
+    "poi_layer": NaturePoint,
     "landmark_layer": Landmark,
 }
 

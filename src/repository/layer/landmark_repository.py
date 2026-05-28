@@ -3,7 +3,7 @@ from typing import List
 from sqlalchemy import func, select, insert, update
 
 from src.database.postgresql import get_postgresql_db
-from src.entity.poi_network import Landmark
+from src.entity.layer.landmark_layer import Landmark
 
 
 class LandmarkRepository:
