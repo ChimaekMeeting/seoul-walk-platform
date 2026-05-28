@@ -5,6 +5,7 @@
 - PostgreSQL DB에 대한 CRUD는 `src/repository`에서 구현합니다.
 - 구조는 아래와 같습니다.
 ```
+- valkey.py  <- 수정할 필요 X
 - repository/
 ```
 
