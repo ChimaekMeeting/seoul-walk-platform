@@ -12,13 +12,22 @@ from src.interfaces.schema.prewalk_schema import ChatResponse
 from src.schema.prewalk_schema import State, Location
 
 class PrewalkOrchestrator:
-    def __init__(self):
-        self.weather_checker = WeatherChecker()
-        self.kakao_client = KakaoClient()
-
-        self.extractor = Extractor()
-        self.interviewer = Interviewer()
-        self.weight_assigner = WeightAssigner()
+    def __init__(
+        self,
+        weather_checker: WeatherChecker,
+        kakao_client: KakaoClient,
+        extractor: Extractor,
+        interviewer: Interviewer,
+        weight_assigner: WeightAssigner,
+    ):
+        """
+        PrewalkOrchestrator 초기화
+        """
+        self.weather_checker  = weather_checker
+        self.kakao_client     = kakao_client
+        self.extractor        = extractor
+        self.interviewer      = interviewer
+        self.weight_assigner  = weight_assigner
 
     async def get_init_message(self, user_uuid: str, lat: float, lon: float) -> ChatResponse:
         """
@@ -64,7 +73,7 @@ class PrewalkOrchestrator:
        
     async def orchestrator(self, thread_id: str, user_prompt: str) -> ChatResponse:
         """
-        산책 경로 추천 시스템 오케스트레이터입니다.
+        사용자 입력을 받아 상태를 갱신하고 다음 응답을 반환합니다.
         """
         # state 로드
         state = await ChatStateRepository.get_state(thread_id)

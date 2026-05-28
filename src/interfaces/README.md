@@ -27,3 +27,6 @@ def get_my_profile(user_service: UserService = Depends(get_user_service)):
 
 ## 5. 주석 작성 규칙
 - """\n~~~\n""" 형식에 맞게 작성합니다.
+
+## 6. 주의사항
+- 구현한 API는 main.py에 `app.include_router({기능}_router.router)`를 명세해야 동작합니다.

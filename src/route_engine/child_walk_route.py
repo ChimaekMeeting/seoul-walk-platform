@@ -14,7 +14,7 @@ import networkx as nx
 import requests
 from dotenv import load_dotenv
 
-from src.service.route.route_service import get_route
+from src.service.route.route_service import RouteService
 
 
 load_dotenv()
@@ -82,9 +82,10 @@ def get_child_friendly_route(
 
     attempts = max(1, candidate_count if context.get("mode", "circular") == "circular" else 1)
     best_route: dict | None = None
+    route_service = RouteService()
 
     for _ in range(attempts):
-        route = get_route(context, child_weights, G_full)
+        route = route_service.get_route(context, child_weights, G_full)
         if route.get("error"):
             return route
 

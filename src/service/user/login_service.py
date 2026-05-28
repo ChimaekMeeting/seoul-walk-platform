@@ -21,6 +21,9 @@ class KakaoLoginService:
         self.auth_service = auth_service
 
     def get_login_url(self) -> LoginUrlResponse:
+        """
+        카카오 OAuth 로그인 URL을 생성해 반환합니다.
+        """
         base_url = "https://kauth.kakao.com/oauth/authorize"
 
         params = {
@@ -54,6 +57,9 @@ class KakaoLoginService:
             return data.get("access_token")
         
     async def get_user_info(self, access_token: str):
+        """
+        카카오 access_token으로 사용자 정보를 조회합니다.
+        """
         url = "https://kapi.kakao.com/v2/user/me"
         headers = {
             "Authorization": f"Bearer {access_token}",

@@ -15,6 +15,9 @@ class AuthService:
         self.REFRESH_SECRET_KEY = os.getenv("REFRESH_SECRET_KEY")
 
     def get_access_token(self, provider_id: int):
+        """
+        provider_id로 access token을 생성해 반환합니다.
+        """
         now = datetime.now(timezone.utc)
 
         access_payload = {
@@ -27,6 +30,9 @@ class AuthService:
         return access_token
 
     def get_refresh_token(self, provider_id: str):
+        """
+        provider_id로 refresh token을 생성해 반환합니다.
+        """
         now = datetime.now(timezone.utc)
 
         refresh_payload = {
@@ -60,6 +66,9 @@ class AuthService:
             raise ValueError("만료된 토큰입니다.")
 
     def check_access_token(self, access_token: Optional[str] = None):
+        """
+        access token의 유효성을 검사하고 상태와 provider_id를 반환합니다.
+        """
         try:
             provider_id = self.decode(access_token=access_token)
             return Status.SUCCESS, provider_id
@@ -69,6 +78,9 @@ class AuthService:
             return Status.ACCESS_EXPIRED_TOKEN, None
         
     def check_refresh_token(self, refresh_token: Optional[str] = None):
+        """
+        refresh token의 유효성을 검사하고 새 access token과 provider_id를 반환합니다.
+        """
         try:
             provider_id = self.decode(refresh_token=refresh_token)
             access_token = self.get_access_token(provider_id)
