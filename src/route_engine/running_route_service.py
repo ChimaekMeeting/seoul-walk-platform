@@ -1,12 +1,12 @@
-"""
-런닝/다이어트 모드 경로 추천 서비스
+﻿"""
+?곕떇/?ㅼ씠?댄듃 紐⑤뱶 寃쎈줈 異붿쿇 ?쒕퉬??
 
-하천변·공원 위주 코스를 순환(circular) / 편도(oneway) 로 나눠 반환합니다.
+?섏쿇蹂쨌怨듭썝 ?꾩＜ 肄붿뒪瑜??쒗솚(circular) / ?몃룄(oneway) 濡??섎닠 諛섑솚?⑸땲??
 
-주요 함수
+二쇱슂 ?⑥닔
 ---------
-get_circular_route(lat, lon, target_km, ...)  → 출발점 기준 루프 코스
-get_oneway_route(lat, lon, end_lat, end_lon, ...) → 출발점 → 도착점 단방향 코스
+get_circular_route(lat, lon, target_km, ...)  ??異쒕컻??湲곗? 猷⑦봽 肄붿뒪
+get_oneway_route(lat, lon, end_lat, end_lon, ...) ??異쒕컻?????꾩갑???⑤갑??肄붿뒪
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Optional
 
 import networkx as nx
 
-from src.repository.layer.course_repository import CourseRepository
+from src.repository.layer.running_repository import RunningRepository
 from src.repository.network.graph_repository import GraphRepository
 from src.interfaces.schema.running_schema import (
     CircularRunningResponse,
@@ -33,16 +33,16 @@ from src.service.route.path_utils import (
     prune_dead_ends,
 )
 
-# 런닝 모드에서 선호하는 코스 유형
+# ?곕떇 紐⑤뱶?먯꽌 ?좏샇?섎뒗 肄붿뒪 ?좏삎
 RUNNING_COURSE_TYPES = ["river", "park", "bike_track", "trail"]
 
-# 런닝 모드 기본 태그 필터
-RUNNING_TAGS = ["런닝"]
+# ?곕떇 紐⑤뱶 湲곕낯 ?쒓렇 ?꾪꽣
+RUNNING_TAGS = ["?곕떇"]
 
 
-# ──────────────────────────────────────────────────────────────
-# 내부 헬퍼
-# ──────────────────────────────────────────────────────────────
+# ??????????????????????????????????????????????????????????????
+# ?대? ?ы띁
+# ??????????????????????????????????????????????????????????????
 
 def _apply_running_weights(
     G: nx.Graph,
@@ -50,34 +50,34 @@ def _apply_running_weights(
     type_bonus: float = 2.0,
 ) -> nx.Graph:
     """
-    런닝 모드 전용 ``custom_score``를 각 엣지에 세팅합니다.
+    ?곕떇 紐⑤뱶 ?꾩슜 ``custom_score``瑜?媛??ｌ????명똿?⑸땲??
 
-    ``circular_running_route`` / ``oneway_running_route`` 호출 전에
-    반드시 먼저 실행해야 합니다. 그래프를 in-place로 수정하고 반환합니다.
+    ``circular_running_route`` / ``oneway_running_route`` ?몄텧 ?꾩뿉
+    諛섎뱶??癒쇱? ?ㅽ뻾?댁빞 ?⑸땲?? 洹몃옒?꾨? in-place濡??섏젙?섍퀬 諛섑솚?⑸땲??
 
-    가중치 공식::
+    媛以묒튂 怨듭떇::
 
         slope_factor        = 1.0 + slope_score * slope_weight
         effective_type_bonus = type_bonus  (river/park/bike_track/trail)
-                             | 1.0         (일반 엣지)
+                             | 1.0         (?쇰컲 ?ｌ?)
         length_bonus        = 1.0 + log1p(length / 50.0)
 
         custom_score = (length * slope_factor)
                        / (safety * nature * effective_type_bonus * length_bonus + 1e-6)
 
-    ``custom_score``가 낮을수록 경로 탐색 알고리즘이 선호합니다.
+    ``custom_score``媛 ??쓣?섎줉 寃쎈줈 ?먯깋 ?뚭퀬由ъ쬁???좏샇?⑸땲??
 
     Args:
-        G            (nx.Graph) : 엣지에 ``length``, ``safety_score``, ``nature_score``,
-                                  ``slope_score``, ``path_type`` 속성이 있는 그래프.
-        slope_weight (float)    : 평지 선호도. 높을수록 경사 엣지 페널티 강화.
-                                  범위 권장: 1.0 ~ 3.0. 기본값 1.0.
-        type_bonus   (float)    : 공원·하천 선호도. river / park / bike_track / trail
-                                  path_type 엣지에 적용되는 분모 배수.
-                                  범위 권장: 1.0 ~ 3.0. 기본값 2.0.
+        G            (nx.Graph) : ?ｌ???``length``, ``safety_score``, ``nature_score``,
+                                  ``slope_score``, ``path_type`` ?띿꽦???덈뒗 洹몃옒??
+        slope_weight (float)    : ?됱? ?좏샇?? ?믪쓣?섎줉 寃쎌궗 ?ｌ? ?섎꼸??媛뺥솕.
+                                  踰붿쐞 沅뚯옣: 1.0 ~ 3.0. 湲곕낯媛?1.0.
+        type_bonus   (float)    : 怨듭썝쨌?섏쿇 ?좏샇?? river / park / bike_track / trail
+                                  path_type ?ｌ????곸슜?섎뒗 遺꾨え 諛곗닔.
+                                  踰붿쐞 沅뚯옣: 1.0 ~ 3.0. 湲곕낯媛?2.0.
 
     Returns:
-        nx.Graph: ``custom_score``가 추가된 그래프 (입력 G와 동일 객체).
+        nx.Graph: ``custom_score``媛 異붽???洹몃옒??(?낅젰 G? ?숈씪 媛앹껜).
     """
     PREFERRED_PATH_TYPES = {"river", "park", "bike_track", "trail"}
 
@@ -88,13 +88,13 @@ def _apply_running_weights(
         slope       = data.get("slope_score", 0.0) or 0.0
         path_type   = data.get("path_type", "") or ""
 
-        # 하천·공원·자전거도로 보너스 (파라미터로 제어)
+        # ?섏쿇쨌怨듭썝쨌?먯쟾嫄곕룄濡?蹂대꼫??(?뚮씪誘명꽣濡??쒖뼱)
         effective_type_bonus = type_bonus if path_type.lower() in PREFERRED_PATH_TYPES else 1.0
 
-        # 경사 패널티: slope_weight로 강도 조절
+        # 寃쎌궗 ?⑤꼸?? slope_weight濡?媛뺣룄 議곗젅
         slope_factor = 1.0 + slope * slope_weight
 
-        # 길이 보너스: 긴 엣지일수록 분모 증가 → 짧은 골목 회피
+        # 湲몄씠 蹂대꼫?? 湲??ｌ??쇱닔濡?遺꾨え 利앷? ??吏㏃? 怨⑤ぉ ?뚰뵾
         length_bonus = 1.0 + math.log1p(length / 50.0)
 
         custom_score = (length * slope_factor) / (safety * nature * effective_type_bonus * length_bonus + 1e-6)
@@ -110,24 +110,24 @@ def _build_result(
     matched_courses: list[dict],
 ) -> dict:
     """
-    경로 노드 목록을 응답 딕셔너리로 변환합니다.
+    寃쎈줈 ?몃뱶 紐⑸줉???묐떟 ?뺤뀛?덈━濡?蹂?섑빀?덈떎.
 
-    dead-end 가지치기(max_branch_length=300m) → 좌표 추출 → 총 거리 계산 순으로 처리합니다.
+    dead-end 媛吏移섍린(max_branch_length=300m) ??醫뚰몴 異붿텧 ??珥?嫄곕━ 怨꾩궛 ?쒖쑝濡?泥섎━?⑸땲??
 
     Args:
-        G               (nx.Graph)   : 경로 생성에 사용된 그래프.
-        nodes           (list[int])  : 경로 노드 ID 목록.
-        mode            (str)        : 응답에 포함할 모드 문자열.
-                                       예: ``"circular_running"``, ``"oneway_running_random"``
-        matched_courses (list[dict]) : DB에서 조회된 추천 코스 목록 (그대로 전달).
+        G               (nx.Graph)   : 寃쎈줈 ?앹꽦???ъ슜??洹몃옒??
+        nodes           (list[int])  : 寃쎈줈 ?몃뱶 ID 紐⑸줉.
+        mode            (str)        : ?묐떟???ы븿??紐⑤뱶 臾몄옄??
+                                       ?? ``"circular_running"``, ``"oneway_running_random"``
+        matched_courses (list[dict]) : DB?먯꽌 議고쉶??異붿쿇 肄붿뒪 紐⑸줉 (洹몃?濡??꾨떖).
 
     Returns:
-        dict: 아래 키를 포함하는 딕셔너리.
+        dict: ?꾨옒 ?ㅻ? ?ы븿?섎뒗 ?뺤뀛?덈━.
 
-        - ``mode``              (str)        : 입력 ``mode`` 값.
-        - ``coordinates``       (list)       : ``[[lat, lon], ...]`` 형태의 좌표 목록.
-        - ``total_distance_km`` (float)      : 가지치기 후 경로의 총 거리 (km).
-        - ``matched_courses``   (list[dict]) : 입력 ``matched_courses`` 값.
+        - ``mode``              (str)        : ?낅젰 ``mode`` 媛?
+        - ``coordinates``       (list)       : ``[[lat, lon], ...]`` ?뺥깭??醫뚰몴 紐⑸줉.
+        - ``total_distance_km`` (float)      : 媛吏移섍린 ??寃쎈줈??珥?嫄곕━ (km).
+        - ``matched_courses``   (list[dict]) : ?낅젰 ``matched_courses`` 媛?
     """
     pruned = prune_dead_ends(nodes, G, max_branch_length=300)
     coords = extract_coordinates(G, pruned)
@@ -139,13 +139,13 @@ def _build_result(
         "mode":               mode,
         "coordinates":        coords,
         "total_distance_km":  round(total_m / 1000, 2),
-        "matched_courses":    matched_courses,  # DB에서 찾은 추천 코스 목록
+        "matched_courses":    matched_courses,  # DB?먯꽌 李얠? 異붿쿇 肄붿뒪 紐⑸줉
     }
 
 
-# ──────────────────────────────────────────────────────────────
-# 공개 API
-# ──────────────────────────────────────────────────────────────
+# ??????????????????????????????????????????????????????????????
+# 怨듦컻 API
+# ??????????????????????????????????????????????????????????????
 
 def get_circular_route(
     lat: float,
@@ -155,32 +155,32 @@ def get_circular_route(
     G: Optional[nx.Graph] = None,
 ) -> CircularRunningResponse:
     """
-    출발점 기준 순환(루프) 런닝 코스를 반환합니다. (**자체 완결형**)
+    異쒕컻??湲곗? ?쒗솚(猷⑦봽) ?곕떇 肄붿뒪瑜?諛섑솚?⑸땲?? (**?먯껜 ?꾧껐??*)
 
-    그래프 로드·가중치 적용·경로 생성을 모두 내부에서 처리합니다.
-    ``circular_running_route()``와 달리 외부에서 G를 준비하거나
-    ``_apply_running_weights()``를 호출할 필요가 없습니다.
+    洹몃옒??濡쒕뱶쨌媛以묒튂 ?곸슜쨌寃쎈줈 ?앹꽦??紐⑤몢 ?대??먯꽌 泥섎━?⑸땲??
+    ``circular_running_route()``? ?щ━ ?몃??먯꽌 G瑜?以鍮꾪븯嫄곕굹
+    ``_apply_running_weights()``瑜??몄텧???꾩슂媛 ?놁뒿?덈떎.
 
     Args:
-        lat       (float)              : 출발점 위도.
-        lon       (float)              : 출발점 경도.
-        target_km (float)              : 목표 거리 (km). 기본값 5.0.
-        radius_m  (float)              : DB 코스 검색 반경 (미터). 기본값 5,000.
-        G         (nx.Graph, optional) : 미리 로드된 그래프. ``None``이면 DB에서 로드.
+        lat       (float)              : 異쒕컻???꾨룄.
+        lon       (float)              : 異쒕컻??寃쎈룄.
+        target_km (float)              : 紐⑺몴 嫄곕━ (km). 湲곕낯媛?5.0.
+        radius_m  (float)              : DB 肄붿뒪 寃??諛섍꼍 (誘명꽣). 湲곕낯媛?5,000.
+        G         (nx.Graph, optional) : 誘몃━ 濡쒕뱶??洹몃옒?? ``None``?대㈃ DB?먯꽌 濡쒕뱶.
 
     Returns:
-        dict: 아래 키를 포함하는 딕셔너리.
+        dict: ?꾨옒 ?ㅻ? ?ы븿?섎뒗 ?뺤뀛?덈━.
 
         - ``mode``              (str)        : ``"circular_running"``
-        - ``coordinates``       (list)       : ``[[lat, lon], ...]`` 형태의 좌표 목록.
-        - ``total_distance_km`` (float)      : 총 거리 (km).
-        - ``matched_courses``   (list[dict]) : 반경 내 DB 추천 코스 목록.
-        - ``error``             (str)        : 경로 생성 실패 시에만 포함.
+        - ``coordinates``       (list)       : ``[[lat, lon], ...]`` ?뺥깭??醫뚰몴 紐⑸줉.
+        - ``total_distance_km`` (float)      : 珥?嫄곕━ (km).
+        - ``matched_courses``   (list[dict]) : 諛섍꼍 ??DB 異붿쿇 肄붿뒪 紐⑸줉.
+        - ``error``             (str)        : 寃쎈줈 ?앹꽦 ?ㅽ뙣 ?쒖뿉留??ы븿.
     """
     t0 = time.time()
 
-    # ── 1. DB 코스 조회 ────────────────────────────────────────
-    matched_courses = CourseRepository.get_courses_near(
+    # ?? 1. DB 肄붿뒪 議고쉶 ????????????????????????????????????????
+    matched_courses = RunningRepository.get_running_layer_near(
         lat=lat,
         lon=lon,
         radius_m=radius_m,
@@ -189,14 +189,14 @@ def get_circular_route(
         tags=RUNNING_TAGS,
         limit=5,
     )
-    print(f"[running/circular] DB 코스 {len(matched_courses)}건 조회 ({time.time()-t0:.2f}s)")
+    print(f"[running/circular] DB 肄붿뒪 {len(matched_courses)}嫄?議고쉶 ({time.time()-t0:.2f}s)")
 
-    # ── 2. 그래프 로드 ─────────────────────────────────────────
+    # ?? 2. 洹몃옒??濡쒕뱶 ?????????????????????????????????????????
     t1 = time.time()
-    graph_radius = target_km * 1000 * 2.5  # 목표 거리의 2.5배 반경
+    graph_radius = target_km * 1000 * 2.5  # 紐⑺몴 嫄곕━??2.5諛?諛섍꼍
     if G is None:
         G = GraphRepository.load_graph_near(lat, lon, radius_m=graph_radius)
-    print(f"[running/circular] 그래프 로드 ({time.time()-t1:.2f}s)")
+    print(f"[running/circular] 洹몃옒??濡쒕뱶 ({time.time()-t1:.2f}s)")
 
     courses = [CourseInfo(**c) for c in matched_courses]
 
@@ -206,15 +206,15 @@ def get_circular_route(
             coordinates=[],
             total_distance_km=0.0,
             matched_courses=courses,
-            error="해당 위치 주변에 경로 데이터가 없습니다.",
+            error="?대떦 ?꾩튂 二쇰???寃쎈줈 ?곗씠?곌? ?놁뒿?덈떎.",
         )
 
-    # ── 3. 좌표 없는 노드 제거 (KeyError 방지) ────────────────
+    # ?? 3. 醫뚰몴 ?녿뒗 ?몃뱶 ?쒓굅 (KeyError 諛⑹?) ????????????????
     invalid_nodes = [n for n, d in G.nodes(data=True) if "x" not in d or "y" not in d]
     if invalid_nodes:
         G = G.copy()
         G.remove_nodes_from(invalid_nodes)
-        print(f"[running/circular] 좌표 없는 노드 {len(invalid_nodes)}개 제거")
+        print(f"[running/circular] 醫뚰몴 ?녿뒗 ?몃뱶 {len(invalid_nodes)}媛??쒓굅")
 
     if G.number_of_nodes() == 0:
         return CircularRunningResponse(
@@ -222,20 +222,20 @@ def get_circular_route(
             coordinates=[],
             total_distance_km=0.0,
             matched_courses=courses,
-            error="유효한 노드가 없습니다.",
+            error="?좏슚???몃뱶媛 ?놁뒿?덈떎.",
         )
 
-    # ── 4. 런닝 가중치 적용 ────────────────────────────────────
+    # ?? 4. ?곕떇 媛以묒튂 ?곸슜 ????????????????????????????????????
     G = _apply_running_weights(G)
 
-    # ── 5. 순환 경로 생성 ──────────────────────────────────────
+    # ?? 5. ?쒗솚 寃쎈줈 ?앹꽦 ??????????????????????????????????????
     t2 = time.time()
     start_node = find_nearest_node(G, lat, lon)
     raw = random_walk_route(G, start_node, target_km, weight="custom_score")
-    print(f"[running/circular] 경로 생성 ({time.time()-t2:.2f}s)")
+    print(f"[running/circular] 寃쎈줈 ?앹꽦 ({time.time()-t2:.2f}s)")
 
     result = _build_result(G, raw["nodes"], "circular_running", matched_courses)
-    print(f"[running/circular] 총 소요 {time.time()-t0:.2f}s")
+    print(f"[running/circular] 珥??뚯슂 {time.time()-t0:.2f}s")
     return CircularRunningResponse(
         mode=result["mode"],
         coordinates=result["coordinates"],
@@ -255,37 +255,37 @@ def get_oneway_route(
     G: Optional[nx.Graph] = None,
 ) -> OnewayRunningResponse:
     """
-    출발점 → 도착점 편도 런닝 코스를 반환합니다. (**자체 완결형**)
+    異쒕컻?????꾩갑???몃룄 ?곕떇 肄붿뒪瑜?諛섑솚?⑸땲?? (**?먯껜 ?꾧껐??*)
 
-    그래프 로드·가중치 적용·경로 생성을 모두 내부에서 처리합니다.
-    ``use_random`` 값에 따라 알고리즘이 분기됩니다.
+    洹몃옒??濡쒕뱶쨌媛以묒튂 ?곸슜쨌寃쎈줈 ?앹꽦??紐⑤몢 ?대??먯꽌 泥섎━?⑸땲??
+    ``use_random`` 媛믪뿉 ?곕씪 ?뚭퀬由ъ쬁??遺꾧린?⑸땲??
 
     Args:
-        start_lat  (float)              : 출발점 위도.
-        start_lon  (float)              : 출발점 경도.
-        end_lat    (float)              : 도착점 위도.
-        end_lon    (float)              : 도착점 경도.
-        target_km  (float, optional)    : 목표 거리 (km). ``use_random=True``일 때만 사용.
-                                          ``None``이면 직선 거리 기반으로 자동 설정.
-        use_random (bool)               : ``True`` → Edge Penalty 우회 경로 (oneway_random).
-                                          ``False`` → Dijkstra 최단 경로.
-        radius_m   (float)              : DB 코스 검색 반경 (미터). 기본값 5,000.
-        G          (nx.Graph, optional) : 미리 로드된 그래프. ``None``이면 DB에서 로드.
+        start_lat  (float)              : 異쒕컻???꾨룄.
+        start_lon  (float)              : 異쒕컻??寃쎈룄.
+        end_lat    (float)              : ?꾩갑???꾨룄.
+        end_lon    (float)              : ?꾩갑??寃쎈룄.
+        target_km  (float, optional)    : 紐⑺몴 嫄곕━ (km). ``use_random=True``???뚮쭔 ?ъ슜.
+                                          ``None``?대㈃ 吏곸꽑 嫄곕━ 湲곕컲?쇰줈 ?먮룞 ?ㅼ젙.
+        use_random (bool)               : ``True`` ??Edge Penalty ?고쉶 寃쎈줈 (oneway_random).
+                                          ``False`` ??Dijkstra 理쒕떒 寃쎈줈.
+        radius_m   (float)              : DB 肄붿뒪 寃??諛섍꼍 (誘명꽣). 湲곕낯媛?5,000.
+        G          (nx.Graph, optional) : 誘몃━ 濡쒕뱶??洹몃옒?? ``None``?대㈃ DB?먯꽌 濡쒕뱶.
 
     Returns:
-        dict: 아래 키를 포함하는 딕셔너리.
+        dict: ?꾨옒 ?ㅻ? ?ы븿?섎뒗 ?뺤뀛?덈━.
 
-        - ``mode``              (str)        : ``"oneway_running_random"`` 또는
+        - ``mode``              (str)        : ``"oneway_running_random"`` ?먮뒗
                                                ``"oneway_running_shortest"``
-        - ``coordinates``       (list)       : ``[[lat, lon], ...]`` 형태의 좌표 목록.
-        - ``total_distance_km`` (float)      : 총 거리 (km).
-        - ``matched_courses``   (list[dict]) : 반경 내 DB 추천 코스 목록.
-        - ``error``             (str)        : 경로 생성 실패 시에만 포함.
+        - ``coordinates``       (list)       : ``[[lat, lon], ...]`` ?뺥깭??醫뚰몴 紐⑸줉.
+        - ``total_distance_km`` (float)      : 珥?嫄곕━ (km).
+        - ``matched_courses``   (list[dict]) : 諛섍꼍 ??DB 異붿쿇 肄붿뒪 紐⑸줉.
+        - ``error``             (str)        : 寃쎈줈 ?앹꽦 ?ㅽ뙣 ?쒖뿉留??ы븿.
     """
     t0 = time.time()
 
-    # ── 1. DB 코스 조회 ────────────────────────────────────────
-    matched_courses = CourseRepository.get_courses_near(
+    # ?? 1. DB 肄붿뒪 議고쉶 ????????????????????????????????????????
+    matched_courses = RunningRepository.get_running_layer_near(
         lat=start_lat,
         lon=start_lon,
         radius_m=radius_m,
@@ -294,23 +294,23 @@ def get_oneway_route(
         tags=RUNNING_TAGS,
         limit=5,
     )
-    print(f"[running/oneway] DB 코스 {len(matched_courses)}건 조회 ({time.time()-t0:.2f}s)")
+    print(f"[running/oneway] DB 肄붿뒪 {len(matched_courses)}嫄?議고쉶 ({time.time()-t0:.2f}s)")
 
     courses = [CourseInfo(**c) for c in matched_courses]
 
-    # ── 2. 그래프 로드 ─────────────────────────────────────────
+    # ?? 2. 洹몃옒??濡쒕뱶 ?????????????????????????????????????????
     t1 = time.time()
     straight_m = math.sqrt(
         (start_lat - end_lat) ** 2 + (start_lon - end_lon) ** 2
-    ) * 111_000  # 위도 1도 ≈ 111km
-    graph_radius = max(straight_m * 1.5, 3_000)  # 직선 거리의 1.5배, 최소 3km
+    ) * 111_000  # ?꾨룄 1????111km
+    graph_radius = max(straight_m * 1.5, 3_000)  # 吏곸꽑 嫄곕━??1.5諛? 理쒖냼 3km
 
     if G is None:
-        # 출발·도착 중간 지점 기준으로 로드
+        # 異쒕컻쨌?꾩갑 以묎컙 吏??湲곗??쇰줈 濡쒕뱶
         mid_lat = (start_lat + end_lat) / 2
         mid_lon = (start_lon + end_lon) / 2
         G = GraphRepository.load_graph_near(mid_lat, mid_lon, radius_m=graph_radius)
-    print(f"[running/oneway] 그래프 로드 ({time.time()-t1:.2f}s)")
+    print(f"[running/oneway] 洹몃옒??濡쒕뱶 ({time.time()-t1:.2f}s)")
 
     if G.number_of_nodes() == 0:
         return OnewayRunningResponse(
@@ -318,15 +318,15 @@ def get_oneway_route(
             coordinates=[],
             total_distance_km=0.0,
             matched_courses=courses,
-            error="해당 위치 주변에 경로 데이터가 없습니다.",
+            error="?대떦 ?꾩튂 二쇰???寃쎈줈 ?곗씠?곌? ?놁뒿?덈떎.",
         )
 
-    # ── 3. 좌표 없는 노드 제거 (KeyError 방지) ────────────────
+    # ?? 3. 醫뚰몴 ?녿뒗 ?몃뱶 ?쒓굅 (KeyError 諛⑹?) ????????????????
     invalid_nodes = [n for n, d in G.nodes(data=True) if "x" not in d or "y" not in d]
     if invalid_nodes:
         G = G.copy()
         G.remove_nodes_from(invalid_nodes)
-        print(f"[running/oneway] 좌표 없는 노드 {len(invalid_nodes)}개 제거")
+        print(f"[running/oneway] 醫뚰몴 ?녿뒗 ?몃뱶 {len(invalid_nodes)}媛??쒓굅")
 
     if G.number_of_nodes() == 0:
         return OnewayRunningResponse(
@@ -334,13 +334,13 @@ def get_oneway_route(
             coordinates=[],
             total_distance_km=0.0,
             matched_courses=courses,
-            error="유효한 노드가 없습니다.",
+            error="?좏슚???몃뱶媛 ?놁뒿?덈떎.",
         )
 
-    # ── 4. 런닝 가중치 적용 ────────────────────────────────────
+    # ?? 4. ?곕떇 媛以묒튂 ?곸슜 ????????????????????????????????????
     G = _apply_running_weights(G)
 
-    # ── 5. 편도 경로 생성 ──────────────────────────────────────
+    # ?? 5. ?몃룄 寃쎈줈 ?앹꽦 ??????????????????????????????????????
     t2 = time.time()
     start_node = find_nearest_node(G, start_lat, start_lon)
     end_node   = find_nearest_node(G, end_lat, end_lon)
@@ -352,13 +352,15 @@ def get_oneway_route(
         raw = dijkstra_route(G, start_node, end_node, weight="custom_score")
         mode_label = "oneway_running_shortest"
 
-    print(f"[running/oneway] 경로 생성 ({time.time()-t2:.2f}s)")
+    print(f"[running/oneway] 寃쎈줈 ?앹꽦 ({time.time()-t2:.2f}s)")
 
     result = _build_result(G, raw["nodes"], mode_label, matched_courses)
-    print(f"[running/oneway] 총 소요 {time.time()-t0:.2f}s")
+    print(f"[running/oneway] 珥??뚯슂 {time.time()-t0:.2f}s")
     return OnewayRunningResponse(
         mode=result["mode"],
         coordinates=result["coordinates"],
         total_distance_km=result["total_distance_km"],
         matched_courses=courses,
     )
+
+

@@ -78,6 +78,71 @@ class EdgeRepository:
             db.commit()
 
     @staticmethod
+    def get_all_for_slope() -> list:
+        """
+        경사도 계산에 필요한 (link_id, start_node, end_node, length_m) 목록을 반환합니다.
+
+        Returns:
+            list: (link_id, start_node, end_node, length_m) 행 리스트.
+        """
+        with get_postgresql_db() as db:
+            return db.execute(
+                select(WalkEdge.link_id, WalkEdge.start_node, WalkEdge.end_node, WalkEdge.length_m)
+                .order_by(WalkEdge.link_id)
+            ).fetchall()
+
+    @staticmethod
+    def update_slope_scores_batch(updates: list, batch_size: int = 5000):
+        """
+        엣지별 slope_score를 배치 단위로 업데이트합니다.
+
+        Args:
+            updates    : {"link_id": int, "slope_score": float} 딕셔너리 목록.
+            batch_size : 한 번에 처리할 레코드 수. 기본값 5,000.
+        """
+        with engine.begin() as conn:
+            for i in range(0, len(updates), batch_size):
+                conn.execute(
+                    text("UPDATE walk_edges SET slope_score = :slope_score WHERE link_id = :link_id"),
+                    updates[i:i + batch_size],
+                )
+
+    @staticmethod
+    def reset_nature_score():
+        """walk_edges 전체의 nature_score를 1.0으로 초기화합니다."""
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE walk_edges SET nature_score = 1.0"))
+
+    @staticmethod
+    def update_nature_score_from_osm() -> int:
+        """
+        nature_layer 거리 기반으로 walk_edges의 nature_score를 업데이트합니다.
+
+        Returns:
+            int: 업데이트된 엣지 수.
+        """
+        with engine.begin() as conn:
+            result = conn.execute(text("""
+                UPDATE walk_edges we
+                SET nature_score = best.score
+                FROM (
+                    SELECT we2.link_id,
+                           MAX(
+                               CASE
+                                   WHEN ST_DWithin(og.geom, we2.geom, 0.00027) THEN 1.0 + (og.green_weight / 3.0)
+                                   WHEN ST_DWithin(og.geom, we2.geom, 0.0009)  THEN 1.0 + (og.green_weight / 3.0) * 0.6
+                                   WHEN ST_DWithin(og.geom, we2.geom, 0.00225) THEN 1.0 + (og.green_weight / 3.0) * 0.3
+                               END
+                           ) AS score
+                    FROM walk_edges we2
+                    JOIN nature_layer og ON ST_DWithin(og.geom, we2.geom, 0.00225)
+                    GROUP BY we2.link_id
+                ) best
+                WHERE we.link_id = best.link_id
+            """))
+            return result.rowcount
+
+    @staticmethod
     def fetch_nearby_lines(lat: float, lon: float, radius_m: int = 2000) -> pd.DataFrame:
         """
         주어진 좌표 반경 내의 도보 네트워크 라인 데이터를 조회합니다.

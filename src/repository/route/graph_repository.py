@@ -1,109 +1,55 @@
 import networkx as nx
-from sqlalchemy import text
+from sqlalchemy import func, select, cast
+from geoalchemy2 import Geography
+
 from src.database.postgresql import get_postgresql_db
+from src.entity.network.walk_node import WalkNode
+from src.entity.network.walk_edge import WalkEdge
 from src.service.route.path_utils import remove_dead_ends
 
 
-def load_graph() -> nx.Graph:
+class GraphRepository:
     """
-    walk_nodes + walk_edges를 PostGIS에서 읽어 NetworkX 그래프로 반환
-
-    Returns:
-        G: DiGraph
-            - node 속성: node_type, is_underground, is_overpass, x(lng), y(lat)
-            - edge 속성: link_id, length, road_type, path_type, safety_score, slope_score
+    walk_nodes와 walk_edges를 읽어 NetworkX 그래프를 생성합니다.
     """
-    G = nx.Graph()
 
-    with get_postgresql_db() as db:
-        # ── 노드 로드 ──────────────────────────────
-        node_rows = db.execute(text("""
-            SELECT
-                node_id,
-                node_type,
-                is_underground,
-                is_overpass,
-                ST_X(geom) AS lng,
-                ST_Y(geom) AS lat
-            FROM walk_nodes
-        """)).fetchall()
+    @staticmethod
+    def _node_stmt():
+        """
+        walk_nodes 조회용 기본 SELECT 구문을 반환합니다.
+        """
+        return select(
+            WalkNode.node_id,
+            WalkNode.node_type,
+            WalkNode.is_underground,
+            WalkNode.is_overpass,
+            func.ST_X(WalkNode.geom).label("lng"),
+            func.ST_Y(WalkNode.geom).label("lat"),
+        )
 
-        for row in node_rows:
-            G.add_node(
-                row.node_id,
-                x=row.lng,           # OSMnx 호환 (lng = x)
-                y=row.lat,           # OSMnx 호환 (lat = y)
-                node_type=row.node_type,
-                is_underground=row.is_underground,
-                is_overpass=row.is_overpass,
-            )
+    @staticmethod
+    def _edge_stmt():
+        """
+        walk_edges 조회용 기본 SELECT 구문을 반환합니다.
+        """
+        return select(
+            WalkEdge.link_id,
+            WalkEdge.start_node,
+            WalkEdge.end_node,
+            WalkEdge.length_m,
+            WalkEdge.road_type,
+            WalkEdge.path_type,
+            WalkEdge.safety_score,
+            WalkEdge.nature_score,
+            WalkEdge.slope_score,
+        )
 
-        # ── 엣지 로드 ──────────────────────────────
-        edge_rows = db.execute(text("""
-            SELECT
-                link_id,
-                start_node,
-                end_node,
-                length_m,
-                road_type,
-                path_type,
-                safety_score,
-                nature_score,
-                slope_score
-            FROM walk_edges
-        """)).fetchall()
-
-        for row in edge_rows:
-            G.add_edge(
-                row.start_node,
-                row.end_node,
-                link_id=row.link_id,
-                length=row.length_m,     # route.py의 "length" 키와 맞춤
-                road_type=row.road_type,
-                path_type=row.path_type,
-                safety_score=row.safety_score,
-                nature_score=row.nature_score,
-                slope_score=row.slope_score,
-            )
-
-    print(f"그래프 로드 완료: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
-    
-    largest_cc = max(nx.connected_components(G), key=len)
-    G = G.subgraph(largest_cc).copy()
-    G = remove_dead_ends(G)
-    print(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
-
-    return G
-
-
-def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.Graph:
-    """
-    특정 위치 반경 내 노드/엣지만 로드 (전체 로드보다 빠름)
-
-    Args:
-        lat, lng: 중심 위경도
-        radius_m: 반경 (미터)
-    """
-    G = nx.Graph()
-
-    with get_postgresql_db() as db:
-        node_rows = db.execute(text("""
-            SELECT
-                node_id,
-                node_type,
-                is_underground,
-                is_overpass,
-                ST_X(geom) AS lng,
-                ST_Y(geom) AS lat
-            FROM walk_nodes
-            WHERE ST_DWithin(
-                geom::geography,
-                ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
-                :radius
-            )
-        """), {"lat": lat, "lng": lng, "radius": radius_m}).fetchall()
-
-        node_ids = set()
+    @staticmethod
+    def _build_graph(node_rows, edge_rows) -> nx.Graph:
+        """
+        노드·엣지 행 목록으로 NetworkX 그래프를 생성합니다.
+        """
+        G = nx.Graph()
         for row in node_rows:
             G.add_node(
                 row.node_id,
@@ -113,21 +59,6 @@ def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.Graph:
                 is_underground=row.is_underground,
                 is_overpass=row.is_overpass,
             )
-            node_ids.add(row.node_id)
-
-        edge_rows = db.execute(text("""
-            SELECT
-                link_id, start_node, end_node,
-                length_m, road_type, path_type,
-                safety_score, nature_score, slope_score
-            FROM walk_edges
-            WHERE ST_DWithin(
-                geom::geography,
-                ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
-                :radius
-            )
-        """), {"lat": lat, "lng": lng, "radius": radius_m}).fetchall()
-
         for row in edge_rows:
             G.add_edge(
                 row.start_node,
@@ -140,12 +71,61 @@ def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.Graph:
                 nature_score=row.nature_score,
                 slope_score=row.slope_score,
             )
+        return G
 
-    print(f"반경 {radius_m}m 그래프 로드: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+    @staticmethod
+    def load_graph() -> nx.Graph:
+        """
+        walk_nodes와 walk_edges 전체를 읽어 NetworkX 그래프로 반환합니다.
+        최대 연결 컴포넌트와 dead-end 제거를 적용합니다.
+        """
+        with get_postgresql_db() as db:
+            node_rows = db.execute(GraphRepository._node_stmt()).fetchall()
+            edge_rows = db.execute(GraphRepository._edge_stmt()).fetchall()
 
-    largest_cc = max(nx.connected_components(G), key=len)
-    G = G.subgraph(largest_cc).copy()
-    print(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+        G = GraphRepository._build_graph(node_rows, edge_rows)
+        print(f"그래프 로드 완료: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
 
-    return G
+        largest_cc = max(nx.connected_components(G), key=len)
+        G = G.subgraph(largest_cc).copy()
+        G = remove_dead_ends(G)
+        print(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+        return G
 
+    @staticmethod
+    def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.Graph:
+        """
+        특정 위치 반경 내 노드·엣지만 읽어 NetworkX 그래프로 반환합니다.
+
+        Args:
+            lat      : 중심 위도.
+            lng      : 중심 경도.
+            radius_m : 탐색 반경(미터). 기본값 3,000.
+        """
+        center = cast(func.ST_SetSRID(func.ST_MakePoint(lng, lat), 4326), Geography())
+
+        with get_postgresql_db() as db:
+            node_rows = db.execute(
+                GraphRepository._node_stmt().where(
+                    func.ST_DWithin(cast(WalkNode.geom, Geography()), center, radius_m)
+                )
+            ).fetchall()
+
+            edge_rows = db.execute(
+                GraphRepository._edge_stmt().where(
+                    func.ST_DWithin(cast(WalkEdge.geom, Geography()), center, radius_m)
+                )
+            ).fetchall()
+
+        G = GraphRepository._build_graph(node_rows, edge_rows)
+        print(f"반경 {radius_m}m 그래프 로드: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+
+        largest_cc = max(nx.connected_components(G), key=len)
+        G = G.subgraph(largest_cc).copy()
+        print(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+        return G
+
+
+# 하위 호환을 위한 모듈 수준 함수
+load_graph = GraphRepository.load_graph
+load_graph_near = GraphRepository.load_graph_near

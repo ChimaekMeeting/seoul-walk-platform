@@ -3,15 +3,9 @@ from sqlalchemy import func, select, cast
 from geoalchemy2 import Geography
 
 from src.database.postgresql import get_postgresql_db
-from src.entity.layer.safety_layer import SafetyPoint
-from src.entity.layer.nature_layer import NaturePoint
-from src.entity.layer.landmark_layer import Landmark
+from src.schema.layer_schema import LayerEntityMap
 
-_TABLE_ENTITY_MAP: dict[str, type] = {
-    "safety_layer": SafetyPoint,
-    "poi_layer": NaturePoint,
-    "landmark_layer": Landmark,
-}
+_LAYER_MAP = LayerEntityMap()
 
 
 class MapRepository:
@@ -26,11 +20,12 @@ class MapRepository:
     ) -> pd.DataFrame:
         """
         주어진 좌표 반경 내의 포인트 데이터를 ORM으로 조회합니다.
+        폴리곤 geometry는 centroid를 기준으로 좌표를 반환합니다.
 
         Args:
             lat        : 중심 위도.
             lon        : 중심 경도.
-            table_name : 조회할 테이블명 (safety_layer / poi_layer / landmark_layer).
+            table_name : 조회할 테이블명 (safety_layer / nature_layer / landmark_layer).
             type_col   : 타입 필터링에 사용할 컬럼명 (선택).
             type_val   : 타입 필터링 값 (선택).
             radius_m   : 탐색 반경(미터). 기본값 2,000.
@@ -41,15 +36,16 @@ class MapRepository:
         Raises:
             ValueError: 지원하지 않는 table_name 또는 존재하지 않는 type_col 지정 시.
         """
-        entity = _TABLE_ENTITY_MAP.get(table_name)
+        entity = getattr(_LAYER_MAP, table_name, None)
         if entity is None:
-            raise ValueError(f"지원하지 않는 테이블: {table_name}. 허용값: {list(_TABLE_ENTITY_MAP)}")
+            raise ValueError(f"지원하지 않는 테이블: {table_name}. 허용값: {list(LayerEntityMap.model_fields)}")
 
-        center = cast(func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326), Geography())
+        center   = cast(func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326), Geography())
+        centroid = func.ST_Centroid(entity.geom)
 
         stmt = select(
-            func.ST_Y(entity.geom).label("lat"),
-            func.ST_X(entity.geom).label("lon"),
+            func.ST_Y(centroid).label("lat"),
+            func.ST_X(centroid).label("lon"),
         ).where(
             func.ST_DWithin(cast(entity.geom, Geography()), center, radius_m)
         )

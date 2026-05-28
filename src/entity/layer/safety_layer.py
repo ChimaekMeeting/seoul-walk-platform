@@ -1,11 +1,11 @@
-from src.entity.base import Base
+﻿from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import BigInteger, String
 from typing import Optional
 
 
-class SafetyPoint(Base):
+class SafetyLayer(Base):
     """
     안전 시설물(CCTV, 스마트 가로등) 정보를 관리하는 엔티티입니다.
     """
@@ -28,3 +28,4 @@ class SafetyPoint(Base):
         Geometry("POINT", srid=4326),
         nullable=False
     )
+

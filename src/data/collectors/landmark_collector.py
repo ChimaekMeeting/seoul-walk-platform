@@ -1,5 +1,4 @@
 import asyncio
-from typing import List
 
 import pandas as pd
 
@@ -10,22 +9,29 @@ from src.repository.layer.landmark_repository import LandmarkRepository
 
 
 class LandmarkCollector:
+    """
+    Google Sheets의 랜드마크 목록을 Kakao API로 조회하여 landmark_layer와 walk_nodes에 저장하고
+    walk_edges.landmark_score를 업데이트합니다.
+    """
     def __init__(self):
         self.kakao_client = KakaoClient()
-        self.url = "https://docs.google.com/spreadsheets/d/1h4PPOJ6qSIBRghrqn0cXT-UrlToyMIM-NTSNtATF0gc/export?format=csv&hl=ko&gid=0#gid=0"
+
+        self.SHEET_URL = (
+            "https://docs.google.com/spreadsheets/d/"
+            "1h4PPOJ6qSIBRghrqn0cXT-UrlToyMIM-NTSNtATF0gc/export?format=csv&hl=ko&gid=0#gid=0"
+        )
         self.data = self.load_data()
 
-    def load_data(self):
+    def load_data(self) -> pd.DataFrame:
         """
-        랜드마크 목록을 Google Sheets에서 로드합니다.
+        랜드마크 목록을 Google Sheets CSV로 로드합니다.
         """
-        return pd.read_csv(self.url)
+        return pd.read_csv(self.SHEET_URL)
 
-    async def get_location(self, keyword: str):
+    async def get_location(self, keyword: str) -> list[dict]:
         """
-        Kakao API로 키워드에 해당하는 장소 후보를 조회합니다.
+        Kakao 키워드 검색으로 장소 후보 목록을 반환합니다.
         """
-        print(keyword)
         res = await self.kakao_client.get_address_from_keyword(
             keyword=keyword,
             lat=37.5665,
@@ -43,40 +49,38 @@ class LandmarkCollector:
             for idx, doc in enumerate(docs)
         ]
 
-    def select(self, landmark_candidate: List[dict]):
+    def select(self, candidates: list[dict]) -> dict:
         """
-        후보 장소 목록에서 랜드마크 1개를 사용자가 선택합니다.
+        후보 장소 목록을 출력하고 사용자 입력으로 랜드마크 1개를 선택합니다.
         """
-        print("랜드마크 후보군")
-        for c in landmark_candidate:
+        for c in candidates:
             print(c)
         idx = int(input("번호 선택: "))
-        selection = landmark_candidate[idx]
-        print(f"선택한 랜드마크: {selection}")
-        return selection
+        return candidates[idx]
 
-    def update_node(self, selections):
+    def update_node(self, selections: list[dict]) -> None:
         """
-        랜드마크 위치를 walk_nodes에 등록하고 walk_node_id를 업데이트합니다.
+        landmark_layer에 저장하고 선택된 위치를 walk_nodes에 등록합니다.
         """
+        LandmarkRepository.save_all(selections)
         name_to_node_id = CollectorUtils.register_nodes(selections, node_type="landmark")
         LandmarkRepository.update_walk_node_ids(name_to_node_id)
 
-    def update_edge(self):
+    def update_edge(self) -> None:
         """
         랜드마크 밀도 기반으로 walk_edges.landmark_score를 업데이트합니다.
         """
         EdgeRepository.ensure_score_column("landmark_score")
         CollectorUtils.update_edge_scores("landmark_score", LandmarkRepository.get_landmark_h3_counts())
 
-    async def save(self):
+    async def save(self) -> None:
         """
-        랜드마크를 조회·저장하고 node와 edge를 업데이트합니다.
+        랜드마크를 조회·선택한 뒤 landmark_layer·walk_nodes를 저장하고 walk_edges를 업데이트합니다.
         """
         selections = []
         for _, row in self.data.iterrows():
-            landmark_candidate = await self.get_location(row["name"])
-            selection = self.select(landmark_candidate)
+            candidates = await self.get_location(row["name"])
+            selection = self.select(candidates)
             selections.append({
                 "name": selection.get("place_name"),
                 "geom": CollectorUtils.make_point(
@@ -84,8 +88,6 @@ class LandmarkCollector:
                     float(selection.get("lon")),
                 ),
             })
-
-        LandmarkRepository.save_all(selections)
 
         self.update_node(selections)
         self.update_edge()

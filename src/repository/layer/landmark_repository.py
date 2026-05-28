@@ -1,9 +1,9 @@
-from typing import List
+﻿from typing import List
 
 from sqlalchemy import func, select, insert, update
 
 from src.database.postgresql import get_postgresql_db
-from src.entity.layer.landmark_layer import Landmark
+from src.entity.layer.landmark_layer import LandmarkLayer
 
 
 class LandmarkRepository:
@@ -16,7 +16,7 @@ class LandmarkRepository:
             landmarks : 저장할 랜드마크 딕셔너리 목록.
         """
         with get_postgresql_db() as db:
-            db.execute(insert(Landmark), landmarks)
+            db.execute(insert(LandmarkLayer), landmarks)
             db.commit()
 
     @staticmethod
@@ -32,7 +32,7 @@ class LandmarkRepository:
         """
         with get_postgresql_db() as db:
             return db.execute(
-                select(Landmark.walk_node_id).where(Landmark.name == name)
+                select(LandmarkLayer.walk_node_id).where(LandmarkLayer.name == name)
             ).scalar_one_or_none()
 
     @staticmethod
@@ -46,7 +46,7 @@ class LandmarkRepository:
         with get_postgresql_db() as db:
             for name, node_id in name_to_node_id.items():
                 db.execute(
-                    update(Landmark).where(Landmark.name == name).values(walk_node_id=node_id)
+                    update(LandmarkLayer).where(LandmarkLayer.name == name).values(walk_node_id=node_id)
                 )
             db.commit()
 
@@ -59,9 +59,10 @@ class LandmarkRepository:
             dict[str, int]: {h3_cell: count} 형태의 딕셔너리.
         """
         with get_postgresql_db() as db:
-            h3_expr = func.h3_lat_lng_to_cell(Landmark.geom, 9)
+            h3_expr = func.h3_lat_lng_to_cell(LandmarkLayer.geom, 9)
             rows = db.execute(
                 select(h3_expr.label("h3_cell"), func.count().label("cnt"))
                 .group_by(h3_expr)
             ).fetchall()
             return {row.h3_cell: row.cnt for row in rows}
+

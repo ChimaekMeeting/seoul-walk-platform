@@ -1,11 +1,11 @@
-from src.entity.base import Base
+﻿from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import BigInteger, String
 from typing import Optional
 
 
-class Landmark(Base):
+class LandmarkLayer(Base):
     """
     랜드마크 정보를 관리하는 엔티티입니다.
     """
@@ -28,3 +28,4 @@ class Landmark(Base):
         BigInteger,
         nullable=True
     )
+
