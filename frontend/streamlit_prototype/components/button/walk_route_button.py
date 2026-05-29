@@ -2,6 +2,7 @@ import streamlit as st
 
 from src.service.route.route_service import get_route
 from src.service.route.child_walk_route import get_child_friendly_route
+from frontend.streamlit_prototype.schema.prewalk_schema import Weights
 
 
 class WalkRouteButton:
@@ -30,7 +31,7 @@ class WalkRouteButton:
             "purpose": "산책",
         }
 
-    def _save(self, result: dict):
+    def _save(self, result: dict) -> None:
         """
         경로 계산 결과를 세션 상태에 저장합니다.
         """
@@ -48,11 +49,11 @@ class WalkRouteButton:
         nature_w: float,
         lat: float,
         lng: float,
-    ):
+    ) -> None:
         """
         경로 추천 버튼을 렌더링하고, 클릭 또는 AI 챗봇 완료 시 경로를 계산합니다.
         """
-        weights = {"safety": safety_w, "nature": nature_w}
+        weights = Weights(safety=safety_w, nature=nature_w)
 
         if input_mode == "직접 설정" and st.session_state.start:
             st.divider()
@@ -63,9 +64,9 @@ class WalkRouteButton:
                     with st.spinner("최적의 경로를 계산하는 중..."):
                         context = self._build_context(selected_mode, distance_km, lat, lng)
                         result = (
-                            get_child_friendly_route(context, weights, self.G)
+                            get_child_friendly_route(context, weights.model_dump(), self.G)
                             if child_friendly
-                            else get_route(context, weights, self.G)
+                            else get_route(context, weights.model_dump(), self.G)
                         )
                         if "error" in result:
                             st.error(f"오류 발생: {result['error']}")
@@ -93,7 +94,7 @@ class WalkRouteButton:
                         ),
                         "purpose": user_context.get("purpose", "산책"),
                     }
-                    result = get_route(context, weights, self.G)
+                    result = get_route(context, weights.model_dump(), self.G)
                     if "error" in result:
                         st.error(f"오류 발생: {result['error']}")
                     else:
