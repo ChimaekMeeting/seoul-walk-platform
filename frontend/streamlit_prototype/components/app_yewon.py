@@ -18,7 +18,7 @@ from src.service.route.route_flat import (
     get_mode_label,
 )
 from src.repository.network.graph_repository import GraphRepository
-from frontend.streamlit_prototype.services.map_service import (
+from frontend.streamlit_prototype.components.map_service import (
     fetch_local_db_lines_optimized,
     fetch_local_db_points,
 )

@@ -1,6 +1,6 @@
 import pydeck as pdk
 import streamlit as st
-from frontend.streamlit_prototype.services.map_service import (
+from frontend.streamlit_prototype.components.map_service import (
     fetch_local_db_points,
     fetch_local_db_lines_optimized,
 )
