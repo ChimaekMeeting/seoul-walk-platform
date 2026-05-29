@@ -4,7 +4,7 @@ from sqlalchemy import Integer, String, DateTime, func
 from datetime import datetime
 from typing import TYPE_CHECKING, List
 
-# 실행 시점이 아닌 타입 체크 시점에만 참조(순환 참조 방지)
+# 순환 참조를 방지하기 위해 타입 체크 시점에만 참조합니다.
 if TYPE_CHECKING:
     from src.entity.chat_session import ChatSession
 
@@ -33,7 +33,7 @@ class User(Base):
         nullable=False
     )
 
-    # 관계 설정: ChatSession과 1:다 관계
+    # ChatSession과 1:다 관계를 설정합니다.
     chat_sessions: Mapped[List["ChatSession"]] = relationship(
         "ChatSession",
         back_populates="user",

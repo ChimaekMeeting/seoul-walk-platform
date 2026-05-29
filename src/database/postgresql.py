@@ -6,20 +6,20 @@ from contextlib import contextmanager
 
 load_dotenv(encoding="utf-8")
 
-# 환경 변수 로드
+# 환경 변수에서 DB 접속 정보를 로드합니다.
 DB_HOST = os.getenv("POSTGRES_HOST")
 DB_PORT = os.getenv("POSTGRES_PORT")
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 DB_NAME = os.getenv("POSTGRES_DB")
 
-# PostgreSQL용 데이터베이스 URL 생성
+# PostgreSQL 접속 URL을 생성합니다.
 DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?client_encoding=utf8"
 
-# Engine 생성
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)  # 연결 유효성 체크
+# SQLAlchemy Engine을 생성합니다.
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)  # 연결 유효성 사전 체크
 
-# 세션 설정
+# 세션 팩토리를 설정합니다.
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
