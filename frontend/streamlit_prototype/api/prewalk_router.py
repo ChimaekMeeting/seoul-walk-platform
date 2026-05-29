@@ -2,7 +2,7 @@ import httpx
 
 from frontend.streamlit_prototype.api.base_url import base_url
 
-class PrewalkAPITester:
+class PrewalkRouter:
     def __init__(self):
         self.base_url = f"{base_url}/api/prewalk"
 
