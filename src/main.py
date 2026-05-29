@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from src.entity.base import init_db
-from src.interfaces.api import weather_router
 from src.interfaces.api import (
     auth_router,
     login_router,

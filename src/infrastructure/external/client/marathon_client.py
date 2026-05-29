@@ -32,14 +32,14 @@ class MarathonClient:
             if event is None:
                 continue
 
-            key = (event["name"], event["date"])
+            key = (event.name, event.date)
             if key in seen:
                 continue
             seen.add(key)
 
             events.append(event)
 
-        return sorted(events, key=lambda x: x["date"])
+        return sorted(events, key=lambda x: x.date)
 
     async def _fetch_html(self) -> bytes | None:
         """

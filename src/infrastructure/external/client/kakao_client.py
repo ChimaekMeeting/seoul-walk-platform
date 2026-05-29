@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 import os, httpx
 from typing import Optional
 
-from src.infrastructure.external.schema import (
+from src.infrastructure.external.schema.place_schema import (
     PlaceInfo,
     PlaceSearchResult
 )

@@ -13,6 +13,7 @@ from sqlalchemy import distinct, func, insert, select, text
 
 from src.database.postgresql import get_postgresql_db, engine
 from src.entity.layer.running_layer import RunningLayer, RunningLayerTag
+from src.interfaces.schema.running_schema import CourseInfo
 
 
 class RunningRepository:
@@ -60,7 +61,7 @@ class RunningRepository:
         course_types: Optional[list[str]] = None,
         tags: Optional[list[str]] = None,
         limit: int = 10,
-    ) -> list[dict]:
+    ) -> list[CourseInfo]:
         """
         출발점 반경 내 코스를 distance_from_origin_m 오름차순으로 반환합니다.
 
@@ -74,7 +75,7 @@ class RunningRepository:
             limit        : 최대 반환 건수. 기본값 10.
 
         Returns:
-            list[dict]: CourseInfo 스키마와 호환되는 딕셔너리 리스트.
+            list[CourseInfo]: 코스 정보 목록.
         """
         origin_geog   = ST_SetSRID(ST_MakePoint(lon, lat), 4326).cast(Geography)
         distance_expr = ST_Distance(RunningLayer.start_geom.cast(Geography), origin_geog)
@@ -131,21 +132,21 @@ class RunningRepository:
             tags_map.setdefault(tr.course_id, []).append(tr.tag)
 
         return [
-            {
-                "id":                     row.id,
-                "name":                   row.name,
-                "course_type":            row.course_type,
-                "is_circular":            row.is_circular,
-                "distance_m":             row.distance_m,
-                "difficulty":             row.difficulty,
-                "description":            row.description,
-                "tags":                   tags_map.get(row.id, []),
-                "start_lat":              row.start_lat,
-                "start_lon":              row.start_lon,
-                "end_lat":                None,
-                "end_lon":                None,
-                "distance_from_origin_m": round(row.distance_from_origin_m, 1),
-            }
+            CourseInfo(
+                id=row.id,
+                name=row.name,
+                course_type=row.course_type,
+                is_circular=row.is_circular,
+                distance_m=row.distance_m,
+                difficulty=row.difficulty,
+                description=row.description,
+                tags=tags_map.get(row.id, []),
+                start_lat=row.start_lat,
+                start_lon=row.start_lon,
+                end_lat=None,
+                end_lon=None,
+                distance_from_origin_m=round(row.distance_from_origin_m, 1),
+            )
             for row in rows
         ]
 

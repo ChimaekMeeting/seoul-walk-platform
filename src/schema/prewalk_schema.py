@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Union, List, Literal
+from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
 
 
 class Location(BaseModel):
@@ -66,6 +67,6 @@ class State(BaseModel):
     origin_candidate: Optional[List[Location]] = None
     destination_candidate: Optional[List[Location]] = None
 
-    weather_data: dict = {}
+    weather_data: Optional[EnvironmentInfo] = None
     user_prompt: str = ""
     next_node: str = "interviewer"

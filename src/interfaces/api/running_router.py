@@ -8,7 +8,7 @@ from src.interfaces.schema.running_schema import (
     OnewayRunningRequest,
     OnewayRunningResponse,
 )
-from src.service.route.running_route_service import get_circular_route, get_oneway_route
+from src.route_engine.running_route_service import get_circular_route, get_oneway_route
 
 router = APIRouter(
     prefix="/api/running",

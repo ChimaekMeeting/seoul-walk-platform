@@ -9,8 +9,6 @@ get_circular_route(lat, lon, target_km, ...)  → 출발점 기준 루프 코스
 get_oneway_route(lat, lon, end_lat, end_lon, ...) → 출발점 → 도착점 단방향 코스
 """
 
-from __future__ import annotations
-
 import math
 import time
 from typing import Optional
@@ -24,10 +22,10 @@ from src.interfaces.schema.running_schema import (
     CourseInfo,
     OnewayRunningResponse,
 )
-from src.service.route.path_circular_random import random_walk_route
-from src.service.route.path_oneway_dijkstra import dijkstra_route
-from src.service.route.path_oneway_random import oneway_random_route
-from src.service.route.path_utils import (
+from src.route_engine.path_circular_random import random_walk_route
+from src.route_engine.path_oneway_dijkstra import dijkstra_route
+from src.route_engine.path_oneway_random import oneway_random_route
+from src.route_engine.path_utils import (
     extract_coordinates,
     find_nearest_node,
     prune_dead_ends,

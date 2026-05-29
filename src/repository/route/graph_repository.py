@@ -5,7 +5,7 @@ from geoalchemy2 import Geography
 from src.database.postgresql import get_postgresql_db
 from src.entity.network.walk_node import WalkNode
 from src.entity.network.walk_edge import WalkEdge
-from src.service.route.path_utils import remove_dead_ends
+from src.route_engine.path_utils import remove_dead_ends
 
 
 class GraphRepository:

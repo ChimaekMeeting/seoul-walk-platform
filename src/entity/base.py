@@ -1,9 +1,7 @@
 from sqlalchemy.orm import declarative_base
 from src.database.postgresql import engine
-from src.entity.layer import landmark_layer, nature_layer, running_layer
 
 Base = declarative_base()
-
 
 def register_entities():
     """
@@ -11,7 +9,12 @@ def register_entities():
     """
     from src.entity import chat_session, user
     from src.entity.network import walk_node, walk_edge
-    from src.entity.layer import safety_layer
+    from src.entity.layer import (
+        safety_layer,
+        landmark_layer,
+        nature_layer,
+        running_layer
+    )
 
 
 def init_db():

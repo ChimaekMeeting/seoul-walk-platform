@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
-from src.infrastructure.external.schema import EnvironmentInfo
+from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
 
 load_dotenv()
 

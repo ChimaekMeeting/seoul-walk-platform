@@ -68,7 +68,7 @@ class RunningLayer(Base):
     )
 
     # 관계 설정: RunningLayerTag와 1:다 관계 (cascade delete)
-    tags: Mapped[list[RunningLayerTag]] = relationship(
+    tags: Mapped[list["RunningLayerTag"]] = relationship(
         "RunningLayerTag",
         back_populates="running_layer",
         cascade="all, delete-orphan"

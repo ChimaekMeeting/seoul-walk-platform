@@ -48,8 +48,8 @@ class PrewalkOrchestrator:
             current_location=Location(
                 lat=lat,
                 lon=lon,
-                address=current_location.get("place_address"),
-                place_name=current_location.get("place_name")
+                address=current_location.place_address,
+                place_name=current_location.place_name
             ),
             user_context=None,
             origin_candidate=None,

@@ -2,7 +2,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.interfaces.schema.prewalk_schema import Weights
 from src.schema.prewalk_schema import State
-from src.service.prewalk.chatbot_utils import PromptUtils, PydanticUtils
+from src.agent.utils.chatbot_utils import PromptUtils, PydanticUtils
 
 class WeightAssigner(GPTClient):
     def __init__(self):
@@ -11,7 +11,7 @@ class WeightAssigner(GPTClient):
         self.prompt_utils = PromptUtils()
         self.parser = PydanticOutputParser(pydantic_object=Weights)
 
-    async def run(self, state: State) -> dict:
+    async def run(self, state: State) -> Weights:
         """
         사용자의 산책 목적과 상황에 기반하여 feature별 가중치를 결정합니다.
         """

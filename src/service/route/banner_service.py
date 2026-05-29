@@ -1,4 +1,6 @@
 from src.infrastructure.external.client.marathon_client import MarathonClient
+from src.infrastructure.external.schema.marathon_schema import MarathonEvent
+from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
 from datetime import datetime, date
 import asyncio
 import re
@@ -38,7 +40,7 @@ class BannerService:
         )
         return [event for region_events in results for event in region_events]
 
-    def get_events(self) -> list[dict]:
+    def get_events(self) -> list[MarathonEvent]:
         """
         이벤트 목록을 조회합니다.
         """
@@ -50,9 +52,9 @@ class BannerService:
         """
         today = date.today()
         for event in self.get_events():
-            diff = (event["date"] - today).days
+            diff = (event.date - today).days
             if -1 <= diff <= 14:
-                return {**event, "diff": diff}
+                return {**event.model_dump(), "diff": diff}
         return None
 
     def _get_event_text(self, event: dict) -> dict:
@@ -107,14 +109,14 @@ class BannerService:
 
     # ── 메인 메서드 ────────────────────────────────────────────
 
-    def get_banner(self, weather: dict, hour: int | None = None) -> dict:
+    def get_banner(self, weather: EnvironmentInfo, hour: int | None = None) -> dict:
         """
         단일 배너 반환 (하위 호환용)
         """
         banners = self.get_banner_list(weather, hour)
         return banners[0] if banners else self.BANNERS["fixed"]["healing"]
 
-    def get_banner_list(self, weather: dict, hour: int | None = None) -> list:
+    def get_banner_list(self, weather: EnvironmentInfo, hour: int | None = None) -> list:
         """
         홈 화면에 노출할 배너 목록 전체를 반환합니다.
         우선순위: 이벤트 → 시즌 → 고정
@@ -122,8 +124,8 @@ class BannerService:
         if hour is None:
             hour = datetime.now().hour
 
-        status  = weather.get("weather_status", "")
-        msg     = weather.get("weather_msg", "")
+        status  = weather.weather_status
+        msg     = weather.weather_msg
         banners = []
 
         # 1순위: 이벤트 배너
