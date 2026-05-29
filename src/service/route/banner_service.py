@@ -1,5 +1,6 @@
 from src.infrastructure.external.client.marathon_client import MarathonClient
 from src.infrastructure.external.schema.marathon_schema import MarathonEvent
+from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
 from datetime import datetime, date
 import asyncio
 import re
@@ -108,14 +109,14 @@ class BannerService:
 
     # ── 메인 메서드 ────────────────────────────────────────────
 
-    def get_banner(self, weather: dict, hour: int | None = None) -> dict:
+    def get_banner(self, weather: EnvironmentInfo, hour: int | None = None) -> dict:
         """
         단일 배너 반환 (하위 호환용)
         """
         banners = self.get_banner_list(weather, hour)
         return banners[0] if banners else self.BANNERS["fixed"]["healing"]
 
-    def get_banner_list(self, weather: dict, hour: int | None = None) -> list:
+    def get_banner_list(self, weather: EnvironmentInfo, hour: int | None = None) -> list:
         """
         홈 화면에 노출할 배너 목록 전체를 반환합니다.
         우선순위: 이벤트 → 시즌 → 고정
@@ -123,8 +124,8 @@ class BannerService:
         if hour is None:
             hour = datetime.now().hour
 
-        status  = weather.get("weather_status", "")
-        msg     = weather.get("weather_msg", "")
+        status  = weather.weather_status
+        msg     = weather.weather_msg
         banners = []
 
         # 1순위: 이벤트 배너
