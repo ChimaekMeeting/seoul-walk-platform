@@ -52,8 +52,8 @@ def _apply_running_weights(
     """
     런닝 모드 전용 ``custom_score``를 각 엣지에 세팅합니다.
 
-    ``circular_running_route`` / ``oneway_running_route`` 호출 전에
-    반드시 먼저 실행해야 합니다. 그래프를 in-place로 수정하고 반환합니다.
+    ``get_circular_route`` / ``get_oneway_route`` 내부에서 자동으로 호출됩니다.
+    그래프를 in-place로 수정하고 반환합니다.
 
     가중치 공식::
 
@@ -169,7 +169,7 @@ def get_circular_route(
         G         (nx.Graph, optional) : 미리 로드된 그래프. ``None``이면 DB에서 로드.
 
     Returns:
-        dict: 아래 키를 포함하는 딕셔너리.
+        CircularRunningResponse: 아래 필드를 포함하는 응답 객체.
 
         - ``mode``              (str)        : ``"circular_running"``
         - ``coordinates``       (list)       : ``[[lat, lon], ...]`` 형태의 좌표 목록.
@@ -273,7 +273,7 @@ def get_oneway_route(
         G          (nx.Graph, optional) : 미리 로드된 그래프. ``None``이면 DB에서 로드.
 
     Returns:
-        dict: 아래 키를 포함하는 딕셔너리.
+        OnewayRunningResponse: 아래 필드를 포함하는 응답 객체.
 
         - ``mode``              (str)        : ``"oneway_running_random"`` 또는
                                                ``"oneway_running_shortest"``

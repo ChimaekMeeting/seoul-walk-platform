@@ -11,7 +11,8 @@ DB에서 river·park·bike_track 코스를 조회한 뒤,
 
 외부 의존성
 -----------
-- src.service.route.path_oneway_random.oneway_random_route
+- src.route_engine.path_oneway_random.oneway_random_route
+- src.route_engine.path_utils.find_nearest_node
 - src.repository.layer.running_repository.RunningRepository.get_running_layer_near
 """
 
