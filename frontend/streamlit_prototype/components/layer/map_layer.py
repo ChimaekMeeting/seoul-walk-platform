@@ -3,10 +3,16 @@ import json
 import pandas as pd
 import streamlit as st
 
-from src.service.route.map_service import fetch_kakao_facilities, fetch_db_points, fetch_db_lines
+from src.infrastructure.external.client.kakao_client import KakaoClient
+from src.service.route.map_service import MapService
+from src.repository.layer.map_repository import MapRepository
+from src.repository.network.edge_repository import EdgeRepository
 
 
 class MapLayer:
+
+    def __init__(self):
+        self._map_service = MapService(KakaoClient())
 
     @st.cache_data(ttl=3600)
     async def fetch_kakao_facilities_df(
@@ -17,10 +23,7 @@ class MapLayer:
         keyword: str | None = None,
         radius: int = 2000,
     ) -> pd.DataFrame:
-        """
-        카카오 API 결과물을 지도에 표시하기 좋은 데이터프레임으로 변환합니다.
-        """
-        all_places = await fetch_kakao_facilities(
+        all_places = await _self._map_service.fetch_kakao_facilities(
             lat, lon, category_code=category_code, keyword=keyword, radius=radius
         )
         if not all_places:
@@ -40,10 +43,7 @@ class MapLayer:
         type_val: str | None = None,
         radius_m: int = 2000,
     ) -> pd.DataFrame:
-        """
-        PostGIS 포인트 데이터를 캐싱하여 반환합니다.
-        """
-        return fetch_db_points(lat, lon, table_name, type_col, type_val, radius_m)
+        return MapRepository.fetch_nearby_points(lat, lon, table_name, type_col, type_val, radius_m)
 
     @st.cache_data(ttl=3600)
     def fetch_local_db_lines_optimized(
@@ -52,10 +52,7 @@ class MapLayer:
         lon: float,
         radius_m: int = 2000,
     ) -> pd.DataFrame:
-        """
-        도보 네트워크를 PyDeck PathLayer 포맷(path 컬럼)으로 반환합니다.
-        """
-        df = fetch_db_lines(lat, lon, radius_m)
+        df = EdgeRepository.fetch_nearby_lines(lat, lon, radius_m)
         if df.empty:
             return pd.DataFrame()
         df["path"] = df["geometry"].apply(lambda x: json.loads(x)["coordinates"])

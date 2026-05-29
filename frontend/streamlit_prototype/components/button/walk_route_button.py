@@ -1,7 +1,7 @@
 import streamlit as st
 
-from src.service.route.route_service import get_route
-from src.service.route.child_walk_route import get_child_friendly_route
+from src.service.route.route_service import RouteService
+from src.route_engine.child_walk_route import get_child_friendly_route
 from frontend.streamlit_prototype.schema.prewalk_schema import Weights
 
 
@@ -9,6 +9,7 @@ class WalkRouteButton:
 
     def __init__(self, G):
         self.G = G
+        self._route_service = RouteService()
 
     def _build_context(
         self, selected_mode: str, distance_km: float, lat: float, lng: float
@@ -64,9 +65,9 @@ class WalkRouteButton:
                     with st.spinner("최적의 경로를 계산하는 중..."):
                         context = self._build_context(selected_mode, distance_km, lat, lng)
                         result = (
-                            get_child_friendly_route(context, weights.model_dump(), self.G)
+                            get_child_friendly_route(context, weights, self.G)
                             if child_friendly
-                            else get_route(context, weights.model_dump(), self.G)
+                            else self._route_service.get_route(context, weights, self.G)
                         )
                         if "error" in result:
                             st.error(f"오류 발생: {result['error']}")
@@ -94,7 +95,7 @@ class WalkRouteButton:
                         ),
                         "purpose": user_context.get("purpose", "산책"),
                     }
-                    result = get_route(context, weights.model_dump(), self.G)
+                    result = self._route_service.get_route(context, weights, self.G)
                     if "error" in result:
                         st.error(f"오류 발생: {result['error']}")
                     else:
