@@ -1,4 +1,4 @@
-﻿from src.entity.base import Base
+from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import BigInteger, Integer, String
@@ -32,4 +32,3 @@ class NatureLayer(Base):
         Geometry("GEOMETRY", srid=4326),
         nullable=False
     )
-

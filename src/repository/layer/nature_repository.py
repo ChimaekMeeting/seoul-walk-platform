@@ -1,4 +1,4 @@
-﻿import geopandas as gpd
+import geopandas as gpd
 from sqlalchemy import func, select, text
 
 from src.database.postgresql import get_postgresql_db, engine
@@ -34,4 +34,3 @@ class NatureRepository:
                 .group_by(h3_expr)
             ).fetchall()
             return {row.h3_cell: row.cnt for row in rows}
-

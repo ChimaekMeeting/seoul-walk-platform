@@ -1,4 +1,4 @@
-﻿from src.entity.base import Base
+from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
@@ -101,4 +101,3 @@ class RunningLayerTag(Base):
         "RunningLayer",
         back_populates="tags"
     )
-

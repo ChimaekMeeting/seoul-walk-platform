@@ -1,4 +1,4 @@
-﻿from src.entity.base import Base
+from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import BigInteger, String
@@ -28,4 +28,3 @@ class SafetyLayer(Base):
         Geometry("POINT", srid=4326),
         nullable=False
     )
-

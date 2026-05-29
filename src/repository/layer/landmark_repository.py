@@ -1,4 +1,4 @@
-﻿from typing import List
+from typing import List
 
 from sqlalchemy import func, select, insert, update
 
@@ -65,4 +65,3 @@ class LandmarkRepository:
                 .group_by(h3_expr)
             ).fetchall()
             return {row.h3_cell: row.cnt for row in rows}
-
