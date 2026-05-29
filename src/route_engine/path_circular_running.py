@@ -11,15 +11,16 @@ DB에서 river·park·bike_track 코스를 조회한 뒤,
 
 외부 의존성
 -----------
-- src.service.route.path_circular_random.random_walk_route
-- src.repository.route.course_repository.get_courses_near
+- src.route_engine.path_circular_random.random_walk_route
+- src.route_engine.path_utils.find_nearest_node
+- src.repository.layer.running_repository.RunningRepository.get_running_layer_near
 """
 
 import networkx as nx
 
 from src.route_engine.path_circular_random import random_walk_route
 from src.route_engine.path_utils import find_nearest_node
-from src.repository.layer.course_repository import CourseRepository
+from src.repository.layer.running_repository import RunningRepository
 
 RUNNING_COURSE_TYPES = ["river", "park", "bike_track"]
 
@@ -43,7 +44,7 @@ def circular_running_route(
         호출 전에 ``_apply_running_weights(G)``를 먼저 실행하세요.
 
         ``session`` 파라미터는 인터페이스 일관성을 위해 존재하며,
-        실제 DB 연결은 ``get_courses_near()`` 내부에서 자체 관리합니다.
+        실제 DB 연결은 ``get_running_layer_near()`` 내부에서 자체 관리합니다.
 
     Args:
         G         (nx.Graph)  : ``custom_score``가 세팅된 NetworkX 그래프.
@@ -60,9 +61,9 @@ def circular_running_route(
         - ``coordinates``       (list)       : ``[[lat, lon], ...]`` 형태의 경로 좌표 목록.
         - ``total_distance_km`` (float)      : 생성된 경로의 총 거리 (km).
         - ``matched_courses``   (list[dict]) : 반경 내 조회된 코스 목록.
-          코스가 없으면 빈 리스트. 각 항목은 ``get_courses_near()`` 반환 형식과 동일.
+          코스가 없으면 빈 리스트. 각 항목은 ``get_running_layer_near()`` 반환 형식과 동일.
     """
-    courses = CourseRepository.get_courses_near(
+    courses = RunningRepository.get_running_layer_near(
         lat=start_lat,
         lon=start_lon,
         radius_m=radius_m,

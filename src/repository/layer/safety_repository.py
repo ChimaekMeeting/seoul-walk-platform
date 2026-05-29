@@ -3,7 +3,7 @@ from typing import List
 from sqlalchemy import func, select, insert, text
 
 from src.database.postgresql import get_postgresql_db, engine
-from src.entity.layer.safety_layer import SafetyPoint
+from src.entity.layer.safety_layer import SafetyLayer
 
 
 class SafetyRepository:
@@ -25,19 +25,19 @@ class SafetyRepository:
             records : 저장할 안전 시설물 딕셔너리 목록.
         """
         with get_postgresql_db() as db:
-            db.execute(insert(SafetyPoint), records)
+            db.execute(insert(SafetyLayer), records)
             db.commit()
 
     @staticmethod
     def get_safety_h3_counts() -> dict[str, int]:
         """
-        H3 셀(resolution 9)별 SafetyPoint 개수를 반환합니다.
+        H3 셀(resolution 9)별 SafetyLayer 개수를 반환합니다.
 
         Returns:
             dict[str, int]: {h3_cell: count} 형태의 딕셔너리.
         """
         with get_postgresql_db() as db:
-            h3_expr = func.h3_lat_lng_to_cell(SafetyPoint.geom, 9)
+            h3_expr = func.h3_lat_lng_to_cell(SafetyLayer.geom, 9)
             rows = db.execute(
                 select(h3_expr.label("h3_cell"), func.count().label("cnt"))
                 .group_by(h3_expr)

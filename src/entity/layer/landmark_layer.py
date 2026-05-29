@@ -5,7 +5,7 @@ from sqlalchemy import BigInteger, String
 from typing import Optional
 
 
-class Landmark(Base):
+class LandmarkLayer(Base):
     """
     랜드마크 정보를 관리하는 엔티티입니다.
     """

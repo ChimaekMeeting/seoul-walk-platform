@@ -1,72 +1,66 @@
+import osmnx as ox
+import geopandas as gpd
 import pandas as pd
 
-from src.data.utils import CollectorUtils
-from src.repository.network.edge_repository import EdgeRepository
 from src.repository.layer.nature_repository import NatureRepository
+from src.repository.network.edge_repository import EdgeRepository
 
 
 class NatureCollector:
-    def __init__(self):
-        self.data = self.load_data()
+    """
+    OpenStreetMap에서 서울 녹지 폴리곤을 수집하여 nature_layer 테이블에 저장하고
+    walk_edges.nature_score를 거리 기반으로 업데이트합니다.
+    """
 
-    def load_data(self) -> dict:
-        """
-        데이터(공원, 가로수길)를 로드합니다.
-        """
-        return {
-            "park":      pd.read_csv("src/data/raw/서울시 주요 공원현황.csv", encoding="cp949"),
-            "tree_road": pd.read_csv("src/data/raw/전국가로수길정보표준데이터.csv", encoding="cp949"),
-        }
+    TAG_CONFIG = [
+        ({"natural": ["wood", "scrub"], "landuse": ["forest"]}, 3),
+        ({"leisure": ["park", "garden"], "landuse": ["grass", "meadow"]}, 2),
+        ({"landuse": ["farmland", "allotments"]}, 1),
+    ]
 
-    def build_park_records(self) -> list:
+    def build_records(self) -> gpd.GeoDataFrame:
         """
-        서울시 주요 공원 데이터를 파싱하여 INSERT용 dict 리스트로 반환합니다.
+        태그 설정별로 OSM 녹지 피처를 조회하여 하나의 GeoDataFrame으로 합칩니다.
         """
-        df = self.data["park"]
-        records = []
-        for _, row in df.iterrows():
-            if pd.isna(row["X좌표(WGS84)"]) or pd.isna(row["Y좌표(WGS84)"]):
-                continue
-            records.append({
-                "poi_type": "park",
-                "name": str(row["공원명"]) if pd.notna(row.get("공원명")) else "",
-                "geom": CollectorUtils.make_point(row["Y좌표(WGS84)"], row["X좌표(WGS84)"]),
-            })
-        return records
+        frames = []
+        for tags, weight in self.TAG_CONFIG:
+            for key, values in tags.items():
+                for val in values:
+                    try:
+                        gdf = ox.features_from_place("Seoul, South Korea", tags={key: val})
+                        gdf = gdf[gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
+                        gdf["name"]         = gdf["name"] if "name" in gdf.columns else None
+                        gdf["green_type"]   = val
+                        gdf["green_weight"] = weight
+                        frames.append(gdf[["name", "green_type", "green_weight", "geometry"]])
+                        print(f"{key}={val}: {len(gdf)}개")
+                    except Exception as e:
+                        print(f"{key}={val} 실패: {e}")
 
-    def build_tree_road_records(self) -> list:
+        return gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), crs="EPSG:4326")
+
+    def update_node(self) -> None:
         """
-        서울 가로수길 데이터를 파싱하여 INSERT용 dict 리스트로 반환합니다.
+        nature_layer를 초기화하고 OSM 녹지 폴리곤을 저장합니다.
         """
-        df = self.data["tree_road"]
-        seoul = df[df["제공기관명"].str.contains("서울", na=False)]
-        records = []
-        for _, row in seoul.iterrows():
-            if pd.isna(row["가로수길시작경도"]) or pd.isna(row["가로수길시작위도"]):
-                continue
-            records.append({
-                "poi_type": "tree_road",
-                "name": str(row["가로수길명"]) if pd.notna(row.get("가로수길명")) else "",
-                "geom": CollectorUtils.make_point(row["가로수길시작위도"], row["가로수길시작경도"]),
-            })
-        return records
+        NatureRepository.truncate()
+        combined = self.build_records()
+        NatureRepository.save_geodataframe(combined)
+        print(f"  ✅ 총 {len(combined)}개 폴리곤 저장 완료")
 
     def update_edge(self) -> None:
         """
-        자연/녹지 밀도 기반으로 walk_edges.nature_score를 업데이트합니다.
+        nature_layer 거리 기반으로 walk_edges.nature_score를 업데이트합니다.
         """
-        EdgeRepository.ensure_score_column("nature_score")
-        CollectorUtils.update_edge_scores("nature_score", NatureRepository.get_nature_h3_counts())
+        EdgeRepository.reset_nature_score()
+        count = EdgeRepository.update_nature_score_from_osm()
+        print(f"  ✅ nature_score 업데이트 완료: {count}개 엣지")
 
     def save(self) -> None:
         """
-        poi_layer를 초기화하고 데이터를 수집·저장한 뒤 edge를 업데이트합니다.
+        nature_layer를 저장한 뒤 walk_edges.nature_score를 업데이트합니다.
         """
-        NatureRepository.truncate()
-
-        records = self.build_park_records() + self.build_tree_road_records()
-        NatureRepository.save_all(records)
-
+        self.update_node()
         self.update_edge()
 
 

@@ -5,7 +5,7 @@ from sqlalchemy import BigInteger, String
 from typing import Optional
 
 
-class SafetyPoint(Base):
+class SafetyLayer(Base):
     """
     안전 시설물(CCTV, 스마트 가로등) 정보를 관리하는 엔티티입니다.
     """

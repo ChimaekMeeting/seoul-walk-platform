@@ -6,11 +6,11 @@ from datetime import datetime
 from typing import Optional
 
 
-class Course(Base):
+class RunningLayer(Base):
     """
     런닝/다이어트에 적합한 코스 정보를 관리하는 엔티티입니다.
     """
-    __tablename__ = "courses"
+    __tablename__ = "running_layer"
 
     id: Mapped[int] = mapped_column(
         BigInteger,
@@ -67,19 +67,19 @@ class Course(Base):
         nullable=False
     )
 
-    # 관계 설정: CourseTag와 1:다 관계 (cascade delete)
-    tags: Mapped[list[CourseTag]] = relationship(
-        "CourseTag",
-        back_populates="course",
+    # 관계 설정: RunningLayerTag와 1:다 관계 (cascade delete)
+    tags: Mapped[list[RunningLayerTag]] = relationship(
+        "RunningLayerTag",
+        back_populates="running_layer",
         cascade="all, delete-orphan"
     )
 
 
-class CourseTag(Base):
+class RunningLayerTag(Base):
     """
     코스에 붙는 태그 정보를 관리하는 엔티티입니다.
     """
-    __tablename__ = "course_tags"
+    __tablename__ = "running_layer_tags"
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -88,7 +88,7 @@ class CourseTag(Base):
     )
     course_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("courses.id", ondelete="CASCADE"),
+        ForeignKey("running_layer.id", ondelete="CASCADE"),
         nullable=False
     )
     tag: Mapped[str] = mapped_column(
@@ -96,8 +96,8 @@ class CourseTag(Base):
         nullable=False
     )
 
-    # 관계 설정: Course와 다:1 관계
-    course: Mapped[Course] = relationship(
-        "Course",
+    # 관계 설정: RunningLayer와 다:1 관계
+    running_layer: Mapped[RunningLayer] = relationship(
+        "RunningLayer",
         back_populates="tags"
     )

@@ -37,3 +37,20 @@ class NodeRepository:
         with get_postgresql_db() as db:
             db.execute(insert(WalkNode), nodes)
             db.commit()
+
+    @staticmethod
+    def get_all_coordinates() -> list:
+        """
+        walk_nodes 전체의 (node_id, lon, lat) 목록을 반환합니다.
+
+        Returns:
+            list: (node_id, lon, lat) 행 리스트.
+        """
+        with get_postgresql_db() as db:
+            return db.execute(
+                select(
+                    WalkNode.node_id,
+                    func.ST_X(WalkNode.geom).label("lon"),
+                    func.ST_Y(WalkNode.geom).label("lat"),
+                ).order_by(WalkNode.node_id)
+            ).fetchall()
