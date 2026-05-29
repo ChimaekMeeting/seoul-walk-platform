@@ -1,17 +1,18 @@
-# src/service/route/route_service.py
 import networkx as nx
+import time
+
+from src.interfaces.schema.prewalk_schema import Weights
 from src.repository.network.graph_repository import GraphRepository
 from src.route_engine.path_utils import find_nearest_node, extract_coordinates, prune_dead_ends
 from src.route_engine.path_circular_random import random_walk_route
 from src.route_engine.path_oneway_dijkstra import dijkstra_route
 from src.route_engine.path_oneway_random import oneway_random_route
-import time
 
 
 class RouteService:
-    def apply_intent_weights(self, G: nx.Graph, weights: dict) -> nx.Graph:
+    def apply_intent_weights(self, G: nx.Graph, weights: Weights) -> nx.Graph:
         """
-        weights 딕셔너리의 레이어 가중치를 적용해 엣지에 대한 custom_score를 생성
+        Weights 스키마의 레이어 가중치를 적용해 엣지에 대한 custom_score를 생성
 
         가중치 공식:
             custom_score = length / (safety_score^a * nature_score^b)
@@ -19,13 +20,13 @@ class RouteService:
 
         Args:
             G: NetworkX 그래프
-            weights: {"safety": float, "nature": float}
+            weights: 레이어별 가중치 (0.0 ~ 1.0)
 
         Returns:
             G: custom_score가 추가된 NetworkX 그래프
         """
-        safety_w = weights.get("safety", 1.0)
-        nature_w = weights.get("nature", 1.0)
+        safety_w = weights.safety
+        nature_w = weights.nature
 
         for u, v, data in G.edges(data=True):
             length = data.get("length", 1.0) or 1.0
@@ -51,7 +52,7 @@ class RouteService:
         ]
         return G.subgraph(nodes).copy()
 
-    def get_route(self, context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
+    def get_route(self, context: dict, weights: Weights, G_full: nx.Graph = None) -> dict:
         """
         경로 추천 메인 함수
         Args:
@@ -62,7 +63,7 @@ class RouteService:
                 "destination": {"place_name": str, "address": str, "coordinate": {"lat": float, "lon": float}},
                 "purpose": str
             }
-            weights: {"safety": float, "nature": float}
+            weights: 레이어별 가중치 (0.0 ~ 1.0)
 
         Returns:
             {

@@ -1,4 +1,5 @@
 from src.infrastructure.external.client.marathon_client import MarathonClient
+from src.infrastructure.external.schema.marathon_schema import MarathonEvent
 from datetime import datetime, date
 import asyncio
 import re
@@ -38,7 +39,7 @@ class BannerService:
         )
         return [event for region_events in results for event in region_events]
 
-    def get_events(self) -> list[dict]:
+    def get_events(self) -> list[MarathonEvent]:
         """
         이벤트 목록을 조회합니다.
         """
@@ -50,9 +51,9 @@ class BannerService:
         """
         today = date.today()
         for event in self.get_events():
-            diff = (event["date"] - today).days
+            diff = (event.date - today).days
             if -1 <= diff <= 14:
-                return {**event, "diff": diff}
+                return {**event.model_dump(), "diff": diff}
         return None
 
     def _get_event_text(self, event: dict) -> dict:

@@ -3,6 +3,7 @@ from typing import Literal, Optional
 from langchain_core.tools import StructuredTool
 
 from src.infrastructure.external.client.kakao_client import KakaoClient
+from src.infrastructure.external.schema.place_schema import PlaceInfo, PlaceSearchResult
 
 
 class PlaceTool:
@@ -17,7 +18,7 @@ class PlaceTool:
 
     async def get_address_from_coords(
         self, lat: float = 37.634496, lon: float = 126.832852
-    ) -> dict:
+    ) -> PlaceInfo:
         """
         경위도 좌표를 주소로 변환하는 함수입니다.
         """
@@ -29,7 +30,7 @@ class PlaceTool:
         lat: float,
         lon: float,
         target: Optional[Literal["origin", "destination"]] = None,
-    ) -> dict:
+    ) -> Optional[PlaceSearchResult]:
         """
         특정 키워드를 기반으로 주소를 반환하는 함수입니다.
         """
@@ -41,7 +42,7 @@ class PlaceTool:
         lat: float,
         lon: float,
         target: Optional[Literal["origin", "destination"]] = None,
-    ) -> dict:
+    ) -> Optional[PlaceSearchResult]:
         """
         특정 카테고리를 기반으로 주소를 반환하는 함수입니다.
         category 인자에는 반드시 다음 중 하나만 입력하세요:

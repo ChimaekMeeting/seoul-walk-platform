@@ -22,8 +22,8 @@ class MapService:
             data = await self.kakao_client.search_places(lat, lon, page, radius, category_code=category_code, keyword=keyword)
             if not data:
                 break
-            all_places.extend(data.get("documents", []))
-            if data.get("meta", {}).get("is_end"):
+            all_places.extend(data.documents)
+            if data.meta.is_end:
                 break
         return all_places
 

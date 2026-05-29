@@ -12,6 +12,7 @@ import networkx as nx
 import requests
 from dotenv import load_dotenv
 
+from src.interfaces.schema.prewalk_schema import Weights
 from src.service.route.route_service import RouteService
 
 
@@ -44,7 +45,7 @@ class ChildPlace:
 
 def get_child_friendly_route(
     context: dict,
-    weights: dict | None = None,
+    weights: Weights | None = None,
     G_full: nx.Graph | None = None,
     *,
     protection_zone_xlsx: str | Path = DEFAULT_PROTECTION_ZONE_XLSX,
@@ -60,8 +61,10 @@ def get_child_friendly_route(
     - 놀이시설 API는 data.go.kr 인증키를 인자 또는 환경변수에서 읽습니다.
     - 순환/랜덤 경로는 여러 후보를 만든 뒤 child_index가 가장 높은 경로를 반환합니다.
     """
-    child_weights = {"safety": 2.0, "nature": 1.0}
-    child_weights.update(weights or {})
+    child_weights = Weights(
+        safety=weights.safety if weights is not None else 1.0,
+        nature=weights.nature if weights is not None else 1.0,
+    )
 
     origin = context["origin"]["coordinate"]
     start_lat = float(origin["lat"])

@@ -37,14 +37,14 @@ class LandmarkCollector:
             lat=37.5665,
             lon=126.9780,
         )
-        docs = res.get("documents")
+        docs = res.documents
         return [
             {
                 "id":            idx,
-                "category_name": doc.get("category_name"),
-                "place_name":    doc.get("place_name"),
-                "lat":           doc.get("y"),
-                "lon":           doc.get("x"),
+                "category_name": doc.category_name,
+                "place_name":    doc.place_name,
+                "lat":           doc.y,
+                "lon":           doc.x,
             }
             for idx, doc in enumerate(docs)
         ]

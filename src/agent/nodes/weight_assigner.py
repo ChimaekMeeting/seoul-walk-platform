@@ -11,7 +11,7 @@ class WeightAssigner(GPTClient):
         self.prompt_utils = PromptUtils()
         self.parser = PydanticOutputParser(pydantic_object=Weights)
 
-    async def run(self, state: State) -> dict:
+    async def run(self, state: State) -> Weights:
         """
         사용자의 산책 목적과 상황에 기반하여 feature별 가중치를 결정합니다.
         """
