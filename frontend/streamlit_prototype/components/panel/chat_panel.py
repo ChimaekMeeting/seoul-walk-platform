@@ -3,7 +3,7 @@ import asyncio
 import streamlit as st
 
 from frontend.streamlit_prototype.api.user_router import UserRouter
-from frontend.streamlit_prototype.api.prewalk_router import PrewalkAPITester
+from frontend.streamlit_prototype.api.prewalk_router import PrewalkRouter
 from frontend.streamlit_prototype.schema.prewalk_schema import InitRequest, ChatRequest
 
 
@@ -11,7 +11,7 @@ class ChatPanel:
 
     def __init__(self):
         self.user_router = UserRouter()
-        self.prewalk_api = PrewalkAPITester()
+        self.prewalk_router = PrewalkRouter()
 
     def run_async(self, coro):
         """
@@ -37,7 +37,7 @@ class ChatPanel:
                 lat=37.634496,
                 lon=126.832852,
             )
-            init_res = await self.prewalk_api.post_init(
+            init_res = await self.prewalk_router.post_init(
                 user_uuid=init_req.user_uuid,
                 lat=init_req.lat,
                 lon=init_req.lon,
@@ -55,7 +55,7 @@ class ChatPanel:
         chat_req = ChatRequest(thread_id=st.session_state.thread_id, user_prompt=prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        response = await self.prewalk_api.post_intent(
+        response = await self.prewalk_router.post_intent(
             thread_id=chat_req.thread_id,
             user_prompt=chat_req.user_prompt,
         )
@@ -67,7 +67,7 @@ class ChatPanel:
         st.session_state.state = state
 
         if state.get("next_node") == "end":
-            st.session_state.weights = await self.prewalk_api.get_weights(st.session_state.thread_id)
+            st.session_state.weights = await self.prewalk_router.get_weights(st.session_state.thread_id)
 
     def render(
         self,

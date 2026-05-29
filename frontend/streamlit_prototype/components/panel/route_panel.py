@@ -1,6 +1,6 @@
 import streamlit as st
 
-from src.service.route.route_flat import get_mode_label
+from src.route_engine.route_flat import get_mode_label
 
 
 class RoutePanel:

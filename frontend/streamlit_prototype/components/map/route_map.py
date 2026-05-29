@@ -3,7 +3,7 @@ import os
 import folium
 import streamlit as st
 
-from src.service.route.route_flat import draw_route_connectors
+from src.route_engine.route_flat import draw_route_connectors
 from frontend.streamlit_prototype.components.layer.poi_layer import PoiLayer
 
 
