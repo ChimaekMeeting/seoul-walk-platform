@@ -40,7 +40,7 @@ class CollectorUtils:
     def update_edge_scores(score_column: str, h3_counts: dict[str, int]) -> None:
         """
         H3 카운트 기반 로그 정규화로 walk_edges의 score 컬럼을 업데이트합니다.
-        정규화 공식: 1.0 + log(count+1) / max_log → 범위 1.0~2.0
+        정규화 공식: log(count+1) / max_log → 범위 0.0~1.0
         """
         edge_h3_rows = EdgeRepository.get_link_h3_cells()
         if not edge_h3_rows:
@@ -49,7 +49,7 @@ class CollectorUtils:
         log_vals = [math.log(h3_counts.get(row.h3_cell, 0) + 1) for row in edge_h3_rows]
         max_log = max(log_vals) or 1.0
         updates = [
-            {"link_id": row.link_id, score_column: 1.0 + log_vals[i] / max_log}
+            {"link_id": row.link_id, score_column: log_vals[i] / max_log}
             for i, row in enumerate(edge_h3_rows)
         ]
         EdgeRepository.update_scores(updates)

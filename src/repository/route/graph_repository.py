@@ -23,7 +23,7 @@ class GraphRepository:
             WalkNode.node_type,
             WalkNode.is_underground,
             WalkNode.is_overpass,
-            func.ST_X(WalkNode.geom).label("lng"),
+            func.ST_X(WalkNode.geom).label("lon"),
             func.ST_Y(WalkNode.geom).label("lat"),
         )
 
@@ -53,7 +53,7 @@ class GraphRepository:
         for row in node_rows:
             G.add_node(
                 row.node_id,
-                x=row.lng,
+                x=row.lon,
                 y=row.lat,
                 node_type=row.node_type,
                 is_underground=row.is_underground,
@@ -93,16 +93,16 @@ class GraphRepository:
         return G
 
     @staticmethod
-    def load_graph_near(lat: float, lng: float, radius_m: float = 3000) -> nx.Graph:
+    def load_graph_near(lat: float, lon: float, radius_m: float = 3000) -> nx.Graph:
         """
         특정 위치 반경 내 노드·엣지만 읽어 NetworkX 그래프로 반환합니다.
 
         Args:
             lat      : 중심 위도.
-            lng      : 중심 경도.
+            lon      : 중심 경도.
             radius_m : 탐색 반경(미터). 기본값 3,000.
         """
-        center = cast(func.ST_SetSRID(func.ST_MakePoint(lng, lat), 4326), Geography())
+        center = cast(func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326), Geography())
 
         with get_postgresql_db() as db:
             node_rows = db.execute(

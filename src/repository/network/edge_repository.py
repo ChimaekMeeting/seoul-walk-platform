@@ -60,13 +60,13 @@ class EdgeRepository:
             list: (link_id, h3_cell) 속성을 가진 객체 리스트.
         """
         from types import SimpleNamespace
-        lat_expr, lng_expr = RepositoryUtils.geom_centroid_lat_lng(WalkEdge.geom)
+        lat_expr, lon_expr = RepositoryUtils.geom_centroid_lat_lon(WalkEdge.geom)
         with get_postgresql_db() as db:
             rows = db.execute(
-                select(WalkEdge.link_id, lat_expr.label("lat"), lng_expr.label("lng"))
+                select(WalkEdge.link_id, lat_expr.label("lat"), lon_expr.label("lon"))
             ).fetchall()
         return [
-            SimpleNamespace(link_id=row.link_id, h3_cell=RepositoryUtils.lat_lng_to_h3(row.lat, row.lng))
+            SimpleNamespace(link_id=row.link_id, h3_cell=RepositoryUtils.lat_lon_to_h3(row.lat, row.lon))
             for row in rows
         ]
 
@@ -114,9 +114,9 @@ class EdgeRepository:
 
     @staticmethod
     def reset_nature_score():
-        """walk_edges 전체의 nature_score를 1.0으로 초기화합니다."""
+        """walk_edges 전체의 nature_score를 0.0으로 초기화합니다."""
         with engine.begin() as conn:
-            conn.execute(text("UPDATE walk_edges SET nature_score = 1.0"))
+            conn.execute(text("UPDATE walk_edges SET nature_score = 0.0"))
 
     @staticmethod
     def update_nature_score_from_osm() -> int:
@@ -134,9 +134,9 @@ class EdgeRepository:
                     SELECT we2.link_id,
                            MAX(
                                CASE
-                                   WHEN ST_DWithin(og.geom, we2.geom, 0.00027) THEN 1.0 + (og.green_weight / 3.0)
-                                   WHEN ST_DWithin(og.geom, we2.geom, 0.0009)  THEN 1.0 + (og.green_weight / 3.0) * 0.6
-                                   WHEN ST_DWithin(og.geom, we2.geom, 0.00225) THEN 1.0 + (og.green_weight / 3.0) * 0.3
+                                   WHEN ST_DWithin(og.geom, we2.geom, 0.00027) THEN (og.green_weight / 3.0)
+                                   WHEN ST_DWithin(og.geom, we2.geom, 0.0009)  THEN (og.green_weight / 3.0) * 0.6
+                                   WHEN ST_DWithin(og.geom, we2.geom, 0.00225) THEN (og.green_weight / 3.0) * 0.3
                                END
                            ) AS score
                     FROM walk_edges we2

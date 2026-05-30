@@ -60,10 +60,10 @@ class LandmarkRepository:
         Returns:
             dict[str, int]: {h3_cell: count} 형태의 딕셔너리.
         """
-        lat_expr, lng_expr = RepositoryUtils.geom_centroid_lat_lng(LandmarkLayer.geom)
+        lat_expr, lon_expr = RepositoryUtils.geom_centroid_lat_lon(LandmarkLayer.geom)
         with get_postgresql_db() as db:
             rows = db.execute(
-                select(lat_expr.label("lat"), lng_expr.label("lng"))
+                select(lat_expr.label("lat"), lon_expr.label("lon"))
             ).fetchall()
-        cells = (RepositoryUtils.lat_lng_to_h3(row.lat, row.lng) for row in rows)
+        cells = (RepositoryUtils.lat_lon_to_h3(row.lat, row.lon) for row in rows)
         return dict(Counter(cells))

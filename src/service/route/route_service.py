@@ -30,11 +30,11 @@ class RouteService:
 
         for u, v, data in G.edges(data=True):
             length = data.get("length", 1.0) or 1.0
-            safety = data.get("safety_score", 1.0) or 1.0
-            nature = data.get("nature_score", 1.0) or 1.0
+            safety = data.get("safety_score", 0.5)
+            nature = data.get("nature_score", 0.5)
 
             # 점수 높을수록 선호 → 분모에 올려서 custom_score 낮춤
-            custom_score = length / ((safety ** safety_w) * (nature ** nature_w) + 1e-6)
+            custom_score = length / ((safety + 1e-6) ** safety_w * (nature + 1e-6) ** nature_w)
             G[u][v]["custom_score"] = custom_score
 
         return G
@@ -138,8 +138,8 @@ class RouteService:
             if G.has_edge(u, v):
                 data   = G[u][v]
                 length = data.get("length", 0.0) or 0.0
-                safety = data.get("safety_score", 1.0) or 1.0
-                nature = data.get("nature_score", 1.0) or 1.0
+                safety = data.get("safety_score", 0.5)
+                nature = data.get("nature_score", 0.5)
                 total_length += length
                 safety_sum   += safety * length
                 nature_sum   += nature * length
@@ -151,7 +151,7 @@ class RouteService:
                 safety_avg = 1.0
                 nature_avg = 1.0
 
-            result["safety_index"] = round((safety_avg - 1.0) * 10, 1)
-            result["nature_index"] = round((nature_avg - 1.0) * 10, 1)
+            result["safety_index"] = round(safety_avg * 10, 1)
+            result["nature_index"] = round(nature_avg * 10, 1)
 
         return result

@@ -44,8 +44,8 @@ RUNNING_TAGS = ["런닝"]
 
 def _apply_running_weights(
     G: nx.Graph,
-    slope_weight: float = 1.0,
-    type_bonus: float = 2.0,
+    slope_weight: float = 0.5,
+    type_bonus: float = 1.0,
 ) -> nx.Graph:
     """
     런닝 모드 전용 ``custom_score``를 각 엣지에 세팅합니다.
@@ -69,10 +69,10 @@ def _apply_running_weights(
         G            (nx.Graph) : 엣지에 ``length``, ``safety_score``, ``nature_score``,
                                   ``slope_score``, ``path_type`` 속성이 있는 그래프.
         slope_weight (float)    : 평지 선호도. 높을수록 경사 엣지 페널티 강화.
-                                  범위 권장: 1.0 ~ 3.0. 기본값 1.0.
+                                  범위: 0.0 ~ 1.0. 기본값 0.5.
         type_bonus   (float)    : 공원·하천 선호도. river / park / bike_track / trail
-                                  path_type 엣지에 적용되는 분모 배수.
-                                  범위 권장: 1.0 ~ 3.0. 기본값 2.0.
+                                  path_type 엣지에 적용되는 분모 추가 배수 (유효 배수 = 1.0 + type_bonus).
+                                  범위: 0.0 ~ 1.0. 기본값 1.0.
 
     Returns:
         nx.Graph: ``custom_score``가 추가된 그래프 (입력 G와 동일 객체).
@@ -81,13 +81,13 @@ def _apply_running_weights(
 
     for u, v, data in G.edges(data=True):
         length      = data.get("length", 1.0) or 1.0
-        safety      = data.get("safety_score", 1.0) or 1.0
-        nature      = data.get("nature_score", 1.0) or 1.0
-        slope       = data.get("slope_score", 0.0) or 0.0
+        safety      = data.get("safety_score", 0.5)
+        nature      = data.get("nature_score", 0.5)
+        slope       = data.get("slope_score", 0.5)
         path_type   = data.get("path_type", "") or ""
 
         # 하천·공원·자전거도로 보너스 (파라미터로 제어)
-        effective_type_bonus = type_bonus if path_type.lower() in PREFERRED_PATH_TYPES else 1.0
+        effective_type_bonus = 1.0 + type_bonus if path_type.lower() in PREFERRED_PATH_TYPES else 1.0
 
         # 경사 패널티: slope_weight로 강도 조절
         slope_factor = 1.0 + slope * slope_weight
@@ -95,7 +95,7 @@ def _apply_running_weights(
         # 길이 보너스: 긴 엣지일수록 분모 증가 → 짧은 골목 회피
         length_bonus = 1.0 + math.log1p(length / 50.0)
 
-        custom_score = (length * slope_factor) / (safety * nature * effective_type_bonus * length_bonus + 1e-6)
+        custom_score = (length * slope_factor) / ((safety + 1e-6) * (nature + 1e-6) * effective_type_bonus * length_bonus)
         G[u][v]["custom_score"] = custom_score
 
     return G

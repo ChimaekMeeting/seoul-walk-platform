@@ -45,13 +45,13 @@ class RunningRepository:
         H3 셀(resolution 9)별 코스 시작 지점 개수를 반환합니다.
         """
         from collections import Counter
-        lat_expr, lng_expr = RepositoryUtils.geom_centroid_lat_lng(RunningLayer.start_geom)
+        lat_expr, lon_expr = RepositoryUtils.geom_centroid_lat_lon(RunningLayer.start_geom)
         with get_postgresql_db() as db:
             rows = db.execute(
-                select(lat_expr.label("lat"), lng_expr.label("lng"))
+                select(lat_expr.label("lat"), lon_expr.label("lon"))
                 .where(RunningLayer.start_geom.isnot(None))
             ).fetchall()
-        cells = (RepositoryUtils.lat_lng_to_h3(row.lat, row.lng) for row in rows)
+        cells = (RepositoryUtils.lat_lon_to_h3(row.lat, row.lon) for row in rows)
         return dict(Counter(cells))
 
     @staticmethod

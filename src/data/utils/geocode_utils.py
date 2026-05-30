@@ -34,7 +34,7 @@ class Geocoder:
                 results.append((None, None))
         return results
 
-    def get_lat_lng(self, address: str) -> tuple[float | None, float | None]:
+    def get_lat_lon(self, address: str) -> tuple[float | None, float | None]:
         """
         단일 주소를 (위도, 경도) 튜플로 변환합니다.
         """

@@ -69,7 +69,7 @@ class WeightsV2(BaseModel):
     safety: float = Field(0.5, ge=0.0, le=1.0, description="가로등/CCTV 안전 지수")
     nature: float = Field(0.5, ge=0.0, le=1.0, description="공원/가로수길 자연 지수")
     slope: float = Field(
-        1.0, ge=0.0, le=2.0, description="경사 회피 지수 — 높을수록 평지 선호"
+        0.5, ge=0.0, le=1.0, description="경사 회피 지수 — 높을수록 평지 선호"
     )
 
 
@@ -92,13 +92,13 @@ def apply_intent_weights_v2(G: nx.Graph, weights: dict) -> nx.Graph:
 
     for u, v, data in G.edges(data=True):
         length = data.get("length", 1.0) or 1.0
-        safety = data.get("safety_score", 1.0) or 1.0
-        nature = data.get("nature_score", 1.0) or 1.0
-        slope = data.get("slope_score", 0.5) or 0.5
+        safety = data.get("safety_score", 0.5)
+        nature = data.get("nature_score", 0.5)
+        slope = data.get("slope_score", 0.5)
 
         slope_penalty = (2.0 - slope) ** slope_w
         custom_score = (length * slope_penalty) / (
-            (safety**safety_w) * (nature**nature_w) + 1e-6
+            (safety + 1e-6) ** safety_w * (nature + 1e-6) ** nature_w
         )
         G[u][v]["custom_score"] = custom_score
 
@@ -417,17 +417,17 @@ def run_flat_route(
     start_lat, start_lon = start
 
     if mode == "flat_oneway" and end:
-        end_lat, end_lng = end
+        end_lat, end_lon = end
         center_lat = (start_lat + end_lat) / 2
-        center_lng = (start_lon + end_lng) / 2
+        center_lon = (start_lon + end_lon) / 2
         half_dist = (
-            math.sqrt((end_lat - start_lat) ** 2 + (end_lng - start_lon) ** 2) * 111000
+            math.sqrt((end_lat - start_lat) ** 2 + (end_lon - start_lon) ** 2) * 111000
         )
         radius_m = max(half_dist * 1.5, distance_km * 1000 * 1.5)
-        ref_lat, ref_lng = center_lat, center_lng
+        ref_lat, ref_lon = center_lat, center_lon
     else:
         radius_m = distance_km * 1000 * 3.0
-        ref_lat, ref_lng = start_lat, start_lon
+        ref_lat, ref_lon = start_lat, start_lon
 
     deg = radius_m / 111000
     near_nodes = [
@@ -436,7 +436,7 @@ def run_flat_route(
         if "y" in d
         and "x" in d
         and abs(d["y"] - ref_lat) <= deg
-        and abs(d["x"] - ref_lng) <= deg * 1.3
+        and abs(d["x"] - ref_lon) <= deg * 1.3
     ]
     G_near = G.subgraph(near_nodes).copy()
     start_node = find_nearest_node(G_near, start_lat, start_lon)
@@ -450,8 +450,8 @@ def run_flat_route(
         if not end:
             st.error("평지 편도 모드는 도착지 설정이 필요합니다.")
             return None
-        end_lat, end_lng = end
-        end_node = find_nearest_node(G_near, end_lat, end_lng)
+        end_lat, end_lon = end
+        end_node = find_nearest_node(G_near, end_lat, end_lon)
         result = flat_oneway_route(G_near, start_node, end_node)
         result["mode"] = "flat_oneway"
 
