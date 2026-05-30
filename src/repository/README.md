@@ -9,8 +9,10 @@ chat/
 layer/
 network/
 user/
+utils.py
 ```
 - 추후 repository가 더 늘어나는 경우, 디렉토리를 세분화해도 됩니다.
+- utils.py에는 repository의 공통 모듈을 작성합니다.
 
 ## 2. 코드 작성 규칙
 - 한 파일에 한 개의 class만을 작성합니다.

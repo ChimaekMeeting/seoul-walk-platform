@@ -23,7 +23,7 @@ def get_my_profile(user_service: UserService = Depends(get_user_service)):
 
 ## 4. 파일 명명 규칙
 - api 내 파일명은 {기능}_router.py로 통일합니다.
-- schema 내 파일명은 {schema}_router.py로 통일합니다.
+- schema 내 파일명은 {기능}_schema.py로 통일합니다.
 
 ## 5. 주석 작성 규칙
 - """\n~~~\n""" 형식에 맞게 작성합니다.
