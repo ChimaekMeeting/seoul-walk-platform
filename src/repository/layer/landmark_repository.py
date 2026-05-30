@@ -1,3 +1,4 @@
+from collections import Counter
 from typing import List
 
 from sqlalchemy import func, select, insert, update
@@ -59,10 +60,10 @@ class LandmarkRepository:
         Returns:
             dict[str, int]: {h3_cell: count} 형태의 딕셔너리.
         """
+        lat_expr, lng_expr = RepositoryUtils.geom_centroid_lat_lng(LandmarkLayer.geom)
         with get_postgresql_db() as db:
-            h3_expr = RepositoryUtils.geom_to_h3_cell(LandmarkLayer.geom)
             rows = db.execute(
-                select(h3_expr.label("h3_cell"), func.count().label("cnt"))
-                .group_by(h3_expr)
+                select(lat_expr.label("lat"), lng_expr.label("lng"))
             ).fetchall()
-            return {row.h3_cell: row.cnt for row in rows}
+        cells = (RepositoryUtils.lat_lng_to_h3(row.lat, row.lng) for row in rows)
+        return dict(Counter(cells))

@@ -1,3 +1,5 @@
+from collections import Counter
+
 import geopandas as gpd
 from sqlalchemy import func, select, text
 
@@ -28,10 +30,10 @@ class NatureRepository:
         H3 셀(resolution 9)별 녹지 폴리곤 개수를 반환합니다.
         폴리곤의 중심점(centroid)을 기준으로 H3 셀을 계산합니다.
         """
+        lat_expr, lng_expr = RepositoryUtils.geom_centroid_lat_lng(NatureLayer.geom)
         with get_postgresql_db() as db:
-            h3_expr = RepositoryUtils.geom_to_h3_cell(NatureLayer.geom)
             rows = db.execute(
-                select(h3_expr.label("h3_cell"), func.count().label("cnt"))
-                .group_by(h3_expr)
+                select(lat_expr.label("lat"), lng_expr.label("lng"))
             ).fetchall()
-            return {row.h3_cell: row.cnt for row in rows}
+        cells = (RepositoryUtils.lat_lng_to_h3(row.lat, row.lng) for row in rows)
+        return dict(Counter(cells))

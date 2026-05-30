@@ -57,14 +57,18 @@ class EdgeRepository:
         각 엣지의 중심점을 H3 셀(resolution 9)로 변환한 (link_id, h3_cell) 목록을 반환합니다.
 
         Returns:
-            list: (link_id, h3_cell) 튜플 리스트.
+            list: (link_id, h3_cell) 속성을 가진 객체 리스트.
         """
+        from types import SimpleNamespace
+        lat_expr, lng_expr = RepositoryUtils.geom_centroid_lat_lng(WalkEdge.geom)
         with get_postgresql_db() as db:
-            h3_expr = RepositoryUtils.geom_to_h3_cell(WalkEdge.geom)
             rows = db.execute(
-                select(WalkEdge.link_id, h3_expr.label("h3_cell"))
+                select(WalkEdge.link_id, lat_expr.label("lat"), lng_expr.label("lng"))
             ).fetchall()
-            return rows
+        return [
+            SimpleNamespace(link_id=row.link_id, h3_cell=RepositoryUtils.lat_lng_to_h3(row.lat, row.lng))
+            for row in rows
+        ]
 
     @staticmethod
     def update_scores(updates: List[dict]):

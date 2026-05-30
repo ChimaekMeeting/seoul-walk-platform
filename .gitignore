@@ -14,3 +14,5 @@ __pycache__/
 !src/data/raw/
 !src/data/raw/child_protection_zones_2025_12.xlsx
 venv/
+cache/
+.idea/
