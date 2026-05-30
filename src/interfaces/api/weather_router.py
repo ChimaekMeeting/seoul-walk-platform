@@ -7,7 +7,7 @@ router = APIRouter(
     tags=["weather"]
 )
 
-@router.get("/")
+@router.get("")
 async def get_weather(
     lat: float,
     lon: float,
