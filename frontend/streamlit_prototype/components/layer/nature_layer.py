@@ -3,7 +3,7 @@ import folium
 from frontend.streamlit_prototype.components.layer.map_layer import MapLayer
 
 
-class PoiLayer:
+class NatureLayer:
 
     def __init__(self):
         self.map_layer = MapLayer()

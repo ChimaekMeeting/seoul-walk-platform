@@ -6,7 +6,7 @@ import streamlit as st
 from streamlit.components.v1 import html
 from streamlit_folium import st_folium
 
-from frontend.streamlit_prototype.components.layer.poi_layer import PoiLayer
+from frontend.streamlit_prototype.components.layer.nature_layer import NatureLayer
 from frontend.streamlit_prototype.components.layer.map_layer import MapLayer
 
 
@@ -27,7 +27,7 @@ class WalkRouteMap:
     def __init__(self, G):
         self.mapbox_token = os.getenv("MAPBOX_API_KEY")
         self.G = G
-        self.poi_layer = PoiLayer()
+        self.nature_layer = NatureLayer()
         self.map_layer = MapLayer()
 
     def inject_geolocation_js(self) -> None:
@@ -102,15 +102,15 @@ class WalkRouteMap:
                 st.session_state.end = clicked
                 st.rerun()
 
-    def _add_poi_markers(self, m: folium.Map, center_lat: float, center_lon: float) -> None:
+    def _add_nature_markers(self, m: folium.Map, center_lat: float, center_lon: float) -> None:
         """
-        POI 마커를 Folium 지도에 추가합니다.
+        자연 마커를 Folium 지도에 추가합니다.
         """
-        df_poi = self.map_layer.fetch_local_db_points(
-            center_lat, center_lon, "poi_layer", "poi_type", None, radius_m=1000
+        df_nature = self.map_layer.fetch_local_db_points(
+            center_lat, center_lon, "nature_layer", "green_type", None, radius_m=1000
         )
-        if not df_poi.empty:
-            for _, row in df_poi.iterrows():
+        if not df_nature.empty:
+            for _, row in df_nature.iterrows():
                 folium.CircleMarker(
                     location=[row["lat"], row["lon"]],
                     radius=3,
@@ -118,12 +118,12 @@ class WalkRouteMap:
                     fill=True,
                     fill_color="#2ECC71",
                     fill_opacity=0.7,
-                    tooltip=row.get("poi_type", "POI"),
+                    tooltip=row.get("green_type", "자연"),
                 ).add_to(m)
 
     def build(self, center: list) -> folium.Map:
         """
-        세션 상태를 기반으로 마커, 경로 폴리라인, POI·도보 네트워크 오버레이가 포함된 Folium 지도를 생성합니다.
+        세션 상태를 기반으로 마커, 경로 폴리라인, 자연·도보 네트워크 오버레이가 포함된 Folium 지도를 생성합니다.
         """
         m = folium.Map(location=center, zoom_start=15, tiles="cartodbpositron")
 
@@ -153,11 +153,11 @@ class WalkRouteMap:
             m.fit_bounds(st.session_state.route_coordinates)
 
             if st.session_state.get("route_result"):
-                self.poi_layer.add_to_map(
+                self.nature_layer.add_to_map(
                     m, center[0], center[1],
                     st.session_state.route_result["nodes"], self.G,
                 )
-                self._add_poi_markers(m, center[0], center[1])
+                self._add_nature_markers(m, center[0], center[1])
 
         if st.session_state.start and st.session_state.end:
             m.fit_bounds([st.session_state.start, st.session_state.end])

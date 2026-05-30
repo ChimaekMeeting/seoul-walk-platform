@@ -4,7 +4,7 @@ import folium
 import streamlit as st
 
 from src.route_engine.route_flat import draw_route_connectors
-from frontend.streamlit_prototype.components.layer.poi_layer import PoiLayer
+from frontend.streamlit_prototype.components.layer.nature_layer import NatureLayer
 
 
 class RouteMap:
@@ -12,11 +12,11 @@ class RouteMap:
     def __init__(self, G):
         self.mapbox_token = os.getenv("MAPBOX_API_KEY")
         self.G = G
-        self.poi_layer = PoiLayer()
+        self.nature_layer = NatureLayer()
 
     def build(self, center: list) -> folium.Map:
         """
-        세션 상태를 기반으로 출발지·도착지 마커, 경로 폴리라인, POI 오버레이가 포함된 Folium 지도를 생성합니다.
+        세션 상태를 기반으로 출발지·도착지 마커, 경로 폴리라인, 자연 오버레이가 포함된 Folium 지도를 생성합니다.
         """
         m = folium.Map(location=center, zoom_start=15, tiles="cartodbpositron")
 
@@ -42,7 +42,7 @@ class RouteMap:
             draw_route_connectors(m, st.session_state.start, st.session_state.end, st.session_state.route_coordinates)
 
             if st.session_state.get("route_result"):
-                self.poi_layer.add_to_map(
+                self.nature_layer.add_to_map(
                     m, center[0], center[1],
                     st.session_state.route_result["nodes"], self.G,
                 )
