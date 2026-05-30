@@ -10,9 +10,9 @@ class BaseNetworkCollector:
     서울시 도보 네트워크 CSV를 파싱하여 walk_nodes와 walk_edges에 저장합니다.
     """
     def __init__(self):
+        self.CSV_PATH = "src/data/raw/서울시 자치구별 도보 네트워크 공간정보.csv"
         df = self.load_data()
         self.edges_df = df[df["노드링크 유형"] == "LINK"].copy()
-        self.CSV_PATH = "src/data/raw/서울시 자치구별 도보 네트워크 공간정보.csv"
 
     def load_data(self) -> pd.DataFrame:
         """

@@ -4,6 +4,7 @@ from sqlalchemy import func, select, insert, update
 
 from src.database.postgresql import get_postgresql_db
 from src.entity.layer.landmark_layer import LandmarkLayer
+from src.repository.utils import RepositoryUtils
 
 
 class LandmarkRepository:
@@ -59,7 +60,7 @@ class LandmarkRepository:
             dict[str, int]: {h3_cell: count} 형태의 딕셔너리.
         """
         with get_postgresql_db() as db:
-            h3_expr = func.h3_lat_lng_to_cell(LandmarkLayer.geom, 9)
+            h3_expr = RepositoryUtils.geom_to_h3_cell(LandmarkLayer.geom)
             rows = db.execute(
                 select(h3_expr.label("h3_cell"), func.count().label("cnt"))
                 .group_by(h3_expr)

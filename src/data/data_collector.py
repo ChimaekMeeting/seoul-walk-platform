@@ -29,11 +29,11 @@ if __name__ == "__main__":
     print("--- 안전 데이터 적재 ---")
     safety_collector.save()
 
-    print("--- 경사로 데이터 적재 ---")
-    slope_collector.save()
+    # print("--- 경사로 데이터 적재 ---")
+    # slope_collector.save()
 
     # print("--- 랜드마크 데이터 적재 ---")
     # asyncio.run(landmark_collector.save())
 
-    # print("--- 러닝 데이터 적재 ---")
-    # running_collector.save()
+    print("--- 러닝 데이터 적재 ---")
+    running_collector.save()

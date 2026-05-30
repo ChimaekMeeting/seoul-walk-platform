@@ -3,6 +3,7 @@ from sqlalchemy import func, select, text
 
 from src.database.postgresql import get_postgresql_db, engine
 from src.entity.layer.nature_layer import NatureLayer
+from src.repository.utils import RepositoryUtils
 
 
 class NatureRepository:
@@ -28,7 +29,7 @@ class NatureRepository:
         폴리곤의 중심점(centroid)을 기준으로 H3 셀을 계산합니다.
         """
         with get_postgresql_db() as db:
-            h3_expr = func.h3_lat_lng_to_cell(func.ST_Centroid(NatureLayer.geom), 9)
+            h3_expr = RepositoryUtils.geom_to_h3_cell(NatureLayer.geom)
             rows = db.execute(
                 select(h3_expr.label("h3_cell"), func.count().label("cnt"))
                 .group_by(h3_expr)

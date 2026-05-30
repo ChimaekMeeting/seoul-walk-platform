@@ -29,15 +29,16 @@ class NatureCollector:
                     try:
                         gdf = ox.features_from_place("Seoul, South Korea", tags={key: val})
                         gdf = gdf[gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
+                        gdf = gdf.rename_geometry("geom")
                         gdf["name"]         = gdf["name"] if "name" in gdf.columns else None
                         gdf["green_type"]   = val
                         gdf["green_weight"] = weight
-                        frames.append(gdf[["name", "green_type", "green_weight", "geometry"]])
+                        frames.append(gdf[["name", "green_type", "green_weight", "geom"]])
                         print(f"{key}={val}: {len(gdf)}개")
                     except Exception as e:
                         print(f"{key}={val} 실패: {e}")
 
-        return gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), crs="EPSG:4326")
+        return gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), geometry="geom", crs="EPSG:4326")
 
     def update_node(self) -> None:
         """

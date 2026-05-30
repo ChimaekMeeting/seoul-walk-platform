@@ -3,6 +3,7 @@ from sqlalchemy import func, select, update, insert, inspect, text, cast
 from geoalchemy2 import Geography
 from src.database.postgresql import get_postgresql_db, engine
 from src.entity.network.walk_edge import WalkEdge
+from src.repository.utils import RepositoryUtils
 from typing import List
 
 
@@ -59,7 +60,7 @@ class EdgeRepository:
             list: (link_id, h3_cell) 튜플 리스트.
         """
         with get_postgresql_db() as db:
-            h3_expr = func.h3_lat_lng_to_cell(func.ST_Centroid(WalkEdge.geom), 9)
+            h3_expr = RepositoryUtils.geom_to_h3_cell(WalkEdge.geom)
             rows = db.execute(
                 select(WalkEdge.link_id, h3_expr.label("h3_cell"))
             ).fetchall()
