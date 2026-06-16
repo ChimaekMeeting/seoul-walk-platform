@@ -18,7 +18,6 @@ class CourseInfo(BaseModel):
     id: int
     name: str
     course_type: str                        # river | park | bike_track
-    is_circular: bool
     difficulty: Optional[str] = None
     start_lat: float
     start_lon: float
