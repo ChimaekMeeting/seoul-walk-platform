@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from src.database.postgresql import health_check
 from frontend.streamlit_prototype.modes.base import BaseRouteMode, RouteParams
 from frontend.streamlit_prototype.modes.registry import ROUTE_MODES
+from frontend.streamlit_prototype.modes.base import RouteParams
 
 
 @dataclass
@@ -46,3 +47,23 @@ def render_sidebar() -> SidebarConfig:
         params = mode.default_params()
 
     return SidebarConfig(input_mode=input_mode, mode=mode, params=params)
+
+def apply_input_mode(ctx, sidebar: SidebarConfig) -> RouteParams:
+    params = sidebar.params
+    if sidebar.input_mode != "AI 챗봇":
+        return params
+
+    updated = ctx.chat_panel.render(
+        params.mode_key, params.distance_km, params.safety_w, params.nature_w
+    )
+    if not updated:
+        return params
+
+    safety_w, nature_w, mode_key, distance_km = updated
+    return RouteParams(
+        mode_key       = mode_key,
+        distance_km    = distance_km,
+        child_friendly = params.child_friendly,
+        safety_w       = safety_w,
+        nature_w       = nature_w,
+    )
