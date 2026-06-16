@@ -30,7 +30,7 @@ class WeatherClient:
     def __init__(self):
         self.WEATHER_URL = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst"
         self.AIR_URL     = "http://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty"
-        self.WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
+        self.WEATHER_API_KEY = os.getenv("PUBLIC_DATA_API_KEY")
 
     def get_weather_message(self, condition: str) -> str:
         return WEATHER_MESSAGE.get(condition)
