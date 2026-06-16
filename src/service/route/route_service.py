@@ -3,10 +3,10 @@ import time
 
 from src.interfaces.schema.prewalk_schema import Weights
 from src.repository.network.graph_repository import GraphRepository
-from src.route_engine.path_utils import find_nearest_node, extract_coordinates, prune_dead_ends
-from src.route_engine.path_circular_random import random_walk_route
-from src.route_engine.path_oneway_dijkstra import dijkstra_route
-from src.route_engine.path_oneway_random import oneway_random_route
+from src.route_engine.engines.path_utils import find_nearest_node, extract_coordinates, prune_dead_ends
+from src.route_engine.engines.circular.random import random_walk_route
+from src.route_engine.engines.oneway.dijkstra import dijkstra_route
+from src.route_engine.engines.oneway.random import oneway_random_route
 
 
 class RouteService:

@@ -1,6 +1,6 @@
 import networkx as nx
-from typing import Optional
 import math
+
 
 def find_nearest_node(G: nx.Graph, lat: float, lon: float) -> int:
     """위경도 → 가장 가까운 그래프 노드 ID (OSMnx 없이 직접 계산)"""
@@ -38,7 +38,7 @@ def prune_dead_ends(path_nodes: list, G: nx.Graph, max_branch_length: float = 40
     while changed:
         changed = False
         node_positions = {}
-        candidates = []  # (length, first, last) 후보 전체 수집
+        candidates = []
 
         for i, node in enumerate(pruned):
             if node in node_positions:
@@ -53,7 +53,6 @@ def prune_dead_ends(path_nodes: list, G: nx.Graph, max_branch_length: float = 40
                 node_positions[node] = i
 
         if candidates:
-            # 가장 짧은 것부터 제거
             _, first, last = min(candidates, key=lambda x: x[0])
             pruned = pruned[:first + 1] + pruned[last + 1:]
             changed = True
