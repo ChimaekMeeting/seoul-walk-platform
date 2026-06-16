@@ -2,9 +2,8 @@ import math
 
 import networkx as nx
 
-from src.interfaces.schema.prewalk_schema import Weights
 from src.repository.layer.child_repository import ChildRepository
-from src.route_engine.features import build_child_weights
+from src.route_engine.profiles import get_profile
 from src.service.route.route_service import RouteService
 
 
@@ -21,10 +20,9 @@ class ChildWalkRoute:
     def get_route(
         self,
         context: dict,
-        weights: Weights | None = None,
         G_full: nx.Graph | None = None,
     ) -> dict:
-        child_weights = build_child_weights(weights)
+        child_weights = get_profile("child").weights
 
         origin = context["origin"]["coordinate"]
         start_lat = float(origin["lat"])
