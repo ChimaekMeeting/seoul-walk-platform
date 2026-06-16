@@ -3,7 +3,8 @@ import math
 import streamlit as st
 
 from src.repository.network.graph_repository import GraphRepository
-from src.route_engine.engines.running_route_service import _apply_running_weights
+from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.engines.running_shared import _apply_running_weights
 from src.route_engine.engines.circular.running import circular_running_route
 from src.route_engine.engines.oneway.running import oneway_running_route
 
@@ -20,10 +21,7 @@ class RunningRouteSidebar:
                 if not config["is_oneway"]:
                     graph_radius = config["target_km"] * 1000 * 2.5
                     G = GraphRepository.load_graph_near(s_lat, s_lng, radius_m=graph_radius)
-                    invalid = [n for n, d in G.nodes(data=True) if "x" not in d or "y" not in d]
-                    if invalid:
-                        G = G.copy()
-                        G.remove_nodes_from(invalid)
+                    G = PathUtils.remove_invalid_nodes(G)
                     G = _apply_running_weights(G, slope_weight=config["slope_weight"], type_bonus=config["type_bonus"])
                     result = circular_running_route(
                         G=G, start_lat=s_lat, start_lng=s_lng,
@@ -36,10 +34,7 @@ class RunningRouteSidebar:
                     mid_lat      = (s_lat + e_lat) / 2
                     mid_lng      = (s_lng + e_lng) / 2
                     G = GraphRepository.load_graph_near(mid_lat, mid_lng, radius_m=graph_radius)
-                    invalid = [n for n, d in G.nodes(data=True) if "x" not in d or "y" not in d]
-                    if invalid:
-                        G = G.copy()
-                        G.remove_nodes_from(invalid)
+                    G = PathUtils.remove_invalid_nodes(G)
                     G = _apply_running_weights(G, slope_weight=config["slope_weight"], type_bonus=config["type_bonus"])
                     result = oneway_running_route(
                         G=G, start_lat=s_lat, start_lng=s_lng, dest_lat=e_lat, dest_lng=e_lng,

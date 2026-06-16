@@ -1,42 +1,30 @@
 import networkx as nx
 
-from src.route_engine.engines.oneway.random import oneway_random_route
-from src.route_engine.engines.path_utils import find_nearest_node
-from src.repository.layer.running_repository import RunningRepository
+from src.route_engine.engines.oneway.dijkstra import DijkstraOnewayRoute
+from src.route_engine.engines.oneway.random import RandomOnewayRoute
+from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.features import build_running_weights
+from src.route_engine.scoring import apply_running_weights
+from src.route_engine.schema import OnewayRouteInput, RouteOutput
 
-RUNNING_COURSE_TYPES = ["river", "park", "bike_track"]
 
+class RunningOnewayRoute:
+    WEIGHTS = build_running_weights()
 
-def oneway_running_route(
-    G: nx.Graph,
-    start_lat: float,
-    start_lon: float,
-    dest_lat: float,
-    dest_lon: float,
-    target_m: float,
-    radius_m: float,
-    session,
-) -> dict:
-    courses = RunningRepository.get_running_layer_near(
-        lat=start_lat,
-        lon=start_lon,
-        radius_m=radius_m,
-        is_circular=False,
-        course_types=RUNNING_COURSE_TYPES,
-    )
+    def __init__(self):
+        pass
 
-    end_node = find_nearest_node(G, dest_lat, dest_lon)
-
-    if not courses:
-        start_node = find_nearest_node(G, start_lat, start_lon)
-        result = oneway_random_route(G, start_node, end_node, target_m / 1000, weight="custom_score")
-        result["mode"] = "oneway_running"
-        result["matched_courses"] = []
-        return result
-
-    best_course = courses[0]
-    start_node = find_nearest_node(G, best_course["start_lat"], best_course["start_lon"])
-    result = oneway_random_route(G, start_node, end_node, target_m / 1000, weight="custom_score")
-    result["mode"] = "oneway_running"
-    result["matched_courses"] = courses
-    return result
+    def run(self, inp: OnewayRouteInput, G: nx.Graph) -> RouteOutput:
+        """
+        러닝 코스에 적합한 가중치를 적용한 뒤 편도 경로를 생성합니다.
+        목표 거리가 지정된 경우 우회 경로를, 아닌 경우 최단 경로를 반환합니다.
+        """
+        G = PathUtils.remove_invalid_nodes(G)
+        if G.number_of_nodes() == 0:
+            return RouteOutput(mode="oneway_running", coordinates=[], error="유효한 노드가 없습니다.")
+        G = apply_running_weights(G)
+        if inp.target_km:
+            result = RandomOnewayRoute().run(inp, G)
+        else:
+            result = DijkstraOnewayRoute().run(inp, G)
+        return RouteOutput(mode="oneway_running", coordinates=result.coordinates, error=result.error)

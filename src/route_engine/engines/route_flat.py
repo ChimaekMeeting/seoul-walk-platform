@@ -24,29 +24,22 @@ slope_score를 반영한 모든 경로 계산 로직을 통합한 모듈.
 """
 
 import math
-import random
 import time
 import networkx as nx
 import streamlit as st
 import folium
-from pydantic import BaseModel, Field
 
 from src.repository.network.graph_repository import GraphRepository
-from src.route_engine.engines.path_utils import (
-    find_nearest_node,
-    extract_coordinates,
-    prune_dead_ends,
-)
+from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.circular.random import random_walk_route
+from src.route_engine.engines.circular.flat import flat_circular_route
 from src.route_engine.engines.oneway.dijkstra import dijkstra_route
 from src.route_engine.engines.oneway.random import oneway_random_route
+from src.route_engine.engines.oneway.flat import flat_oneway_route
 
 # ═════════════════════════════════════════════════════════
 # 상수
 # ═════════════════════════════════════════════════════════
-
-# 이 값 이상인 엣지를 "평지"로 판단
-FLAT_THRESHOLD = 0.7
 
 # 순환으로 분류되는 모드
 CIRCULAR_MODES = ["circular", "random_walk", "flat_circular"]
@@ -56,21 +49,6 @@ FLAT_MODES = {
     "🦵 평지 순환 (경사 최소화)": "flat_circular",
     "🦵 평지 편도 (경사 최소화)": "flat_oneway",
 }
-
-
-# ═════════════════════════════════════════════════════════
-# 스키마
-# ═════════════════════════════════════════════════════════
-
-
-class WeightsV2(BaseModel):
-    """slope 가중치가 추가된 확장 버전."""
-
-    safety: float = Field(0.5, ge=0.0, le=1.0, description="가로등/CCTV 안전 지수")
-    nature: float = Field(0.5, ge=0.0, le=1.0, description="공원/가로수길 자연 지수")
-    slope: float = Field(
-        0.5, ge=0.0, le=1.0, description="경사 회피 지수 — 높을수록 평지 선호"
-    )
 
 
 # ═════════════════════════════════════════════════════════
@@ -124,7 +102,7 @@ def get_route_v2(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
 
     # 그래프 로드
     if G_full is not None:
-        G = _extract_subgraph_near(G_full, start_lat, start_lon, radius_m)
+        G = PathUtils.subgraph_near(G_full, start_lat, start_lon, radius_m)
     else:
         G = GraphRepository.load_graph_near(start_lat, start_lon, radius_m=radius_m)
 
@@ -140,7 +118,7 @@ def get_route_v2(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
 
     # 가중치 적용
     G = apply_intent_weights_v2(G, weights)
-    start_node = find_nearest_node(G, start_lat, start_lon)
+    start_node = PathUtils.find_nearest_node(G, start_lat, start_lon)
 
     # 알고리즘 분기
     if mode == "circular":
@@ -157,7 +135,7 @@ def get_route_v2(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
             }
         end_lat = context["destination"]["coordinate"]["lat"]
         end_lon = context["destination"]["coordinate"]["lon"]
-        end_node = find_nearest_node(G, end_lat, end_lon)
+        end_node = PathUtils.find_nearest_node(G, end_lat, end_lon)
 
         if mode == "oneway_random":
             result = oneway_random_route(
@@ -176,213 +154,12 @@ def get_route_v2(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
         }
 
     # 후처리
-    pruned = prune_dead_ends(result["nodes"], G, max_branch_length=100)
+    pruned = PathUtils.prune_dead_ends(result["nodes"], G, max_branch_length=100)
     result["nodes"] = pruned
-    result["coordinates"] = extract_coordinates(G, pruned)
+    result["coordinates"] = PathUtils.extract_coordinates(G, pruned)
 
     print(f"[v2][total] {time.time()-t0:.2f}s")
     return result
-
-
-def _extract_subgraph_near(
-    G: nx.Graph, lat: float, lon: float, radius_m: float
-) -> nx.Graph:
-    deg = radius_m / 111000
-    nodes = [
-        n
-        for n, d in G.nodes(data=True)
-        if "y" in d
-        and "x" in d
-        and abs(d["y"] - lat) <= deg
-        and abs(d["x"] - lon) <= deg * 1.3
-    ]
-    return G.subgraph(nodes).copy()
-
-
-# ═════════════════════════════════════════════════════════
-# 평지 전용 경로
-# ═════════════════════════════════════════════════════════
-
-
-def _flat_edge_weight(u: int, v: int, data: dict) -> float:
-    """평지 편도용 엣지 비용: cost = length * (2.0 - slope)^2"""
-    length = data.get("length", 1.0) or 1.0
-    slope = data.get("slope_score", 0.5) or 0.5
-    return length * (2.0 - slope) ** 2
-
-
-def _angle_to(G, a, b) -> float:
-    dx = G.nodes[b].get("x", 0) - G.nodes[a].get("x", 0)
-    dy = G.nodes[b].get("y", 0) - G.nodes[a].get("y", 0)
-    return math.degrees(math.atan2(dx, dy)) % 360
-
-
-def _angle_diff(a, b) -> float:
-    d = abs(a - b) % 360
-    return d if d <= 180 else 360 - d
-
-
-def flat_circular_route(
-    G: nx.Graph,
-    start_node: int,
-    target_distance_km: float = 3.0,
-) -> dict:
-    """
-    출발지 → 평지 진입 → 평지 순환 → 출발지 복귀.
-
-    Phase 1. 접근  : 출발지 → 가장 가까운 평지 노드 최단경로
-    Phase 2. 순환  : 방향 유지 + 급경사 회피 원형 탐색
-    Phase 3. 복귀  : 출발지까지 평지 우선 최단경로
-    """
-    target_m = target_distance_km * 1000
-    path_nodes = [start_node]
-    total_dist = 0.0
-    sx = G.nodes[start_node].get("x", 0)
-    sy = G.nodes[start_node].get("y", 0)
-
-    # Phase 1: 평지 진입점 탐색
-    flat_nodes = set()
-    for u, v, d in G.edges(data=True):
-        if (d.get("slope_score") or 0) >= FLAT_THRESHOLD:
-            flat_nodes.add(u)
-            flat_nodes.add(v)
-
-    flat_entry = start_node
-    if start_node not in flat_nodes and flat_nodes:
-        min_dist = float("inf")
-        for node in flat_nodes:
-            nd = G.nodes[node]
-            if "x" not in nd or "y" not in nd:
-                continue
-            d = math.sqrt((nd["x"] - sx) ** 2 + (nd["y"] - sy) ** 2) * 111000
-            if d < min_dist and d < target_m * 2:
-                min_dist = d
-                flat_entry = node
-
-    if flat_entry != start_node:
-        try:
-            approach = nx.shortest_path(G, start_node, flat_entry, weight="length")
-            for n in approach[1:]:
-                total_dist += (G.get_edge_data(path_nodes[-1], n) or {}).get(
-                    "length", 0
-                )
-                path_nodes.append(n)
-        except nx.NetworkXNoPath:
-            flat_entry = start_node
-
-    # Phase 2: 평지 순환
-    approach_dist = total_dist
-    loop_target = max(target_m - approach_dist * 2, target_m * 0.5)
-    current = flat_entry
-    visited_edges = {}
-    loop_dist = 0.0
-    heading = random.uniform(0, 360)
-
-    while loop_dist < loop_target:
-        neighbors = list(G.neighbors(current))
-        if not neighbors:
-            break
-
-        probs = []
-        for n in neighbors:
-            edge_key = tuple(sorted([current, n]))
-            edge_data = G.get_edge_data(current, n) or {}
-            slope = edge_data.get("slope_score", 0.5) or 0.5
-            visit_cnt = visited_edges.get(edge_key, 0)
-
-            slope_w = slope if slope >= FLAT_THRESHOLD else 0.01
-            ang = _angle_to(G, current, n)
-            dir_score = max(0.01, 1.0 - _angle_diff(ang, heading) / 180.0)
-            visit_pen = 1.0 / (1 + visit_cnt * 6)
-            probs.append(slope_w * dir_score * visit_pen)
-
-        total_p = sum(probs)
-        if total_p == 0:
-            break
-        probs = [p / total_p for p in probs]
-
-        next_node = random.choices(neighbors, weights=probs, k=1)[0]
-        edge_key = tuple(sorted([current, next_node]))
-        visited_edges[edge_key] = visited_edges.get(edge_key, 0) + 1
-
-        step = (G.get_edge_data(current, next_node) or {}).get("length", 0)
-        loop_dist += step
-        total_dist += step
-        path_nodes.append(next_node)
-        current = next_node
-
-        cur_ang = _angle_to(G, flat_entry, current)
-        target_ang = (cur_ang + 90) % 360
-        heading = (heading * 0.85 + target_ang * 0.15) % 360
-
-    # Phase 3: 복귀
-    if path_nodes[-1] != start_node:
-        try:
-
-            def return_weight(u, v, d):
-                ek = tuple(sorted([u, v]))
-                vc = visited_edges.get(ek, 0)
-                return _flat_edge_weight(u, v, d) * (1 + vc * 2)
-
-            return_path = nx.shortest_path(G, current, start_node, weight=return_weight)
-            for n in return_path[1:]:
-                total_dist += (G.get_edge_data(path_nodes[-1], n) or {}).get(
-                    "length", 0
-                )
-                path_nodes.append(n)
-        except nx.NetworkXNoPath:
-            pass
-
-    path_nodes = prune_dead_ends(path_nodes, G)
-    slope_scores = [
-        (G.get_edge_data(path_nodes[i], path_nodes[i + 1]) or {}).get(
-            "slope_score", 0.5
-        )
-        or 0.5
-        for i in range(len(path_nodes) - 1)
-    ]
-    avg_slope = round(sum(slope_scores) / len(slope_scores), 4) if slope_scores else 0.0
-
-    return {
-        "nodes": path_nodes,
-        "coordinates": extract_coordinates(G, path_nodes),
-        "total_distance_km": round(total_dist / 1000, 2),
-        "avg_slope_score": avg_slope,
-        "flat_entry_node": flat_entry,
-    }
-
-
-def flat_oneway_route(G: nx.Graph, start_node: int, end_node: int) -> dict:
-    """
-    slope_score 기반 평지 편도 경로.
-    cost = length * (2.0 - slope_score)^2 로 Dijkstra.
-    """
-    try:
-        path_nodes = nx.shortest_path(G, start_node, end_node, weight=_flat_edge_weight)
-    except (nx.NetworkXNoPath, Exception) as e:
-        print(f"[flat_oneway] 오류: {e}")
-        return {
-            "nodes": [],
-            "coordinates": [],
-            "total_distance_km": 0.0,
-            "avg_slope_score": 0.0,
-        }
-
-    total_dist = 0.0
-    slope_scores = []
-    for i in range(len(path_nodes) - 1):
-        d = G.get_edge_data(path_nodes[i], path_nodes[i + 1]) or {}
-        total_dist += d.get("length", 0)
-        slope_scores.append(d.get("slope_score", 0.5) or 0.5)
-
-    return {
-        "nodes": path_nodes,
-        "coordinates": extract_coordinates(G, path_nodes),
-        "total_distance_km": round(total_dist / 1000, 2),
-        "avg_slope_score": (
-            round(sum(slope_scores) / len(slope_scores), 4) if slope_scores else 0.0
-        ),
-    }
 
 
 # ═════════════════════════════════════════════════════════
@@ -429,17 +206,8 @@ def run_flat_route(
         radius_m = distance_km * 1000 * 3.0
         ref_lat, ref_lon = start_lat, start_lon
 
-    deg = radius_m / 111000
-    near_nodes = [
-        n
-        for n, d in G.nodes(data=True)
-        if "y" in d
-        and "x" in d
-        and abs(d["y"] - ref_lat) <= deg
-        and abs(d["x"] - ref_lon) <= deg * 1.3
-    ]
-    G_near = G.subgraph(near_nodes).copy()
-    start_node = find_nearest_node(G_near, start_lat, start_lon)
+    G_near = PathUtils.subgraph_near(G, ref_lat, ref_lon, radius_m)
+    start_node = PathUtils.find_nearest_node(G_near, start_lat, start_lon)
 
     st.session_state["flat_entry_coord"] = None
 
@@ -451,7 +219,7 @@ def run_flat_route(
             st.error("평지 편도 모드는 도착지 설정이 필요합니다.")
             return None
         end_lat, end_lon = end
-        end_node = find_nearest_node(G_near, end_lat, end_lon)
+        end_node = PathUtils.find_nearest_node(G_near, end_lat, end_lon)
         result = flat_oneway_route(G_near, start_node, end_node)
         result["mode"] = "flat_oneway"
 
