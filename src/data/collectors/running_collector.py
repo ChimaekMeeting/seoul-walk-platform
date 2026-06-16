@@ -15,11 +15,11 @@ from src.repository.network.edge_repository import EdgeRepository
 # ──────────────────────────────────────────────────────────────
 
 RIVER_COURSES: list[dict] = [
-    {"name": "한강 반포 구간",       "course_type": "river", "is_circular": False, "distance_m": 6_400,  "difficulty": "easy",   "start_lat": 37.5121, "start_lon": 126.9994},
-    {"name": "한강 여의도 순환 코스", "course_type": "river", "is_circular": True,  "distance_m": 7_000,  "difficulty": "easy",   "start_lat": 37.5285, "start_lon": 126.9326},
-    {"name": "청계천 전 구간",        "course_type": "river", "is_circular": False, "distance_m": 10_920, "difficulty": "easy",   "start_lat": 37.5700, "start_lon": 126.9784},
-    {"name": "안양천 서울 구간",      "course_type": "river", "is_circular": False, "distance_m": 12_000, "difficulty": "easy",   "start_lat": 37.5270, "start_lon": 126.8560},
-    {"name": "중랑천 전 구간",        "course_type": "river", "is_circular": False, "distance_m": 15_000, "difficulty": "medium", "start_lat": 37.6490, "start_lon": 127.0760},
+    {"name": "한강 반포 구간",       "course_type": "river", "distance_m": 6_400,  "difficulty": "easy",   "start_lat": 37.5121, "start_lon": 126.9994},
+    {"name": "한강 여의도 순환 코스", "course_type": "river", "distance_m": 7_000,  "difficulty": "easy",   "start_lat": 37.5285, "start_lon": 126.9326},
+    {"name": "청계천 전 구간",        "course_type": "river", "distance_m": 10_920, "difficulty": "easy",   "start_lat": 37.5700, "start_lon": 126.9784},
+    {"name": "안양천 서울 구간",      "course_type": "river", "distance_m": 12_000, "difficulty": "easy",   "start_lat": 37.5270, "start_lon": 126.8560},
+    {"name": "중랑천 전 구간",        "course_type": "river", "distance_m": 15_000, "difficulty": "medium", "start_lat": 37.6490, "start_lon": 127.0760},
 ]
 
 RUNNING_PARK_CONFIG: dict[str, dict] = {
