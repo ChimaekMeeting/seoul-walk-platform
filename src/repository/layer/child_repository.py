@@ -56,9 +56,7 @@ class ChildRepository:
                 select(
                     ChildLayer.name,
                     ChildLayer.category,
-                    ChildLayer.source,
                     ChildLayer.address,
-                    ChildLayer.district,
                     lat_expr.label("lat"),
                     lon_expr.label("lon"),
                 ).where(
@@ -74,9 +72,7 @@ class ChildRepository:
             {
                 "name": row.name,
                 "category": row.category,
-                "source": row.source,
                 "address": row.address,
-                "district": row.district,
                 "lat": row.lat,
                 "lon": row.lon,
             }
