@@ -19,14 +19,9 @@ class CourseInfo(BaseModel):
     name: str
     course_type: str                        # river | park | bike_track
     is_circular: bool
-    distance_m: Optional[float] = None
     difficulty: Optional[str] = None
-    description: Optional[str] = None
-    tags: List[str] = Field(default_factory=list)
     start_lat: float
     start_lon: float
-    end_lat: Optional[float] = None
-    end_lon: Optional[float] = None
     distance_from_origin_m: float           # 출발점까지 거리
 
 

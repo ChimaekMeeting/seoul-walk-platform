@@ -1,7 +1,7 @@
 from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import BigInteger, Float, String
+from sqlalchemy import BigInteger, Float
 
 
 class WalkEdge(Base):
@@ -26,14 +26,6 @@ class WalkEdge(Base):
         Float,
         nullable=True
     )
-    road_type: Mapped[str] = mapped_column(
-        String(20),
-        nullable=True
-    )
-    path_type: Mapped[str] = mapped_column(
-        String(20),
-        default="sidewalk"
-    )
     safety_score: Mapped[float] = mapped_column(
         Float,
         server_default="0.0"
@@ -43,6 +35,10 @@ class WalkEdge(Base):
         server_default="0.0"
     )
     slope_score: Mapped[float] = mapped_column(
+        Float,
+        server_default="0.0"
+    )
+    running_score: Mapped[float] = mapped_column(
         Float,
         server_default="0.0"
     )

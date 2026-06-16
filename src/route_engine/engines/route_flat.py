@@ -191,10 +191,10 @@ def _extract_subgraph_near(
     nodes = [
         n
         for n, d in G.nodes(data=True)
-        if "y" in d
-        and "x" in d
-        and abs(d["y"] - lat) <= deg
-        and abs(d["x"] - lon) <= deg * 1.3
+        if "lat" in d
+        and "lon" in d
+        and abs(d["lat"] - lat) <= deg
+        and abs(d["lon"] - lon) <= deg * 1.3
     ]
     return G.subgraph(nodes).copy()
 
@@ -212,8 +212,8 @@ def _flat_edge_weight(u: int, v: int, data: dict) -> float:
 
 
 def _angle_to(G, a, b) -> float:
-    dx = G.nodes[b].get("x", 0) - G.nodes[a].get("x", 0)
-    dy = G.nodes[b].get("y", 0) - G.nodes[a].get("y", 0)
+    dx = G.nodes[b].get("lon", 0) - G.nodes[a].get("lon", 0)
+    dy = G.nodes[b].get("lat", 0) - G.nodes[a].get("lat", 0)
     return math.degrees(math.atan2(dx, dy)) % 360
 
 
@@ -237,8 +237,8 @@ def flat_circular_route(
     target_m = target_distance_km * 1000
     path_nodes = [start_node]
     total_dist = 0.0
-    sx = G.nodes[start_node].get("x", 0)
-    sy = G.nodes[start_node].get("y", 0)
+    sx = G.nodes[start_node].get("lon", 0)
+    sy = G.nodes[start_node].get("lat", 0)
 
     # Phase 1: 평지 진입점 탐색
     flat_nodes = set()
@@ -252,9 +252,9 @@ def flat_circular_route(
         min_dist = float("inf")
         for node in flat_nodes:
             nd = G.nodes[node]
-            if "x" not in nd or "y" not in nd:
+            if "lon" not in nd or "lat" not in nd:
                 continue
-            d = math.sqrt((nd["x"] - sx) ** 2 + (nd["y"] - sy) ** 2) * 111000
+            d = math.sqrt((nd["lon"] - sx) ** 2 + (nd["lat"] - sy) ** 2) * 111000
             if d < min_dist and d < target_m * 2:
                 min_dist = d
                 flat_entry = node
@@ -433,10 +433,10 @@ def run_flat_route(
     near_nodes = [
         n
         for n, d in G.nodes(data=True)
-        if "y" in d
-        and "x" in d
-        and abs(d["y"] - ref_lat) <= deg
-        and abs(d["x"] - ref_lon) <= deg * 1.3
+        if "lat" in d
+        and "lon" in d
+        and abs(d["lat"] - ref_lat) <= deg
+        and abs(d["lon"] - ref_lon) <= deg * 1.3
     ]
     G_near = G.subgraph(near_nodes).copy()
     start_node = find_nearest_node(G_near, start_lat, start_lon)
