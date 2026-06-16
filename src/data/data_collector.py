@@ -1,11 +1,14 @@
 import asyncio
 
-from src.data.collectors.base_collector import BaseNetworkCollector
-from src.data.collectors.nature_collector import NatureCollector
-from src.data.collectors.safety_collector import SafetyCollector
-from src.data.collectors.landmark_collector import LandmarkCollector
-from src.data.collectors.running_collector import RunningCourseCollector
-from src.data.collectors.slope_collector import SlopeCalculator
+from src.data import (
+    BaseNetworkCollector,
+    NatureCollector,
+    SafetyCollector,
+    LandmarkCollector,
+    RunningCourseCollector,
+    SlopeCalculator,
+    ChildCollector
+)
 
 if __name__ == "__main__":
     # 이미 DB에 저장된 데이터 관련 collector는 주석 처리해주세요!
@@ -19,6 +22,7 @@ if __name__ == "__main__":
     landmark_collector = LandmarkCollector()
     running_collector = RunningCourseCollector()
     slope_collector = SlopeCalculator()
+    child_collector = ChildCollector()
 
     print("--- 도보 데이터 적재 ---")
     base_collector.save()
@@ -37,3 +41,6 @@ if __name__ == "__main__":
 
     print("--- 러닝 데이터 적재 ---")
     running_collector.save()
+
+    print("--- 어린이 관련 시설 및 구역 데이터 적재 ---")
+    child_collector.save()
