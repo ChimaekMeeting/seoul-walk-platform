@@ -21,7 +21,6 @@ def oneway_running_route(
         lat=start_lat,
         lon=start_lon,
         radius_m=radius_m,
-        is_circular=False,
         course_types=RUNNING_COURSE_TYPES,
     )
 

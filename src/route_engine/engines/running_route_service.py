@@ -34,9 +34,6 @@ from src.route_engine.engines.path_utils import (
 # 런닝 모드에서 선호하는 코스 유형
 RUNNING_COURSE_TYPES = ["river", "park", "bike_track", "trail"]
 
-# 런닝 모드 기본 태그 필터
-RUNNING_TAGS = ["런닝"]
-
 
 # ──────────────────────────────────────────────────────────────
 # 내부 헬퍼
@@ -45,7 +42,7 @@ RUNNING_TAGS = ["런닝"]
 def _apply_running_weights(
     G: nx.Graph,
     slope_weight: float = 0.5,
-    type_bonus: float = 1.0,
+    running_weight: float = 1.0,
 ) -> nx.Graph:
     """
     런닝 모드 전용 ``custom_score``를 각 엣지에 세팅합니다.
@@ -55,47 +52,43 @@ def _apply_running_weights(
 
     가중치 공식::
 
-        slope_factor        = 1.0 + slope_score * slope_weight
-        effective_type_bonus = type_bonus  (river/park/bike_track/trail)
-                             | 1.0         (일반 엣지)
-        length_bonus        = 1.0 + log1p(length / 50.0)
+        slope_factor   = 1.0 + slope_score * slope_weight
+        running_bonus  = 1.0 + running_score * running_weight
+        length_bonus   = 1.0 + log1p(length / 50.0)
 
         custom_score = (length * slope_factor)
-                       / (safety * nature * effective_type_bonus * length_bonus + 1e-6)
+                       / (safety * nature * running_bonus * length_bonus + 1e-6)
 
     ``custom_score``가 낮을수록 경로 탐색 알고리즘이 선호합니다.
 
     Args:
-        G            (nx.Graph) : 엣지에 ``length``, ``safety_score``, ``nature_score``,
-                                  ``slope_score``, ``path_type`` 속성이 있는 그래프.
-        slope_weight (float)    : 평지 선호도. 높을수록 경사 엣지 페널티 강화.
-                                  범위: 0.0 ~ 1.0. 기본값 0.5.
-        type_bonus   (float)    : 공원·하천 선호도. river / park / bike_track / trail
-                                  path_type 엣지에 적용되는 분모 추가 배수 (유효 배수 = 1.0 + type_bonus).
-                                  범위: 0.0 ~ 1.0. 기본값 1.0.
+        G              (nx.Graph) : 엣지에 ``length``, ``safety_score``, ``nature_score``,
+                                    ``slope_score``, ``running_score`` 속성이 있는 그래프.
+        slope_weight   (float)    : 평지 선호도. 높을수록 경사 엣지 페널티 강화.
+                                    범위: 0.0 ~ 1.0. 기본값 0.5.
+        running_weight (float)    : 런닝 코스 선호도. running_score가 높은 엣지를 더 선호.
+                                    범위: 0.0 ~ 1.0. 기본값 1.0.
 
     Returns:
         nx.Graph: ``custom_score``가 추가된 그래프 (입력 G와 동일 객체).
     """
-    PREFERRED_PATH_TYPES = {"river", "park", "bike_track", "trail"}
-
     for u, v, data in G.edges(data=True):
-        length      = data.get("length", 1.0) or 1.0
-        safety      = data.get("safety_score", 0.5)
-        nature      = data.get("nature_score", 0.5)
-        slope       = data.get("slope_score", 0.5)
-        path_type   = data.get("path_type", "") or ""
+        length         = data.get("length", 1.0) or 1.0
+        safety         = data.get("safety_score", 0.5)
+        nature         = data.get("nature_score", 0.5)
+        slope          = data.get("slope_score", 0.5)
+        running        = data.get("running_score", 0.0)
 
-        # 하천·공원·자전거도로 보너스 (파라미터로 제어)
-        effective_type_bonus = 1.0 + type_bonus if path_type.lower() in PREFERRED_PATH_TYPES else 1.0
+        # 런닝 코스 보너스: running_score가 높을수록 분모 증가 → 선호
+        running_bonus  = 1.0 + running * running_weight
 
         # 경사 패널티: slope_weight로 강도 조절
-        slope_factor = 1.0 + slope * slope_weight
+        slope_factor   = 1.0 + slope * slope_weight
 
         # 길이 보너스: 긴 엣지일수록 분모 증가 → 짧은 골목 회피
-        length_bonus = 1.0 + math.log1p(length / 50.0)
+        length_bonus   = 1.0 + math.log1p(length / 50.0)
 
-        custom_score = (length * slope_factor) / ((safety + 1e-6) * (nature + 1e-6) * effective_type_bonus * length_bonus)
+        custom_score = (length * slope_factor) / ((safety + 1e-6) * (nature + 1e-6) * running_bonus * length_bonus)
         G[u][v]["custom_score"] = custom_score
 
     return G
@@ -182,9 +175,7 @@ def get_circular_route(
         lat=lat,
         lon=lon,
         radius_m=radius_m,
-        is_circular=True,
         course_types=RUNNING_COURSE_TYPES,
-        tags=RUNNING_TAGS,
         limit=5,
     )
     print(f"[running/circular] DB 코스 {len(matched_courses)}건 조회 ({time.time()-t0:.2f}s)")
@@ -287,9 +278,7 @@ def get_oneway_route(
         lat=start_lat,
         lon=start_lon,
         radius_m=radius_m,
-        is_circular=False,
         course_types=RUNNING_COURSE_TYPES,
-        tags=RUNNING_TAGS,
         limit=5,
     )
     print(f"[running/oneway] DB 코스 {len(matched_courses)}건 조회 ({time.time()-t0:.2f}s)")

@@ -64,8 +64,6 @@ class BaseNetworkCollector:
                 "start_node": int(row["시작노드 ID"]),
                 "end_node":   int(row["종료노드 ID"]),
                 "length_m":   float(row["링크 길이"]),
-                "road_type":  str(row["링크 유형 코드"]) if pd.notna(row["링크 유형 코드"]) else None,
-                "path_type":  "sidewalk",
                 "geom":       WKTElement(row["링크 WKT"], srid=4326),
             }
             for _, row in self.edges_df.iterrows()

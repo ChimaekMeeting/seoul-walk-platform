@@ -145,7 +145,6 @@ class RunningCourseCollector:
         self,
         name: str,
         course_type: str,
-        is_circular: bool,
         lat: float,
         lon: float,
         distance_m: Optional[float] = None,
@@ -157,10 +156,8 @@ class RunningCourseCollector:
         return {
             "name":        name,
             "course_type": course_type,
-            "is_circular": is_circular,
-            "distance_m":  distance_m,
             "difficulty":  difficulty or _classify_difficulty(distance_m),
-            "start_geom":  CollectorUtils.make_point(lat, lon),
+            "geom":        CollectorUtils.make_point(lat, lon),
         }
 
     def build_river_records(self) -> list:
@@ -171,7 +168,6 @@ class RunningCourseCollector:
             self._make_record(
                 name=item["name"],
                 course_type=item["course_type"],
-                is_circular=item["is_circular"],
                 lat=item["start_lat"],
                 lon=item["start_lon"],
                 distance_m=item.get("distance_m"),
@@ -222,7 +218,6 @@ class RunningCourseCollector:
             records.append(self._make_record(
                 name=f"{park_name} 순환 코스",
                 course_type="park",
-                is_circular=True,
                 lat=lat,
                 lon=lon,
                 distance_m=dist_m,
@@ -238,7 +233,6 @@ class RunningCourseCollector:
             self._make_record(
                 name=f"{name} 둘레길",
                 course_type="trail",
-                is_circular=False,
                 lat=lat,
                 lon=lon,
             )
@@ -283,7 +277,6 @@ class RunningCourseCollector:
             records.append(self._make_record(
                 name=f"{name} 구간",
                 course_type="river",
-                is_circular=False,
                 lat=s_lat,
                 lon=s_lon,
                 distance_m=round(dist_m or geom.length * 111_000, 0),
@@ -331,7 +324,6 @@ class RunningCourseCollector:
             records.append(self._make_record(
                 name=f"{name} 자전거도로",
                 course_type="bike_track",
-                is_circular=False,
                 lat=s_lat,
                 lon=s_lon,
                 distance_m=round(dist_m, 0) if dist_m else None,

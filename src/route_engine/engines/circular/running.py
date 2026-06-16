@@ -19,7 +19,6 @@ def circular_running_route(
         lat=start_lat,
         lon=start_lon,
         radius_m=radius_m,
-        is_circular=True,
         course_types=RUNNING_COURSE_TYPES,
     )
 

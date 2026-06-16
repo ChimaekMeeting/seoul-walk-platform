@@ -46,9 +46,9 @@ class RouteService:
         deg = radius_m / 111000
         nodes = [
             n for n, d in G.nodes(data=True)
-            if "y" in d and "x" in d
-            and abs(d["y"] - lat) <= deg
-            and abs(d["x"] - lon) <= deg * 1.3
+            if "lat" in d and "lon" in d
+            and abs(d["lat"] - lat) <= deg
+            and abs(d["lon"] - lon) <= deg * 1.3
         ]
         return G.subgraph(nodes).copy()
 
