@@ -9,7 +9,6 @@ from frontend.streamlit_prototype.components.carousel.banner_carousel import Ban
 from frontend.streamlit_prototype.components.panel.chat_panel import ChatPanel
 from frontend.streamlit_prototype.components.panel.coordinate_panel import CoordinatePanel
 from frontend.streamlit_prototype.components.panel.walk_result_panel import WalkResultPanel
-from frontend.streamlit_prototype.components.sidebar.walk_sidebar import WalkSidebar
 from frontend.streamlit_prototype.components.map.walk_route_map import WalkRouteMap
 from frontend.streamlit_prototype.components.button.walk_route_button import WalkRouteButton
 from frontend.streamlit_prototype.providers.base import EnvProvider
@@ -30,7 +29,6 @@ class AppContext:
     chat_panel:        ChatPanel
     coordinate_panel:  CoordinatePanel
     walk_result_panel: WalkResultPanel
-    walk_sidebar:      WalkSidebar
     walk_route_map:    WalkRouteMap
     walk_route_button: WalkRouteButton
     provider:          EnvProvider
@@ -47,7 +45,6 @@ def create_app_context() -> AppContext:
         chat_panel        = ChatPanel(),
         coordinate_panel  = CoordinatePanel(),
         walk_result_panel = WalkResultPanel(),
-        walk_sidebar      = WalkSidebar(),
         walk_route_map    = WalkRouteMap(G),
         walk_route_button = WalkRouteButton(G),
         provider          = build_provider(),
