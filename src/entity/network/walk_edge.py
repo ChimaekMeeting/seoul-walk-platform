@@ -50,6 +50,10 @@ class WalkEdge(Base):
         Float,
         server_default="0.0"
     )
+    child_score: Mapped[float] = mapped_column(
+        Float,
+        server_default="0.0"
+    )
     geom = mapped_column(
         Geometry("LINESTRING", srid=4326),
         nullable=False

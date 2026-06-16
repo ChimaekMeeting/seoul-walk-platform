@@ -1,5 +1,7 @@
 import networkx as nx
-from src.route_engine.path_utils import extract_coordinates
+
+from src.route_engine.engines.path_utils import extract_coordinates
+
 
 def dijkstra_route(
     G: nx.Graph,
@@ -24,4 +26,3 @@ def dijkstra_route(
     except Exception as e:
         print(f"오류: {e}")
         return {"nodes": [], "coordinates": [], "total_distance_km": 0.0}
-
