@@ -11,12 +11,13 @@ class OnewayChildEngine:
     def __init__(
         self, inp: OnewayRouteInput,
         G: nx.Graph,
-        profile_name: OnewayMode = OnewayMode.CHILD
+        mode: OnewayMode = OnewayMode.CHILD
     ):
         self._inp          = inp
         self._G            = G.copy()  # 원본 그래프 보호
         self._utils        = PathUtils(self._G)
-        profile            = get_profile(profile_name)
+        self.mode = mode
+        profile            = get_profile(self.mode)
         self._weights      = profile.weights
         self._blocked_tags = profile.blocked_tags
 
@@ -36,13 +37,13 @@ class OnewayChildEngine:
 
         # 출발 노드가 없는 경우
         if start is None:
-            return RouteOutput(status="FAILED", mode="oneway_child",
+            return RouteOutput(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
         
         # 도착 노드가 없는 경우
         if end is None:
-            return RouteOutput(status="FAILED", mode="oneway_child",
+            return RouteOutput(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_END_NODE)
         
@@ -51,7 +52,7 @@ class OnewayChildEngine:
 
         # 경로가 없는 경우
         if not nodes:
-            return RouteOutput(status="FAILED", mode="oneway_child",
+            return RouteOutput(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_PATH)
 
@@ -60,7 +61,7 @@ class OnewayChildEngine:
 
         return RouteOutput(
             status          = "SUCCESS" if coords else "FAILED",
-            mode            = "oneway_child",
+            mode            = self.mode,
             coordinates     = coords,
             total_km        = round(total_m / 1000, 2),
             fallback_reason = None,

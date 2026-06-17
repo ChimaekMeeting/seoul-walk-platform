@@ -10,12 +10,13 @@ class OnewayRunningEngine:
         self,
         inp: OnewayRouteInput,
         G: nx.Graph,
-        profile_name: OnewayMode = OnewayMode.RUNNING,
+        mode: OnewayMode = OnewayMode.RUNNING,
     ):
         self._inp          = inp
         self._G            = G.copy()         # 원본 그래프 보호
         self._utils        = PathUtils(self._G)
-        profile            = get_profile(profile_name)
+        self.mode          = mode
+        profile            = get_profile(self.mode)
         self._weights      = profile.weights
         self._blocked_tags = profile.blocked_tags
 
@@ -41,7 +42,7 @@ class OnewayRunningEngine:
         if start is None:
             return RouteOutput(
                 status="FAILED",
-                mode="oneway_running",
+                mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
                 fallback_reason=FallbackReason.NO_NEAREST_START_NODE,
@@ -51,7 +52,7 @@ class OnewayRunningEngine:
         if end is None:
             return RouteOutput(
                 status="FAILED",
-                mode="oneway_running",
+                mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
                 fallback_reason=FallbackReason.NO_NEAREST_END_NODE,
@@ -64,7 +65,7 @@ class OnewayRunningEngine:
         if not nodes:
             return RouteOutput(
                 status="FAILED",
-                mode="oneway_running",
+                mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
                 fallback_reason=FallbackReason.NO_PATH,  # 경로 없음
@@ -75,7 +76,7 @@ class OnewayRunningEngine:
 
         return RouteOutput(
             status="SUCCESS" if coords else "FAILED",
-            mode="oneway_running",
+            mode=self.mode,
             coordinates=coords,
             total_km=round(total_m / 1000, 2),
             fallback_reason=None,

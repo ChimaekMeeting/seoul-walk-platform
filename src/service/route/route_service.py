@@ -50,7 +50,7 @@ class RouteService:
 
         # 엔진 생성
         try:
-            engine = self._build_engine(mode, self.G, start_lat, start_lon, distance_km, context)
+            engine = self._build_engine(mode, start_lat, start_lon, distance_km, context)
         except ValueError:
             return RouteOutput(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.INVALID_DESTINATION)

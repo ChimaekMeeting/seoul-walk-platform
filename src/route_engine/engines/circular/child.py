@@ -11,12 +11,13 @@ class CircularChildEngine:
         self,
         inp: CircularRouteInput,
         G: nx.Graph,
-        profile_name: CircularMode = CircularMode.CHILD,
+        mode: CircularMode = CircularMode.CHILD,
     ):
         self._inp          = inp
         self._G            = G.copy()  # 원본 그래프 보호
         self._utils        = PathUtils(self._G)
-        profile            = get_profile(profile_name)
+        self.mode          = mode
+        profile            = get_profile(self.mode)
         self._weights      = profile.weights
         self._blocked_tags = profile.blocked_tags
 
@@ -37,7 +38,7 @@ class CircularChildEngine:
         # 출발 노드가 없는 경우
         if start is None:
             return RouteOutput(
-                status="FAILED", mode="circular_child",
+                status="FAILED", mode=self.mode,
                 coordinates=[], total_km=0.0,
                 fallback_reason=FallbackReason.NO_NEAREST_START_NODE,
             )
@@ -48,7 +49,7 @@ class CircularChildEngine:
         # 경로가 없는 경우
         if not nodes:
             return RouteOutput(
-                status="FAILED", mode="circular_child",
+                status="FAILED", mode=self.mode,
                 coordinates=[], total_km=0.0,
                 fallback_reason=FallbackReason.NO_PATH,
             )
@@ -58,7 +59,7 @@ class CircularChildEngine:
         total_m = self._utils.calc_distance(pruned)        # 총 이동 거리(미터)
         return RouteOutput(
             status          = "SUCCESS" if coords else "FAILED",
-            mode            = "circular_child",
+            mode            = self.mode,
             coordinates     = coords,
             total_km        = round(total_m / 1000, 2),
             fallback_reason = None,
