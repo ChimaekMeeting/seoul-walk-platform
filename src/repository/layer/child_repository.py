@@ -2,22 +2,14 @@ from collections import Counter
 from typing import List
 
 from geoalchemy2 import Geography
-from sqlalchemy import cast, func, insert, select, text
+from sqlalchemy import cast, func, insert, select
 
-from src.database.postgresql import engine, get_postgresql_db
+from src.database.postgresql import get_postgresql_db
 from src.entity.layer.child_layer import ChildLayer
 from src.repository.utils import RepositoryUtils
 
 
 class ChildRepository:
-    @staticmethod
-    def truncate() -> None:
-        """
-        child_layer 테이블의 모든 데이터를 초기화합니다.
-        """
-        with engine.begin() as conn:
-            conn.execute(text("TRUNCATE TABLE child_layer RESTART IDENTITY CASCADE"))
-
     @staticmethod
     def save_all(records: List[dict]) -> None:
         """
