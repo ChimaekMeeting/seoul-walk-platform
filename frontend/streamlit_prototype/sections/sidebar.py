@@ -79,17 +79,9 @@ def apply_input_mode(ctx, sidebar: SidebarConfig) -> RouteParams:
     if sidebar.input_mode != "AI 챗봇":
         return params
 
-    updated = ctx.chat_panel.render(
-        params.mode_key, params.distance_km, params.safety_w, params.nature_w
-    )
+    updated = ctx.chat_panel.render(params.mode_key, params.target_km)
     if not updated:
         return params
 
-    safety_w, nature_w, mode_key, distance_km = updated
-    return RouteParams(
-        mode_key       = mode_key,
-        distance_km    = distance_km,
-        child_friendly = params.child_friendly,
-        safety_w       = safety_w,
-        nature_w       = nature_w,
-    )
+    mode_key, target_km = updated
+    return RouteParams(mode_key=mode_key, target_km=target_km)
