@@ -1,3 +1,10 @@
+"""
+frontend/streamlit_prototype/bootstrap.py
+
+앱 실행에 필요한 컴포넌트를 초기화하고 AppContext에 묶어 반환하는 부트스트랩 모듈
+도보 네트워크 그래프는 @st.cache_resource로 캐싱 -> 앱 재실행 시 재사용
+"""
+
 import time
 from dataclasses import dataclass
 
@@ -17,13 +24,22 @@ from frontend.streamlit_prototype.providers.registry import build_provider
 
 @st.cache_resource
 def _load_graph():
+    """
+    input : X
+    output: NetworkX Graph
+
+    GraphRepository에서 도보 네트워크 그래프 로드
+    @st.cache_resource로 캐싱되어 최초 1회만 실행
+    """
     G = GraphRepository.load_graph()
     print(list(G.nodes(data=True))[:3])
     return G
 
 
 @dataclass
-class AppContext:
+class AppContext:    
+    # 앱 전체에서 공유되는 컴포넌트 묶음
+    # create_app_context()로 생성
     weather_card:      WeatherCard
     banner_carousel:   BannerCarousel
     chat_panel:        ChatPanel
@@ -35,6 +51,13 @@ class AppContext:
 
 
 def create_app_context() -> AppContext:
+    """
+    input : X
+    output: AppContext
+    
+    모든 컴포넌트를 초기화하고 AppContext 인스턴스를 반환
+    그래프 로드 시간을 콘솔에 출력
+    """
     t = time.time()
     G = _load_graph()
     print(f"graph: {time.time()-t:.2f}s")
