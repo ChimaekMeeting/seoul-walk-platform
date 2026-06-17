@@ -22,10 +22,10 @@ async def walk_route(request: WalkRouteRequest):
         start_lat   = request.origin.coordinate.lat
         start_lon   = request.origin.coordinate.lon
         distance_km = request.distance_km
-
         if request.child_friendly:
             radius_m = distance_km * 1000 * 3.0
-            G = GraphRepository.load_graph_near(start_lat, start_lon, radius_m=radius_m)
+            G_raw    = GraphRepository.load_graph_near(start_lat, start_lon, radius_m=radius_m)
+            G        = RouteService().extract_subgraph_near(G_raw, start_lat, start_lon, radius_m)
 
             if request.mode == "circular":
                 inp    = CircularRouteInput(start_lat=start_lat, start_lon=start_lon, target_km=distance_km)
@@ -50,7 +50,9 @@ async def walk_route(request: WalkRouteRequest):
             )
 
         else:
-            context = {
+            radius_m = distance_km * 1000 * 3.0
+            G_full   = GraphRepository.load_graph_near(start_lat, start_lon, radius_m=radius_m)
+            context  = {
                 "mode":         request.mode,
                 "distance_km":  distance_km,
                 "origin": {
@@ -71,7 +73,7 @@ async def walk_route(request: WalkRouteRequest):
                 ),
                 "purpose": request.purpose,
             }
-            return RouteService().get_route(context)
+            return RouteService().get_route(context, G_full=G_full)
 
     except HTTPException:
         raise
