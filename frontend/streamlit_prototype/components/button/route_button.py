@@ -45,17 +45,13 @@ class RouteButton:
         input_mode: str,
         selected_mode: str,
         distance_km: float,
-        safety_w: float,
-        nature_w: float,
-        slope_w: float,
+        profile_name: str,
         lat: float,
         lng: float,
     ):
         """
         경로 추천 버튼을 렌더링하고, 클릭 또는 AI 챗봇 완료 시 경로를 계산합니다.
         """
-        weights = {"safety": safety_w, "nature": nature_w, "slope": slope_w}
-
         if input_mode == "직접 설정" and st.session_state.start:
             st.divider()
             if st.button("🚶 경로 추천받기", type="primary", use_container_width=True):
@@ -70,8 +66,8 @@ class RouteButton:
                                 self._save(result)
                                 st.rerun()
                         else:
-                            result = get_route(context, weights, self.G)
-                            if "error" in result:
+                            result = get_route(context, profile_name, self.G)
+                            if result.get("error"):
                                 st.error(f"오류 발생: {result['error']}")
                             else:
                                 self._save(result)
@@ -81,8 +77,8 @@ class RouteButton:
             state = st.session_state.get("state", {})
             if state and state.get("next_node") == "end" and not st.session_state.route_coordinates:
                 user_context = state.get("user_context", {})
-                origin      = user_context.get("origin", {})
-                destination = user_context.get("destination")
+                origin       = user_context.get("origin", {})
+                destination  = user_context.get("destination")
                 with st.spinner("최적의 경로를 계산하는 중..."):
                     context = {
                         "mode": selected_mode, "distance_km": distance_km,
@@ -97,8 +93,8 @@ class RouteButton:
                         ),
                         "purpose": user_context.get("purpose", "산책"),
                     }
-                    result = get_route(context, weights, self.G)
-                    if "error" in result:
+                    result = get_route(context, profile_name, self.G)
+                    if result.get("error"):
                         st.error(f"오류 발생: {result['error']}")
                     else:
                         self._save(result)

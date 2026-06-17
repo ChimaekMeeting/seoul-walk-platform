@@ -1,4 +1,3 @@
-import math
 import time
 from typing import Optional
 
@@ -7,95 +6,140 @@ import networkx as nx
 from src.interfaces.schema.running_schema import CourseInfo, OnewayRunningResponse
 from src.repository.layer.running_repository import RunningRepository
 from src.repository.network.graph_repository import GraphRepository
-from src.route_engine.engines.oneway.dijkstra import dijkstra_route
-from src.route_engine.engines.oneway.random import oneway_random_route
-from src.route_engine.engines.path_utils import extract_coordinates, find_nearest_node, prune_dead_ends
+from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.profiles import get_profile
+from src.route_engine.schema import FallbackReason, OnewayRouteInput, RouteOutput
+from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 RUNNING_COURSE_TYPES = ["river", "park", "bike_track", "trail"]
 
 
-def _apply_weights(G: nx.Graph, slope_weight: float = 0.5, running_weight: float = 1.0) -> nx.Graph:
-    for u, v, data in G.edges(data=True):
-        length  = data.get("length", 1.0) or 1.0
-        safety  = data.get("safety_score", 0.5)
-        nature  = data.get("nature_score", 0.5)
-        slope   = data.get("slope_score", 0.5)
-        running = data.get("running_score", 0.0)
+class OnewayRunningEngine:
+    def __init__(self, inp: OnewayRouteInput, profile_name: str = "running", G: Optional[nx.Graph] = None):
+        self._inp                     = inp
+        self._G: nx.Graph | None      = G
+        self._utils: PathUtils | None = None  # run() 이후 설정
+        profile                       = get_profile(profile_name)
+        self._weights                 = profile.weights
+        self._blocked_tags            = profile.blocked_tags
+        self.matched_courses: list[CourseInfo] = []  # run() 이후 접근 가능
 
-        running_bonus = 1.0 + running * running_weight
-        slope_factor  = 1.0 + slope * slope_weight
-        length_bonus  = 1.0 + math.log1p(length / 50.0)
+    def run(self) -> RouteOutput:
+        """
+        DB 코스 정보를 반영한 편도 런닝 경로를 생성합니다.
+        """
+        t0 = time.time()
 
-        G[u][v]["custom_score"] = (length * slope_factor) / (
-            (safety + 1e-6) * (nature + 1e-6) * running_bonus * length_bonus
+        self.matched_courses = self._fetch_courses()
+        self._G              = self._load_graph()
+
+        if self._G.number_of_nodes() == 0:
+            return RouteOutput(status="FAILED", mode="oneway_running",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_GRAPH_DATA)
+
+        self._remove_invalid_nodes()
+
+        if self._G.number_of_nodes() == 0:
+            return RouteOutput(status="FAILED", mode="oneway_running",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_GRAPH_DATA)
+
+        calculate_custom_score(self._G, {
+            "mode": "running",
+            "weights": self._weights,
+            "blocked_tags": self._blocked_tags,
+        })
+        self._utils = PathUtils(self._G)
+
+        start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
+        end   = self._utils.find_nearest_node(self._inp.end_lat,   self._inp.end_lon)
+
+        if start is None:
+            return RouteOutput(status="FAILED", mode="oneway_running",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
+        if end is None:
+            return RouteOutput(status="FAILED", mode="oneway_running",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_NEAREST_END_NODE)
+
+        nodes, mode_label = self._generate_route(start, end)
+        if not nodes:
+            return RouteOutput(status="FAILED", mode="oneway_running",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_PATH)
+
+        print(f"[running/oneway] 완료 {time.time()-t0:.2f}s")
+        pruned  = self._utils.prune_dead_ends(nodes, max_branch_length=300)
+        coords  = self._utils.extract_coordinates(pruned)
+        total_m = self._calc_distance(pruned)
+        return RouteOutput(
+            status          = "SUCCESS" if coords else "FAILED",
+            mode            = mode_label,
+            coordinates     = coords,
+            total_km        = round(total_m / 1000, 2),
+            fallback_reason = None,
         )
-    return G
 
+    def _fetch_courses(self) -> list[CourseInfo]:
+        """
+        DB에서 반경 내 런닝 코스 목록을 조회합니다.
+        """
+        raw = RunningRepository.get_running_layer_near(
+            lat=self._inp.start_lat,
+            lon=self._inp.start_lon,
+            radius_m=5_000,
+            course_types=RUNNING_COURSE_TYPES,
+            limit=5,
+        )
+        return [CourseInfo(**c) for c in raw]
 
-def oneway_running_route(
-    start_lat: float,
-    start_lon: float,
-    end_lat: float,
-    end_lon: float,
-    target_km: Optional[float] = None,
-    use_random: bool = True,
-    radius_m: float = 5_000,
-    G: Optional[nx.Graph] = None,
-) -> OnewayRunningResponse:
-    t0 = time.time()
+    def _load_graph(self) -> nx.Graph:
+        """
+        미리 로드된 그래프가 없으면 출발·도착 중간점 기준으로 DB에서 로드합니다.
+        """
+        if self._G is not None:
+            return self._G
+        straight_m   = math.sqrt(
+            (self._inp.start_lat - self._inp.end_lat) ** 2 +
+            (self._inp.start_lon - self._inp.end_lon) ** 2
+        ) * 111_000
+        graph_radius = max(straight_m * 1.5, 3_000)  # 최소 3km 반경
+        mid_lat      = (self._inp.start_lat + self._inp.end_lat) / 2
+        mid_lon      = (self._inp.start_lon + self._inp.end_lon) / 2
+        return GraphRepository.load_graph_near(mid_lat, mid_lon, radius_m=graph_radius)
 
-    matched_courses = RunningRepository.get_running_layer_near(
-        lat=start_lat, lon=start_lon, radius_m=radius_m, course_types=RUNNING_COURSE_TYPES, limit=5,
-    )
-    courses = [CourseInfo(**c) for c in matched_courses]
-    print(f"[running/oneway] DB 코스 {len(courses)}건 ({time.time()-t0:.2f}s)")
+    def _remove_invalid_nodes(self) -> None:
+        """
+        좌표 속성이 없는 노드를 그래프에서 제거합니다.
+        """
+        invalid = [n for n, d in self._G.nodes(data=True) if "lon" not in d or "lat" not in d]
+        if invalid:
+            self._G = self._G.copy()
+            self._G.remove_nodes_from(invalid)
 
-    straight_m = math.sqrt((start_lat - end_lat) ** 2 + (start_lon - end_lon) ** 2) * 111_000
-    graph_radius = max(straight_m * 1.5, 3_000)
+    def _generate_route(self, start: int, end: int) -> tuple[list[int], str]:
+        """
+        target_km 유무에 따라 우회 또는 최단 경로를 생성합니다.
+        """
+        if self._inp.target_km:
+            nodes = self._utils.oneway_waypoint_path(start, end, self._inp.target_km)
+            label = "oneway_running_random"
+        else:
+            try:
+                nodes = nx.shortest_path(self._G, start, end, weight="custom_score")
+            except Exception:
+                nodes = []
+            label = "oneway_running_shortest"
+        return nodes, label
 
-    if G is None:
-        mid_lat = (start_lat + end_lat) / 2
-        mid_lon = (start_lon + end_lon) / 2
-        G = GraphRepository.load_graph_near(mid_lat, mid_lon, radius_m=graph_radius)
-
-    if G.number_of_nodes() == 0:
-        return OnewayRunningResponse(
-            mode="oneway_running", coordinates=[], total_distance_km=0.0,
-            matched_courses=courses, error="해당 위치 주변에 경로 데이터가 없습니다.",
+    def _calc_distance(self, nodes: list[int]) -> float:
+        """
+        노드 목록의 총 이동 거리(미터)를 반환합니다.
+        """
+        return sum(
+            (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("length", 0)
+            for i in range(len(nodes) - 1)
         )
 
-    invalid = [n for n, d in G.nodes(data=True) if "lon" not in d or "lat" not in d]
-    if invalid:
-        G = G.copy()
-        G.remove_nodes_from(invalid)
-
-    if G.number_of_nodes() == 0:
-        return OnewayRunningResponse(
-            mode="oneway_running", coordinates=[], total_distance_km=0.0,
-            matched_courses=courses, error="유효한 노드가 없습니다.",
-        )
-
-    G = _apply_weights(G)
-    start_node = find_nearest_node(G, start_lat, start_lon)
-    end_node   = find_nearest_node(G, end_lat, end_lon)
-
-    if use_random and target_km:
-        raw        = oneway_random_route(G, start_node, end_node, target_km, weight="custom_score")
-        mode_label = "oneway_running_random"
-    else:
-        raw        = dijkstra_route(G, start_node, end_node, weight="custom_score")
-        mode_label = "oneway_running_shortest"
-
-    pruned = prune_dead_ends(raw["nodes"], G, max_branch_length=300)
-    coords = extract_coordinates(G, pruned)
-    total_m = sum(
-        (G.get_edge_data(pruned[i], pruned[i + 1]) or {}).get("length", 0)
-        for i in range(len(pruned) - 1)
-    )
-    print(f"[running/oneway] 완료 {time.time()-t0:.2f}s")
-    return OnewayRunningResponse(
-        mode=mode_label,
-        coordinates=coords,
-        total_distance_km=round(total_m / 1000, 2),
-        matched_courses=courses,
-    )

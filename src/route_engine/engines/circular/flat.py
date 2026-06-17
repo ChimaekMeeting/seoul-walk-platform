@@ -3,143 +3,206 @@ import random
 
 import networkx as nx
 
-from src.route_engine.engines.path_utils import extract_coordinates, prune_dead_ends
-
-FLAT_THRESHOLD = 0.7
-
-
-def _flat_edge_weight(u: int, v: int, data: dict) -> float:
-    length = data.get("length", 1.0) or 1.0
-    slope  = data.get("slope_score", 0.5) or 0.5
-    return length * (2.0 - slope) ** 2
+from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.profiles import get_profile
+from src.route_engine.schema import CircularRouteInput, FallbackReason, RouteOutput
 
 
-def _angle_to(G: nx.Graph, a: int, b: int) -> float:
-    dx = G.nodes[b].get("lon", 0) - G.nodes[a].get("lon", 0)
-    dy = G.nodes[b].get("lat", 0) - G.nodes[a].get("lat", 0)
-    return math.degrees(math.atan2(dx, dy)) % 360
+FLAT_THRESHOLD = 0.7  # 평지 판정 경사 점수 기준
 
 
-def _angle_diff(a: float, b: float) -> float:
-    d = abs(a - b) % 360
-    return d if d <= 180 else 360 - d
+class CircularFlatEngine:
+    def __init__(self, inp: CircularRouteInput, G: nx.Graph, profile_name: str = "flat"):
+        self._inp          = inp
+        self._G            = G.copy()  # 원본 그래프 보호
+        self._utils        = PathUtils(self._G)
+        profile            = get_profile(profile_name)
+        self._weights      = profile.weights
+        self._blocked_tags = profile.blocked_tags
+        self.avg_slope_score: float = 0.0      # run() 이후 접근 가능
+        self.flat_entry_node: int | None = None  # run() 이후 접근 가능
 
+    def run(self) -> RouteOutput:
+        """
+        평지 진입 후 순환하고 출발지로 복귀하는 경로를 생성합니다.
+        """
+        start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
+        if start is None:
+            return RouteOutput(status="FAILED", mode="circular_flat",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
 
-def flat_circular_route(
-    G: nx.Graph,
-    start_node: int,
-    target_distance_km: float = 3.0,
-) -> dict:
-    """
-    출발지 → 평지 진입 → 평지 순환 → 출발지 복귀.
+        entry = self._find_flat_entry(start)
+        self.flat_entry_node = entry
 
-    Phase 1. 접근  : 출발지 → 가장 가까운 평지 노드 최단경로
-    Phase 2. 순환  : 방향 유지 + 급경사 회피 원형 탐색
-    Phase 3. 복귀  : 출발지까지 평지 우선 최단경로
-    """
-    target_m   = target_distance_km * 1000
-    path_nodes = [start_node]
-    total_dist = 0.0
-    sx = G.nodes[start_node].get("lon", 0)
-    sy = G.nodes[start_node].get("lat", 0)
+        path_nodes, total_dist = self._approach(start, entry)
+        path_nodes, total_dist = self._loop(path_nodes, total_dist, entry, start)
+        path_nodes, total_dist = self._return_phase(path_nodes, total_dist, start)
 
-    # Phase 1: 평지 진입점 탐색
-    flat_nodes = {
-        n
-        for u, v, d in G.edges(data=True)
-        if (d.get("slope_score") or 0) >= FLAT_THRESHOLD
-        for n in (u, v)
-    }
+        if not path_nodes:
+            return RouteOutput(status="FAILED", mode="circular_flat",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_PATH)
 
-    flat_entry = start_node
-    if start_node not in flat_nodes and flat_nodes:
-        min_dist = float("inf")
+        pruned               = self._utils.prune_dead_ends(path_nodes)
+        self.avg_slope_score = self._calc_avg_slope(pruned)
+        coords               = self._utils.extract_coordinates(pruned)
+        return RouteOutput(
+            status          = "SUCCESS" if coords else "FAILED",
+            mode            = "circular_flat",
+            coordinates     = coords,
+            total_km        = round(total_dist / 1000, 2),
+            fallback_reason = None,
+        )
+
+    def _find_flat_entry(self, start: int) -> int:
+        """
+        출발 노드에서 가장 가까운 평지 진입 노드를 반환합니다.
+        """
+        target_m   = (self._inp.target_km or 3.0) * 1000
+        flat_nodes = {
+            n
+            for u, v, d in self._G.edges(data=True)
+            if (d.get("slope_score") or 0) >= FLAT_THRESHOLD
+            for n in (u, v)
+        }
+
+        if start in flat_nodes or not flat_nodes:
+            return start
+
+        sx = self._G.nodes[start].get("lon", 0)
+        sy = self._G.nodes[start].get("lat", 0)
+
+        best, best_d = start, float("inf")
         for node in flat_nodes:
-            nd = G.nodes[node]
+            nd = self._G.nodes[node]
             if "lon" not in nd or "lat" not in nd:
                 continue
             d = math.sqrt((nd["lon"] - sx) ** 2 + (nd["lat"] - sy) ** 2) * 111000
-            if d < min_dist and d < target_m * 2:
-                min_dist = d
-                flat_entry = node
+            if d < best_d and d < target_m * 2:
+                best, best_d = node, d
+        return best
 
-    if flat_entry != start_node:
+    def _approach(self, start: int, entry: int) -> tuple[list[int], float]:
+        """
+        출발 노드에서 평지 진입 노드까지의 접근 경로를 반환합니다.
+        """
+        if entry == start:
+            return [start], 0.0
+
         try:
-            approach = nx.shortest_path(G, start_node, flat_entry, weight="length")
-            for n in approach[1:]:
-                total_dist += (G.get_edge_data(path_nodes[-1], n) or {}).get("length", 0)
-                path_nodes.append(n)
+            path = nx.shortest_path(self._G, start, entry, weight="length")
         except nx.NetworkXNoPath:
-            flat_entry = start_node
+            return [start], 0.0
 
-    # Phase 2: 평지 순환
-    approach_dist = total_dist
-    loop_target   = max(target_m - approach_dist * 2, target_m * 0.5)
-    current       = flat_entry
-    visited_edges: dict = {}
-    loop_dist     = 0.0
-    heading       = random.uniform(0, 360)
+        dist = sum(
+            (self._G.get_edge_data(path[i], path[i + 1]) or {}).get("length", 0)
+            for i in range(len(path) - 1)
+        )
+        return path, dist
 
-    while loop_dist < loop_target:
-        neighbors = list(G.neighbors(current))
-        if not neighbors:
-            break
+    def _loop(
+        self, path_nodes: list[int], total_dist: float, entry: int, start: int
+    ) -> tuple[list[int], float]:
+        """
+        평지 구간을 방향 유지하며 순환합니다.
+        """
+        target_m     = (self._inp.target_km or 3.0) * 1000
+        loop_target  = max(target_m - total_dist * 2, target_m * 0.5)
+        current      = entry
+        visited: dict = {}
+        loop_dist    = 0.0
+        heading      = random.uniform(0, 360)  # 초기 진행 방향 (랜덤)
 
-        probs = []
-        for n in neighbors:
-            edge_key  = tuple(sorted([current, n]))
-            edge_data = G.get_edge_data(current, n) or {}
-            slope     = edge_data.get("slope_score", 0.5) or 0.5
-            slope_w   = slope if slope >= FLAT_THRESHOLD else 0.01
-            ang       = _angle_to(G, current, n)
-            dir_score = max(0.01, 1.0 - _angle_diff(ang, heading) / 180.0)
-            visit_pen = 1.0 / (1 + visited_edges.get(edge_key, 0) * 6)
-            probs.append(slope_w * dir_score * visit_pen)
+        while loop_dist < loop_target:
+            neighbors = list(self._G.neighbors(current))
+            if not neighbors:
+                break
 
-        total_p = sum(probs)
-        if total_p == 0:
-            break
-        probs = [p / total_p for p in probs]
+            probs = []
+            for n in neighbors:
+                ek         = tuple(sorted([current, n]))
+                edge_data  = self._G.get_edge_data(current, n) or {}
+                slope      = edge_data.get("slope_score", 0.5) or 0.5
+                slope_w    = slope if slope >= FLAT_THRESHOLD else 0.01
+                ang        = self._angle_to(current, n)
+                dir_score  = max(0.01, 1.0 - self._angle_diff(ang, heading) / 180.0)
+                visit_pen  = 1.0 / (1 + visited.get(ek, 0) * 6)
+                probs.append(slope_w * dir_score * visit_pen)
 
-        next_node = random.choices(neighbors, weights=probs, k=1)[0]
-        edge_key  = tuple(sorted([current, next_node]))
-        visited_edges[edge_key] = visited_edges.get(edge_key, 0) + 1
+            total_p = sum(probs)
+            if total_p == 0:
+                break
 
-        step        = (G.get_edge_data(current, next_node) or {}).get("length", 0)
-        loop_dist  += step
-        total_dist += step
-        path_nodes.append(next_node)
-        current = next_node
+            next_node  = random.choices(neighbors, weights=[p / total_p for p in probs], k=1)[0]
+            ek         = tuple(sorted([current, next_node]))
+            visited[ek] = visited.get(ek, 0) + 1
 
-        cur_ang    = _angle_to(G, flat_entry, current)
-        target_ang = (cur_ang + 90) % 360
-        heading    = (heading * 0.85 + target_ang * 0.15) % 360
+            step        = (self._G.get_edge_data(current, next_node) or {}).get("length", 0)
+            loop_dist  += step
+            total_dist += step
+            path_nodes.append(next_node)
+            current = next_node
 
-    # Phase 3: 복귀
-    if path_nodes[-1] != start_node:
+            # 진행 방향 갱신 (90도 우회전 유도)
+            cur_ang = self._angle_to(entry, current)
+            heading = (heading * 0.85 + ((cur_ang + 90) % 360) * 0.15) % 360
+
+        return path_nodes, total_dist
+
+    def _return_phase(
+        self, path_nodes: list[int], total_dist: float, start: int
+    ) -> tuple[list[int], float]:
+        """
+        현재 위치에서 출발 노드로 복귀하는 경로를 연결합니다.
+        """
+        if path_nodes[-1] == start:
+            return path_nodes, total_dist
+
         try:
-            def return_weight(u, v, d):
-                ek = tuple(sorted([u, v]))
-                return _flat_edge_weight(u, v, d) * (1 + visited_edges.get(ek, 0) * 2)
+            visited_counts = {}
+            for i in range(len(path_nodes) - 1):
+                ek = tuple(sorted([path_nodes[i], path_nodes[i + 1]]))
+                visited_counts[ek] = visited_counts.get(ek, 0) + 1
 
-            return_path = nx.shortest_path(G, current, start_node, weight=return_weight)
+            def _return_w(u, v, d):
+                ek = tuple(sorted([u, v]))
+                length = d.get("length", 1.0) or 1.0
+                slope  = d.get("slope_score", 0.5) or 0.5
+                return length * (2.0 - slope) ** 2 * (1 + visited_counts.get(ek, 0) * 2)
+
+            return_path = nx.shortest_path(self._G, path_nodes[-1], start, weight=_return_w)
             for n in return_path[1:]:
-                total_dist += (G.get_edge_data(path_nodes[-1], n) or {}).get("length", 0)
+                total_dist += (self._G.get_edge_data(path_nodes[-1], n) or {}).get("length", 0)
                 path_nodes.append(n)
         except nx.NetworkXNoPath:
             pass
 
-    path_nodes  = prune_dead_ends(path_nodes, G)
-    slope_scores = [
-        (G.get_edge_data(path_nodes[i], path_nodes[i + 1]) or {}).get("slope_score", 0.5) or 0.5
-        for i in range(len(path_nodes) - 1)
-    ]
-    avg_slope = round(sum(slope_scores) / len(slope_scores), 4) if slope_scores else 0.0
+        return path_nodes, total_dist
 
-    return {
-        "nodes":              path_nodes,
-        "coordinates":        extract_coordinates(G, path_nodes),
-        "total_distance_km":  round(total_dist / 1000, 2),
-        "avg_slope_score":    avg_slope,
-        "flat_entry_node":    flat_entry,
-    }
+    def _angle_to(self, a: int, b: int) -> float:
+        """
+        노드 a에서 노드 b 방향의 각도(도)를 반환합니다.
+        """
+        dx = self._G.nodes[b].get("lon", 0) - self._G.nodes[a].get("lon", 0)
+        dy = self._G.nodes[b].get("lat", 0) - self._G.nodes[a].get("lat", 0)
+        return math.degrees(math.atan2(dx, dy)) % 360
+
+    def _angle_diff(self, a: float, b: float) -> float:
+        """
+        두 방향각의 최소 차이(도)를 반환합니다.
+        """
+        d = abs(a - b) % 360
+        return d if d <= 180 else 360 - d
+
+    def _calc_avg_slope(self, nodes: list[int]) -> float:
+        """
+        경로의 평균 경사 점수를 반환합니다.
+        """
+        scores = [
+            (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("slope_score", 0.5) or 0.5
+            for i in range(len(nodes) - 1)
+        ]
+        return round(sum(scores) / len(scores), 4) if scores else 0.0
+
+

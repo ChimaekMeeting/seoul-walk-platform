@@ -5,7 +5,7 @@ from geoalchemy2 import Geography
 from src.database.postgresql import get_postgresql_db
 from src.entity.network.walk_node import WalkNode
 from src.entity.network.walk_edge import WalkEdge
-from src.route_engine.engines.path_utils import remove_dead_ends
+from src.route_engine.engines.path_utils import PathUtils
 
 
 class GraphRepository:
@@ -90,7 +90,7 @@ class GraphRepository:
 
         largest_cc = max(nx.connected_components(G), key=len)
         G = G.subgraph(largest_cc).copy()
-        G = remove_dead_ends(G)
+        G = PathUtils(G).remove_dead_ends()
         print(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
         return G
 

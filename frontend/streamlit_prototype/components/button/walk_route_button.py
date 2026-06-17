@@ -1,8 +1,6 @@
 import streamlit as st
 
 from src.service.route.route_service import RouteService
-from src.route_engine.engines.child_walk_route import ChildWalkRoute
-from frontend.streamlit_prototype.schema.prewalk_schema import Weights
 
 
 class WalkRouteButton:
@@ -46,15 +44,13 @@ class WalkRouteButton:
         selected_mode: str,
         distance_km: float,
         child_friendly: bool,
-        safety_w: float,
-        nature_w: float,
         lat: float,
         lng: float,
     ) -> None:
         """
         경로 추천 버튼을 렌더링하고, 클릭 또는 AI 챗봇 완료 시 경로를 계산합니다.
         """
-        weights = Weights(safety=safety_w, nature=nature_w)
+        profile_name = "child" if child_friendly else "default"
 
         if input_mode == "직접 설정" and st.session_state.start:
             st.divider()
@@ -64,12 +60,8 @@ class WalkRouteButton:
                 else:
                     with st.spinner("최적의 경로를 계산하는 중..."):
                         context = self._build_context(selected_mode, distance_km, lat, lng)
-                        result = (
-                            ChildWalkRoute().get_route(context, weights, self.G)
-                            if child_friendly
-                            else self._route_service.get_route(context, weights, self.G)
-                        )
-                        if "error" in result:
+                        result  = self._route_service.get_route(context, profile_name, self.G)
+                        if result.get("error"):
                             st.error(f"오류 발생: {result['error']}")
                         else:
                             self._save(result)
@@ -79,8 +71,8 @@ class WalkRouteButton:
             state = st.session_state.get("state", {})
             if state and state.get("next_node") == "end" and not st.session_state.route_coordinates:
                 user_context = state.get("user_context", {})
-                origin      = user_context.get("origin", {})
-                destination = user_context.get("destination")
+                origin       = user_context.get("origin", {})
+                destination  = user_context.get("destination")
                 with st.spinner("최적의 경로를 계산하는 중..."):
                     context = {
                         "mode": selected_mode, "distance_km": distance_km,
@@ -95,8 +87,8 @@ class WalkRouteButton:
                         ),
                         "purpose": user_context.get("purpose", "산책"),
                     }
-                    result = self._route_service.get_route(context, weights, self.G)
-                    if "error" in result:
+                    result = self._route_service.get_route(context, profile_name, self.G)
+                    if result.get("error"):
                         st.error(f"오류 발생: {result['error']}")
                     else:
                         self._save(result)
