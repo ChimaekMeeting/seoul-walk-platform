@@ -1,6 +1,6 @@
 import streamlit as st
 
-from src.database.postgresql import health_check
+from frontend.streamlit_prototype.api.health_router import HealthRouter
 from src.route_engine.engines.route_flat import get_flat_mode_options
 
 
@@ -10,7 +10,7 @@ class RouteSidebar:
         """
         DB 상태, 입력 방식, 경로 모드·거리·가중치 슬라이더를 렌더링하고 설정값 딕셔너리를 반환합니다.
         """
-        db_ok = health_check()
+        db_ok = HealthRouter().get_health()
         st.sidebar.markdown("### 시스템 상태")
         st.sidebar.success("🟢 DB 연결됨") if db_ok else st.sidebar.error("🔴 DB 연결 실패")
 
