@@ -7,19 +7,20 @@ from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
 from src.route_engine.schema import CircularRouteInput, FallbackReason, RouteOutput
 
-
 FLAT_THRESHOLD = 0.7  # 평지 판정 경사 점수 기준
 
 
 class CircularFlatEngine:
-    def __init__(self, inp: CircularRouteInput, G: nx.Graph, profile_name: str = "flat"):
-        self._inp          = inp
-        self._G            = G.copy()  # 원본 그래프 보호
-        self._utils        = PathUtils(self._G)
-        profile            = get_profile(profile_name)
-        self._weights      = profile.weights
+    def __init__(
+        self, inp: CircularRouteInput, G: nx.Graph, profile_name: str = "flat"
+    ):
+        self._inp = inp
+        self._G = G.copy()  # 원본 그래프 보호
+        self._utils = PathUtils(self._G)
+        profile = get_profile(profile_name)
+        self._weights = profile.weights
         self._blocked_tags = profile.blocked_tags
-        self.avg_slope_score: float = 0.0      # run() 이후 접근 가능
+        self.avg_slope_score: float = 0.0  # run() 이후 접근 가능
         self.flat_entry_node: int | None = None  # run() 이후 접근 가능
 
     def run(self) -> RouteOutput:
@@ -28,9 +29,13 @@ class CircularFlatEngine:
         """
         start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
         if start is None:
-            return RouteOutput(status="FAILED", mode="circular_flat",
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
+            return RouteOutput(
+                status="FAILED",
+                mode="circular_flat",
+                coordinates=[],
+                total_km=0.0,
+                fallback_reason=FallbackReason.NO_NEAREST_START_NODE,
+            )
 
         entry = self._find_flat_entry(start)
         self.flat_entry_node = entry
@@ -40,26 +45,30 @@ class CircularFlatEngine:
         path_nodes, total_dist = self._return_phase(path_nodes, total_dist, start)
 
         if not path_nodes:
-            return RouteOutput(status="FAILED", mode="circular_flat",
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_PATH)
+            return RouteOutput(
+                status="FAILED",
+                mode="circular_flat",
+                coordinates=[],
+                total_km=0.0,
+                fallback_reason=FallbackReason.NO_PATH,
+            )
 
-        pruned               = self._utils.prune_dead_ends(path_nodes)
+        pruned = self._utils.prune_dead_ends(path_nodes)
         self.avg_slope_score = self._calc_avg_slope(pruned)
-        coords               = self._utils.extract_coordinates(pruned)
+        coords = self._utils.extract_coordinates(pruned)
         return RouteOutput(
-            status          = "SUCCESS" if coords else "FAILED",
-            mode            = "circular_flat",
-            coordinates     = coords,
-            total_km        = round(total_dist / 1000, 2),
-            fallback_reason = None,
+            status="SUCCESS" if coords else "FAILED",
+            mode="circular_flat",
+            coordinates=coords,
+            total_km=round(total_dist / 1000, 2),
+            fallback_reason=None,
         )
 
     def _find_flat_entry(self, start: int) -> int:
         """
         출발 노드에서 가장 가까운 평지 진입 노드를 반환합니다.
         """
-        target_m   = (self._inp.target_km or 3.0) * 1000
+        target_m = (self._inp.target_km or 3.0) * 1000
         flat_nodes = {
             n
             for u, v, d in self._G.edges(data=True)
@@ -107,12 +116,12 @@ class CircularFlatEngine:
         """
         평지 구간을 방향 유지하며 순환합니다.
         """
-        target_m     = (self._inp.target_km or 3.0) * 1000
-        loop_target  = max(target_m - total_dist * 2, target_m * 0.5)
-        current      = entry
+        target_m = (self._inp.target_km or 3.0) * 1000
+        loop_target = max(target_m - total_dist * 2, target_m * 0.5)
+        current = entry
         visited: dict = {}
-        loop_dist    = 0.0
-        heading      = random.uniform(0, 360)  # 초기 진행 방향 (랜덤)
+        loop_dist = 0.0
+        heading = random.uniform(0, 360)  # 초기 진행 방향 (랜덤)
 
         while loop_dist < loop_target:
             neighbors = list(self._G.neighbors(current))
@@ -121,25 +130,27 @@ class CircularFlatEngine:
 
             probs = []
             for n in neighbors:
-                ek         = tuple(sorted([current, n]))
-                edge_data  = self._G.get_edge_data(current, n) or {}
-                slope      = edge_data.get("slope_score", 0.5) or 0.5
-                slope_w    = slope if slope >= FLAT_THRESHOLD else 0.01
-                ang        = self._angle_to(current, n)
-                dir_score  = max(0.01, 1.0 - self._angle_diff(ang, heading) / 180.0)
-                visit_pen  = 1.0 / (1 + visited.get(ek, 0) * 6)
+                ek = tuple(sorted([current, n]))
+                edge_data = self._G.get_edge_data(current, n) or {}
+                slope = edge_data.get("slope_score", 0.5) or 0.5
+                slope_w = slope if slope >= FLAT_THRESHOLD else 0.01
+                ang = self._angle_to(current, n)
+                dir_score = max(0.01, 1.0 - self._angle_diff(ang, heading) / 180.0)
+                visit_pen = 1.0 / (1 + visited.get(ek, 0) * 6)
                 probs.append(slope_w * dir_score * visit_pen)
 
             total_p = sum(probs)
             if total_p == 0:
                 break
 
-            next_node  = random.choices(neighbors, weights=[p / total_p for p in probs], k=1)[0]
-            ek         = tuple(sorted([current, next_node]))
+            next_node = random.choices(
+                neighbors, weights=[p / total_p for p in probs], k=1
+            )[0]
+            ek = tuple(sorted([current, next_node]))
             visited[ek] = visited.get(ek, 0) + 1
 
-            step        = (self._G.get_edge_data(current, next_node) or {}).get("length", 0)
-            loop_dist  += step
+            step = (self._G.get_edge_data(current, next_node) or {}).get("length", 0)
+            loop_dist += step
             total_dist += step
             path_nodes.append(next_node)
             current = next_node
@@ -167,13 +178,20 @@ class CircularFlatEngine:
 
             def _return_w(u, v, d):
                 ek = tuple(sorted([u, v]))
-                length = d.get("length", 1.0) or 1.0
-                slope  = d.get("slope_score", 0.5) or 0.5
-                return length * (2.0 - slope) ** 2 * (1 + visited_counts.get(ek, 0) * 2)
+                cost = (
+                    d.get("custom_score")
+                    or (d.get("length", 1.0) or 1.0)
+                    * (2.0 - (d.get("slope_score", 0.5) or 0.5)) ** 2
+                )
+                return cost * (1 + visited_counts.get(ek, 0) * 2)
 
-            return_path = nx.shortest_path(self._G, path_nodes[-1], start, weight=_return_w)
+            return_path = nx.shortest_path(
+                self._G, path_nodes[-1], start, weight=_return_w
+            )
             for n in return_path[1:]:
-                total_dist += (self._G.get_edge_data(path_nodes[-1], n) or {}).get("length", 0)
+                total_dist += (self._G.get_edge_data(path_nodes[-1], n) or {}).get(
+                    "length", 0
+                )
                 path_nodes.append(n)
         except nx.NetworkXNoPath:
             pass
@@ -200,9 +218,10 @@ class CircularFlatEngine:
         경로의 평균 경사 점수를 반환합니다.
         """
         scores = [
-            (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("slope_score", 0.5) or 0.5
+            (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get(
+                "slope_score", 0.5
+            )
+            or 0.5
             for i in range(len(nodes) - 1)
         ]
         return round(sum(scores) / len(scores), 4) if scores else 0.0
-
-
