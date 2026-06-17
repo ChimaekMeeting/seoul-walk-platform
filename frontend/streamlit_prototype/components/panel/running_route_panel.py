@@ -29,7 +29,7 @@ class RunningRoutePanel:
                 ):
                     col_a, col_b = st.columns(2)
                     col_a.markdown(f"- **난이도:** {course.get('difficulty', '-')}")
-                    col_a.markdown(f"- **순환여부:** {'순환' if course['is_circular'] else '편도'}")
+                    col_a.markdown(f"- **순환여부:** {'순환' if course.get('is_circular', False) else '편도'}")
                     col_b.markdown(f"- **태그:** `{tags}`")
                     if course.get("description"):
                         st.caption(course["description"])

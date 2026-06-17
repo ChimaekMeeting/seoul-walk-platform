@@ -22,7 +22,7 @@ class NatureLayer:
         for node_id in route_nodes:
             if node_id in G.nodes:
                 folium.CircleMarker(
-                    location=[G.nodes[node_id]["y"], G.nodes[node_id]["x"]],
+                    location=[G.nodes[node_id]["lat"], G.nodes[node_id]["lon"]],
                     radius=3,
                     color="red",
                     fill=True,

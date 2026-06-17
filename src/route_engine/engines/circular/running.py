@@ -1,4 +1,3 @@
-import math
 import time
 from typing import Optional
 
@@ -7,80 +6,115 @@ import networkx as nx
 from src.interfaces.schema.running_schema import CircularRunningResponse, CourseInfo
 from src.repository.layer.running_repository import RunningRepository
 from src.repository.network.graph_repository import GraphRepository
-from src.route_engine.engines.circular.random import random_walk_route
-from src.route_engine.engines.path_utils import extract_coordinates, find_nearest_node, prune_dead_ends
+from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.profiles import get_profile
+from src.route_engine.schema import CircularRouteInput, FallbackReason, RouteOutput
+from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 RUNNING_COURSE_TYPES = ["river", "park", "bike_track", "trail"]
 
 
-def _apply_weights(G: nx.Graph, slope_weight: float = 0.5, running_weight: float = 1.0) -> nx.Graph:
-    for u, v, data in G.edges(data=True):
-        length  = data.get("length", 1.0) or 1.0
-        safety  = data.get("safety_score", 0.5)
-        nature  = data.get("nature_score", 0.5)
-        slope   = data.get("slope_score", 0.5)
-        running = data.get("running_score", 0.0)
+class CircularRunningEngine:
+    def __init__(self, inp: CircularRouteInput, profile_name: str = "running", G: Optional[nx.Graph] = None):
+        self._inp                     = inp
+        self._G: nx.Graph | None      = G
+        self._utils: PathUtils | None = None  # run() 이후 설정
+        profile                       = get_profile(profile_name)
+        self._weights                 = profile.weights
+        self._blocked_tags            = profile.blocked_tags
+        self.matched_courses: list[CourseInfo] = []  # run() 이후 접근 가능
 
-        running_bonus = 1.0 + running * running_weight
-        slope_factor  = 1.0 + slope * slope_weight
-        length_bonus  = 1.0 + math.log1p(length / 50.0)
+    def run(self) -> RouteOutput:
+        """
+        DB 코스 정보를 반영한 순환 런닝 경로를 생성합니다.
+        """
+        t0 = time.time()
 
-        G[u][v]["custom_score"] = (length * slope_factor) / (
-            (safety + 1e-6) * (nature + 1e-6) * running_bonus * length_bonus
+        self.matched_courses = self._fetch_courses()
+        self._G              = self._load_graph()
+
+        if self._G.number_of_nodes() == 0:
+            return RouteOutput(status="FAILED", mode="circular_running",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_GRAPH_DATA)
+
+        self._remove_invalid_nodes()
+
+        if self._G.number_of_nodes() == 0:
+            return RouteOutput(status="FAILED", mode="circular_running",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_GRAPH_DATA)
+
+        calculate_custom_score(self._G, {
+            "mode": "running",
+            "weights": self._weights,
+            "blocked_tags": self._blocked_tags,
+        })
+        self._utils = PathUtils(self._G)
+
+        start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
+        if start is None:
+            return RouteOutput(status="FAILED", mode="circular_running",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
+
+        nodes = self._utils.circular_random_walk(start, self._inp.target_km or 5.0)
+        if not nodes:
+            return RouteOutput(status="FAILED", mode="circular_running",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_PATH)
+
+        print(f"[running/circular] 완료 {time.time()-t0:.2f}s")
+        pruned  = self._utils.prune_dead_ends(nodes, max_branch_length=300)
+        coords  = self._utils.extract_coordinates(pruned)
+        total_m = self._calc_distance(pruned)
+        return RouteOutput(
+            status          = "SUCCESS" if coords else "FAILED",
+            mode            = "circular_running",
+            coordinates     = coords,
+            total_km        = round(total_m / 1000, 2),
+            fallback_reason = None,
         )
-    return G
 
+    def _fetch_courses(self) -> list[CourseInfo]:
+        """
+        DB에서 반경 내 런닝 코스 목록을 조회합니다.
+        """
+        raw = RunningRepository.get_running_layer_near(
+            lat=self._inp.start_lat,
+            lon=self._inp.start_lon,
+            radius_m=5_000,
+            course_types=RUNNING_COURSE_TYPES,
+            limit=5,
+        )
+        return [CourseInfo(**c) for c in raw]
 
-def circular_running_route(
-    lat: float,
-    lon: float,
-    target_km: float = 5.0,
-    radius_m: float = 5_000,
-    G: Optional[nx.Graph] = None,
-) -> CircularRunningResponse:
-    t0 = time.time()
-
-    matched_courses = RunningRepository.get_running_layer_near(
-        lat=lat, lon=lon, radius_m=radius_m, course_types=RUNNING_COURSE_TYPES, limit=5,
-    )
-    courses = [CourseInfo(**c) for c in matched_courses]
-    print(f"[running/circular] DB 코스 {len(courses)}건 ({time.time()-t0:.2f}s)")
-
-    graph_radius = target_km * 1000 * 2.5
-    if G is None:
-        G = GraphRepository.load_graph_near(lat, lon, radius_m=graph_radius)
-
-    if G.number_of_nodes() == 0:
-        return CircularRunningResponse(
-            mode="circular_running", coordinates=[], total_distance_km=0.0,
-            matched_courses=courses, error="해당 위치 주변에 경로 데이터가 없습니다.",
+    def _load_graph(self) -> nx.Graph:
+        """
+        미리 로드된 그래프가 없으면 DB에서 로드합니다.
+        """
+        if self._G is not None:
+            return self._G
+        graph_radius = (self._inp.target_km or 5.0) * 1000 * 2.5  # 목표 거리의 2.5배 반경
+        return GraphRepository.load_graph_near(
+            self._inp.start_lat, self._inp.start_lon, radius_m=graph_radius
         )
 
-    invalid = [n for n, d in G.nodes(data=True) if "lon" not in d or "lat" not in d]
-    if invalid:
-        G = G.copy()
-        G.remove_nodes_from(invalid)
+    def _remove_invalid_nodes(self) -> None:
+        """
+        좌표 속성이 없는 노드를 그래프에서 제거합니다.
+        """
+        invalid = [n for n, d in self._G.nodes(data=True) if "lon" not in d or "lat" not in d]
+        if invalid:
+            self._G = self._G.copy()
+            self._G.remove_nodes_from(invalid)
 
-    if G.number_of_nodes() == 0:
-        return CircularRunningResponse(
-            mode="circular_running", coordinates=[], total_distance_km=0.0,
-            matched_courses=courses, error="유효한 노드가 없습니다.",
+    def _calc_distance(self, nodes: list[int]) -> float:
+        """
+        노드 목록의 총 이동 거리(미터)를 반환합니다.
+        """
+        return sum(
+            (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("length", 0)
+            for i in range(len(nodes) - 1)
         )
 
-    G = _apply_weights(G)
-    start_node = find_nearest_node(G, lat, lon)
-    raw = random_walk_route(G, start_node, target_km, weight="custom_score")
-
-    pruned = prune_dead_ends(raw["nodes"], G, max_branch_length=300)
-    coords = extract_coordinates(G, pruned)
-    total_m = sum(
-        (G.get_edge_data(pruned[i], pruned[i + 1]) or {}).get("length", 0)
-        for i in range(len(pruned) - 1)
-    )
-    print(f"[running/circular] 완료 {time.time()-t0:.2f}s")
-    return CircularRunningResponse(
-        mode="circular_running",
-        coordinates=coords,
-        total_distance_km=round(total_m / 1000, 2),
-        matched_courses=courses,
-    )

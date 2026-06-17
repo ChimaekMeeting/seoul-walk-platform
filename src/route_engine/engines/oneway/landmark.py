@@ -1,45 +1,102 @@
 import networkx as nx
 
-from src.route_engine.engines.path_utils import extract_coordinates
+from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.profiles import get_profile
+from src.route_engine.schema import FallbackReason, OnewayRouteInput, RouteOutput
+from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 
-def landmark_oneway_route(
-    G: nx.Graph,
-    start_node: int,
-    end_node: int,
-    landmark_node: int,
-    weight: str = "custom_score"
-) -> dict:
-    try:
-        path1 = nx.shortest_path(G, start_node, landmark_node, weight=weight)
+class OnewayLandmarkEngine:
+    def __init__(self, inp: OnewayRouteInput, G: nx.Graph, landmark_node: int, profile_name: str = "scenic"):
+        self._inp           = inp
+        self._G             = G.copy()  # 원본 그래프 보호
+        self._utils         = PathUtils(self._G)
+        self._landmark_node = landmark_node  # 경유 랜드마크 노드
+        profile             = get_profile(profile_name)
+        self._weights       = profile.weights
+        self._blocked_tags  = profile.blocked_tags
 
-        original_weights = {}
-        for i in range(len(path1) - 1):
-            u, v = path1[i], path1[i + 1]
-            if G.has_edge(u, v):
-                original_weights[(u, v)] = G[u][v][weight]
-                G[u][v][weight] = original_weights[(u, v)] * 100
+    def run(self) -> RouteOutput:
+        """
+        랜드마크를 경유하는 편도 경로를 생성합니다.
+        """
+        calculate_custom_score(self._G, {
+            "mode": "general",
+            "weights": self._weights,
+            "blocked_tags": self._blocked_tags,
+        })
 
-        path2 = nx.shortest_path(G, landmark_node, end_node, weight=weight)
+        start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
+        end   = self._utils.find_nearest_node(self._inp.end_lat,   self._inp.end_lon)
 
-        for (u, v), old_w in original_weights.items():
-            G[u][v][weight] = old_w
+        if start is None:
+            return RouteOutput(status="FAILED", mode="oneway_landmark",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
+        if end is None:
+            return RouteOutput(status="FAILED", mode="oneway_landmark",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_NEAREST_END_NODE)
 
-        full_path = path1[:-1] + path2
-        total_dist_m = sum(
-            (G.get_edge_data(full_path[i], full_path[i + 1]) or {}).get("length", 0)
-            for i in range(len(full_path) - 1)
+        nodes = self._find_path(start, end)
+        if not nodes:
+            return RouteOutput(status="FAILED", mode="oneway_landmark",
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_PATH)
+
+        coords  = self._utils.extract_coordinates(nodes)
+        total_m = self._calc_distance(nodes)
+        return RouteOutput(
+            status          = "SUCCESS" if coords else "FAILED",
+            mode            = "oneway_landmark",
+            coordinates     = coords,
+            total_km        = round(total_m / 1000, 2),
+            fallback_reason = None,
         )
 
-        return {
-            "nodes": full_path,
-            "coordinates": extract_coordinates(G, full_path),
-            "total_distance_km": round(total_dist_m / 1000, 2)
-        }
+    def _find_path(self, start: int, end: int) -> list[int]:
+        """
+        출발 → 랜드마크 → 도착 경로를 연결합니다.
+        """
+        try:
+            path1 = nx.shortest_path(self._G, start, self._landmark_node, weight="custom_score")
+            saved = self._penalize(path1)  # 1구간 재사용 억제
+            path2 = nx.shortest_path(self._G, self._landmark_node, end, weight="custom_score")
+            self._restore(saved)
+            return path1[:-1] + path2
+        except nx.NetworkXNoPath:
+            print(f"[landmark/oneway] 경로 없음: {start} → {self._landmark_node} → {end}")
+            return []
+        except Exception as e:
+            print(f"[landmark/oneway] 오류: {e}")
+            return []
 
-    except nx.NetworkXNoPath:
-        print(f"경로 없음: {start_node} → {landmark_node} → {end_node}")
-        return {"nodes": [], "coordinates": [], "total_distance_km": 0.0}
-    except Exception as e:
-        print(f"오류: {e}")
-        return {"nodes": [], "coordinates": [], "total_distance_km": 0.0}
+    def _penalize(self, path: list[int]) -> dict:
+        """
+        경로 엣지에 페널티를 적용하고 원본 가중치를 반환합니다.
+        """
+        saved = {}
+        for i in range(len(path) - 1):
+            u, v = path[i], path[i + 1]
+            if self._G.has_edge(u, v):
+                saved[(u, v)] = self._G[u][v]["custom_score"]
+                self._G[u][v]["custom_score"] *= 100  # 재사용 억제 페널티
+        return saved
+
+    def _restore(self, saved: dict) -> None:
+        """
+        페널티 적용 전 가중치를 복원합니다.
+        """
+        for (u, v), w in saved.items():
+            self._G[u][v]["custom_score"] = w
+
+    def _calc_distance(self, nodes: list[int]) -> float:
+        """
+        노드 목록의 총 이동 거리(미터)를 반환합니다.
+        """
+        return sum(
+            (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("length", 0)
+            for i in range(len(nodes) - 1)
+        )
+
+

@@ -1,11 +1,8 @@
-import math
-
 import streamlit as st
 
-from src.repository.network.graph_repository import GraphRepository
-from src.route_engine.engines.running_route_service import _apply_running_weights
-from src.route_engine.engines.circular.running import circular_running_route
-from src.route_engine.engines.oneway.running import oneway_running_route
+from src.route_engine.engines.circular.running import CircularRunningEngine
+from src.route_engine.engines.oneway.running import OnewayRunningEngine
+from src.route_engine.schema import CircularRouteInput, OnewayRouteInput
 
 
 class RunningRouteSidebar:
@@ -18,33 +15,24 @@ class RunningRouteSidebar:
         with st.spinner("경로 계산 중..."):
             try:
                 if not config["is_oneway"]:
-                    graph_radius = config["target_km"] * 1000 * 2.5
-                    G = GraphRepository.load_graph_near(s_lat, s_lng, radius_m=graph_radius)
-                    invalid = [n for n, d in G.nodes(data=True) if "x" not in d or "y" not in d]
-                    if invalid:
-                        G = G.copy()
-                        G.remove_nodes_from(invalid)
-                    G = _apply_running_weights(G, slope_weight=config["slope_weight"], type_bonus=config["type_bonus"])
-                    result = circular_running_route(
-                        G=G, start_lat=s_lat, start_lng=s_lng,
-                        target_m=config["target_km"] * 1000, radius_m=config["radius_m"], session=None,
-                    )
+                    inp    = CircularRouteInput(start_lat=s_lat, start_lon=s_lng, target_km=config["target_km"])
+                    engine = CircularRunningEngine(inp)
                 else:
                     e_lat, e_lng = st.session_state.end
-                    straight_m   = math.sqrt((s_lat - e_lat) ** 2 + (s_lng - e_lng) ** 2) * 111_000
-                    graph_radius = max(straight_m * 1.5, 3_000)
-                    mid_lat      = (s_lat + e_lat) / 2
-                    mid_lng      = (s_lng + e_lng) / 2
-                    G = GraphRepository.load_graph_near(mid_lat, mid_lng, radius_m=graph_radius)
-                    invalid = [n for n, d in G.nodes(data=True) if "x" not in d or "y" not in d]
-                    if invalid:
-                        G = G.copy()
-                        G.remove_nodes_from(invalid)
-                    G = _apply_running_weights(G, slope_weight=config["slope_weight"], type_bonus=config["type_bonus"])
-                    result = oneway_running_route(
-                        G=G, start_lat=s_lat, start_lng=s_lng, dest_lat=e_lat, dest_lng=e_lng,
-                        target_m=config["target_km"] * 1000, radius_m=config["radius_m"], session=None,
+                    inp    = OnewayRouteInput(
+                        start_lat=s_lat, start_lon=s_lng,
+                        end_lat=e_lat,   end_lon=e_lng,
+                        target_km=config["target_km"],
                     )
+                    engine = OnewayRunningEngine(inp)
+                output = engine.run()
+                result = {
+                    "mode":              output.mode,
+                    "coordinates":       output.coordinates,
+                    "total_distance_km": output.total_km,
+                    "matched_courses":   [c.model_dump() for c in engine.matched_courses],
+                    "error":             output.fallback_reason.value if output.fallback_reason else None,
+                }
                 st.session_state.result = result
                 st.rerun()
             except Exception as e:
