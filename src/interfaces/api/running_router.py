@@ -10,7 +10,7 @@ from src.interfaces.schema.running_schema import (
 )
 from src.route_engine.engines.circular.running import CircularRunningEngine
 from src.route_engine.engines.oneway.running import OnewayRunningEngine
-from src.route_engine.schema import CircularRouteInput, OnewayRouteInput
+from src.schema.route_schema import CircularRouteInput, OnewayRouteInput
 
 router = APIRouter(prefix="/api/running", tags=["running"])
 

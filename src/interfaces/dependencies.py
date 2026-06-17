@@ -7,6 +7,8 @@ from src.agent.nodes.extractor import Extractor
 from src.agent.nodes.interviewer import Interviewer
 from src.agent.nodes.weight_assigner import WeightAssigner
 from src.infrastructure.external.client.kakao_client import KakaoClient
+from fastapi import Request
+from src.service.route.route_service import RouteService
 
 # 이 파일에서 정의된 서비스 객체를 다른 API 파일에서 전역적으로 사용하시면 됩니다!
 
@@ -41,3 +43,7 @@ def get_kakao_login_service() -> KakaoLoginService:
 # --- 챗봇 ---
 def get_prewalk_orchestrator() -> PrewalkOrchestrator:
     return prewalk_orchestrator
+
+# --- 경로 ---
+def get_route_service(request: Request) -> RouteService:
+    return request.app.state.route_service
