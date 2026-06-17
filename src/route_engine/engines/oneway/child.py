@@ -3,7 +3,7 @@ import networkx as nx
 from src.repository.layer.child_repository import ChildRepository
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.route_engine.schema import FallbackReason, OnewayRouteInput, RouteOutput
+from src.schema.route_schema import FallbackReason, OnewayMode, OnewayRouteInput, RouteOutput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 
@@ -11,7 +11,7 @@ class OnewayChildEngine:
     def __init__(
         self, inp: OnewayRouteInput,
         G: nx.Graph,
-        profile_name: str = "child"
+        profile_name: OnewayMode = OnewayMode.CHILD
     ):
         self._inp          = inp
         self._G            = G.copy()  # 원본 그래프 보호

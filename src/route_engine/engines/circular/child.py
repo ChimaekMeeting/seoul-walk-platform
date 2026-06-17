@@ -1,6 +1,6 @@
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.route_engine.schema import CircularRouteInput, FallbackReason, RouteOutput
+from src.schema.route_schema import CircularMode, CircularRouteInput, FallbackReason, RouteOutput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 import networkx as nx
@@ -11,7 +11,7 @@ class CircularChildEngine:
         self,
         inp: CircularRouteInput,
         G: nx.Graph,
-        profile_name: str = "child",
+        profile_name: CircularMode = CircularMode.CHILD,
     ):
         self._inp          = inp
         self._G            = G.copy()  # 원본 그래프 보호
