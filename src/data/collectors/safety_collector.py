@@ -58,7 +58,6 @@ class SafetyCollector:
         """
         safety_layer를 초기화하고 가로등·CCTV POI를 저장합니다.
         """
-        SafetyRepository.truncate()
         SafetyRepository.save_all(self.build_streetlight_records() + self.build_cctv_records())
 
     def update_edge(self) -> None:
