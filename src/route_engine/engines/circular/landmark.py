@@ -2,7 +2,7 @@ import networkx as nx
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.route_engine.schema import CircularRouteInput, FallbackReason, RouteOutput
+from src.schema.route_schema import CircularMode, CircularRouteInput, FallbackReason, RouteOutput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 
@@ -12,13 +12,14 @@ class CircularLandmarkEngine:
         inp: CircularRouteInput,
         G: nx.Graph,
         landmark_node: int,
-        profile_name: str = "scenic"
+        mode: CircularMode = CircularMode.LANDMARK
     ):
         self._inp           = inp
         self._G             = G.copy()      # 원본 그래프 보호
         self._utils         = PathUtils(self._G)
         self._landmark_node = landmark_node  # 경유 랜드마크 노드
-        profile             = get_profile(profile_name)
+        self.mode = mode
+        profile             = get_profile(self.mode)
         self._weights       = profile.weights
         self._blocked_tags  = profile.blocked_tags
 
@@ -38,7 +39,7 @@ class CircularLandmarkEngine:
 
         # 출발 노드가 없는 경우
         if start is None:
-            return RouteOutput(status="FAILED", mode="circular_landmark",
+            return RouteOutput(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
         
@@ -47,7 +48,7 @@ class CircularLandmarkEngine:
 
         # 경로가 없는 경우
         if not nodes:
-            return RouteOutput(status="FAILED", mode="circular_landmark",
+            return RouteOutput(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_PATH)
 
@@ -55,7 +56,7 @@ class CircularLandmarkEngine:
         total_m = self._utils.calc_distance(nodes)        # 총 이동 거리(미터)
         return RouteOutput(
             status          = "SUCCESS" if coords else "FAILED",
-            mode            = "circular_landmark",
+            mode            = self.mode,
             coordinates     = coords,
             total_km        = round(total_m / 1000, 2),
             fallback_reason = None,

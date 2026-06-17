@@ -1,6 +1,23 @@
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional, Union
 from pydantic import BaseModel, Field
+
+
+class CircularMode(str, Enum):
+    RANDOM   = "circular_random"
+    CHILD    = "circular_child"
+    RUNNING  = "circular_running"
+    LANDMARK = "circular_landmark"
+    FLAT     = "circular_flat"
+
+
+class OnewayMode(str, Enum):
+    SHORTEST = "oneway_shortest"
+    RANDOM   = "oneway_random"
+    CHILD    = "oneway_child"
+    RUNNING  = "oneway_running"
+    LANDMARK = "oneway_landmark"
+    FLAT     = "oneway_flat"
 
 
 class FallbackReason(str, Enum):
@@ -17,22 +34,22 @@ class FallbackReason(str, Enum):
 
 
 class CircularRouteInput(BaseModel):
-    start_lat:  float
-    start_lon:  float
-    target_km:  float | None = None
+    start_lat: float
+    start_lon: float
+    target_km: float | None = None
 
 
 class OnewayRouteInput(BaseModel):
-    start_lat:  float
-    start_lon:  float
-    end_lat:    float
-    end_lon:    float
-    target_km:  float | None = None
+    start_lat: float
+    start_lon: float
+    end_lat:   float
+    end_lon:   float
+    target_km: float | None = None
 
 
 class RouteOutput(BaseModel):
-    status:          str                         # "SUCCESS" | "FAILED"
-    mode:            str
+    status:          Literal["SUCCESS", "FAILED"]
+    mode:            Union[CircularMode, OnewayMode]
     coordinates:     list[list[float]]
     total_km:        float = 0.0
     fallback_reason: Optional[FallbackReason] = None

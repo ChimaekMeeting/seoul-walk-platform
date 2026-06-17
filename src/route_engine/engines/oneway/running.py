@@ -1,28 +1,22 @@
-import time
-
 import networkx as nx
 
-from src.interfaces.schema.running_schema import CourseInfo
-from src.repository.layer.running_repository import RunningRepository
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.route_engine.schema import FallbackReason, OnewayRouteInput, RouteOutput
+from src.schema.route_schema import FallbackReason, OnewayMode, OnewayRouteInput, RouteOutput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
-
-RUNNING_COURSE_TYPES = ["river", "park", "bike_track", "trail"]
-
 
 class OnewayRunningEngine:
     def __init__(
         self,
         inp: OnewayRouteInput,
         G: nx.Graph,
-        profile_name: str = "running",
+        mode: OnewayMode = OnewayMode.RUNNING,
     ):
         self._inp          = inp
         self._G            = G.copy()         # 원본 그래프 보호
         self._utils        = PathUtils(self._G)
-        profile            = get_profile(profile_name)
+        self.mode          = mode
+        profile            = get_profile(self.mode)
         self._weights      = profile.weights
         self._blocked_tags = profile.blocked_tags
 
@@ -48,7 +42,7 @@ class OnewayRunningEngine:
         if start is None:
             return RouteOutput(
                 status="FAILED",
-                mode="oneway_running",
+                mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
                 fallback_reason=FallbackReason.NO_NEAREST_START_NODE,
@@ -58,7 +52,7 @@ class OnewayRunningEngine:
         if end is None:
             return RouteOutput(
                 status="FAILED",
-                mode="oneway_running",
+                mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
                 fallback_reason=FallbackReason.NO_NEAREST_END_NODE,
@@ -71,7 +65,7 @@ class OnewayRunningEngine:
         if not nodes:
             return RouteOutput(
                 status="FAILED",
-                mode="oneway_running",
+                mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
                 fallback_reason=FallbackReason.NO_PATH,  # 경로 없음
@@ -82,7 +76,7 @@ class OnewayRunningEngine:
 
         return RouteOutput(
             status="SUCCESS" if coords else "FAILED",
-            mode="oneway_running",
+            mode=self.mode,
             coordinates=coords,
             total_km=round(total_m / 1000, 2),
             fallback_reason=None,

@@ -2,7 +2,7 @@ import networkx as nx
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.route_engine.schema import CircularRouteInput, FallbackReason, RouteOutput
+from src.schema.route_schema import CircularMode, CircularRouteInput, FallbackReason, RouteOutput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 
@@ -11,12 +11,13 @@ class CircularFlatEngine:
         self,
         inp: CircularRouteInput,
         G: nx.Graph,
-        profile_name: str = "flat"
+        mode: CircularMode = CircularMode.FLAT
     ):
         self._inp          = inp
         self._G            = G.copy()  # 원본 그래프 보호
         self._utils        = PathUtils(self._G)
-        profile            = get_profile(profile_name)
+        self.mode          = mode
+        profile            = get_profile(self.mode)
         self._weights      = profile.weights
         self._blocked_tags = profile.blocked_tags
 
@@ -38,7 +39,7 @@ class CircularFlatEngine:
         if start is None:
             return RouteOutput(
                 status="FAILED",
-                mode="circular_flat",
+                mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
                 fallback_reason=FallbackReason.NO_NEAREST_START_NODE,
@@ -51,7 +52,7 @@ class CircularFlatEngine:
         if not nodes:
             return RouteOutput(
                 status="FAILED",
-                mode="circular_flat",
+                mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
                 fallback_reason=FallbackReason.NO_PATH,
@@ -62,7 +63,7 @@ class CircularFlatEngine:
         total_m = self._utils.calc_distance(pruned)        # 총 이동 거리(미터)
         return RouteOutput(
             status          = "SUCCESS" if coords else "FAILED",
-            mode            = "circular_flat",
+            mode            = self.mode,
             coordinates     = coords,
             total_km        = round(total_m / 1000, 2),
             fallback_reason = None,
