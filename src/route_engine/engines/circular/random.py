@@ -4,7 +4,12 @@ import random
 from src.route_engine.engines.path_utils import extract_coordinates
 
 
-def random_walk_route(G: nx.Graph, start_node: int, target_distance_km: float = 3.0, weight: str = "length") -> dict:
+def random_walk_route(
+    G: nx.Graph,
+    start_node: int,
+    target_distance_km: float = 3.0,
+    weight: str = "custom_score",
+) -> dict:
     target_m = target_distance_km * 1000
     visited_edges = {}
     path_nodes = [start_node]
@@ -53,6 +58,7 @@ def random_walk_route(G: nx.Graph, start_node: int, target_distance_km: float = 
 
     if path_nodes[-1] != start_node:
         try:
+
             def return_weight(u, v, d):
                 edge_key = tuple(sorted([u, v]))
                 visit_count = visited_edges.get(edge_key, 0)
@@ -70,5 +76,5 @@ def random_walk_route(G: nx.Graph, start_node: int, target_distance_km: float = 
     return {
         "nodes": path_nodes,
         "coordinates": extract_coordinates(G, path_nodes),
-        "total_distance_km": round(total_distance / 1000, 2)
+        "total_distance_km": round(total_distance / 1000, 2),
     }

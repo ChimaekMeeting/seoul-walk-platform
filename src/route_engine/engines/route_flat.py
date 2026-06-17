@@ -81,28 +81,11 @@ class WeightsV2(BaseModel):
 def apply_intent_weights_v2(G: nx.Graph, weights: dict) -> nx.Graph:
     """
     slope_score 페널티 포함 custom_score 계산.
-
-    공식:
-        slope_penalty = (2.0 - slope_score) ^ slope_w
-        custom_score  = (length * slope_penalty) / (safety^a * nature^b + ε)
+    scoring_engine.calculate_custom_score()에 위임합니다.
     """
-    safety_w = weights.get("safety", 1.0)
-    nature_w = weights.get("nature", 1.0)
-    slope_w = weights.get("slope", 1.0)
+    from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
-    for u, v, data in G.edges(data=True):
-        length = data.get("length", 1.0) or 1.0
-        safety = data.get("safety_score", 0.5)
-        nature = data.get("nature_score", 0.5)
-        slope = data.get("slope_score", 0.5)
-
-        slope_penalty = (2.0 - slope) ** slope_w
-        custom_score = (length * slope_penalty) / (
-            (safety + 1e-6) ** safety_w * (nature + 1e-6) ** nature_w
-        )
-        G[u][v]["custom_score"] = custom_score
-
-    return G
+    return calculate_custom_score(G, {"mode": "general", "weights": weights})
 
 
 def get_route_v2(context: dict, weights: dict, G_full: nx.Graph = None) -> dict:
