@@ -2,37 +2,6 @@ from enum import Enum
 from typing import Literal, Optional, Union
 from pydantic import BaseModel, Field
 
-
-class CircularMode(str, Enum):
-    RANDOM   = "circular_random"
-    CHILD    = "circular_child"
-    RUNNING  = "circular_running"
-    LANDMARK = "circular_landmark"
-    FLAT     = "circular_flat"
-
-
-class OnewayMode(str, Enum):
-    SHORTEST = "oneway_shortest"
-    RANDOM   = "oneway_random"
-    CHILD    = "oneway_child"
-    RUNNING  = "oneway_running"
-    LANDMARK = "oneway_landmark"
-    FLAT     = "oneway_flat"
-
-
-class FallbackReason(str, Enum):
-    INVALID_ORIGIN         = "INVALID_ORIGIN"
-    INVALID_DESTINATION    = "INVALID_DESTINATION"
-    NO_NEAREST_START_NODE  = "NO_NEAREST_START_NODE"
-    NO_NEAREST_END_NODE    = "NO_NEAREST_END_NODE"
-    NO_PATH                = "NO_PATH"
-    RETURN_PATH_NOT_FOUND  = "RETURN_PATH_NOT_FOUND"
-    PARTIAL_ROUTE          = "PARTIAL_ROUTE"
-    WEIGHT_RELAXED         = "WEIGHT_RELAXED"
-    RADIUS_EXPANDED        = "RADIUS_EXPANDED"
-    UNKNOWN_ERROR          = "UNKNOWN_ERROR"
-
-
 class CircularRouteInput(BaseModel):
     start_lat: float
     start_lon: float
@@ -45,14 +14,6 @@ class OnewayRouteInput(BaseModel):
     end_lat:   float
     end_lon:   float
     target_km: float | None = None
-
-
-class RouteOutput(BaseModel):
-    status:          Literal["SUCCESS", "FAILED"]
-    mode:            Union[CircularMode, OnewayMode]
-    coordinates:     list[list[float]]
-    total_km:        float = 0.0
-    fallback_reason: Optional[FallbackReason] = None
 
 
 class Weights(BaseModel):
