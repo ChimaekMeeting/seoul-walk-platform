@@ -9,9 +9,9 @@ from geoalchemy2.functions import (
     ST_X,
     ST_Y,
 )
-from sqlalchemy import func, insert, select, text
+from sqlalchemy import func, insert, select
 
-from src.database.postgresql import get_postgresql_db, engine
+from src.database.postgresql import get_postgresql_db
 from src.entity.layer.running_layer import RunningLayer
 from src.interfaces.schema.running_schema import CourseInfo
 from src.repository.utils import RepositoryUtils
@@ -21,14 +21,6 @@ class RunningRepository:
     """
     런닝 코스 수집(저장·초기화)과 조회를 담당하는 레포지토리입니다.
     """
-
-    @staticmethod
-    def truncate():
-        """
-        running_layer 테이블의 모든 데이터를 초기화합니다.
-        """
-        with engine.begin() as conn:
-            conn.execute(text("TRUNCATE TABLE running_layer RESTART IDENTITY CASCADE"))
 
     @staticmethod
     def save_all(records: list[dict]):

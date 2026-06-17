@@ -334,7 +334,6 @@ class RunningCourseCollector:
         """
         courses를 초기화하고 전체 데이터의 달리기 코스 시작점을 저장합니다.
         """
-        RunningRepository.truncate()
         records = (
             self.build_river_records()
             + self.build_park_records()

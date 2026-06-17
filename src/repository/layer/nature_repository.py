@@ -1,7 +1,7 @@
 from collections import Counter
 
 import geopandas as gpd
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
 from src.database.postgresql import get_postgresql_db, engine
 from src.entity.layer.nature_layer import NatureLayer
@@ -9,14 +9,6 @@ from src.repository.utils import RepositoryUtils
 
 
 class NatureRepository:
-    @staticmethod
-    def truncate():
-        """
-        nature_layer 테이블의 모든 데이터를 초기화합니다.
-        """
-        with engine.begin() as conn:
-            conn.execute(text("TRUNCATE TABLE nature_layer RESTART IDENTITY CASCADE"))
-
     @staticmethod
     def save_geodataframe(gdf: gpd.GeoDataFrame) -> None:
         """

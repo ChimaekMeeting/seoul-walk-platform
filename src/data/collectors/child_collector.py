@@ -89,7 +89,6 @@ class ChildCollector:
         """
         어린이보호구역, 어린이놀이시설 Node를 저장합니다.
         """
-        ChildRepository.truncate()
         ChildRepository.save_all(records)
 
     def update_edge(self) -> None:
