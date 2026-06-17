@@ -1,7 +1,6 @@
 import streamlit as st
 
-from src.database.postgresql import health_check
-
+from frontend.streamlit_prototype.api.health_router import HealthRouter
 
 class WalkSidebar:
 
@@ -9,7 +8,7 @@ class WalkSidebar:
         """
         DB 상태, 입력 방식, 경로 모드, 가중치 슬라이더, 아이 동반 옵션을 렌더링하고 설정값 딕셔너리를 반환합니다.
         """
-        db_ok = health_check()
+        db_ok = HealthRouter().get_health()
         st.sidebar.markdown("### 시스템 상태")
         st.sidebar.success("🟢 DB 연결됨") if db_ok else st.sidebar.error("🔴 DB 연결 실패")
 

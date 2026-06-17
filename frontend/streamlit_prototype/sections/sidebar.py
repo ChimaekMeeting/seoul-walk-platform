@@ -8,7 +8,7 @@ DB 연결 상태 표시, 입력 방식(직접 설정 / AI 챗봇) 선택, 선택
 import streamlit as st
 from dataclasses import dataclass
 
-from src.database.postgresql import health_check
+from frontend.streamlit_prototype.api.health_router import HealthRouter
 from frontend.streamlit_prototype.modes.base import BaseRouteMode, RouteParams
 from frontend.streamlit_prototype.modes.registry import ROUTE_MODES
 
@@ -50,7 +50,7 @@ def render_sidebar() -> SidebarConfig:
 
     DB 연결 상태, 입력 방식, 모드 선택, 파라미터 입력 UI를 렌더링
     """
-    db_ok = health_check()
+    db_ok = HealthRouter().get_health()
     st.sidebar.markdown("### 시스템 상태")
     st.sidebar.success("🟢 DB 연결됨") if db_ok else st.sidebar.error("🔴 DB 연결 실패")
     st.sidebar.markdown("### 경로 설정")
