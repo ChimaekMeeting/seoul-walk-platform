@@ -15,13 +15,18 @@ RUNNING_COURSE_TYPES = ["river", "park", "bike_track", "trail"]
 
 
 class OnewayRunningEngine:
-    def __init__(self, inp: OnewayRouteInput, profile_name: str = "running", G: Optional[nx.Graph] = None):
-        self._inp                     = inp
-        self._G: nx.Graph | None      = G
+    def __init__(
+        self,
+        inp: OnewayRouteInput,
+        profile_name: str = "running",
+        G: Optional[nx.Graph] = None,
+    ):
+        self._inp = inp
+        self._G: nx.Graph | None = G
         self._utils: PathUtils | None = None  # run() 이후 설정
-        profile                       = get_profile(profile_name)
-        self._weights                 = profile.weights
-        self._blocked_tags            = profile.blocked_tags
+        profile = get_profile(profile_name)
+        self._weights = profile.weights
+        self._blocked_tags = profile.blocked_tags
         self.matched_courses: list[CourseInfo] = []  # run() 이후 접근 가능
 
     def run(self) -> RouteOutput:
@@ -31,55 +36,78 @@ class OnewayRunningEngine:
         t0 = time.time()
 
         self.matched_courses = self._fetch_courses()
-        self._G              = self._load_graph()
+        self._G = self._load_graph()
 
         if self._G.number_of_nodes() == 0:
-            return RouteOutput(status="FAILED", mode="oneway_running",
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_GRAPH_DATA)
+            return RouteOutput(
+                status="FAILED",
+                mode="oneway_running",
+                coordinates=[],
+                total_km=0.0,
+                fallback_reason=FallbackReason.NO_GRAPH_DATA,
+            )
 
         self._remove_invalid_nodes()
 
         if self._G.number_of_nodes() == 0:
-            return RouteOutput(status="FAILED", mode="oneway_running",
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_GRAPH_DATA)
+            return RouteOutput(
+                status="FAILED",
+                mode="oneway_running",
+                coordinates=[],
+                total_km=0.0,
+                fallback_reason=FallbackReason.NO_GRAPH_DATA,
+            )
 
-        calculate_custom_score(self._G, {
-            "mode": "running",
-            "weights": self._weights,
-            "blocked_tags": self._blocked_tags,
-        })
+        calculate_custom_score(
+            self._G,
+            {
+                "mode": "running",
+                "weights": self._weights,
+                "blocked_tags": self._blocked_tags,
+            },
+        )
         self._utils = PathUtils(self._G)
 
         start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
-        end   = self._utils.find_nearest_node(self._inp.end_lat,   self._inp.end_lon)
+        end = self._utils.find_nearest_node(self._inp.end_lat, self._inp.end_lon)
 
         if start is None:
-            return RouteOutput(status="FAILED", mode="oneway_running",
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
+            return RouteOutput(
+                status="FAILED",
+                mode="oneway_running",
+                coordinates=[],
+                total_km=0.0,
+                fallback_reason=FallbackReason.NO_NEAREST_START_NODE,
+            )
         if end is None:
-            return RouteOutput(status="FAILED", mode="oneway_running",
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_NEAREST_END_NODE)
+            return RouteOutput(
+                status="FAILED",
+                mode="oneway_running",
+                coordinates=[],
+                total_km=0.0,
+                fallback_reason=FallbackReason.NO_NEAREST_END_NODE,
+            )
 
         nodes, mode_label = self._generate_route(start, end)
         if not nodes:
-            return RouteOutput(status="FAILED", mode="oneway_running",
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_PATH)
+            return RouteOutput(
+                status="FAILED",
+                mode="oneway_running",
+                coordinates=[],
+                total_km=0.0,
+                fallback_reason=FallbackReason.NO_PATH,
+            )
 
         print(f"[running/oneway] 완료 {time.time()-t0:.2f}s")
-        pruned  = self._utils.prune_dead_ends(nodes, max_branch_length=300)
-        coords  = self._utils.extract_coordinates(pruned)
+        pruned = self._utils.prune_dead_ends(nodes, max_branch_length=300)
+        coords = self._utils.extract_coordinates(pruned)
         total_m = self._calc_distance(pruned)
         return RouteOutput(
-            status          = "SUCCESS" if coords else "FAILED",
-            mode            = mode_label,
-            coordinates     = coords,
-            total_km        = round(total_m / 1000, 2),
-            fallback_reason = None,
+            status="SUCCESS" if coords else "FAILED",
+            mode=mode_label,
+            coordinates=coords,
+            total_km=round(total_m / 1000, 2),
+            fallback_reason=None,
         )
 
     def _fetch_courses(self) -> list[CourseInfo]:
@@ -101,20 +129,25 @@ class OnewayRunningEngine:
         """
         if self._G is not None:
             return self._G
-        straight_m   = math.sqrt(
-            (self._inp.start_lat - self._inp.end_lat) ** 2 +
-            (self._inp.start_lon - self._inp.end_lon) ** 2
-        ) * 111_000
+        straight_m = (
+            math.sqrt(
+                (self._inp.start_lat - self._inp.end_lat) ** 2
+                + (self._inp.start_lon - self._inp.end_lon) ** 2
+            )
+            * 111_000
+        )
         graph_radius = max(straight_m * 1.5, 3_000)  # 최소 3km 반경
-        mid_lat      = (self._inp.start_lat + self._inp.end_lat) / 2
-        mid_lon      = (self._inp.start_lon + self._inp.end_lon) / 2
+        mid_lat = (self._inp.start_lat + self._inp.end_lat) / 2
+        mid_lon = (self._inp.start_lon + self._inp.end_lon) / 2
         return GraphRepository.load_graph_near(mid_lat, mid_lon, radius_m=graph_radius)
 
     def _remove_invalid_nodes(self) -> None:
         """
         좌표 속성이 없는 노드를 그래프에서 제거합니다.
         """
-        invalid = [n for n, d in self._G.nodes(data=True) if "lon" not in d or "lat" not in d]
+        invalid = [
+            n for n, d in self._G.nodes(data=True) if "lon" not in d or "lat" not in d
+        ]
         if invalid:
             self._G = self._G.copy()
             self._G.remove_nodes_from(invalid)
@@ -142,4 +175,3 @@ class OnewayRunningEngine:
             (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("length", 0)
             for i in range(len(nodes) - 1)
         )
-
