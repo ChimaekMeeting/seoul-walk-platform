@@ -1,9 +1,31 @@
 import streamlit as st
 
 from src.service.route.route_service import RouteService
-from src.route_engine.engines.child_walk_route import ChildWalkRoute
 from frontend.streamlit_prototype.schema.prewalk_schema import Weights
+from src.route_engine.engines.circular.child import circular_child_route
+from src.route_engine.engines.oneway.child import oneway_child_route
 
+def _get_child_route(context: dict, G) -> dict:
+    mode        = context.get("mode", "circular")
+    origin      = context["origin"]["coordinate"]
+    start_lat   = float(origin["lat"])
+    start_lon   = float(origin["lon"])
+    distance_km = float(context.get("distance_km", 3.0))
+
+    if mode == "circular":
+        return circular_child_route(G, start_lat, start_lon, distance_km)
+
+    destination = context.get("destination")
+    if not destination:
+        return {"error": "편도 모드에서는 도착지를 설정해야 합니다."}
+
+    end_coord = destination["coordinate"]
+    return oneway_child_route(
+        G, start_lat, start_lon,
+        float(end_coord["lat"]), float(end_coord["lon"]),
+        distance_km,
+        use_random=(mode == "oneway_random"),
+    )
 
 class WalkRouteButton:
 
@@ -65,7 +87,7 @@ class WalkRouteButton:
                     with st.spinner("최적의 경로를 계산하는 중..."):
                         context = self._build_context(selected_mode, distance_km, lat, lng)
                         result = (
-                            ChildWalkRoute().get_route(context, weights, self.G)
+                            _get_child_route(context, self.G)
                             if child_friendly
                             else self._route_service.get_route(context, weights, self.G)
                         )
