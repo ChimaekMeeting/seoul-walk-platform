@@ -10,8 +10,10 @@ from src.interfaces.api import (
     prewalk_router,
     user_router,
     weather_router,
-    running_router
+    running_router,
+    walk_router,
 )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,6 +44,7 @@ app.include_router(prewalk_router.router)
 app.include_router(auth_router.router)
 app.include_router(login_router.router)
 app.include_router(running_router.router)
+app.include_router(walk_router.router)
 
 @app.get("/")
 def read_root():
