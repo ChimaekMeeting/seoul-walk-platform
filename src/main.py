@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from src.entity.base import init_db
+from src.repository.network.graph_repository import GraphRepository
+from src.service.route.route_service import RouteService
 from src.interfaces.api import (
     auth_router,
     login_router,
@@ -19,9 +21,9 @@ from src.interfaces.api import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # DB 초기화
     init_db()
-
+    app.state.G_full        = GraphRepository.load_graph()
+    app.state.route_service = RouteService(G=app.state.G_full)
     yield
 
 app = FastAPI(
