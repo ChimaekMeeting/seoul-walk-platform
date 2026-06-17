@@ -16,4 +16,5 @@ async def get_weather(
     """
     현재 위치 기반 날씨와 대기질을 반환합니다.
     """
-    return await service.generate_init_message(lat, lon)
+    env_info, _ = await service.generate_init_message(lat, lon)
+    return env_info
