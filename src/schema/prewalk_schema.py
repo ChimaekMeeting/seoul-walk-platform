@@ -19,6 +19,20 @@ class BasePreference(BaseModel):
     """
     origin: Optional[Location] = Field(None, description="출발지 정보")
     purpose: Optional[str] = Field(None, description="산책 목적")
+    
+    # 챗봇에서 추출한 사용자 선호를 route_engine.profiles.py와 연결하기 위한 필드
+    profile_name: str = Field(
+        "default", 
+        description="route_engine.profiles.py와 매핑되는 프로필명 (default, quiet, flat, safe, scenic, child, running)"
+    )
+    child_friendly: bool = Field(False, description="어린이 동반, 유모차 등 안전 우선 모드 여부")
+    
+    # 현재 시스템(route_engine/DB)에서 직접 지원하지 않는 조건(예: 그늘, 시원함)을 
+    # 유실하지 않고 기록하기 위한 보존용 필드
+    unsupported_preferences: list[str] = Field(
+        default_factory=list, 
+        description="현재 매핑 불가능한 사용자 요구사항 보존"
+    )
 
 
 class CircularPreference(BasePreference):

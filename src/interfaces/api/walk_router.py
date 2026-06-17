@@ -23,23 +23,35 @@ async def walk_route(
         start_lon   = request.origin.coordinate.lon
         distance_km = request.distance_km
 
+        # profile_name 정규화
+        profile_name = request.profile_name.lower().strip() if request.profile_name else "default"
+
+        # child_friendly 플래그 또는 profile_name이 child이면 child 전용 모드로 라우팅
         mode = request.mode
-        if request.child_friendly:
+        if request.child_friendly or profile_name == "child":
             mode = "circular_child" if mode == "circular_random" else "oneway_child"
 
         context = {
-            "mode":        mode,
-            "distance_km": distance_km,
+            "mode":         mode,
+            "distance_km":  distance_km,
+            "profile_name": profile_name,
             "origin": {
+                "place_name": request.origin.place_name,
+                "address":    request.origin.address,
                 "coordinate": {"lat": start_lat, "lon": start_lon},
             },
             "destination": (
-                {"coordinate": {
-                    "lat": request.destination.coordinate.lat,
-                    "lon": request.destination.coordinate.lon,
-                }}
+                {
+                    "place_name": request.destination.place_name,
+                    "address":    request.destination.address,
+                    "coordinate": {
+                        "lat": request.destination.coordinate.lat,
+                        "lon": request.destination.coordinate.lon,
+                    },
+                }
                 if request.destination else None
             ),
+            "purpose": request.purpose,
         }
 
         output = service.get_route(context)
