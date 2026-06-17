@@ -99,7 +99,7 @@ class WalkRouteButton:
                             if child_friendly
                             else self._route_service.get_route(context, G_full=self.G)
                         )
-                        if "error" in result:
+                        if result.get("error"):
                             st.error(f"오류 발생: {result['error']}")
                         else:
                             self._save(result)
@@ -126,7 +126,7 @@ class WalkRouteButton:
                         "purpose": user_context.get("purpose", "산책"),
                     }
                     result = self._route_service.get_route(context, G_full=self.G)
-                    if "error" in result:
+                    if result.get("error"):
                         st.error(f"오류 발생: {result['error']}")
                     else:
                         self._save(result)

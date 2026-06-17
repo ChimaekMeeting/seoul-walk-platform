@@ -23,7 +23,7 @@ class RoutePanel:
             time_min = round(result["total_distance_km"] / avg_speed * 60)
             st.metric("예상 소요 시간", f"{time_min} 분")
 
-        st.markdown(f"**총 노드 수:** {len(result['nodes'])}개")
+        st.markdown(f"**총 노드 수:** {len(result.get('coordinates', []))}개")
         st.markdown(f"**알고리즘:** {result['mode']}")
 
         with st.expander("📍 경로 좌표 상세보기"):
