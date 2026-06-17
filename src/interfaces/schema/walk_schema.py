@@ -1,5 +1,6 @@
-from typing import Optional, List
-from pydantic import BaseModel, Field
+from typing import Optional, List, Literal, Union
+from pydantic import BaseModel
+from enum import Enum
 
 
 class Coordinate(BaseModel):
@@ -7,27 +8,46 @@ class Coordinate(BaseModel):
     lon: float
 
 
-class LocationInfo(BaseModel):
-    place_name: str = ""
-    address: str = ""
-    coordinate: Coordinate
+class CircularMode(str, Enum):
+    RANDOM   = "circular_random"
+    CHILD    = "circular_child"
+    RUNNING  = "circular_running"
+    LANDMARK = "circular_landmark"
+    FLAT     = "circular_flat"
+
+
+class OnewayMode(str, Enum):
+    SHORTEST = "oneway_shortest"
+    RANDOM   = "oneway_random"
+    CHILD    = "oneway_child"
+    RUNNING  = "oneway_running"
+    LANDMARK = "oneway_landmark"
+    FLAT     = "oneway_flat"
+
+
+class FallbackReason(str, Enum):
+    INVALID_ORIGIN         = "INVALID_ORIGIN"
+    INVALID_DESTINATION    = "INVALID_DESTINATION"
+    NO_NEAREST_START_NODE  = "NO_NEAREST_START_NODE"
+    NO_NEAREST_END_NODE    = "NO_NEAREST_END_NODE"
+    NO_PATH                = "NO_PATH"
+    RETURN_PATH_NOT_FOUND  = "RETURN_PATH_NOT_FOUND"
+    PARTIAL_ROUTE          = "PARTIAL_ROUTE"
+    WEIGHT_RELAXED         = "WEIGHT_RELAXED"
+    RADIUS_EXPANDED        = "RADIUS_EXPANDED"
+    UNKNOWN_ERROR          = "UNKNOWN_ERROR"
 
 
 class WalkRouteRequest(BaseModel):
-    mode: str = Field(..., description="circular | oneway_shortest | oneway_random")
-    distance_km: float = Field(3.0, ge=1.0, le=20.0)
-    child_friendly: bool = Field(False)
-    origin: LocationInfo
-    destination: Optional[LocationInfo] = None
-    purpose: str = Field("산책")
-
-    # 챗봇/프론트에서 추출한 사용자 선호를 route_engine profile로 전달하기 위한 값
-    # (참고: 그늘/시원함 등 전용 프로필이 없는 항목은 프롬프트 단에서 'quiet'으로 임시 매핑됨)
-    profile_name: str = Field("default", description="지원 프로필: default, quiet, flat, safe, scenic, child, running")
+    origin:      Coordinate
+    destination: Optional[Coordinate] = None
+    target_km:   Optional[float] = None
+    mode:        Union[CircularMode, OnewayMode]
 
 
 class WalkRouteResponse(BaseModel):
-    mode: str
-    coordinates: List[List[float]]
-    total_distance_km: float
-    error: Optional[str] = None
+    status:          Literal["SUCCESS", "FAILED"]
+    mode:            Union[CircularMode, OnewayMode]
+    coordinates:     list[list[float]]
+    total_km:        float = 0.0
+    fallback_reason: Optional[FallbackReason] = None
