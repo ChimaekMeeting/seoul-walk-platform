@@ -103,7 +103,7 @@ class ChatPanel:
                 st.json({"state": state, "weights": weights_data})
             user_context = state.get("user_context", {})
             if user_context:
-                mode_map = {"Circular": "circular", "Destination": "oneway_shortest", "Distance": "oneway_random"}
+                mode_map = {"Circular": "circular", "Destination": "oneway_shortest", "Distance": "circular"}
                 return (
                     weights_data.get("safety", safety_w),
                     weights_data.get("nature", nature_w),
