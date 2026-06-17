@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 class FallbackReason(str, Enum):
     INVALID_ORIGIN         = "INVALID_ORIGIN"
     INVALID_DESTINATION    = "INVALID_DESTINATION"
-    NO_GRAPH_DATA          = "NO_GRAPH_DATA"
     NO_NEAREST_START_NODE  = "NO_NEAREST_START_NODE"
     NO_NEAREST_END_NODE    = "NO_NEAREST_END_NODE"
     NO_PATH                = "NO_PATH"
