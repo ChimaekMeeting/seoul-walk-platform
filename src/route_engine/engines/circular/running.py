@@ -1,16 +1,14 @@
-import time
-
 import networkx as nx
 
-from src.interfaces.schema.running_schema import CourseInfo
-from src.repository.layer.running_repository import RunningRepository
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.schema.route_schema import CircularMode, CircularRouteInput, FallbackReason, RouteOutput
+from src.interfaces.schema.walk_schema import (
+    CircularMode,
+    FallbackReason,
+    WalkRouteResponse
+)
+from src.schema.route_schema import CircularRouteInput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
-
-RUNNING_COURSE_TYPES = ["river", "park", "bike_track", "trail"]
-
 
 class CircularRunningEngine:
     def __init__(
@@ -27,7 +25,7 @@ class CircularRunningEngine:
         self._weights      = profile.weights
         self._blocked_tags = profile.blocked_tags
 
-    def run(self) -> RouteOutput:
+    def run(self) -> WalkRouteResponse:
         """
         DB 코스 정보를 반영한 순환 런닝 경로를 생성합니다.
         """
@@ -43,7 +41,7 @@ class CircularRunningEngine:
 
         # 출발 노드가 없는 경우
         if start is None:
-            return RouteOutput(status="FAILED", mode=self.mode,
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
         
@@ -52,14 +50,14 @@ class CircularRunningEngine:
 
         # 경로가 없는 경우
         if not nodes:
-            return RouteOutput(status="FAILED", mode=self.mode,
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_PATH)
 
         pruned  = self._utils.prune_dead_ends(nodes, max_branch_length=300)  # 왕복 가지 제거
         coords  = self._utils.extract_coordinates(pruned)                    # [lat, lon] 좌표 목록
         total_m = self._utils.calc_distance(pruned)                          # 총 이동 거리(미터)
-        return RouteOutput(
+        return WalkRouteResponse(
             status          = "SUCCESS" if coords else "FAILED",
             mode            = self.mode,
             coordinates     = coords,

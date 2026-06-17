@@ -2,7 +2,12 @@ import networkx as nx
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.schema.route_schema import FallbackReason, OnewayMode, OnewayRouteInput, RouteOutput
+from src.interfaces.schema.walk_schema import (
+    FallbackReason,
+    OnewayMode,
+    WalkRouteResponse
+)
+from src.schema.route_schema import OnewayRouteInput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 
@@ -23,7 +28,7 @@ class OnewayLandmarkEngine:
         self._weights       = profile.weights
         self._blocked_tags  = profile.blocked_tags
 
-    def run(self) -> RouteOutput:
+    def run(self) -> WalkRouteResponse:
         """
         랜드마크를 경유하는 편도 경로를 생성합니다.
         """
@@ -40,13 +45,13 @@ class OnewayLandmarkEngine:
 
         # 출발 노드가 없는 경우
         if start is None:
-            return RouteOutput(status="FAILED", mode=self.mode,
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
         
         # 도착 노드가 없는 경우
         if end is None:
-            return RouteOutput(status="FAILED", mode=self.mode,
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_END_NODE)
         
@@ -55,14 +60,14 @@ class OnewayLandmarkEngine:
 
         # 경로가 없는 경우
         if not nodes:
-            return RouteOutput(status="FAILED", mode=self.mode,
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_PATH)
 
         coords  = self._utils.extract_coordinates(nodes)  # [lat, lon] 좌표 목록
         total_m = self._utils.calc_distance(nodes)        # 총 이동 거리(미터)
 
-        return RouteOutput(
+        return WalkRouteResponse(
             status          = "SUCCESS" if coords else "FAILED",
             mode            = self.mode,
             coordinates     = coords,
