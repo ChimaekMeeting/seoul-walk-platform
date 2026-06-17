@@ -1,5 +1,4 @@
 import math
-import random
 
 import networkx as nx
 
@@ -12,16 +11,17 @@ FLAT_THRESHOLD = 0.7  # 평지 판정 경사 점수 기준
 
 class CircularFlatEngine:
     def __init__(
-        self, inp: CircularRouteInput, G: nx.Graph, profile_name: str = "flat"
+        self,
+        inp: CircularRouteInput,
+        G: nx.Graph,
+        profile_name: str = "flat"
     ):
-        self._inp = inp
-        self._G = G.copy()  # 원본 그래프 보호
-        self._utils = PathUtils(self._G)
-        profile = get_profile(profile_name)
-        self._weights = profile.weights
+        self._inp          = inp
+        self._G            = G.copy()  # 원본 그래프 보호
+        self._utils        = PathUtils(self._G)
+        profile            = get_profile(profile_name)
+        self._weights      = profile.weights
         self._blocked_tags = profile.blocked_tags
-        self.avg_slope_score: float = 0.0  # run() 이후 접근 가능
-        self.flat_entry_node: int | None = None  # run() 이후 접근 가능
 
     def run(self) -> RouteOutput:
         """
@@ -34,194 +34,102 @@ class CircularFlatEngine:
                 mode="circular_flat",
                 coordinates=[],
                 total_km=0.0,
-                fallback_reason=FallbackReason.NO_NEAREST_START_NODE,
+                fallback_reason=FallbackReason.NO_NEAREST_START_NODE,  # 출발 노드 없음
             )
 
         entry = self._find_flat_entry(start)
-        self.flat_entry_node = entry
 
-        path_nodes, total_dist = self._approach(start, entry)
-        path_nodes, total_dist = self._loop(path_nodes, total_dist, entry, start)
-        path_nodes, total_dist = self._return_phase(path_nodes, total_dist, start)
-
-        if not path_nodes:
+        nodes = self._generate_route(start, entry)  # 순환 경로 생성
+        if not nodes:
             return RouteOutput(
                 status="FAILED",
                 mode="circular_flat",
                 coordinates=[],
                 total_km=0.0,
-                fallback_reason=FallbackReason.NO_PATH,
+                fallback_reason=FallbackReason.NO_PATH,  # 경로 없음
             )
 
-        pruned = self._utils.prune_dead_ends(path_nodes)
-        self.avg_slope_score = self._calc_avg_slope(pruned)
-        coords = self._utils.extract_coordinates(pruned)
+        pruned  = self._utils.prune_dead_ends(nodes)
+        coords  = self._utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
+        total_m = self._utils.calc_distance(pruned)        # 총 이동 거리(미터)
         return RouteOutput(
             status="SUCCESS" if coords else "FAILED",
             mode="circular_flat",
             coordinates=coords,
-            total_km=round(total_dist / 1000, 2),
+            total_km=round(total_m / 1000, 2),
             fallback_reason=None,
         )
+
+    def _generate_route(self, start: int, entry: int) -> list[int]:
+        """
+        평지 기준 절반 거리 지점까지 왕복하는 순환 경로를 반환합니다.
+        """
+        try:
+            mid      = self._find_mid(entry)                                              # 절반 거리 지점 노드
+            path_out = nx.shortest_path(self._G, start, mid, weight=self._flat_cost)     # 출발→중간
+
+            visited = {tuple(sorted([path_out[i], path_out[i + 1]])): True              # 기방문 엣지 집합
+                       for i in range(len(path_out) - 1)}
+
+            def back_cost(u, v, data):
+                ek = tuple(sorted([u, v]))
+                return self._flat_cost(u, v, data) * (10.0 if ek in visited else 1.0)  # 기방문 억제
+
+            path_back = nx.shortest_path(self._G, mid, start, weight=back_cost)         # 중간→출발
+            return path_out + path_back[1:]
+        except Exception:
+            return []
 
     def _find_flat_entry(self, start: int) -> int:
         """
         출발 노드에서 가장 가까운 평지 진입 노드를 반환합니다.
         """
-        target_m = (self._inp.target_km or 3.0) * 1000
+        target_m   = (self._inp.target_km or 3.0) * 1000  # 목표 거리(미터)
         flat_nodes = {
             n
             for u, v, d in self._G.edges(data=True)
-            if (d.get("slope_score") or 0) >= FLAT_THRESHOLD
+            if (d.get("slope_score") or 0) >= FLAT_THRESHOLD  # 평지 기준 이상인 엣지의 노드
             for n in (u, v)
         }
 
-        if start in flat_nodes or not flat_nodes:
+        if start in flat_nodes or not flat_nodes:  # 이미 평지이거나 평지 없으면 그대로 반환
             return start
 
-        sx = self._G.nodes[start].get("lon", 0)
-        sy = self._G.nodes[start].get("lat", 0)
+        sx = self._G.nodes[start].get("lon", 0)  # 출발점 경도
+        sy = self._G.nodes[start].get("lat", 0)  # 출발점 위도
 
         best, best_d = start, float("inf")
         for node in flat_nodes:
             nd = self._G.nodes[node]
             if "lon" not in nd or "lat" not in nd:
                 continue
-            d = math.sqrt((nd["lon"] - sx) ** 2 + (nd["lat"] - sy) ** 2) * 111000
-            if d < best_d and d < target_m * 2:
+            d = math.sqrt((nd["lon"] - sx) ** 2 + (nd["lat"] - sy) ** 2) * 111000  # 유클리드 추정 거리
+            if d < best_d and d < target_m * 2:  # 목표 거리 2배 이내 최근접 갱신
                 best, best_d = node, d
         return best
 
-    def _approach(self, start: int, entry: int) -> tuple[list[int], float]:
+    def _find_mid(self, entry: int) -> int:
         """
-        출발 노드에서 평지 진입 노드까지의 접근 경로를 반환합니다.
+        entry 기준 목표 거리 절반 지점에 가장 가까운 노드를 반환합니다.
         """
-        if entry == start:
-            return [start], 0.0
+        target_m = (self._inp.target_km or 3.0) * 1000 / 2                                       # 왕복 기준 절반 거리(미터)
+        lengths  = nx.single_source_dijkstra_path_length(self._G, entry, weight="length")         # entry 기준 거리 맵
+        return min((n for n in lengths if n != entry), key=lambda n: abs(lengths[n] - target_m))  # 절반 지점 노드
 
-        try:
-            path = nx.shortest_path(self._G, start, entry, weight="length")
-        except nx.NetworkXNoPath:
-            return [start], 0.0
-
-        dist = sum(
-            (self._G.get_edge_data(path[i], path[i + 1]) or {}).get("length", 0)
-            for i in range(len(path) - 1)
-        )
-        return path, dist
-
-    def _loop(
-        self, path_nodes: list[int], total_dist: float, entry: int, start: int
-    ) -> tuple[list[int], float]:
+    def _flat_cost(self, u: int, v: int, data: dict) -> float:
         """
-        평지 구간을 방향 유지하며 순환합니다.
+        평지 기준 엣지 비용을 반환합니다. 비평지 엣지는 50배 억제합니다.
         """
-        target_m = (self._inp.target_km or 3.0) * 1000
-        loop_target = max(target_m - total_dist * 2, target_m * 0.5)
-        current = entry
-        visited: dict = {}
-        loop_dist = 0.0
-        heading = random.uniform(0, 360)  # 초기 진행 방향 (랜덤)
-
-        while loop_dist < loop_target:
-            neighbors = list(self._G.neighbors(current))
-            if not neighbors:
-                break
-
-            probs = []
-            for n in neighbors:
-                ek = tuple(sorted([current, n]))
-                edge_data = self._G.get_edge_data(current, n) or {}
-                slope = edge_data.get("slope_score", 0.5) or 0.5
-                slope_w = slope if slope >= FLAT_THRESHOLD else 0.01
-                ang = self._angle_to(current, n)
-                dir_score = max(0.01, 1.0 - self._angle_diff(ang, heading) / 180.0)
-                visit_pen = 1.0 / (1 + visited.get(ek, 0) * 6)
-                probs.append(slope_w * dir_score * visit_pen)
-
-            total_p = sum(probs)
-            if total_p == 0:
-                break
-
-            next_node = random.choices(
-                neighbors, weights=[p / total_p for p in probs], k=1
-            )[0]
-            ek = tuple(sorted([current, next_node]))
-            visited[ek] = visited.get(ek, 0) + 1
-
-            step = (self._G.get_edge_data(current, next_node) or {}).get("length", 0)
-            loop_dist += step
-            total_dist += step
-            path_nodes.append(next_node)
-            current = next_node
-
-            # 진행 방향 갱신 (90도 우회전 유도)
-            cur_ang = self._angle_to(entry, current)
-            heading = (heading * 0.85 + ((cur_ang + 90) % 360) * 0.15) % 360
-
-        return path_nodes, total_dist
-
-    def _return_phase(
-        self, path_nodes: list[int], total_dist: float, start: int
-    ) -> tuple[list[int], float]:
-        """
-        현재 위치에서 출발 노드로 복귀하는 경로를 연결합니다.
-        """
-        if path_nodes[-1] == start:
-            return path_nodes, total_dist
-
-        try:
-            visited_counts = {}
-            for i in range(len(path_nodes) - 1):
-                ek = tuple(sorted([path_nodes[i], path_nodes[i + 1]]))
-                visited_counts[ek] = visited_counts.get(ek, 0) + 1
-
-            def _return_w(u, v, d):
-                ek = tuple(sorted([u, v]))
-                cost = (
-                    d.get("custom_score")
-                    or (d.get("length", 1.0) or 1.0)
-                    * (2.0 - (d.get("slope_score", 0.5) or 0.5)) ** 2
-                )
-                return cost * (1 + visited_counts.get(ek, 0) * 2)
-
-            return_path = nx.shortest_path(
-                self._G, path_nodes[-1], start, weight=_return_w
-            )
-            for n in return_path[1:]:
-                total_dist += (self._G.get_edge_data(path_nodes[-1], n) or {}).get(
-                    "length", 0
-                )
-                path_nodes.append(n)
-        except nx.NetworkXNoPath:
-            pass
-
-        return path_nodes, total_dist
-
-    def _angle_to(self, a: int, b: int) -> float:
-        """
-        노드 a에서 노드 b 방향의 각도(도)를 반환합니다.
-        """
-        dx = self._G.nodes[b].get("lon", 0) - self._G.nodes[a].get("lon", 0)
-        dy = self._G.nodes[b].get("lat", 0) - self._G.nodes[a].get("lat", 0)
-        return math.degrees(math.atan2(dx, dy)) % 360
-
-    def _angle_diff(self, a: float, b: float) -> float:
-        """
-        두 방향각의 최소 차이(도)를 반환합니다.
-        """
-        d = abs(a - b) % 360
-        return d if d <= 180 else 360 - d
+        length = data.get("length", 1.0) or 1.0
+        slope  = data.get("slope_score", 0.5) or 0.5
+        return length * (1.0 if slope >= FLAT_THRESHOLD else 50.0)  # 비평지 엣지 억제
 
     def _calc_avg_slope(self, nodes: list[int]) -> float:
         """
         경로의 평균 경사 점수를 반환합니다.
         """
         scores = [
-            (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get(
-                "slope_score", 0.5
-            )
-            or 0.5
+            (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("slope_score", 0.5) or 0.5
             for i in range(len(nodes) - 1)
         ]
         return round(sum(scores) / len(scores), 4) if scores else 0.0

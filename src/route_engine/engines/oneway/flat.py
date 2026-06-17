@@ -6,14 +6,18 @@ from src.route_engine.schema import FallbackReason, OnewayRouteInput, RouteOutpu
 
 
 class OnewayFlatEngine:
-    def __init__(self, inp: OnewayRouteInput, G: nx.Graph, profile_name: str = "flat"):
+    def __init__(
+        self,
+        inp: OnewayRouteInput,
+        G: nx.Graph,
+        profile_name: str = "flat"
+    ):
         self._inp = inp
         self._G = G.copy()  # 원본 그래프 보호
         self._utils = PathUtils(self._G)
         profile = get_profile(profile_name)
         self._weights = profile.weights
         self._blocked_tags = profile.blocked_tags
-        self.avg_slope_score: float = 0.0  # run() 이후 접근 가능
 
     def run(self) -> RouteOutput:
         """
@@ -28,7 +32,7 @@ class OnewayFlatEngine:
                 mode="oneway_flat",
                 coordinates=[],
                 total_km=0.0,
-                fallback_reason=FallbackReason.NO_NEAREST_START_NODE,
+                fallback_reason=FallbackReason.NO_NEAREST_START_NODE,  # 출발 노드 없음
             )
         if end is None:
             return RouteOutput(
@@ -36,22 +40,21 @@ class OnewayFlatEngine:
                 mode="oneway_flat",
                 coordinates=[],
                 total_km=0.0,
-                fallback_reason=FallbackReason.NO_NEAREST_END_NODE,
+                fallback_reason=FallbackReason.NO_NEAREST_END_NODE,  # 도착 노드 없음
             )
 
-        nodes = self._find_path(start, end)
+        nodes = self._find_path(start, end)  # 편도 경로 생성
         if not nodes:
             return RouteOutput(
                 status="FAILED",
                 mode="oneway_flat",
                 coordinates=[],
                 total_km=0.0,
-                fallback_reason=FallbackReason.NO_PATH,
+                fallback_reason=FallbackReason.NO_PATH,  # 경로 없음
             )
 
-        self.avg_slope_score = self._calc_avg_slope(nodes)
         coords = self._utils.extract_coordinates(nodes)
-        total_m = self._calc_distance(nodes)
+        total_m = self._utils.calc_distance(nodes)
         return RouteOutput(
             status="SUCCESS" if coords else "FAILED",
             mode="oneway_flat",
@@ -80,25 +83,3 @@ class OnewayFlatEngine:
         except (nx.NetworkXNoPath, Exception) as e:
             print(f"[flat/oneway] 오류: {e}")
             return []
-
-    def _calc_distance(self, nodes: list[int]) -> float:
-        """
-        노드 목록의 총 이동 거리(미터)를 반환합니다.
-        """
-        return sum(
-            (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("length", 0)
-            for i in range(len(nodes) - 1)
-        )
-
-    def _calc_avg_slope(self, nodes: list[int]) -> float:
-        """
-        경로의 평균 경사 점수를 반환합니다.
-        """
-        scores = [
-            (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get(
-                "slope_score", 0.5
-            )
-            or 0.5
-            for i in range(len(nodes) - 1)
-        ]
-        return round(sum(scores) / len(scores), 4) if scores else 0.0
