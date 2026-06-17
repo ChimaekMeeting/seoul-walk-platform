@@ -13,7 +13,6 @@ from sqlalchemy import func, insert, select
 
 from src.database.postgresql import get_postgresql_db
 from src.entity.layer.running_layer import RunningLayer
-from src.interfaces.schema.running_schema import CourseInfo
 from src.repository.utils import RepositoryUtils
 
 
@@ -53,7 +52,7 @@ class RunningRepository:
         radius_m: float = 5_000,
         course_types: Optional[list[str]] = None,
         limit: int = 10,
-    ) -> list[CourseInfo]:
+    ) -> list[dict]:
         """
         출발점 반경 내 코스를 distance_from_origin_m 오름차순으로 반환합니다.
 
@@ -65,7 +64,7 @@ class RunningRepository:
             limit        : 최대 반환 건수. 기본값 10.
 
         Returns:
-            list[CourseInfo]: 코스 정보 목록.
+            list[dict]: 코스 정보 목록.
         """
         origin_geog   = ST_SetSRID(ST_MakePoint(lon, lat), 4326).cast(Geography)
         distance_expr = ST_Distance(RunningLayer.geom.cast(Geography), origin_geog)
