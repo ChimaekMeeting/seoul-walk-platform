@@ -72,12 +72,10 @@ class ChatPanel:
     def render(
         self,
         selected_mode: str,
-        distance_km: float,
-        safety_w: float,
-        nature_w: float,
-    ) -> tuple[float, float, str, float] | None:
+        target_km: float,
+    ) -> tuple[str, float] | None:
         """
-        AI 챗봇 패널을 렌더링하고, 대화 완료 시 업데이트된 (safety_w, nature_w, selected_mode, distance_km)를 반환합니다.
+        AI 챗봇 패널을 렌더링하고, 대화 완료 시 업데이트된 (mode_key, target_km)를 반환합니다.
         """
         st.markdown("### 🤖 AI 산책 메이트")
 
@@ -103,12 +101,14 @@ class ChatPanel:
                 st.json({"state": state, "weights": weights_data})
             user_context = state.get("user_context", {})
             if user_context:
-                mode_map = {"Circular": "circular", "Destination": "oneway_shortest", "Distance": "circular"}
+                mode_map = {
+                    "Circular":    "circular_random",
+                    "Destination": "oneway_shortest",
+                    "Distance":    "circular_random",
+                }
                 return (
-                    weights_data.get("safety", safety_w),
-                    weights_data.get("nature", nature_w),
                     mode_map.get(user_context.get("mode", "Circular"), selected_mode),
-                    user_context.get("distance_km", distance_km),
+                    user_context.get("distance_km", target_km),
                 )
         return None
 
