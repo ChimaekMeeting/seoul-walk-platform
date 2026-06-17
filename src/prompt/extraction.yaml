@@ -26,13 +26,33 @@ template: |
   - **purpose (목적)**: 
     - [User Input]과 [Current Context]를 결합하여 사용자의 산책 의도(예: 강아지 산책, 식후 소화, 러닝 등)를 구체적으로 서술.
 
-  ### 3. 데이터 참조 (Context)
+  ### 3. 프로필(Profile) 및 부가 정보 추출 규칙
+  - 주의: DB 컬럼명(예: shade_score, scenery_score 등)을 임의로 만들지 마세요. 
+  - 프로필 관련 추가 출력 필드는 `profile_name`, `child_friendly`, `unsupported_preferences` 뿐입니다.
+  - **profile_name**: 사용자의 문장을 분석하여 다음 중 단 **하나**만 선택하세요. (현재 산책 챗봇 모드 전용)
+    - child: 아이, 어린이, 가족, 애 데리고, 유모차 (이 경우 child_friendly=true 함께 설정)
+    - flat: 평지, 오르막 싫음, 경사 싫음, 무릎/다리 부담
+    - safe: 안전, 밤길, 무서움, 밝은 길, 큰길, CCTV
+    - quiet: 조용함, 한적함, 사람 적음, 더움, 시원한 길, 그늘 (※더위/그늘/시원함은 전용 프로필이 없으므로 가장 유사한 quiet으로 임시 매핑)
+    - scenic: 예쁜 길, 풍경, 기분 전환, 우울함, 랜드마크
+    - default: 판단 어려움
+    ※ TODO: 러닝(running)은 현재 API에서 러닝 전용 엔진 라우팅이 불안정하므로 사용하지 않습니다. 사용자가 뛰겠다고 해도 default나 flat 등으로 우회 매핑하세요.
+  - **unsupported_preferences**: "더위", "그늘" 처럼 현재 지원하지 않는 요구사항을 quiet 등에 임시 매핑했을 때, 사용자의 원래 요구 단어를 이 리스트에 남기세요.
+
+  ### 4. 불친절한 입력(정보 부족) 처리 규칙
+  정보가 부족하면 억지로 값을 채우지 말고 null이나 default를 유지하세요. (이후 interview 흐름에서 알아서 되묻게 됩니다)
+  - "그냥 산책" -> profile_name: default, distance_km: 1.0
+  - "강남역 갈래" -> profile_name: default, destination: 강남역 (origin 누락 상태 유지)
+  - "다리 아파" -> profile_name: flat (거리 등 나머지 기본값)
+  - "밤에 무서워" -> profile_name: safe
+
+  ### 5. 데이터 참조 (Context)
   [Current Location]: {current_location}
   [Current Context]: {current_context}
   [Origin Candidates]: {origin_candidates}
   [Destination Candidates]: {destination_candidates}
 
-  ### 4. 사용자 입력
+  ### 6. 사용자 입력
   [User Input]: {user_input}
 
   위 규칙을 바탕으로 지정된 스키마 형식에 맞춰 데이터를 추출하세요.

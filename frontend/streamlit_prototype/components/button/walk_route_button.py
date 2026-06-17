@@ -23,6 +23,7 @@ class WalkRouteButton:
             "mode":           selected_mode,
             "distance_km":    distance_km,
             "child_friendly": child_friendly,
+            "profile_name":   "child" if child_friendly else "default",
             "origin": {
                 "place_name": "", "address": "",
                 "coordinate": {"lat": st.session_state.start[0], "lon": st.session_state.start[1]},
@@ -80,11 +81,19 @@ class WalkRouteButton:
                 user_context = state.get("user_context", {})
                 origin      = user_context.get("origin", {})
                 destination = user_context.get("destination")
+                
+                # LLM 추출값(profile_name, child_friendly)을 route API payload로 안전하게 전달하기 위한 보정
+                # API 파손을 막기 위해 추출값을 소문자로 정규화
+                profile_name = str(user_context.get("profile_name", "default")).lower().strip()
+                # profile_name == "child"일 경우 API가 올바른 엔진으로 분기할 수 있도록 child_friendly 플래그 동기화
+                is_child_friendly = user_context.get("child_friendly", False) or (profile_name == "child")
+
                 with st.spinner("최적의 경로를 계산하는 중..."):
                     context = {
                         "mode": selected_mode, 
                         "distance_km": distance_km,
-                        "child_friendly": False,
+                        "child_friendly": is_child_friendly,
+                        "profile_name": profile_name,
                         "origin": {
                             "place_name": origin.get("place_name", ""), "address": origin.get("address", ""),
                             "coordinate": {"lat": origin.get("lat", lat), "lon": origin.get("lon", lng)},

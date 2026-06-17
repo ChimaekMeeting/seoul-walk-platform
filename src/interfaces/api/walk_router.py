@@ -22,7 +22,12 @@ async def walk_route(request: WalkRouteRequest):
         start_lat   = request.origin.coordinate.lat
         start_lon   = request.origin.coordinate.lon
         distance_km = request.distance_km
-        if request.child_friendly:
+        
+        # profile_name을 한 번만 정규화하여 하위 분기 및 엔진 호출 시 일관되게 사용
+        profile_name = request.profile_name.lower().strip() if request.profile_name else "default"
+        
+        # child_friendly 플래그나 profile_name이 child일 경우 모두 child 전용 엔진으로 라우팅
+        if request.child_friendly or profile_name == "child":
             radius_m = distance_km * 1000 * 3.0
             G_raw    = GraphRepository.load_graph_near(start_lat, start_lon, radius_m=radius_m)
             G        = RouteService().extract_subgraph_near(G_raw, start_lat, start_lon, radius_m)
@@ -73,7 +78,8 @@ async def walk_route(request: WalkRouteRequest):
                 ),
                 "purpose": request.purpose,
             }
-            return RouteService().get_route(context, G_full=G_full)
+            # API 요청의 정규화된 profile_name을 RouteService의 profile layer까지 명시적으로 전달
+            return RouteService().get_route(context, G_full=G_full, profile_name=profile_name)
 
     except HTTPException:
         raise
