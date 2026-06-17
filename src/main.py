@@ -12,7 +12,6 @@ from src.interfaces.api import (
     prewalk_router,
     user_router,
     weather_router,
-    running_router,
     walk_router,
     health_router,
     map_router,
@@ -47,7 +46,6 @@ app.include_router(user_router.router)
 app.include_router(prewalk_router.router)
 app.include_router(auth_router.router)
 app.include_router(login_router.router)
-app.include_router(running_router.router)
 app.include_router(walk_router.router)
 app.include_router(health_router.router)
 app.include_router(map_router.router)

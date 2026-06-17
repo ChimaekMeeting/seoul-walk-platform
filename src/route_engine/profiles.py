@@ -1,7 +1,8 @@
 from typing import Union
 from pydantic import BaseModel
 
-from src.schema.route_schema import CircularMode, OnewayMode, Weights
+from src.interfaces.schema.walk_schema import CircularMode, OnewayMode
+from src.schema.route_schema import Weights
 
 class ProfileConfig(BaseModel):
     weights:      Weights

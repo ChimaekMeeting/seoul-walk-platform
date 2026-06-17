@@ -2,7 +2,12 @@ import networkx as nx
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.schema.route_schema import CircularMode, CircularRouteInput, FallbackReason, RouteOutput
+from src.interfaces.schema.walk_schema import (
+    CircularMode,
+    FallbackReason,
+    WalkRouteResponse
+)
+from src.schema.route_schema import CircularRouteInput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 
@@ -21,7 +26,7 @@ class CircularRandomEngine:
         self._weights      = profile.weights
         self._blocked_tags = profile.blocked_tags
 
-    def run(self) -> RouteOutput:
+    def run(self) -> WalkRouteResponse:
         """
         순환 랜덤 경로를 생성합니다.
         """
@@ -37,7 +42,7 @@ class CircularRandomEngine:
 
         # 출발 노드가 없는 경우
         if start is None:
-            return RouteOutput(status="FAILED", mode=self.mode,
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
         
@@ -46,14 +51,14 @@ class CircularRandomEngine:
 
         # 경로가 없는 경우
         if not nodes:
-            return RouteOutput(status="FAILED", mode=self.mode,
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_PATH)
 
         pruned  = self._utils.prune_dead_ends(nodes)       # 왕복 가지 제거
         coords  = self._utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
         total_m = self._utils.calc_distance(pruned)        # 총 이동 거리(미터)
-        return RouteOutput(
+        return WalkRouteResponse(
             status          = "SUCCESS" if coords else "FAILED",
             mode            = self.mode,
             coordinates     = coords,
