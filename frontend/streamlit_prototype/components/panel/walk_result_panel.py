@@ -43,5 +43,5 @@ class WalkResultPanel:
             elif child_profile.get("coordinated_child_place_count", 0) == 0:
                 st.caption("KAKAO_API_KEY 또는 공공데이터 API 키가 없으면 시설 좌표 기반 평가는 제한됩니다.")
 
-        st.markdown(f"**총 노드 수:** {len(result['nodes'])}개")
+        st.markdown(f"**총 노드 수:** {len(result.get('coordinates', []))}개")
         st.markdown(f"**알고리즘:** {result['mode']}")
