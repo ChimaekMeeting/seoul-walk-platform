@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from src.database.postgresql import health_check
 from frontend.streamlit_prototype.modes.base import BaseRouteMode, RouteParams
 from frontend.streamlit_prototype.modes.registry import ROUTE_MODES
-from frontend.streamlit_prototype.modes.base import RouteParams
 
 
 @dataclass
@@ -21,14 +20,7 @@ def _select_mode() -> BaseRouteMode:
 
 
 def _render_params(mode: BaseRouteMode) -> RouteParams:
-    d = mode.default_params()
-    return RouteParams(
-        mode_key       = mode.mode_key,
-        distance_km    = st.sidebar.slider("목표 거리 (km)", 1.0, 10.0, d.distance_km, 0.5, key="distance_km"),
-        child_friendly = st.sidebar.checkbox("아이와 함께 산책", value=d.child_friendly, key="child_friendly"),
-        safety_w       = st.sidebar.slider("안전 가중치", 0.1, 3.0, d.safety_w, 0.1, key="safety_w"),
-        nature_w       = st.sidebar.slider("자연 가중치", 0.1, 3.0, d.nature_w, 0.1, key="nature_w"),
-    )
+    return mode.render_params()
 
 
 def render_sidebar() -> SidebarConfig:
@@ -47,6 +39,7 @@ def render_sidebar() -> SidebarConfig:
         params = mode.default_params()
 
     return SidebarConfig(input_mode=input_mode, mode=mode, params=params)
+
 
 def apply_input_mode(ctx, sidebar: SidebarConfig) -> RouteParams:
     params = sidebar.params

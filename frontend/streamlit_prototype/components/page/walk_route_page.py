@@ -101,14 +101,16 @@ class WalkRoutePage:
         input_mode    = config["input_mode"]
         selected_mode = config["selected_mode"]
         distance_km   = config["distance_km"]
-        profile_name  = config["profile_name"]
+        safety_w      = config["safety_w"]
+        nature_w      = config["nature_w"]
+        slope_w       = config["slope_w"]
 
         self.weather_card.render(env)
 
         if input_mode == "AI 챗봇":
-            updated = self.chat_panel.render(selected_mode, distance_km, 1.0, 1.0)
+            updated = self.chat_panel.render(selected_mode, distance_km, safety_w, nature_w)
             if updated:
-                _, _, selected_mode, distance_km = updated
+                safety_w, nature_w, selected_mode, distance_km = updated
 
         self._init_session_state()
 
@@ -139,4 +141,4 @@ class WalkRoutePage:
         if st.session_state.get("route_result"):
             self.route_panel.render(st.session_state.route_result)
 
-        self.route_button.render(input_mode, selected_mode, distance_km, profile_name, lat, lng)
+        self.route_button.render(input_mode, selected_mode, distance_km, safety_w, nature_w, slope_w, lat, lng)

@@ -17,5 +17,5 @@ def render_result(
 
     ctx.walk_route_button.render(
         sidebar.input_mode, params.mode_key, params.distance_km,
-        params.child_friendly, lat, lng
+        params.child_friendly, params.safety_w, params.nature_w, lat, lng
     )

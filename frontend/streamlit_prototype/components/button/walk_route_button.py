@@ -1,7 +1,31 @@
 import streamlit as st
 
 from src.service.route.route_service import RouteService
+from frontend.streamlit_prototype.schema.prewalk_schema import Weights
+from src.route_engine.engines.circular.child import circular_child_route
+from src.route_engine.engines.oneway.child import oneway_child_route
 
+def _get_child_route(context: dict, G) -> dict:
+    mode        = context.get("mode", "circular")
+    origin      = context["origin"]["coordinate"]
+    start_lat   = float(origin["lat"])
+    start_lon   = float(origin["lon"])
+    distance_km = float(context.get("distance_km", 3.0))
+
+    if mode == "circular":
+        return circular_child_route(G, start_lat, start_lon, distance_km)
+
+    destination = context.get("destination")
+    if not destination:
+        return {"error": "편도 모드에서는 도착지를 설정해야 합니다."}
+
+    end_coord = destination["coordinate"]
+    return oneway_child_route(
+        G, start_lat, start_lon,
+        float(end_coord["lat"]), float(end_coord["lon"]),
+        distance_km,
+        use_random=(mode == "oneway_random"),
+    )
 
 class WalkRouteButton:
 
@@ -44,13 +68,15 @@ class WalkRouteButton:
         selected_mode: str,
         distance_km: float,
         child_friendly: bool,
+        safety_w: float,
+        nature_w: float,
         lat: float,
         lng: float,
     ) -> None:
         """
         경로 추천 버튼을 렌더링하고, 클릭 또는 AI 챗봇 완료 시 경로를 계산합니다.
         """
-        profile_name = "child" if child_friendly else "default"
+        weights = Weights(safety=safety_w, nature=nature_w)
 
         if input_mode == "직접 설정" and st.session_state.start:
             st.divider()
@@ -60,8 +86,12 @@ class WalkRouteButton:
                 else:
                     with st.spinner("최적의 경로를 계산하는 중..."):
                         context = self._build_context(selected_mode, distance_km, lat, lng)
-                        result  = self._route_service.get_route(context, profile_name, self.G)
-                        if result.get("error"):
+                        result = (
+                            _get_child_route(context, self.G)
+                            if child_friendly
+                            else self._route_service.get_route(context, weights, self.G)
+                        )
+                        if "error" in result:
                             st.error(f"오류 발생: {result['error']}")
                         else:
                             self._save(result)
@@ -71,8 +101,8 @@ class WalkRouteButton:
             state = st.session_state.get("state", {})
             if state and state.get("next_node") == "end" and not st.session_state.route_coordinates:
                 user_context = state.get("user_context", {})
-                origin       = user_context.get("origin", {})
-                destination  = user_context.get("destination")
+                origin      = user_context.get("origin", {})
+                destination = user_context.get("destination")
                 with st.spinner("최적의 경로를 계산하는 중..."):
                     context = {
                         "mode": selected_mode, "distance_km": distance_km,
@@ -87,8 +117,8 @@ class WalkRouteButton:
                         ),
                         "purpose": user_context.get("purpose", "산책"),
                     }
-                    result = self._route_service.get_route(context, profile_name, self.G)
-                    if result.get("error"):
+                    result = self._route_service.get_route(context, weights, self.G)
+                    if "error" in result:
                         st.error(f"오류 발생: {result['error']}")
                     else:
                         self._save(result)
