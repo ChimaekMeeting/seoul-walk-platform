@@ -1,9 +1,9 @@
 import streamlit as st
 
 from src.service.route.route_service import RouteService
-from frontend.streamlit_prototype.schema.prewalk_schema import Weights
-from src.route_engine.engines.circular.child import circular_child_route
-from src.route_engine.engines.oneway.child import oneway_child_route
+from src.route_engine.engines.circular.child import CircularChildEngine
+from src.route_engine.engines.oneway.child import OnewayChildEngine
+from src.route_engine.schema import CircularRouteInput, OnewayRouteInput
 
 def _get_child_route(context: dict, G) -> dict:
     mode        = context.get("mode", "circular")
@@ -13,19 +13,29 @@ def _get_child_route(context: dict, G) -> dict:
     distance_km = float(context.get("distance_km", 3.0))
 
     if mode == "circular":
-        return circular_child_route(G, start_lat, start_lon, distance_km)
+        inp    = CircularRouteInput(start_lat=start_lat, start_lon=start_lon, target_km=distance_km)
+        engine = CircularChildEngine(inp, G)
+    else:
+        destination = context.get("destination")
+        if not destination:
+            return {"error": "편도 모드에서는 도착지를 설정해야 합니다."}
+        end_coord = destination["coordinate"]
+        inp    = OnewayRouteInput(
+            start_lat=start_lat, start_lon=start_lon,
+            end_lat=float(end_coord["lat"]), end_lon=float(end_coord["lon"]),
+            target_km=distance_km,
+        )
+        engine = OnewayChildEngine(inp, G, use_random=(mode == "oneway_random"))
 
-    destination = context.get("destination")
-    if not destination:
-        return {"error": "편도 모드에서는 도착지를 설정해야 합니다."}
-
-    end_coord = destination["coordinate"]
-    return oneway_child_route(
-        G, start_lat, start_lon,
-        float(end_coord["lat"]), float(end_coord["lon"]),
-        distance_km,
-        use_random=(mode == "oneway_random"),
-    )
+    output = engine.run()
+    return {
+        "mode":              output.mode,
+        "coordinates":       output.coordinates,
+        "total_distance_km": output.total_km,
+        "child_index":       engine.child_index,
+        "child_profile":     engine.child_profile,
+        "error":             output.fallback_reason.value if output.fallback_reason else None,
+    }
 
 class WalkRouteButton:
 
@@ -76,8 +86,6 @@ class WalkRouteButton:
         """
         경로 추천 버튼을 렌더링하고, 클릭 또는 AI 챗봇 완료 시 경로를 계산합니다.
         """
-        weights = Weights(safety=safety_w, nature=nature_w)
-
         if input_mode == "직접 설정" and st.session_state.start:
             st.divider()
             if st.button("🚶 경로 추천받기", type="primary", use_container_width=True):
@@ -89,7 +97,7 @@ class WalkRouteButton:
                         result = (
                             _get_child_route(context, self.G)
                             if child_friendly
-                            else self._route_service.get_route(context, weights, self.G)
+                            else self._route_service.get_route(context, G_full=self.G)
                         )
                         if "error" in result:
                             st.error(f"오류 발생: {result['error']}")
@@ -117,7 +125,7 @@ class WalkRouteButton:
                         ),
                         "purpose": user_context.get("purpose", "산책"),
                     }
-                    result = self._route_service.get_route(context, weights, self.G)
+                    result = self._route_service.get_route(context, G_full=self.G)
                     if "error" in result:
                         st.error(f"오류 발생: {result['error']}")
                     else:

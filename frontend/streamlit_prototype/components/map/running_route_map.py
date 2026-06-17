@@ -40,7 +40,7 @@ class RunningRouteMap:
         if result:
             for course in result.get("matched_courses", []):
                 folium.CircleMarker(
-                    location=[course["start_lat"], course["start_lng"]],
+                    location=[course["start_lat"], course["start_lon"]],
                     radius=8, color="#1565C0", fill=True, fill_color="#42A5F5", fill_opacity=0.7,
                     tooltip=f"[{course['course_type']}] {course['name']} ({course.get('distance_m', 0) / 1000:.1f}km)",
                 ).add_to(m)
