@@ -13,6 +13,7 @@ from src.interfaces.api import (
     running_router,
     walk_router,
     health_router,
+    map_router,
 )
 
 @asynccontextmanager
@@ -46,6 +47,7 @@ app.include_router(login_router.router)
 app.include_router(running_router.router)
 app.include_router(walk_router.router)
 app.include_router(health_router.router)
+app.include_router(map_router.router)
 
 @app.get("/")
 def read_root():
