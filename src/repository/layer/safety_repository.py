@@ -1,23 +1,14 @@
 from typing import List
 
-from sqlalchemy import func, select, insert, text
+from sqlalchemy import func, select, insert
 
-from src.database.postgresql import get_postgresql_db, engine
+from src.database.postgresql import get_postgresql_db
 from src.entity.layer.safety_layer import SafetyLayer
 from src.repository.utils import RepositoryUtils
 from collections import Counter
 
 
 class SafetyRepository:
-    @staticmethod
-    def truncate():
-        """
-        safety_layer 테이블의 모든 데이터를 초기화합니다.
-        시퀀스(ID)도 함께 리셋하며, 연관 테이블에 CASCADE 적용합니다.
-        """
-        with engine.begin() as conn:
-            conn.execute(text("TRUNCATE TABLE safety_layer RESTART IDENTITY CASCADE"))
-
     @staticmethod
     def save_all(records: List[dict]):
         """

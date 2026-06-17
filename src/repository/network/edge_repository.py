@@ -9,15 +9,6 @@ from typing import List
 
 class EdgeRepository:
     @staticmethod
-    def truncate():
-        """
-        walk_edges 테이블의 모든 데이터를 초기화합니다.
-        시퀀스(ID)도 함께 리셋하며, 연관 테이블에 CASCADE 적용합니다.
-        """
-        with engine.begin() as conn:
-            conn.execute(text("TRUNCATE TABLE walk_edges RESTART IDENTITY CASCADE"))
-
-    @staticmethod
     def save_all(edges: List[dict], chunksize: int = 10000):
         """
         엣지 데이터를 청크 단위로 walk_edges에 벌크 저장합니다.

@@ -1,19 +1,10 @@
-from sqlalchemy import func, select, insert, text
-from src.database.postgresql import get_postgresql_db, engine
+from sqlalchemy import func, select, insert
+from src.database.postgresql import get_postgresql_db
 from src.entity.network.walk_node import WalkNode
 from typing import List
 
 
 class NodeRepository:
-    @staticmethod
-    def truncate():
-        """
-        walk_nodes 테이블의 모든 데이터를 초기화합니다.
-        시퀀스(ID)도 함께 리셋하며, 연관 테이블에 CASCADE 적용합니다.
-        """
-        with engine.begin() as conn:
-            conn.execute(text("TRUNCATE TABLE walk_nodes RESTART IDENTITY CASCADE"))
-
     @staticmethod
     def get_max_node_id() -> int:
         """

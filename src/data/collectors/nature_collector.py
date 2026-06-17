@@ -44,7 +44,6 @@ class NatureCollector:
         """
         nature_layer를 초기화하고 OSM 녹지 폴리곤을 저장합니다.
         """
-        NatureRepository.truncate()
         combined = self.build_records()
         NatureRepository.save_geodataframe(combined)
         print(f"  ✅ 총 {len(combined)}개 폴리곤 저장 완료")

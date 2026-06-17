@@ -73,8 +73,6 @@ class BaseNetworkCollector:
         """
         walk_edges와 walk_nodes를 초기화하고 CSV에서 추출한 노드를 저장합니다.
         """
-        EdgeRepository.truncate()
-        NodeRepository.truncate()
         NodeRepository.save_all(self.build_node_records())
 
     def update_edge(self) -> None:
