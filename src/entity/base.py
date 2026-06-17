@@ -13,7 +13,8 @@ def register_entities():
         safety_layer,
         landmark_layer,
         nature_layer,
-        running_layer
+        running_layer,
+        child_layer
     )
 
 
