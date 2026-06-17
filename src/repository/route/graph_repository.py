@@ -37,11 +37,12 @@ class GraphRepository:
             WalkEdge.start_node,
             WalkEdge.end_node,
             WalkEdge.length_m,
-            WalkEdge.road_type,
-            WalkEdge.path_type,
             WalkEdge.safety_score,
             WalkEdge.nature_score,
             WalkEdge.slope_score,
+            WalkEdge.running_score,
+            WalkEdge.landmark_score,
+            WalkEdge.child_score,
         )
 
     @staticmethod
@@ -53,8 +54,8 @@ class GraphRepository:
         for row in node_rows:
             G.add_node(
                 row.node_id,
-                x=row.lon,
-                y=row.lat,
+                lon=row.lon,
+                lat=row.lat,
                 node_type=row.node_type,
                 is_underground=row.is_underground,
                 is_overpass=row.is_overpass,
@@ -65,11 +66,12 @@ class GraphRepository:
                 row.end_node,
                 link_id=row.link_id,
                 length=row.length_m,
-                road_type=row.road_type,
-                path_type=row.path_type,
                 safety_score=row.safety_score,
                 nature_score=row.nature_score,
                 slope_score=row.slope_score,
+                running_score=row.running_score,
+                landmark_score=row.landmark_score,
+                child_score=row.child_score,
             )
         return G
 

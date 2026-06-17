@@ -8,8 +8,8 @@ def find_nearest_node(G: nx.Graph, lat: float, lon: float) -> int:
     nearest = None
 
     for node_id, data in G.nodes(data=True):
-        node_lat = data.get("y")
-        node_lon = data.get("x")
+        node_lat = data.get("lat")
+        node_lon = data.get("lon")
         if node_lat is None or node_lon is None:
             continue
         dist = math.sqrt((lat - node_lat) ** 2 + (lon - node_lon) ** 2)
@@ -22,7 +22,7 @@ def find_nearest_node(G: nx.Graph, lat: float, lon: float) -> int:
 def extract_coordinates(G: nx.Graph, node_list: list) -> list:
     """노드 ID 리스트 → [[lat, lon], ...] 변환"""
     return [
-        [G.nodes[n]["y"], G.nodes[n]["x"]]
+        [G.nodes[n]["lat"], G.nodes[n]["lon"]]
         for n in node_list
         if n in G.nodes
     ]

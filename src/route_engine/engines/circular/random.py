@@ -16,8 +16,8 @@ def random_walk_route(
     total_distance = 0.0
     current = start_node
 
-    start_x = G.nodes[start_node]["x"]
-    start_y = G.nodes[start_node]["y"]
+    start_x = G.nodes[start_node]["lon"]
+    start_y = G.nodes[start_node]["lat"]
 
     while total_distance < target_m * 0.75:
         neighbors = list(G.neighbors(current))
@@ -37,9 +37,9 @@ def random_walk_route(
 
             progress = total_distance / target_m
             if progress < 0.7:
-                nx_ = G.nodes[n]["x"]
-                ny_ = G.nodes[n]["y"]
-                dist_from_start = ((nx_ - start_x) ** 2 + (ny_ - start_y) ** 2) ** 0.5
+                nx_ = G.nodes[n]["lon"]
+                ny_ = G.nodes[n]["lat"]
+                dist_from_start = ((nx_ - start_x)**2 + (ny_ - start_y)**2) ** 0.5
                 w = w / ((dist_from_start + 1e-6) ** 2)
 
             weights.append((1.0 / w) * edge_penalty * degree_penalty)

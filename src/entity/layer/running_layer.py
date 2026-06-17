@@ -1,8 +1,7 @@
 from src.entity.base import Base
 from geoalchemy2 import Geometry
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
-from datetime import datetime
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import BigInteger, String
 from typing import Optional
 
 
@@ -26,78 +25,12 @@ class RunningLayer(Base):
         nullable=False,
         comment="river | park | bike_track | trail"
     )
-    is_circular: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=False,
-        comment="True=순환, False=편도"
-    )
-    distance_m: Mapped[Optional[float]] = mapped_column(
-        Float,
-        nullable=True
-    )
     difficulty: Mapped[Optional[str]] = mapped_column(
         String(20),
         nullable=True,
         comment="easy | medium | hard"
     )
-    description: Mapped[Optional[str]] = mapped_column(
-        Text,
-        nullable=True
-    )
-    source: Mapped[Optional[str]] = mapped_column(
-        String(200),
-        nullable=True
-    )
     geom = mapped_column(
-        Geometry("LINESTRING", srid=4326),
+        Geometry("GEOMETRY", srid=4326),
         nullable=True
-    )
-    start_geom = mapped_column(
-        Geometry("POINT", srid=4326),
-        nullable=True
-    )
-    end_geom = mapped_column(
-        Geometry("POINT", srid=4326),
-        nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        server_default=func.now(),
-        nullable=False
-    )
-
-    # 관계 설정: RunningLayerTag와 1:다 관계 (cascade delete)
-    tags: Mapped[list["RunningLayerTag"]] = relationship(
-        "RunningLayerTag",
-        back_populates="running_layer",
-        cascade="all, delete-orphan"
-    )
-
-
-class RunningLayerTag(Base):
-    """
-    코스에 붙는 태그 정보를 관리하는 엔티티입니다.
-    """
-    __tablename__ = "running_layer_tags"
-
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-        autoincrement=True
-    )
-    course_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("running_layer.id", ondelete="CASCADE"),
-        nullable=False
-    )
-    tag: Mapped[str] = mapped_column(
-        String(50),
-        nullable=False
-    )
-
-    # 관계 설정: RunningLayer와 다:1 관계
-    running_layer: Mapped[RunningLayer] = relationship(
-        "RunningLayer",
-        back_populates="tags"
     )

@@ -15,11 +15,11 @@ from src.repository.network.edge_repository import EdgeRepository
 # ──────────────────────────────────────────────────────────────
 
 RIVER_COURSES: list[dict] = [
-    {"name": "한강 반포 구간",       "course_type": "river", "is_circular": False, "distance_m": 6_400,  "difficulty": "easy",   "start_lat": 37.5121, "start_lon": 126.9994},
-    {"name": "한강 여의도 순환 코스", "course_type": "river", "is_circular": True,  "distance_m": 7_000,  "difficulty": "easy",   "start_lat": 37.5285, "start_lon": 126.9326},
-    {"name": "청계천 전 구간",        "course_type": "river", "is_circular": False, "distance_m": 10_920, "difficulty": "easy",   "start_lat": 37.5700, "start_lon": 126.9784},
-    {"name": "안양천 서울 구간",      "course_type": "river", "is_circular": False, "distance_m": 12_000, "difficulty": "easy",   "start_lat": 37.5270, "start_lon": 126.8560},
-    {"name": "중랑천 전 구간",        "course_type": "river", "is_circular": False, "distance_m": 15_000, "difficulty": "medium", "start_lat": 37.6490, "start_lon": 127.0760},
+    {"name": "한강 반포 구간",       "course_type": "river", "distance_m": 6_400,  "difficulty": "easy",   "start_lat": 37.5121, "start_lon": 126.9994},
+    {"name": "한강 여의도 순환 코스", "course_type": "river", "distance_m": 7_000,  "difficulty": "easy",   "start_lat": 37.5285, "start_lon": 126.9326},
+    {"name": "청계천 전 구간",        "course_type": "river", "distance_m": 10_920, "difficulty": "easy",   "start_lat": 37.5700, "start_lon": 126.9784},
+    {"name": "안양천 서울 구간",      "course_type": "river", "distance_m": 12_000, "difficulty": "easy",   "start_lat": 37.5270, "start_lon": 126.8560},
+    {"name": "중랑천 전 구간",        "course_type": "river", "distance_m": 15_000, "difficulty": "medium", "start_lat": 37.6490, "start_lon": 127.0760},
 ]
 
 RUNNING_PARK_CONFIG: dict[str, dict] = {
@@ -145,7 +145,6 @@ class RunningCourseCollector:
         self,
         name: str,
         course_type: str,
-        is_circular: bool,
         lat: float,
         lon: float,
         distance_m: Optional[float] = None,
@@ -157,10 +156,8 @@ class RunningCourseCollector:
         return {
             "name":        name,
             "course_type": course_type,
-            "is_circular": is_circular,
-            "distance_m":  distance_m,
             "difficulty":  difficulty or _classify_difficulty(distance_m),
-            "start_geom":  CollectorUtils.make_point(lat, lon),
+            "geom":        CollectorUtils.make_point(lat, lon),
         }
 
     def build_river_records(self) -> list:
@@ -171,7 +168,6 @@ class RunningCourseCollector:
             self._make_record(
                 name=item["name"],
                 course_type=item["course_type"],
-                is_circular=item["is_circular"],
                 lat=item["start_lat"],
                 lon=item["start_lon"],
                 distance_m=item.get("distance_m"),
@@ -222,7 +218,6 @@ class RunningCourseCollector:
             records.append(self._make_record(
                 name=f"{park_name} 순환 코스",
                 course_type="park",
-                is_circular=True,
                 lat=lat,
                 lon=lon,
                 distance_m=dist_m,
@@ -238,7 +233,6 @@ class RunningCourseCollector:
             self._make_record(
                 name=f"{name} 둘레길",
                 course_type="trail",
-                is_circular=False,
                 lat=lat,
                 lon=lon,
             )
@@ -283,7 +277,6 @@ class RunningCourseCollector:
             records.append(self._make_record(
                 name=f"{name} 구간",
                 course_type="river",
-                is_circular=False,
                 lat=s_lat,
                 lon=s_lon,
                 distance_m=round(dist_m or geom.length * 111_000, 0),
@@ -331,7 +324,6 @@ class RunningCourseCollector:
             records.append(self._make_record(
                 name=f"{name} 자전거도로",
                 course_type="bike_track",
-                is_circular=False,
                 lat=s_lat,
                 lon=s_lon,
                 distance_m=round(dist_m, 0) if dist_m else None,
