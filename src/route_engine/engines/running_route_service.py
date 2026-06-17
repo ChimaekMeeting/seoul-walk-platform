@@ -42,6 +42,7 @@ RUNNING_TAGS = ["런닝"]
 # 내부 헬퍼
 # ──────────────────────────────────────────────────────────────
 
+
 def _apply_running_weights(
     G: nx.Graph,
     slope_weight: float = 0.5,
@@ -77,28 +78,16 @@ def _apply_running_weights(
     Returns:
         nx.Graph: ``custom_score``가 추가된 그래프 (입력 G와 동일 객체).
     """
-    PREFERRED_PATH_TYPES = {"river", "park", "bike_track", "trail"}
+    from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
-    for u, v, data in G.edges(data=True):
-        length      = data.get("length", 1.0) or 1.0
-        safety      = data.get("safety_score", 0.5)
-        nature      = data.get("nature_score", 0.5)
-        slope       = data.get("slope_score", 0.5)
-        path_type   = data.get("path_type", "") or ""
-
-        # 하천·공원·자전거도로 보너스 (파라미터로 제어)
-        effective_type_bonus = 1.0 + type_bonus if path_type.lower() in PREFERRED_PATH_TYPES else 1.0
-
-        # 경사 패널티: slope_weight로 강도 조절
-        slope_factor = 1.0 + slope * slope_weight
-
-        # 길이 보너스: 긴 엣지일수록 분모 증가 → 짧은 골목 회피
-        length_bonus = 1.0 + math.log1p(length / 50.0)
-
-        custom_score = (length * slope_factor) / ((safety + 1e-6) * (nature + 1e-6) * effective_type_bonus * length_bonus)
-        G[u][v]["custom_score"] = custom_score
-
-    return G
+    return calculate_custom_score(
+        G,
+        {
+            "mode": "running",
+            "weights": {"slope": slope_weight},
+            "type_bonus": type_bonus,
+        },
+    )
 
 
 def _build_result(
@@ -134,16 +123,17 @@ def _build_result(
         for i in range(len(pruned) - 1)
     )
     return {
-        "mode":               mode,
-        "coordinates":        coords,
-        "total_distance_km":  round(total_m / 1000, 2),
-        "matched_courses":    matched_courses,  # DB에서 찾은 추천 코스 목록
+        "mode": mode,
+        "coordinates": coords,
+        "total_distance_km": round(total_m / 1000, 2),
+        "matched_courses": matched_courses,  # DB에서 찾은 추천 코스 목록
     }
 
 
 # ──────────────────────────────────────────────────────────────
 # 공개 API
 # ──────────────────────────────────────────────────────────────
+
 
 def get_circular_route(
     lat: float,
@@ -187,7 +177,9 @@ def get_circular_route(
         tags=RUNNING_TAGS,
         limit=5,
     )
-    print(f"[running/circular] DB 코스 {len(matched_courses)}건 조회 ({time.time()-t0:.2f}s)")
+    print(
+        f"[running/circular] DB 코스 {len(matched_courses)}건 조회 ({time.time()-t0:.2f}s)"
+    )
 
     # ── 2. 그래프 로드 ─────────────────────────────────────────
     t1 = time.time()
@@ -292,15 +284,17 @@ def get_oneway_route(
         tags=RUNNING_TAGS,
         limit=5,
     )
-    print(f"[running/oneway] DB 코스 {len(matched_courses)}건 조회 ({time.time()-t0:.2f}s)")
+    print(
+        f"[running/oneway] DB 코스 {len(matched_courses)}건 조회 ({time.time()-t0:.2f}s)"
+    )
 
     courses = [CourseInfo(**c) for c in matched_courses]
 
     # ── 2. 그래프 로드 ─────────────────────────────────────────
     t1 = time.time()
-    straight_m = math.sqrt(
-        (start_lat - end_lat) ** 2 + (start_lon - end_lon) ** 2
-    ) * 111_000  # 위도 1도 ≈ 111km
+    straight_m = (
+        math.sqrt((start_lat - end_lat) ** 2 + (start_lon - end_lon) ** 2) * 111_000
+    )  # 위도 1도 ≈ 111km
     graph_radius = max(straight_m * 1.5, 3_000)  # 직선 거리의 1.5배, 최소 3km
 
     if G is None:
@@ -341,10 +335,12 @@ def get_oneway_route(
     # ── 5. 편도 경로 생성 ──────────────────────────────────────
     t2 = time.time()
     start_node = find_nearest_node(G, start_lat, start_lon)
-    end_node   = find_nearest_node(G, end_lat, end_lon)
+    end_node = find_nearest_node(G, end_lat, end_lon)
 
     if use_random and target_km:
-        raw = oneway_random_route(G, start_node, end_node, target_km, weight="custom_score")
+        raw = oneway_random_route(
+            G, start_node, end_node, target_km, weight="custom_score"
+        )
         mode_label = "oneway_running_random"
     else:
         raw = dijkstra_route(G, start_node, end_node, weight="custom_score")
