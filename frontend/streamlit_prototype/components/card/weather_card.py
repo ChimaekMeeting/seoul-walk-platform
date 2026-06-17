@@ -19,7 +19,7 @@ def _fetch_weather(lat: float, lng: float) -> dict:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         data = loop.run_until_complete(router.get_weather(lat, lng))
-        return data[0] if isinstance(data, list) else data
+        return data
     except Exception:
         return {
             "weather_status": "알 수 없음",
