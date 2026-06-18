@@ -86,7 +86,8 @@ class PrewalkOrchestrator:
         state             = await ChatStateRepository.get_state(thread_id)
         state.user_prompt = user_prompt
 
-        final_state = await self.graph.ainvoke(state)
+        result      = await self.graph.ainvoke(state)
+        final_state = State.model_validate(result)
 
         await ChatStateRepository.save_state(thread_id, final_state)
 
