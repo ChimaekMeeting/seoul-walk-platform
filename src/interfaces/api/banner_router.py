@@ -1,18 +1,11 @@
-"""
-src/interfaces/api/banner_router.py
-
-GET /api/banner 엔드포인트 정의
-날씨 상태와 현재 시각을 기반으로 배너 목록을 반환
-마라톤 이벤트(외부 API) → 시즌 배너 → 고정 배너 순으로 구성
-"""
 from datetime import datetime, date
 import traceback
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from src.infrastructure.external.client.marathon_client import MarathonClient
 from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
+from src.interfaces.dependencies import get_banner_service
 from src.service.route.banner_service import BannerService
 
 router = APIRouter(tags=["banner"])
@@ -23,16 +16,9 @@ async def get_banner(
     weather_status: str = "",
     weather_msg: str = "",
     hour: Optional[int] = None,
+    service: BannerService = Depends(get_banner_service),
 ):
-    """
-    input : weather_status, weather_msg, hour (선택)
-    output: [{"emoji", "text", "sub", ...}, ...]
-
-    BannerService의 asyncio.run() 충돌을 피하기 위해
-    _fetch_all_events()를 직접 await해서 배너 목록 구성
-    """
     try:
-        service = BannerService(MarathonClient())
         weather = EnvironmentInfo(
             weather_status=weather_status,
             weather_msg=weather_msg,

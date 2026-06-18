@@ -73,11 +73,12 @@ class PrewalkOrchestrator:
                 place_name = current_location.place_name,
             ),
             weather_data = weather_data,
+            response     = init_message
         )
 
         await ChatStateRepository.save_state(thread_id=thread_id, state=initial_state)
 
-        return ChatResponse(thread_id=thread_id, message=init_message, state=initial_state)
+        return ChatResponse(thread_id=thread_id, state=initial_state)
 
     async def orchestrator(self, thread_id: str, user_prompt: str) -> ChatResponse:
         """
@@ -93,6 +94,5 @@ class PrewalkOrchestrator:
 
         return ChatResponse(
             thread_id = thread_id,
-            message   = final_state.response,
             state     = final_state,
         )

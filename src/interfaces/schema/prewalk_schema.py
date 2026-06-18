@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from src.schema.prewalk_schema import State
 
@@ -25,21 +25,4 @@ class ChatResponse(BaseModel):
     챗봇과 상호작용을 통해 제공되는 출력 스키마
     """
     thread_id: str
-    message: str
     state: State
-
-
-class Weights(BaseModel):
-    """
-    산책 경로 생성을 위한 요소별 가중치 스키마
-    """
-    safety: float = Field(
-        0.5,
-        description="가로등/CCTV/안전/보안 지수",
-        ge=0.0, le=1.0
-    )
-    nature: float = Field(
-        0.5,
-        description="공원/가로수길/상쾌함 지수",
-        ge=0.0, le=1.0
-    )
