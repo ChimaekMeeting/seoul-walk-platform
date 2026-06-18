@@ -5,7 +5,9 @@ from src.service import (
     UserService,
     AuthService,
     PrewalkOrchestrator,
-    RouteService
+    RouteService,
+    BannerService,
+    MapService
 )
 from src.agent.nodes import (
     WeatherChecker,
@@ -15,12 +17,15 @@ from src.agent.nodes import (
 )
 from src.infrastructure.external.client.kakao_client import KakaoClient
 from src.repository.network.graph_repository import GraphRepository
+from src.infrastructure.external.client.marathon_client import MarathonClient
 
 # 싱글톤 패턴
 auth_service        = AuthService()
 user_service        = UserService(auth_service)
 kakao_login_service = KakaoLoginService(user_service, auth_service)
 weather_checker     = WeatherChecker()
+banner_service      = BannerService(MarathonClient())
+map_service         = MapService(KakaoClient())
 
 route_service: Optional[RouteService] = None
 prewalk_orchestrator: Optional[PrewalkOrchestrator] = None
@@ -58,3 +63,11 @@ def get_prewalk_orchestrator() -> PrewalkOrchestrator:
 # 경로
 def get_route_service() -> RouteService:
     return route_service
+
+# 배너
+def get_banner_service() -> BannerService:
+    return banner_service
+
+# 지도
+def get_map_service() -> MapService:
+    return map_service

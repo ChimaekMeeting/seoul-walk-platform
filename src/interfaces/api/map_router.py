@@ -8,19 +8,15 @@ import json
 import traceback
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
-from src.infrastructure.external.client.kakao_client import KakaoClient
-from src.service.route.map_service import MapService
+from src.interfaces.dependencies import get_map_service
+from src.service import MapService
 
 router = APIRouter(
     prefix="/api/map",
     tags=["map"],
 )
-
-
-def _get_map_service() -> MapService:
-    return MapService(KakaoClient())
 
 
 @router.get("/facilities")
@@ -30,6 +26,7 @@ async def get_facilities(
     category_code: Optional[str] = None,
     keyword: Optional[str] = None,
     radius: int = 2000,
+    service: MapService = Depends(get_map_service)
 ):
     """
     input : lat, lon, category_code, keyword, radius
@@ -38,7 +35,7 @@ async def get_facilities(
     카카오 장소 API로 시설 목록을 조회해 반환
     """
     try:
-        places = await _get_map_service().fetch_kakao_facilities(
+        places = await service.fetch_kakao_facilities(
             lat, lon, category_code=category_code, keyword=keyword, radius=radius
         )
         return [
@@ -58,6 +55,7 @@ def get_points(
     type_col: Optional[str] = None,
     type_val: Optional[str] = None,
     radius_m: int = 2000,
+    service: MapService = Depends(get_map_service)
 ):
     """
     input : lat, lon, table_name, type_col, type_val, radius_m
@@ -67,7 +65,7 @@ def get_points(
     지원하지 않는 table_name 입력 시 400 반환
     """
     try:
-        df = _get_map_service().fetch_db_points(lat, lon, table_name, type_col, type_val, radius_m)
+        df = service.fetch_db_points(lat, lon, table_name, type_col, type_val, radius_m)
         return df.to_dict(orient="records")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -81,6 +79,7 @@ def get_edges(
     lat: float,
     lon: float,
     radius_m: int = 2000,
+    service: MapService = Depends(get_map_service)
 ):
     """
     input : lat, lon, radius_m
@@ -89,7 +88,7 @@ def get_edges(
     DB에서 반경 내 도보 네트워크 엣지를 조회하고 GeoJSON geometry를 좌표 배열로 변환해 반환
     """
     try:
-        df = _get_map_service().fetch_db_lines(lat, lon, radius_m)
+        df = service.fetch_db_lines(lat, lon, radius_m)
         if df.empty:
             return []
         df["path"] = df["geometry"].apply(lambda x: json.loads(x)["coordinates"])
