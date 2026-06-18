@@ -145,8 +145,14 @@ class CircularFlatEngine:
             current = next_node
 
             # 진행 방향 갱신 (90도 우회전 유도)
+            # 단순 가중 평균은 0°/360° 경계에서 오류 발생 (예: 350°+10° → 299°)
+            # atan2 기반 원형 평균으로 단위벡터 합산 후 각도 복원
             cur_ang = self._angle_to(entry, current)
-            heading = (heading * 0.85 + ((cur_ang + 90) % 360) * 0.15) % 360
+            target  = math.radians((cur_ang + 90) % 360)
+            h_rad   = math.radians(heading)
+            x = 0.85 * math.cos(h_rad) + 0.15 * math.cos(target)
+            y = 0.85 * math.sin(h_rad) + 0.15 * math.sin(target)
+            heading = math.degrees(math.atan2(y, x)) % 360
 
         return path_nodes, total_dist
 

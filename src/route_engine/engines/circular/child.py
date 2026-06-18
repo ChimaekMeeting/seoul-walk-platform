@@ -80,12 +80,14 @@ class CircularChildEngine:
         """
         경로 주변 어린이 장소를 분석하고 child_index를 계산합니다.
         """
-        nearby = [
-            {**p, "distance_m": round(self._min_dist(coords, p["lat"], p["lon"]), 1)}
-            for p in places
-            if p.get("lat") is not None and p.get("lon") is not None
-            and self._min_dist(coords, p["lat"], p["lon"]) <= self._corridor_radius
-        ]
+        nearby = []
+        for p in places:
+            if p.get("lat") is None or p.get("lon") is None:
+                continue
+            # 리스트 컴프리헨션에서 필터와 값 계산에 _min_dist를 중복 호출하던 것을 1회로 통합
+            d = self._min_dist(coords, p["lat"], p["lon"])
+            if d <= self._corridor_radius:
+                nearby.append({**p, "distance_m": round(d, 1)})
         protection  = sum(1 for p in nearby if p.get("category") == "어린이보호구역")
         play        = sum(1 for p in nearby if p.get("category") == "어린이놀이시설")
         child_index = round(min(10.0, 3.0 + protection * 1.2 + play * 1.5), 1)

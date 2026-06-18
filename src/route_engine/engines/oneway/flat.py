@@ -53,7 +53,8 @@ class OnewayFlatEngine:
         엣지의 평지 비용을 계산합니다. cost = length × (2 − slope)²
         """
         length = data.get("length", 1.0) or 1.0
-        slope  = data.get("slope_score", 0.5) or 0.5
+        # slope > 1.0이면 (2.0-slope)^2 < 1이 되어 평지보다 낮은 cost가 나오는 역효과 방지
+        slope  = max(0.0, min(1.0, data.get("slope_score", 0.5) or 0.5))
         return length * (2.0 - slope) ** 2
 
     def _find_path(self, start: int, end: int) -> list[int]:

@@ -100,7 +100,9 @@ class OnewayRunningEngine:
         미리 로드된 그래프가 없으면 출발·도착 중간점 기준으로 DB에서 로드합니다.
         """
         if self._G is not None:
-            return self._G
+            # 다른 엔진과 달리 __init__에서 copy를 하지 않으므로 여기서 복사
+            # 미복사 시 calculate_custom_score가 호출자의 원본 그래프를 오염시킴
+            return self._G.copy()
         straight_m   = math.sqrt(
             (self._inp.start_lat - self._inp.end_lat) ** 2 +
             (self._inp.start_lon - self._inp.end_lon) ** 2

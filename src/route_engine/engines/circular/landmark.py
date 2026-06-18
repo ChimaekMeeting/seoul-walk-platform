@@ -53,10 +53,15 @@ class CircularLandmarkEngine:
         출발 → 랜드마크 → 출발 경로를 연결합니다.
         """
         try:
-            path1     = nx.shortest_path(self._G, start, self._landmark_node, weight="custom_score")
-            saved     = self._penalize(path1)  # 1구간 재사용 억제
-            path2     = nx.shortest_path(self._G, self._landmark_node, start, weight="custom_score")
-            self._restore(saved)
+            path1       = nx.shortest_path(self._G, start, self._landmark_node, weight="custom_score")
+            path1_edges = set(zip(path1[:-1], path1[1:]))
+
+            # _penalize/_restore 대신 callable weight 사용 → 예외 발생 시에도 그래프 오염 없음
+            def penalized_weight(u, v, data):
+                base = data.get("custom_score", 1.0)
+                return base * 100.0 if (u, v) in path1_edges or (v, u) in path1_edges else base
+
+            path2 = nx.shortest_path(self._G, self._landmark_node, start, weight=penalized_weight)
             return path1[:-1] + path2
         except nx.NetworkXNoPath:
             print(f"[landmark/circular] 경로 없음: {start} → {self._landmark_node} → {start}")
@@ -74,7 +79,7 @@ class CircularLandmarkEngine:
             u, v = path[i], path[i + 1]
             if self._G.has_edge(u, v):
                 saved[(u, v)] = self._G[u][v]["custom_score"]
-                self._G[u][v]["custom_score"] *= 100  # 재사용 억제 페널티
+                self._G[u][v]["custom_score"] *= 100
         return saved
 
     def _restore(self, saved: dict) -> None:

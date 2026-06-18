@@ -43,8 +43,18 @@ class OnewayDijkstraEngine:
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_PATH)
 
-        coords  = self._utils.extract_coordinates(nodes)
-        total_m = self._calc_distance(nodes)
+        target_km = self._inp.target_km or 3.0
+        total_m   = self._calc_distance(nodes)
+
+        # 최단경로가 목표의 60% 미만이면 우회 경로로 대체
+        # 출발·도착이 가까울 때 지나치게 짧은 경로가 반환되는 문제 방지
+        if total_m < target_km * 0.6 * 1000:
+            fallback = self._utils.oneway_waypoint_path(start, end, target_km)
+            if fallback:
+                nodes   = fallback
+                total_m = self._calc_distance(nodes)
+
+        coords = self._utils.extract_coordinates(nodes)
         return RouteOutput(
             status          = "SUCCESS" if coords else "FAILED",
             mode            = "oneway_dijkstra",
