@@ -1,26 +1,57 @@
-import osmnx as ox
 import geopandas as gpd
+import osmnx as ox
+from src.repository.osm_raw_repository import OsmRawRepository
 
 
 class OSMSource:
-    cache: dict[str, gpd.GeoDataFrame] = {}
+    TAGS: list[tuple[str, str]] = [
+        ("natural", "wood"),
+        ("natural", "scrub"),
+        ("landuse", "forest"),
+        ("leisure", "park"),
+        ("leisure", "garden"),
+        ("landuse", "grass"),
+        ("landuse", "meadow"),
+        ("landuse", "farmland"),
+        ("landuse", "allotments"),
+    ]
 
     def __init__(self, place: str = "Seoul, South Korea"):
-        self._place = place
+        self.place = place
 
-    def get(self, tags: dict) -> gpd.GeoDataFrame:
+    def fetch_and_store(self, key: str, value: str) -> None:
         """
-        OSM에서 태그 기반으로 피처를 수집합니다.
+        단일 태그의 OSM 데이터를 수집하여 DB에 저장합니다. 이미 저장된 경우 스킵합니다.
         """
-        key = f"{self._place}::{sorted(tags.items())}"
-        if key not in self.cache:
-            self.cache[key] = ox.features_from_place(self._place, tags=tags)
-        return self.cache[key].copy()
+        query_key = f"{key}={value}"
+        if OsmRawRepository.exists(query_key):
+            return
+
+        gdf = ox.features_from_place(self.place, tags={key: value})
+        gdf = self.clean(gdf, cols=list(gdf.columns), required_cols=[])
+        OsmRawRepository.save_geodataframe(gdf, query_key)
+
+    def store(self) -> None:
+        """
+        TAGS의 모든 OSM 데이터를 DB에 저장합니다.
+        """
+        for key, value in self.TAGS:
+            self.fetch_and_store(key, value)
+
+    def get(self, key: str, value: str) -> gpd.GeoDataFrame:
+        """
+        DB에서 OSM 데이터를 조회합니다. DB에 없으면 수집 후 저장합니다.
+        """
+        query_key = f"{key}={value}"
+        if not OsmRawRepository.exists(query_key):
+            self.fetch_and_store(key, value)
+        return OsmRawRepository.get(query_key)
 
     def clean(
         self,
         gdf: gpd.GeoDataFrame,
         cols: list[str],
+        required_cols: list[str] | None = None,
     ) -> gpd.GeoDataFrame:
         """
         기본 전처리를 수행합니다.
@@ -31,8 +62,9 @@ class OSMSource:
         gdf = gdf[keep].copy()
 
         # 결측치 제거
-        if existing:
-            gdf = gdf.dropna(subset=existing)
+        null_targets = [c for c in (required_cols or existing) if c in gdf.columns]
+        if null_targets:
+            gdf = gdf.dropna(subset=null_targets)
 
         # 경위도 중복 데이터 제거
         gdf["_cx"] = gdf.geometry.centroid.x.round(6)

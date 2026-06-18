@@ -1,5 +1,9 @@
 import os
+
+import httpx
 from dotenv import load_dotenv
+
+from src.repository.kakao_raw_repository import KakaoRawRepository
 
 load_dotenv()
 
@@ -20,11 +24,54 @@ CATEGORY_CODES: dict[str, str] = {
     "약국":           "PM9",
 }
 
+# 서울 격자 중심점 (5x5, ~8km 간격)
+_SEOUL_GRID: list[tuple[float, float]] = [
+    (37.701, 126.837), (37.701, 126.930), (37.701, 127.023), (37.701, 127.116), (37.701, 127.183),
+    (37.641, 126.837), (37.641, 126.930), (37.641, 127.023), (37.641, 127.116), (37.641, 127.183),
+    (37.581, 126.837), (37.581, 126.930), (37.581, 127.023), (37.581, 127.116), (37.581, 127.183),
+    (37.521, 126.837), (37.521, 126.930), (37.521, 127.023), (37.521, 127.116), (37.521, 127.183),
+    (37.461, 126.837), (37.461, 126.930), (37.461, 127.023), (37.461, 127.116), (37.461, 127.183),
+]
+
 
 class KakaoSource:
+    TAGS: list[tuple[str, str]] = [
+        ("category", code) for code in CATEGORY_CODES.values()
+    ]
+
     def __init__(self):
         self.api_key = os.getenv("KAKAO_API_KEY")
         self.headers = {"Authorization": f"KakaoAK {self.api_key}"}
+
+    def fetch_and_store(self, key: str, value: str) -> None:
+        """
+        단일 카테고리의 Kakao 데이터를 수집하여 DB에 저장합니다. 이미 저장된 경우 스킵합니다.
+        """
+        query_key = f"{key}={value}"
+        if KakaoRawRepository.exists(query_key):
+            return
+
+        items = self._fetch_all(value)
+        items = self.clean(items, cols=["place_name", "x", "y",
+                                        "category_name", "address_name",
+                                        "phone", "place_url"])
+        KakaoRawRepository.save_items(items, query_key)
+
+    def store(self) -> None:
+        """
+        TAGS의 모든 카테고리 데이터를 DB에 저장합니다.
+        """
+        for key, value in self.TAGS:
+            self.fetch_and_store(key, value)
+
+    def get(self, key: str, value: str):
+        """
+        DB에서 Kakao 데이터를 조회합니다. DB에 없으면 수집 후 저장합니다.
+        """
+        query_key = f"{key}={value}"
+        if not KakaoRawRepository.exists(query_key):
+            self.fetch_and_store(key, value)
+        return KakaoRawRepository.get(query_key)
 
     def clean(
         self,
@@ -56,3 +103,36 @@ class KakaoSource:
             result.append(extracted)
 
         return result
+
+    def _fetch_all(self, category_code: str) -> list[dict]:
+        """
+        서울 격자 기반으로 카테고리 전체 데이터를 수집합니다.
+        """
+        items: list[dict] = []
+        for lat, lon in _SEOUL_GRID:
+            items.extend(self._fetch_pages(category_code, lat, lon))
+        return items
+
+    def _fetch_pages(self, category_code: str, lat: float, lon: float) -> list[dict]:
+        """
+        단일 좌표에서 페이지네이션으로 카테고리 데이터를 수집합니다.
+        """
+        results = []
+        for page in range(1, 4):
+            res = httpx.get(
+                "https://dapi.kakao.com/v2/local/search/category.json",
+                headers=self.headers,
+                params={
+                    "category_group_code": category_code,
+                    "x": lon, "y": lat,
+                    "radius": 8000,
+                    "page": page, "size": 15,
+                },
+                timeout=30.0,
+            )
+            data = res.json()
+            docs = data.get("documents", [])
+            results.extend(docs)
+            if data.get("meta", {}).get("is_end"):
+                break
+        return results

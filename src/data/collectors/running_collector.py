@@ -5,6 +5,7 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import LineString, MultiLineString
 
+from src.data.sources.csv_source import CSVSource
 from src.data.utils import CollectorUtils
 from src.repository.layer.running_repository import RunningRepository
 from src.repository.network.edge_repository import EdgeRepository
@@ -70,9 +71,6 @@ _TRAIL_COORDS: dict[str, tuple[float, float]] = {
 # ──────────────────────────────────────────────────────────────
 
 def _classify_difficulty(distance_m: Optional[float]) -> str:
-    """
-    거리(미터) 기반으로 난이도를 분류합니다.
-    """
     if distance_m is None or distance_m < 5_000:
         return "easy"
     if distance_m < 10_000:
@@ -81,9 +79,6 @@ def _classify_difficulty(distance_m: Optional[float]) -> str:
 
 
 def _find_col(df: pd.DataFrame, candidates: list[str]) -> Optional[str]:
-    """
-    DataFrame 컬럼 중 candidates 순서대로 첫 번째로 존재하는 컬럼명을 반환합니다.
-    """
     for c in candidates:
         if c in df.columns:
             return c
@@ -95,51 +90,20 @@ def _find_col(df: pd.DataFrame, candidates: list[str]) -> Optional[str]:
 # ──────────────────────────────────────────────────────────────
 
 class RunningCourseCollector:
-    """
-    하천, 공원, 둘레길, 자전거도로 데이터를 수집하여 courses 테이블에 저장하고
-    walk_edges.running_score를 H3 셀 기반으로 업데이트합니다.
-    """
     def __init__(self):
-        self.PARK_FILE     = "src/data/raw/서울시 주요 공원현황.xlsx"
+        self.csv = CSVSource()
         self.RIVER_GEOJSON = "src/data/raw/서울시 하천.geojson"
-        self.BIKE_FILE     = "src/data/raw/서울시 자전거도로.csv"
-        self.data = self.load_data()
+        self.river_gdf = self._load_river_geojson()
 
-    def load_data(self) -> dict:
-        """
-        파일 기반 데이터를 로드합니다. 파일이 없으면 None으로 처리합니다.
-        """
-        data: dict = {}
-
-        try:
-            df = pd.read_excel(self.PARK_FILE, header=1)
-            df.columns = [str(c).strip() for c in df.columns]
-            data["park"] = df
-        except Exception:
-            print(f"  ⚠️  파일 없음: {self.PARK_FILE}")
-            data["park"] = None
-
+    def _load_river_geojson(self) -> Optional[gpd.GeoDataFrame]:
         try:
             gdf = gpd.read_file(self.RIVER_GEOJSON)
             if gdf.crs and gdf.crs.to_epsg() != 4326:
                 gdf = gdf.to_crs(epsg=4326)
-            data["river_geojson"] = gdf
+            return gdf
         except Exception:
             print(f"  ⚠️  파일 없음: {self.RIVER_GEOJSON}")
-            data["river_geojson"] = None
-
-        try:
-            try:
-                df = pd.read_csv(self.BIKE_FILE, encoding="cp949")
-            except UnicodeDecodeError:
-                df = pd.read_csv(self.BIKE_FILE, encoding="utf-8")
-            df.columns = [str(c).strip() for c in df.columns]
-            data["bike"] = df
-        except Exception:
-            print(f"  ⚠️  파일 없음: {self.BIKE_FILE}")
-            data["bike"] = None
-
-        return data
+            return None
 
     def _make_record(
         self,
@@ -149,11 +113,10 @@ class RunningCourseCollector:
         lon: float,
         distance_m: Optional[float] = None,
         difficulty: Optional[str] = None,
+        csv_raw_id: Optional[int] = None,
     ) -> dict:
-        """
-        courses INSERT용 dict를 생성합니다.
-        """
         return {
+            "csv_raw_id":  csv_raw_id,
             "name":        name,
             "course_type": course_type,
             "difficulty":  difficulty or _classify_difficulty(distance_m),
@@ -161,9 +124,6 @@ class RunningCourseCollector:
         }
 
     def build_river_records(self) -> list:
-        """
-        하천변 코스 목록 데이터를 courses INSERT용 dict 목록으로 변환합니다.
-        """
         return [
             self._make_record(
                 name=item["name"],
@@ -177,29 +137,24 @@ class RunningCourseCollector:
         ]
 
     def build_park_records(self) -> list:
-        """
-        서울시 주요 공원 XLSX에서 런닝 적합 공원을 필터링하여 courses INSERT용 dict 목록을 반환합니다.
-        """
-        if self.data["park"] is None:
+        gdf = self.csv.get("type", "running_park")
+        if gdf.empty:
             return []
 
         def _is_running_park(name: str) -> bool:
             return any(k in str(name).strip() for k in RUNNING_PARK_CONFIG)
 
         records = []
-        for _, row in self.data["park"][self.data["park"]["공원명"].apply(_is_running_park)].iterrows():
-            lon = row.get("X좌표(WGS84)")
-            lat = row.get("Y좌표(WGS84)")
-            if pd.isna(lon) or pd.isna(lat):
+        for _, row in gdf.iterrows():
+            park_name = str(row.get("name") or "").strip()
+            if not _is_running_park(park_name):
                 continue
-            try:
-                lat, lon = float(lat), float(lon)
-            except (ValueError, TypeError):
-                continue
+
+            lat = row.geometry.y
+            lon = row.geometry.x
             if not (37.4 <= lat <= 37.7 and 126.7 <= lon <= 127.2):
                 continue
 
-            park_name = str(row["공원명"]).strip()
             config = next(
                 (v for k, v in RUNNING_PARK_CONFIG.items() if k in park_name),
                 {"difficulty_override": None},
@@ -222,13 +177,11 @@ class RunningCourseCollector:
                 lon=lon,
                 distance_m=dist_m,
                 difficulty=config["difficulty_override"],
+                csv_raw_id=row.get("csv_raw_id"),
             ))
         return records
 
     def build_trail_records(self) -> list:
-        """
-        하천변 둘레길 좌표 데이터를 courses INSERT용 dict 목록으로 변환합니다.
-        """
         return [
             self._make_record(
                 name=f"{name} 둘레길",
@@ -240,13 +193,10 @@ class RunningCourseCollector:
         ]
 
     def build_river_geojson_records(self) -> list:
-        """
-        서울시 하천 GeoJSON에서 시작 좌표를 추출하여 courses INSERT용 dict 목록을 반환합니다.
-        """
-        if self.data["river_geojson"] is None:
+        if self.river_gdf is None:
             return []
 
-        gdf      = self.data["river_geojson"]
+        gdf     = self.river_gdf
         name_col = _find_col(gdf, ["하천명", "RIVER_NM", "WATERBODY_NM", "HCH_NAME", "name:ko", "name", "NAME"])
         len_col  = _find_col(gdf, ["SHAPE_LEN", "길이", "연장", "구간거리", "LENGTH"])
 
@@ -284,39 +234,27 @@ class RunningCourseCollector:
         return records
 
     def build_bike_records(self) -> list:
-        """
-        서울시 자전거도로 CSV에서 시작 좌표를 추출하여 courses INSERT용 dict 목록을 반환합니다.
-        """
-        if self.data["bike"] is None:
+        gdf = self.csv.get("type", "bike_road")
+        if gdf.empty:
             return []
 
-        df        = self.data["bike"]
-        name_col  = _find_col(df, ["노선명", "구간명", "자전거도로명", "시설명"])
-        dist_col  = _find_col(df, ["총길이(km)", "연장(m)", "연장", "거리(m)", "구간길이", "거리(km)", "거리"])
-        s_lat_col = _find_col(df, ["기점위도", "시작위도", "출발위도", "Y좌표시작(WGS84)", "시작Y", "START_LAT"])
-        s_lon_col = _find_col(df, ["기점경도", "시작경도", "출발경도", "X좌표시작(WGS84)", "시작X", "START_LNG"])
-
-        if not all([name_col, s_lat_col, s_lon_col]):
-            print(f"  ⚠️  필수 컬럼 없음 — 자전거도로 삽입 건너뜀. 컬럼: {list(df.columns)}")
-            return []
+        dist_col = _find_col(gdf, ["총길이(km)", "연장(m)", "연장", "거리(m)", "구간길이", "거리(km)", "거리"])
 
         records = []
-        for _, row in df.iterrows():
-            name = str(row[name_col]).strip()
+        for _, row in gdf.iterrows():
+            name = str(row.get("name") or "").strip()
             if not name or name == "nan":
                 continue
-            try:
-                s_lat = float(row[s_lat_col])
-                s_lon = float(row[s_lon_col])
-            except (ValueError, TypeError):
-                continue
-            if not (37.4 <= s_lat <= 37.7 and 126.7 <= s_lon <= 127.2):
+
+            lat = row.geometry.y
+            lon = row.geometry.x
+            if not (37.4 <= lat <= 37.7 and 126.7 <= lon <= 127.2):
                 continue
 
             dist_m: Optional[float] = None
             if dist_col:
                 try:
-                    val = float(str(row[dist_col]).replace(",", "").strip())
+                    val = float(str(row.get(dist_col, "")).replace(",", "").strip())
                     dist_m = val * 1000 if ("km" in dist_col.lower() or val < 100) else val
                 except (ValueError, TypeError):
                     pass
@@ -324,16 +262,14 @@ class RunningCourseCollector:
             records.append(self._make_record(
                 name=f"{name} 자전거도로",
                 course_type="bike_track",
-                lat=s_lat,
-                lon=s_lon,
+                lat=lat,
+                lon=lon,
                 distance_m=round(dist_m, 0) if dist_m else None,
+                csv_raw_id=row.get("csv_raw_id"),
             ))
         return records
 
     def update_node(self) -> None:
-        """
-        courses를 초기화하고 전체 데이터의 달리기 코스 시작점을 저장합니다.
-        """
         records = (
             self.build_river_records()
             + self.build_park_records()
@@ -345,16 +281,13 @@ class RunningCourseCollector:
         print(f"  ✅ 달리기 코스 {len(records)}건 저장 완료")
 
     def update_edge(self) -> None:
-        """
-        달리기 코스 H3 기반으로 walk_edges.running_score를 업데이트합니다.
-        """
         EdgeRepository.ensure_score_column("running_score")
         CollectorUtils.update_edge_scores("running_score", RunningRepository.get_running_h3_counts())
 
     def save(self) -> None:
-        """
-        courses를 저장한 후 walk_edges.running_score를 업데이트합니다.
-        """
+        if RunningRepository.is_populated():
+            print("  ⏭️  running_layer 이미 적재됨, 스킵")
+            return
         self.update_node()
         self.update_edge()
 
