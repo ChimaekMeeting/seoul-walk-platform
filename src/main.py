@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from src.entity.base import init_db
-from src.interfaces.dependencies import get_route_service
 from src.interfaces.api import (
     auth_router,
     login_router,
@@ -20,7 +19,6 @@ from src.interfaces.api import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    app.state.route_service = get_route_service()
     yield
 
 app = FastAPI(

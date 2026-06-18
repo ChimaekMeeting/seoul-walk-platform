@@ -2,11 +2,11 @@
 from langchain_core.tools import StructuredTool
 
 from src.interfaces.schema.walk_schema import CircularMode, OnewayMode, Coordinate
-from src.interfaces.dependencies import get_route_service
 
 
 class RouteTool:
     def __init__(self):
+        from src.interfaces.dependencies import get_route_service
         self.route_service = get_route_service()
         self.tools = [
             StructuredTool.from_function(coroutine=self.circular_random_route),
