@@ -5,16 +5,18 @@ import networkx as nx
 from src.repository.layer.child_repository import ChildRepository
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.route_engine.schema import FallbackReason, OnewayRouteInput, RouteOutput
+from src.interfaces.schema.walk_schema import FallbackReason, OnewayMode, WalkRouteResponse
+from src.schema.route_schema import OnewayRouteInput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 
 class OnewayChildEngine:
-    def __init__(self, inp: OnewayRouteInput, G: nx.Graph, profile_name: str = "child", use_random: bool = True, corridor_radius_m: float = 250.0):
+    def __init__(self, inp: OnewayRouteInput, G: nx.Graph, mode: OnewayMode = OnewayMode.CHILD, use_random: bool = True, corridor_radius_m: float = 250.0):
         self._inp             = inp
         self._G               = G.copy()  # 원본 그래프 보호
         self._utils           = PathUtils(self._G)
-        profile               = get_profile(profile_name)
+        self.mode             = mode
+        profile               = get_profile("child")
         self._weights         = profile.weights
         self._blocked_tags    = profile.blocked_tags
         self._use_random      = use_random
@@ -22,7 +24,7 @@ class OnewayChildEngine:
         self.child_index: float = 0.0   # run() 이후 접근 가능
         self.child_profile: dict = {}   # run() 이후 접근 가능
 
-    def run(self) -> RouteOutput:
+    def run(self) -> WalkRouteResponse:
         """
         어린이 친화 지수를 반영한 편도 경로를 생성합니다.
         """
@@ -41,17 +43,17 @@ class OnewayChildEngine:
         end   = self._utils.find_nearest_node(self._inp.end_lat,   self._inp.end_lon)
 
         if start is None:
-            return RouteOutput(status="FAILED", mode="oneway_child",
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
         if end is None:
-            return RouteOutput(status="FAILED", mode="oneway_child",
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_END_NODE)
 
-        nodes, mode_label = self._generate_route(start, end)
+        nodes, _ = self._generate_route(start, end)
         if not nodes:
-            return RouteOutput(status="FAILED", mode="oneway_child",
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_PATH)
 
@@ -63,9 +65,9 @@ class OnewayChildEngine:
         self.child_index   = annotated["child_index"]
         self.child_profile = annotated["child_profile"]
 
-        return RouteOutput(
+        return WalkRouteResponse(
             status          = "SUCCESS" if coords else "FAILED",
-            mode            = mode_label,
+            mode            = self.mode,
             coordinates     = coords,
             total_km        = round(total_m / 1000, 2),
             fallback_reason = None,

@@ -5,30 +5,32 @@ import networkx as nx
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.route_engine.schema import CircularRouteInput, FallbackReason, RouteOutput
+from src.interfaces.schema.walk_schema import CircularMode, FallbackReason, WalkRouteResponse
+from src.schema.route_schema import CircularRouteInput
 
 
 FLAT_THRESHOLD = 0.7  # 평지 판정 경사 점수 기준
 
 
 class CircularFlatEngine:
-    def __init__(self, inp: CircularRouteInput, G: nx.Graph, profile_name: str = "flat"):
+    def __init__(self, inp: CircularRouteInput, G: nx.Graph, mode: CircularMode = CircularMode.FLAT):
         self._inp          = inp
         self._G            = G.copy()  # 원본 그래프 보호
         self._utils        = PathUtils(self._G)
-        profile            = get_profile(profile_name)
+        self.mode          = mode
+        profile            = get_profile("flat")
         self._weights      = profile.weights
         self._blocked_tags = profile.blocked_tags
         self.avg_slope_score: float = 0.0      # run() 이후 접근 가능
         self.flat_entry_node: int | None = None  # run() 이후 접근 가능
 
-    def run(self) -> RouteOutput:
+    def run(self) -> WalkRouteResponse:
         """
         평지 진입 후 순환하고 출발지로 복귀하는 경로를 생성합니다.
         """
         start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
         if start is None:
-            return RouteOutput(status="FAILED", mode="circular_flat",
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
 
@@ -40,16 +42,16 @@ class CircularFlatEngine:
         path_nodes, total_dist = self._return_phase(path_nodes, total_dist, start)
 
         if not path_nodes:
-            return RouteOutput(status="FAILED", mode="circular_flat",
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_PATH)
 
         pruned               = self._utils.prune_dead_ends(path_nodes)
         self.avg_slope_score = self._calc_avg_slope(pruned)
         coords               = self._utils.extract_coordinates(pruned)
-        return RouteOutput(
+        return WalkRouteResponse(
             status          = "SUCCESS" if coords else "FAILED",
-            mode            = "circular_flat",
+            mode            = self.mode,
             coordinates     = coords,
             total_km        = round(total_dist / 1000, 2),
             fallback_reason = None,

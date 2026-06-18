@@ -5,16 +5,18 @@ import networkx as nx
 from src.repository.layer.child_repository import ChildRepository
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.route_engine.schema import CircularRouteInput, FallbackReason, RouteOutput
+from src.interfaces.schema.walk_schema import CircularMode, FallbackReason, WalkRouteResponse
+from src.schema.route_schema import CircularRouteInput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 
 class CircularChildEngine:
-    def __init__(self, inp: CircularRouteInput, G: nx.Graph, profile_name: str = "child", candidate_count: int = 5, corridor_radius_m: float = 250.0):
+    def __init__(self, inp: CircularRouteInput, G: nx.Graph, mode: CircularMode = CircularMode.CHILD, candidate_count: int = 5, corridor_radius_m: float = 250.0):
         self._inp              = inp
         self._G                = G.copy()  # 원본 그래프 보호
         self._utils            = PathUtils(self._G)
-        profile                = get_profile(profile_name)
+        self.mode              = mode
+        profile                = get_profile("child")
         self._weights          = profile.weights
         self._blocked_tags     = profile.blocked_tags
         self._candidate_count  = candidate_count
@@ -22,7 +24,7 @@ class CircularChildEngine:
         self.child_index: float = 0.0   # run() 이후 접근 가능
         self.child_profile: dict = {}   # run() 이후 접근 가능
 
-    def run(self) -> RouteOutput:
+    def run(self) -> WalkRouteResponse:
         """
         어린이 친화 지수가 가장 높은 순환 경로를 생성합니다.
         """
@@ -39,8 +41,8 @@ class CircularChildEngine:
 
         start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
         if start is None:
-            return RouteOutput(
-                status="FAILED", mode="circular_child",
+            return WalkRouteResponse(
+                status="FAILED", mode=self.mode,
                 coordinates=[], total_km=0.0,
                 fallback_reason=FallbackReason.NO_NEAREST_START_NODE,
             )
@@ -59,8 +61,8 @@ class CircularChildEngine:
                 best = candidate
 
         if best is None or not best.get("nodes"):
-            return RouteOutput(
-                status="FAILED", mode="circular_child",
+            return WalkRouteResponse(
+                status="FAILED", mode=self.mode,
                 coordinates=[], total_km=0.0,
                 fallback_reason=FallbackReason.NO_PATH,
             )
@@ -68,9 +70,9 @@ class CircularChildEngine:
         self.child_index   = best["child_index"]
         self.child_profile = best["child_profile"]
         coords             = best["coords"]
-        return RouteOutput(
+        return WalkRouteResponse(
             status          = "SUCCESS" if coords else "FAILED",
-            mode            = "circular_child",
+            mode            = self.mode,
             coordinates     = coords,
             total_km        = round(best["total_m"] / 1000, 2),
             fallback_reason = None,

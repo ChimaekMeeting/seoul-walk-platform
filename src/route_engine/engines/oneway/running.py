@@ -1,30 +1,33 @@
+import math
 import time
 from typing import Optional
 
 import networkx as nx
 
 from src.interfaces.schema.running_schema import CourseInfo, OnewayRunningResponse
+from src.interfaces.schema.walk_schema import FallbackReason, OnewayMode, WalkRouteResponse
 from src.repository.layer.running_repository import RunningRepository
 from src.repository.network.graph_repository import GraphRepository
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.route_engine.schema import FallbackReason, OnewayRouteInput, RouteOutput
+from src.schema.route_schema import OnewayRouteInput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 RUNNING_COURSE_TYPES = ["river", "park", "bike_track", "trail"]
 
 
 class OnewayRunningEngine:
-    def __init__(self, inp: OnewayRouteInput, profile_name: str = "running", G: Optional[nx.Graph] = None):
+    def __init__(self, inp: OnewayRouteInput, G: Optional[nx.Graph] = None, mode: OnewayMode = OnewayMode.RUNNING):
         self._inp                     = inp
         self._G: nx.Graph | None      = G
         self._utils: PathUtils | None = None  # run() 이후 설정
-        profile                       = get_profile(profile_name)
+        self.mode                     = mode
+        profile                       = get_profile("running")
         self._weights                 = profile.weights
         self._blocked_tags            = profile.blocked_tags
         self.matched_courses: list[CourseInfo] = []  # run() 이후 접근 가능
 
-    def run(self) -> RouteOutput:
+    def run(self) -> WalkRouteResponse:
         """
         DB 코스 정보를 반영한 편도 런닝 경로를 생성합니다.
         """
@@ -34,16 +37,16 @@ class OnewayRunningEngine:
         self._G              = self._load_graph()
 
         if self._G.number_of_nodes() == 0:
-            return RouteOutput(status="FAILED", mode="oneway_running",
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_GRAPH_DATA)
+                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
 
         self._remove_invalid_nodes()
 
         if self._G.number_of_nodes() == 0:
-            return RouteOutput(status="FAILED", mode="oneway_running",
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_GRAPH_DATA)
+                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
 
         calculate_custom_score(self._G, {
             "mode": "running",
@@ -56,17 +59,17 @@ class OnewayRunningEngine:
         end   = self._utils.find_nearest_node(self._inp.end_lat,   self._inp.end_lon)
 
         if start is None:
-            return RouteOutput(status="FAILED", mode="oneway_running",
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
         if end is None:
-            return RouteOutput(status="FAILED", mode="oneway_running",
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_END_NODE)
 
-        nodes, mode_label = self._generate_route(start, end)
+        nodes, _ = self._generate_route(start, end)
         if not nodes:
-            return RouteOutput(status="FAILED", mode="oneway_running",
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_PATH)
 
@@ -74,9 +77,9 @@ class OnewayRunningEngine:
         pruned  = self._utils.prune_dead_ends(nodes, max_branch_length=300)
         coords  = self._utils.extract_coordinates(pruned)
         total_m = self._calc_distance(pruned)
-        return RouteOutput(
+        return WalkRouteResponse(
             status          = "SUCCESS" if coords else "FAILED",
-            mode            = mode_label,
+            mode            = self.mode,
             coordinates     = coords,
             total_km        = round(total_m / 1000, 2),
             fallback_reason = None,

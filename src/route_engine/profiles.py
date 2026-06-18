@@ -1,6 +1,8 @@
+from typing import Union
 from pydantic import BaseModel
 
-from src.route_engine.schema import Weights
+from src.interfaces.schema.walk_schema import CircularMode, OnewayMode
+from src.schema.route_schema import Weights
 
 
 class ProfileConfig(BaseModel):
@@ -60,5 +62,5 @@ PROFILES: dict[str, ProfileConfig] = {
 
 # ── 진입점 ────────────────────────────────────────────────
 
-def get_profile(profile_name: str) -> ProfileConfig:
+def get_profile(profile_name: Union[str, OnewayMode, CircularMode]) -> ProfileConfig:
     return PROFILES.get(profile_name, PROFILES["default"])
