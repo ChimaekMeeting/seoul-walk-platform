@@ -1,3 +1,4 @@
+import osmnx as ox
 import geopandas as gpd
 
 
@@ -6,6 +7,15 @@ class OSMSource:
 
     def __init__(self, place: str = "Seoul, South Korea"):
         self._place = place
+
+    def get(self, tags: dict) -> gpd.GeoDataFrame:
+        """
+        OSM에서 태그 기반으로 피처를 수집합니다.
+        """
+        key = f"{self._place}::{sorted(tags.items())}"
+        if key not in self.cache:
+            self.cache[key] = ox.features_from_place(self._place, tags=tags)
+        return self.cache[key].copy()
 
     def clean(
         self,
