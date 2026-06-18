@@ -45,6 +45,7 @@ langchain-community = "^0.3.0"
 langchain-openai = "^0.2.0"
 beautifulsoup4 = "^4.14.3"
 streamlit-modal = "^0.1.2"
+langgraph = ">=0.2.0,<1.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
