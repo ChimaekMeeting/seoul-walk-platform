@@ -4,20 +4,23 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from src.entity.base import init_db
+from src.interfaces.dependencies import init_route_service
 from src.interfaces.api import (
     auth_router,
     login_router,
     prewalk_router,
     user_router,
     weather_router,
-    running_router
+    walk_router,
+    health_router,
+    map_router,
+    banner_router,
 )
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # DB 초기화
     init_db()
-
+    init_route_service()
     yield
 
 app = FastAPI(
@@ -41,7 +44,10 @@ app.include_router(user_router.router)
 app.include_router(prewalk_router.router)
 app.include_router(auth_router.router)
 app.include_router(login_router.router)
-app.include_router(running_router.router)
+app.include_router(walk_router.router)
+app.include_router(health_router.router)
+app.include_router(map_router.router)
+app.include_router(banner_router.router)
 
 @app.get("/")
 def read_root():

@@ -1,6 +1,3 @@
-import math
-import random
-
 import networkx as nx
 
 from src.route_engine.engines.path_utils import PathUtils
@@ -21,12 +18,10 @@ class CircularFlatEngine:
         profile            = get_profile("flat")
         self._weights      = profile.weights
         self._blocked_tags = profile.blocked_tags
-        self.avg_slope_score: float = 0.0      # run() 이후 접근 가능
-        self.flat_entry_node: int | None = None  # run() 이후 접근 가능
 
     def run(self) -> WalkRouteResponse:
         """
-        평지 진입 후 순환하고 출발지로 복귀하는 경로를 생성합니다.
+        평지(slope_score 높은 엣지)를 선호하는 순환 경로를 생성합니다.
         """
         start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
         if start is None:
@@ -53,7 +48,7 @@ class CircularFlatEngine:
             status          = "SUCCESS" if coords else "FAILED",
             mode            = self.mode,
             coordinates     = coords,
-            total_km        = round(total_dist / 1000, 2),
+            total_km        = round(total_m / 1000, 2),
             fallback_reason = None,
         )
 

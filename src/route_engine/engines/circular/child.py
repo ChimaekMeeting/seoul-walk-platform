@@ -1,14 +1,10 @@
-import math
-
-import networkx as nx
-
-from src.repository.layer.child_repository import ChildRepository
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
 from src.interfaces.schema.walk_schema import CircularMode, FallbackReason, WalkRouteResponse
 from src.schema.route_schema import CircularRouteInput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
+import networkx as nx
 
 class CircularChildEngine:
     def __init__(self, inp: CircularRouteInput, G: nx.Graph, mode: CircularMode = CircularMode.CHILD, candidate_count: int = 5, corridor_radius_m: float = 250.0):
@@ -26,20 +22,19 @@ class CircularChildEngine:
 
     def run(self) -> WalkRouteResponse:
         """
-        어린이 친화 지수가 가장 높은 순환 경로를 생성합니다.
+        어린이 친화 점수를 반영한 순환 경로를 생성합니다.
         """
-        search_radius = max((self._inp.target_km or 3.0) * 1000 * 1.5, 1500.0)
-        places        = ChildRepository.get_child_places_near(
-            self._inp.start_lat, self._inp.start_lon, search_radius
-        )
-
+        # 엣지별 custom_score 기록 (in-place)
         calculate_custom_score(self._G, {
             "mode": "general",
             "weights": self._weights,
             "blocked_tags": self._blocked_tags,
         })
 
+        # 출발 노드 탐색
         start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
+
+        # 출발 노드가 없는 경우
         if start is None:
             return WalkRouteResponse(
                 status="FAILED", mode=self.mode,
@@ -74,7 +69,7 @@ class CircularChildEngine:
             status          = "SUCCESS" if coords else "FAILED",
             mode            = self.mode,
             coordinates     = coords,
-            total_km        = round(best["total_m"] / 1000, 2),
+            total_km        = round(total_m / 1000, 2),
             fallback_reason = None,
         )
 

@@ -21,25 +21,33 @@ class OnewayDijkstraEngine:
         """
         Dijkstra 최단 경로를 생성합니다.
         """
+        # 엣지별 custom_score 기록 (in-place)
         calculate_custom_score(self._G, {
             "mode": "general",
             "weights": self._weights,
             "blocked_tags": self._blocked_tags,
         })
 
+        # 출발 노드와 도착 노드 탐색
         start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
         end   = self._utils.find_nearest_node(self._inp.end_lat,   self._inp.end_lon)
 
+        # 출발 노드가 없는 경우
         if start is None:
             return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
+        
+        # 도착 노드가 없는 경우
         if end is None:
             return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_END_NODE)
-
+        
+        # 경로 생성
         nodes = self._find_path(start, end)
+
+        # 경로가 없는 경우
         if not nodes:
             return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
@@ -76,13 +84,3 @@ class OnewayDijkstraEngine:
         except Exception as e:
             print(f"[dijkstra] 오류: {e}")
             return []
-
-    def _calc_distance(self, nodes: list[int]) -> float:
-        """
-        노드 목록의 총 이동 거리(미터)를 반환합니다.
-        """
-        return sum(
-            (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("length", 0)
-            for i in range(len(nodes) - 1)
-        )
-

@@ -13,9 +13,6 @@ from src.route_engine.profiles import get_profile
 from src.schema.route_schema import OnewayRouteInput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
-RUNNING_COURSE_TYPES = ["river", "park", "bike_track", "trail"]
-
-
 class OnewayRunningEngine:
     def __init__(self, inp: OnewayRouteInput, G: Optional[nx.Graph] = None, mode: OnewayMode = OnewayMode.RUNNING):
         self._inp                     = inp
@@ -55,9 +52,11 @@ class OnewayRunningEngine:
         })
         self._utils = PathUtils(self._G)
 
+        # 출발 노드와 도착 노드 탐색
         start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
         end   = self._utils.find_nearest_node(self._inp.end_lat,   self._inp.end_lon)
 
+        # 출발 노드가 없는 경우
         if start is None:
             return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,

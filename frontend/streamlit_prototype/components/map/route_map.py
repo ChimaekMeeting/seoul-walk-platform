@@ -44,7 +44,7 @@ class RouteMap:
             if st.session_state.get("route_result"):
                 self.nature_layer.add_to_map(
                     m, center[0], center[1],
-                    st.session_state.route_result["nodes"], self.G,
+                    st.session_state.route_coordinates,
                 )
 
         if st.session_state.start and st.session_state.end:

@@ -1,105 +1,98 @@
 from uuid import uuid4
 
+from langgraph.graph import StateGraph, END
+
 from src.infrastructure.external.client.kakao_client import KakaoClient
 from src.repository.user.user_repository import UserRepository
 from src.repository.chat.chat_session_repository import ChatSessionRepository
 from src.infrastructure.cache.repository.chat_state_repository import ChatStateRepository
-from src.agent.nodes.weather_checker import WeatherChecker
-from src.agent.nodes.extractor import Extractor
-from src.agent.nodes.interviewer import Interviewer
-from src.agent.nodes.weight_assigner import WeightAssigner
+from src.agent.nodes import (
+    WeatherChecker,
+    Extractor,
+    Interviewer,
+    RouteExecutor
+)
 from src.interfaces.schema.prewalk_schema import ChatResponse
 from src.schema.prewalk_schema import State, Location
+
 
 class PrewalkOrchestrator:
     def __init__(
         self,
         weather_checker: WeatherChecker,
-        kakao_client: KakaoClient,
-        extractor: Extractor,
-        interviewer: Interviewer,
-        weight_assigner: WeightAssigner,
+        kakao_client:    KakaoClient,
+        extractor:       Extractor,
+        interviewer:     Interviewer,
+        route_executor:  RouteExecutor,
     ):
+        self.weather_checker = weather_checker
+        self.kakao_client    = kakao_client
+        self.graph           = self._build_graph(extractor, interviewer, route_executor)
+
+    def _build_graph(self, extractor, interviewer, route_executor):
         """
-        PrewalkOrchestrator 초기화
+        extractor, interviewer, route_executor 노드를 연결합니다.
         """
-        self.weather_checker  = weather_checker
-        self.kakao_client     = kakao_client
-        self.extractor        = extractor
-        self.interviewer      = interviewer
-        self.weight_assigner  = weight_assigner
+        builder = StateGraph(State)
+
+        # 모든 노드 정의
+        builder.add_node("extractor",      extractor.run)
+        builder.add_node("interviewer",    interviewer.run)
+        builder.add_node("route_executor", route_executor.run)
+
+        # extractor -> interviewer -> 정보 부족O -> END -> extractor..
+        # extractor -> interviewer -> 정보 부족X -> route_executor -> END
+        builder.set_entry_point("extractor")
+        builder.add_edge("extractor", "interviewer")
+        builder.add_conditional_edges(
+            "interviewer",
+            lambda state: "route_executor" if state.is_complete else END,
+            {"route_executor": "route_executor", END: END},
+        )
+        builder.add_edge("route_executor", END)
+
+        return builder.compile()
 
     async def get_init_message(self, user_uuid: str, lat: float, lon: float) -> ChatResponse:
         """
-        산책 경로 추천 챗봇의 초기 메시지를 반환합니다.
+        대화 세션을 구축하고, 날씨 관련 환영 인사를 제공합니다.
         """
-        # 사용자의 chat_session 생성
-        user_id = UserRepository.get_id_by_uuid(user_uuid)
+        user_id   = UserRepository.get_id_by_uuid(user_uuid)
         thread_id = str(uuid4())
         ChatSessionRepository.save(user_id, thread_id)
 
-        # 날씨 정보 획득
         weather_data, init_message = await self.weather_checker.generate_init_message(lat, lon)
-        current_location = await self.kakao_client.get_address_from_coords(lat, lon)
+        current_location           = await self.kakao_client.get_address_from_coords(lat, lon)
 
-        # 초기 상태 정의
         initial_state = State(
-            user_uuid=user_uuid,
-            current_location=Location(
-                lat=lat,
-                lon=lon,
-                address=current_location.place_address,
-                place_name=current_location.place_name
+            user_uuid         = user_uuid,
+            current_location  = Location(
+                lat        = lat,
+                lon        = lon,
+                address    = current_location.place_address,
+                place_name = current_location.place_name,
             ),
-            user_context=None,
-            origin_candidate=None,
-            destination_candidate=None,
-            weather_data=weather_data,
-            user_prompt="",
-            next_node="interviewer"
+            weather_data = weather_data,
+            response     = init_message
         )
 
-        # Valkey에 초기 상태 저장
-        await ChatStateRepository.save_state(
-            thread_id=thread_id,
-            state=initial_state
-        )
+        await ChatStateRepository.save_state(thread_id=thread_id, state=initial_state)
 
-        return ChatResponse(
-            thread_id=thread_id,
-            message=init_message,
-            state=initial_state
-        )
-       
+        return ChatResponse(thread_id=thread_id, state=initial_state)
+
     async def orchestrator(self, thread_id: str, user_prompt: str) -> ChatResponse:
         """
-        사용자 입력을 받아 상태를 갱신하고 다음 응답을 반환합니다.
+        Langgraph를 기반으로 정보 수집부터 경로 생성까지 진행합니다.
         """
-        # state 로드
-        state = await ChatStateRepository.get_state(thread_id)
-
-        # user_prompt 업데이트
+        state             = await ChatStateRepository.get_state(thread_id)
         state.user_prompt = user_prompt
 
-        # 정보 추출 -> user_context 업데이트
-        state = await self.extractor.run(state)
+        result      = await self.graph.ainvoke(state)
+        final_state = State.model_validate(result)
 
-        # user_context 외 정보 업데이트
-        response, state = await self.interviewer.run(state)
-        
-        # state 저장
-        await ChatStateRepository.save_state(thread_id, state)
-        
+        await ChatStateRepository.save_state(thread_id, final_state)
+
         return ChatResponse(
-            thread_id=thread_id,
-            message=response,
-            state=state
+            thread_id = thread_id,
+            state     = final_state,
         )
-    
-    async def assign_weight(self, thread_id: str):
-        """
-        LLM과 대화가 끝난 직후 지도 레이어별 가중치를 결정합니다.
-        가중치 예) {safety: 0.3, fun: 0.2, ...}
-        """
-        state = await ChatStateRepository.get_state(thread_id)
-        return await self.weight_assigner.run(state)

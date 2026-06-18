@@ -69,6 +69,6 @@ def create_app_context() -> AppContext:
         coordinate_panel  = CoordinatePanel(),
         walk_result_panel = WalkResultPanel(),
         walk_route_map    = WalkRouteMap(G),
-        walk_route_button = WalkRouteButton(G),
+        walk_route_button = WalkRouteButton(),
         provider          = build_provider(),
     )

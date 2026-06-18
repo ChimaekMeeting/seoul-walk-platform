@@ -13,23 +13,20 @@ class NatureLayer:
         m: folium.Map,
         center_lat: float,
         center_lon: float,
-        route_nodes: list,
-        G,
+        route_coordinates: list,
     ):
         """
-        경로 노드 마커, 도보 네트워크 선, CCTV 마커를 Folium 지도에 오버레이합니다.
+        경로 좌표 마커, 도보 네트워크 선, CCTV 마커를 Folium 지도에 오버레이합니다.
         """
-        for node_id in route_nodes:
-            if node_id in G.nodes:
-                folium.CircleMarker(
-                    location=[G.nodes[node_id]["lat"], G.nodes[node_id]["lon"]],
-                    radius=3,
-                    color="red",
-                    fill=True,
-                    fill_color="red",
-                    fill_opacity=0.8,
-                    tooltip=str(node_id),
-                ).add_to(m)
+        for coord in route_coordinates:
+            folium.CircleMarker(
+                location=coord,
+                radius=3,
+                color="red",
+                fill=True,
+                fill_color="red",
+                fill_opacity=0.8,
+            ).add_to(m)
 
         df_lines = self.map_layer.fetch_local_db_lines_optimized(center_lat, center_lon, radius_m=300)
         if not df_lines.empty:

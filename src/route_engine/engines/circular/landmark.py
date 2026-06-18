@@ -10,7 +10,7 @@ from src.route_engine.scoring.scoring_engine import calculate_custom_score
 class CircularLandmarkEngine:
     def __init__(self, inp: CircularRouteInput, G: nx.Graph, landmark_node: int, mode: CircularMode = CircularMode.LANDMARK):
         self._inp           = inp
-        self._G             = G.copy()  # 원본 그래프 보호
+        self._G             = G.copy()      # 원본 그래프 보호
         self._utils         = PathUtils(self._G)
         self._landmark_node = landmark_node  # 경유 랜드마크 노드
         self.mode           = mode
@@ -22,19 +22,26 @@ class CircularLandmarkEngine:
         """
         랜드마크를 경유하는 순환 경로를 생성합니다.
         """
+        # 엣지별 custom_score 기록 (in-place)
         calculate_custom_score(self._G, {
             "mode": "general",
             "weights": self._weights,
             "blocked_tags": self._blocked_tags,
         })
 
+        # 출발 노드 탐색
         start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
+
+        # 출발 노드가 없는 경우
         if start is None:
             return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
-
+        
+        # 경로 생성
         nodes = self._find_path(start)
+
+        # 경로가 없는 경우
         if not nodes:
             return WalkRouteResponse(status="FAILED", mode=self.mode,
                                coordinates=[], total_km=0.0,
@@ -72,11 +79,10 @@ class CircularLandmarkEngine:
             print(f"[landmark/circular] 오류: {e}")
             return []
 
-    def _penalize(self, path: list[int]) -> dict:
+    def _penalize(self, path: list[int]) -> None:
         """
-        경로 엣지에 페널티를 적용하고 원본 가중치를 반환합니다.
+        경로 엣지에 재사용 억제 페널티(×100)를 적용합니다.
         """
-        saved = {}
         for i in range(len(path) - 1):
             u, v = path[i], path[i + 1]
             if self._G.has_edge(u, v):

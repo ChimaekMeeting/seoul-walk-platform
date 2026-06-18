@@ -71,7 +71,7 @@ class RouteButton:
                                 st.rerun()
                         else:
                             result = get_route(context, weights, self.G)
-                            if "error" in result:
+                            if result.get("error"):
                                 st.error(f"오류 발생: {result['error']}")
                             else:
                                 self._save(result)
@@ -98,7 +98,7 @@ class RouteButton:
                         "purpose": user_context.get("purpose", "산책"),
                     }
                     result = get_route(context, weights, self.G)
-                    if "error" in result:
+                    if result.get("error"):
                         st.error(f"오류 발생: {result['error']}")
                     else:
                         self._save(result)

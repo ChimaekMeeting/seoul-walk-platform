@@ -9,54 +9,27 @@ class ProfileConfig(BaseModel):
     weights:      Weights
     blocked_tags: list[str] = []
 
+_DEFAULT  = ProfileConfig(weights=Weights(safety=0.5, nature=0.5, slope=0.5),                        blocked_tags=["underground"])
+_FLAT     = ProfileConfig(weights=Weights(safety=0.5, nature=0.3, slope=1.0),                        blocked_tags=["underground"])
+_CHILD    = ProfileConfig(weights=Weights(safety=1.0, nature=0.3, slope=1.0, child=1.0),             blocked_tags=["underground", "highway"])
+_RUNNING  = ProfileConfig(weights=Weights(safety=0.5, nature=0.5, slope=0.7, running=1.0),           blocked_tags=["underground"])
+_LANDMARK = ProfileConfig(weights=Weights(safety=0.5, nature=0.5, slope=0.3, landmark=1.0),          blocked_tags=["underground"])
 
-# ── 프로필 정의 ────────────────────────────────────────────
-# Weights 값이 클수록 해당 score를 경로 선택에서 강하게 반영합니다.
-# slope는 회피 가중치 — 클수록 경사가 있는 엣지를 피합니다.
 
-PROFILES: dict[str, ProfileConfig] = {
+# 모드별 가중치 프로필 매핑
+PROFILES: dict[Union[CircularMode, OnewayMode], ProfileConfig] = {
+    CircularMode.RANDOM:   _DEFAULT,
+    CircularMode.FLAT:     _FLAT,
+    CircularMode.CHILD:    _CHILD,
+    CircularMode.RUNNING:  _RUNNING,
+    CircularMode.LANDMARK: _LANDMARK,
 
-    # 기본값 — 안전·자연 균형
-    "default": ProfileConfig(
-        weights=Weights(safety=0.5, nature=0.5, slope=0.5),
-        blocked_tags=["underground"],
-    ),
-
-    # 조용한 길 — 자연환경 최우선
-    "quiet": ProfileConfig(
-        weights=Weights(safety=0.5, nature=0.8, slope=0.3),
-        blocked_tags=["underground"],
-    ),
-
-    # 평지 — 경사 강하게 회피
-    "flat": ProfileConfig(
-        weights=Weights(safety=0.5, nature=0.3, slope=1.0),
-        blocked_tags=["underground"],
-    ),
-
-    # 안전한 길 — 밝고 CCTV 많은 곳
-    "safe": ProfileConfig(
-        weights=Weights(safety=1.0, nature=0.3, slope=0.5),
-        blocked_tags=["underground", "alley"],
-    ),
-
-    # 경관 좋은 길 — 랜드마크·풍경 최우선
-    "scenic": ProfileConfig(
-        weights=Weights(safety=0.5, nature=0.5, slope=0.3, landmark=1.0),
-        blocked_tags=["underground"],
-    ),
-
-    # 어린이 동반 — 안전 + 평지 + 어린이보호구역
-    "child": ProfileConfig(
-        weights=Weights(safety=1.0, nature=0.3, slope=1.0, child=1.0),
-        blocked_tags=["underground", "highway"],
-    ),
-
-    # 러닝 — 러닝 코스 우선
-    "running": ProfileConfig(
-        weights=Weights(safety=0.5, nature=0.5, slope=0.7, running=1.0),
-        blocked_tags=["underground"],
-    ),
+    OnewayMode.SHORTEST:   _DEFAULT,
+    OnewayMode.RANDOM:     _DEFAULT,
+    OnewayMode.FLAT:       _FLAT,
+    OnewayMode.CHILD:      _CHILD,
+    OnewayMode.RUNNING:    _RUNNING,
+    OnewayMode.LANDMARK:   _LANDMARK,
 }
 
 
