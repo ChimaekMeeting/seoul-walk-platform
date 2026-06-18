@@ -45,7 +45,7 @@ class ChatPanel:
             st.session_state.thread_id = init_res.get("thread_id")
             st.session_state.state = init_res.get("state")
             st.session_state.messages = []
-            st.session_state.messages.append({"role": "assistant", "content": init_res.get("message")})
+            st.session_state.messages.append({"role": "assistant", "content": init_res.get("state", {}).get("response")})
             st.session_state.initialized = True
 
     async def chat_and_assign_weights(self, prompt: str):
@@ -60,7 +60,7 @@ class ChatPanel:
             user_prompt=chat_req.user_prompt,
         )
 
-        answer = response.get("message", "죄송합니다. 응답을 이해하지 못했습니다.")
+        answer = response.get("state", {}).get("response", "죄송합니다. 응답을 이해하지 못했습니다.")
         state  = response.get("state")
 
         st.session_state.messages.append({"role": "assistant", "content": answer})
