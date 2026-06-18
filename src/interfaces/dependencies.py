@@ -1,14 +1,18 @@
-from src.service.user.login_service import KakaoLoginService
-from src.service.user.user_service import UserService
-from src.service.user.auth_service import AuthService
-from src.service.chat.prewalk_service import PrewalkOrchestrator
-from src.agent.nodes.weather_checker import WeatherChecker
-from src.agent.nodes.extractor import Extractor
-from src.agent.nodes.interviewer import Interviewer
-from src.agent.nodes.weight_assigner import WeightAssigner
+from src.service import (
+    KakaoLoginService,
+    UserService,
+    AuthService,
+    PrewalkOrchestrator,
+    RouteService
+)
+from src.agent.nodes import (
+    WeatherChecker,
+    Extractor,
+    Interviewer,
+    RouteExecutor
+)
 from src.infrastructure.external.client.kakao_client import KakaoClient
-from fastapi import Request
-from src.service.route.route_service import RouteService
+from src.repository.network.graph_repository import GraphRepository
 
 # 이 파일에서 정의된 서비스 객체를 다른 API 파일에서 전역적으로 사용하시면 됩니다!
 
@@ -16,14 +20,15 @@ from src.service.route.route_service import RouteService
 auth_service        = AuthService()
 user_service        = UserService(auth_service)
 kakao_login_service = KakaoLoginService(user_service, auth_service)
-weather_checker = WeatherChecker()
+weather_checker     = WeatherChecker()
+route_service       = RouteService(G=GraphRepository.load_graph())
 
 prewalk_orchestrator = PrewalkOrchestrator(
     weather_checker = weather_checker,
     kakao_client    = KakaoClient(),
     extractor       = Extractor(),
     interviewer     = Interviewer(),
-    weight_assigner = WeightAssigner(),
+    route_executor  = RouteExecutor(),
 )
 
 # --- 날씨 ---
@@ -45,5 +50,5 @@ def get_prewalk_orchestrator() -> PrewalkOrchestrator:
     return prewalk_orchestrator
 
 # --- 경로 ---
-def get_route_service(request: Request) -> RouteService:
-    return request.app.state.route_service
+def get_route_service() -> RouteService:
+    return route_service
