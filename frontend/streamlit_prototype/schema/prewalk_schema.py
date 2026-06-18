@@ -25,7 +25,6 @@ class ChatResponse(BaseModel):
     챗봇과 상호작용을 통해 제공되는 출력 스키마입니다.
     """
     thread_id: str
-    message: str
     state: State
 
 
