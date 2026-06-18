@@ -3,6 +3,7 @@ from typing import Optional
 
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.tools.place_tools import PlaceTool
+from src.infrastructure.external.schema.place_schema import PlaceSearchResult
 from src.agent.utils.chatbot_utils import PromptUtils
 from src.schema.prewalk_schema import (
     State,
@@ -134,15 +135,15 @@ class Interviewer(GPTClient):
             target     = args.get("target", "destination")
             output     = await self.place_tool.tool_map[name].ainvoke(args)
 
-            if "documents" in output:
+            if isinstance(output, PlaceSearchResult) and output.documents:
                 candidates[f"{target}_candidate"] = [
                     Location(
-                        lat        = float(d["y"]),
-                        lon        = float(d["x"]),
-                        address    = d["address_name"],
-                        place_name = d["place_name"],
+                        lat        = float(d.y),
+                        lon        = float(d.x),
+                        address    = d.address_name,
+                        place_name = d.place_name,
                     )
-                    for d in output["documents"]
+                    for d in output.documents
                 ]
 
         return candidates
