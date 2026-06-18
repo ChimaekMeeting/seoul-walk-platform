@@ -8,11 +8,8 @@ class WeatherChecker:
     def __init__(self):
         self._client = WeatherClient()
         self.init_message = textwrap.dedent("""
-            현재 위치를 중심으로 최적의 산책로를 추천해 드릴게요.
-            원하시는 산책 조건을 말씀해 주시겠어요?
-            1. 코스 종류: 순환 vs 편도
-            2. 도착 지점: (편도 선택 시) 목적지 명칭
-            3. 산책 테마: 운동, 데이트, 반려동물 동반 등
+            오늘 어떤 산책이 필요하세요? 기분 전환, 조용한 길, 땀 안 나는 짧은 코스, 아이와 함께, 평지 위주처럼 편하게 말씀해 주세요.
+            출발지는 현재 위치를 기준으로 잡고, 목적지가 필요할 때만 제가 다시 물어볼게요.
         """).strip()
 
     async def generate_init_message(self, lat: float, lon: float) -> Tuple[EnvironmentInfo, str]:

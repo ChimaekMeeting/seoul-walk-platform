@@ -67,9 +67,9 @@ def render_sidebar() -> SidebarConfig:
     return SidebarConfig(input_mode=input_mode, mode=mode, params=params)
 
 
-def apply_input_mode(ctx, sidebar: SidebarConfig) -> RouteParams:
+def apply_input_mode(ctx, sidebar: SidebarConfig, lat: float, lng: float) -> RouteParams:
     """
-    input : ctx (AppContext), sidebar (SidebarConfig)
+    input : ctx (AppContext), sidebar (SidebarConfig), lat (float), lng (float)
     output: RouteParams
 
     입력 방식이 AI 챗봇인 경우 ChatPanel 결과로 RouteParams를 갱신하여 반환
@@ -79,7 +79,7 @@ def apply_input_mode(ctx, sidebar: SidebarConfig) -> RouteParams:
     if sidebar.input_mode != "AI 챗봇":
         return params
 
-    updated = ctx.chat_panel.render(params.mode_key, params.target_km)
+    updated = ctx.chat_panel.render(params.mode_key, params.target_km, lat, lng)
     if not updated:
         return params
 

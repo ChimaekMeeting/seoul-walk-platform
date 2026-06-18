@@ -11,4 +11,5 @@ class WalkRouter:
         """산책 경로 추천 API를 호출합니다."""
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(self.base_url, json=payload)
+            response.raise_for_status()
             return response.json()

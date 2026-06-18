@@ -18,42 +18,38 @@ from src.schema.prewalk_schema import (
 class Interviewer(GPTClient):
     def __init__(self):
         super().__init__()
-        self.place_tool   = PlaceTool()
+        self.place_tool = PlaceTool()
         self.prompt_utils = PromptUtils()
-        self.model        = self.llm.bind_tools(self.place_tool.tools)
-        self.str_parser   = StrOutputParser()
+        self.model = self.llm.bind_tools(self.place_tool.tools)
+        self.str_parser = StrOutputParser()
 
     async def run(self, state: State) -> State:
         """
-        정보가 부족하다면 -> 질문을 던지고
-        정보가 충분하면   -> 경로 생성 시작을 알리는 메시지를 제공합니다.
+        정보가 부족하다면 질문을 던지고, 충분하면 경로 생성 시작을 알립니다.
         """
-        is_complete  = self._is_complete(state.user_context)
+        is_complete = self._is_complete(state.user_context)
         missing_info = self._get_missing_info(state.user_context)
 
         input_variables = {
-            "current_context":  self.prompt_utils.format_for_prompt(state.user_context),
+            "current_context": self.prompt_utils.format_for_prompt(state.user_context),
             "current_location": self.prompt_utils.format_for_prompt(state.current_location),
-            "missing_info":     missing_info,
-            "user_input":       state.user_prompt,
+            "missing_info": missing_info,
+            "user_input": state.user_prompt,
         }
 
-        # 정보가 충분하다면 -> 경로 생성 시작을 알리는 메시지 제공
         if is_complete:
             response = await super().get_response(
-                prompt_name     = "complete",
-                input_variables = input_variables,
-                parser          = self.str_parser,
+                prompt_name="complete",
+                input_variables=input_variables,
+                parser=self.str_parser,
             )
-        # 정보가 부족하다면 -> 질문
         else:
             raw_response = await super().get_response(
-                prompt_name     = "interview",
-                input_variables = input_variables,
-                llm             = self.model,
+                prompt_name="interview",
+                input_variables=input_variables,
+                llm=self.model,
             )
 
-            # place_tool을 사용하는 경우
             if raw_response.tool_calls:
                 candidates = await self._execute_tool_calls(raw_response.tool_calls)
 
@@ -63,20 +59,19 @@ class Interviewer(GPTClient):
                     state.destination_candidate = candidates["destination_candidate"]
 
                 response = await super().get_response(
-                    prompt_name     = "location_formatter",
-                    input_variables = {
-                        "tool_calls":       self.prompt_utils.format_for_prompt(candidates),
-                        "user_input":       state.user_prompt,
+                    prompt_name="location_formatter",
+                    input_variables={
+                        "tool_calls": self.prompt_utils.format_for_prompt(candidates),
+                        "user_input": state.user_prompt,
                         "current_location": self.prompt_utils.format_for_prompt(state.current_location),
                     },
-                    parser = self.str_parser,
+                    parser=self.str_parser,
                 )
-            # place_tool을 사용하지 않는 경우
             else:
                 response = raw_response.content
 
         state.is_complete = is_complete
-        state.response    = response
+        state.response = response
 
         return state
 
@@ -86,9 +81,9 @@ class Interviewer(GPTClient):
         """
         return (
             loc is not None
-            and loc.lat        is not None
-            and loc.lon        is not None
-            and loc.address    is not None
+            and loc.lat is not None
+            and loc.lon is not None
+            and loc.address is not None
             and loc.place_name is not None
         )
 
@@ -100,10 +95,13 @@ class Interviewer(GPTClient):
             return False
         if isinstance(pref, OnewayShortestPreference):
             return self._has_location(pref.origin) and self._has_location(pref.destination)
-        elif isinstance(pref, OnewayPreference):
-            return self._has_location(pref.origin) and self._has_location(pref.destination) and pref.target_km is not None
-        else:
-            return self._has_location(pref.origin) and pref.target_km is not None
+        if isinstance(pref, OnewayPreference):
+            return (
+                self._has_location(pref.origin)
+                and self._has_location(pref.destination)
+                and pref.target_km is not None
+            )
+        return self._has_location(pref.origin) and pref.target_km is not None
 
     def _get_missing_info(self, pref: Optional[BasePreference]) -> str:
         """
@@ -132,16 +130,16 @@ class Interviewer(GPTClient):
 
         for call in tool_calls:
             name, args = call["name"], call["args"]
-            target     = args.get("target", "destination")
-            output     = await self.place_tool.tool_map[name].ainvoke(args)
+            target = args.get("target", "destination")
+            output = await self.place_tool.tool_map[name].ainvoke(args)
 
             if isinstance(output, PlaceSearchResult) and output.documents:
                 candidates[f"{target}_candidate"] = [
                     Location(
-                        lat        = float(d.y),
-                        lon        = float(d.x),
-                        address    = d.address_name,
-                        place_name = d.place_name,
+                        lat=float(d.y),
+                        lon=float(d.x),
+                        address=d.address_name,
+                        place_name=d.place_name,
                     )
                     for d in output.documents
                 ]

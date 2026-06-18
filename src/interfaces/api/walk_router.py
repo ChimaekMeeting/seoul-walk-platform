@@ -9,6 +9,8 @@ from src.interfaces.schema.walk_schema import (
 )
 from src.service.route.route_service import RouteService
 
+from src.service.route.route_request_builder import RouteRequestBuilder
+
 router = APIRouter(
     prefix="/api/walk",
     tags=["walk"],
@@ -23,7 +25,13 @@ async def walk_route(
     산책 경로를 추천합니다.
     """
     try:
-        return service.get_route(request.origin, request.destination, request.target_km, request.mode)
+        safe_args = RouteRequestBuilder.build(request)
+        return service.get_route(
+            safe_args["origin"], 
+            safe_args["destination"], 
+            safe_args["target_km"], 
+            safe_args["mode"]
+        )
     except HTTPException:
         raise
     except Exception as e:

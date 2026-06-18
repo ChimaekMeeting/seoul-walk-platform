@@ -7,26 +7,43 @@ template: |
   ### [Tool 선택 규칙]
 
   **select_circular** — 출발지로 돌아오는 순환 산책
+  - 목적지가 없고 "걷고 싶어", "산책", "기분 전환", "땀 안 나게", "가볍게"처럼 상황/감정/거리만 말하면 기본적으로 이 도구를 선택하세요.
   - mode 값:
     - `circular_random`  : 특별한 조건 없이 자유롭게 산책
     - `circular_child`   : 어린이 동반 산책 (안전 우선)
     - `circular_running` : 러닝·조깅 (공원·하천 우선)
 
   **select_oneway** — 목적지가 있는 편도 산책 (목표 거리 포함)
+  - "카페까지", "경복궁으로", "회사까지"처럼 목적지가 명확하고 다양한 경로/목표 거리를 원할 때 선택하세요.
   - mode 값:
     - `oneway_random`  : 목적지까지 다양한 경로 탐색
     - `oneway_child`   : 어린이 동반 편도 (안전 우선)
     - `oneway_running` : 러닝·조깅 편도
 
   **select_oneway_shortest** — 목적지까지 최단 경로 (거리 무관, 빠른 이동)
+  - 목적지가 있고 "빨리", "최단", "가장 가까운 길"처럼 빠른 이동이 핵심일 때만 선택하세요.
+
+  ### [자연어 선호 매핑 규칙]
+
+  현재 route_engine에 직접 연결된 특수 mode는 child/running 중심입니다. 아래 규칙으로 도구와 mode를 고르세요.
+
+  - 아이, 어린이, 가족, 애 데리고, 유모차 → child 계열 mode
+    - 목적지 없음: `select_circular(mode="circular_child")`
+    - 목적지 있음: `select_oneway(mode="oneway_child")`
+  - 러닝, 달리기, 조깅 → running 계열 mode
+    - 목적지 없음: `select_circular(mode="circular_running")`
+    - 목적지 있음: `select_oneway(mode="oneway_running")`
+  - 평지, 오르막 싫음, 무릎 아픔, 다리 부담 → 현재 전용 mode가 없으므로 random 계열 mode를 사용하고 목표 거리를 짧게 잡으세요.
+  - 안전, 밤길, 무서움, 밝은 길, 큰길, CCTV → 현재 전용 mode가 없으므로 random 계열 mode를 사용하세요. 아이 동반이 함께 있으면 child를 우선하세요.
+  - 조용함, 한적함, 사람 적음, 더움, 시원한 길, 그늘 → 현재 전용 mode가 없으므로 random 계열 mode를 사용하고, "땀 안 나게/더움/시원함"이면 1.0~2.0km로 짧게 잡으세요.
+  - 예쁜 길, 풍경, 기분 전환, 우울함, 랜드마크 → 현재 전용 mode가 없으므로 random 계열 mode를 사용하세요.
 
   ### [필드 추출 규칙]
 
   **origin (출발지)**
-  - "여기", "현 위치", "지금" 언급 → [Current Location] 정보를 그대로 사용
+  - 출발지 언급이 없는 일반적인 산책 요청: 무조건 [Current Location] 정보를 기본으로 할당합니다.
+  - 현재 위치가 아닌 새로운 장소명 언급 시: `place_name`만 기록하고, 좌표는 null로 두어 후보 확인 흐름으로 넘깁니다.
   - [Origin Candidates]에서 번호나 이름 언급 → 해당 후보 정보 할당
-  - 새 장소명 언급 → place_name만 기록, lat/lon/address는 null
-  - 언급 없으면 null
 
   **destination (목적지)**
   - select_oneway / select_oneway_shortest일 때만 필수
@@ -36,6 +53,7 @@ template: |
 
   **target_km (목표 거리)**
   - 숫자 언급 시 해당 값(float) 사용
+  - "땀 안 나게", "가볍게", "무리하지 않게" 등의 맥락이 있으면 1.0~2.0 수준의 짧은 거리로 추론
   - "운동", "러닝" 등 언급 시 5.0 이상으로 추론
   - 언급 없으면 기본값 3.0
   - select_oneway_shortest에는 불필요 (전달하지 않음)
@@ -49,4 +67,4 @@ template: |
   ### [사용자 입력]
   [User Input]: {user_input}
 
-  위 규칙에 따라 도구를 선택하고 호출하세요. 의도가 불분명하면 도구를 호출하지 마세요.
+  위 규칙에 따라 도구를 선택하고 호출하세요. 산책/이동 의도가 없으면 도구를 호출하지 마세요.

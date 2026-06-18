@@ -53,9 +53,14 @@ class WalkRouteButton:
                 if selected_mode.startswith("oneway_") and not st.session_state.end:
                     st.error("편도 모드에서는 도착지를 설정해야 합니다!")
                 else:
-                    with st.spinner("최적의 경로를 계산하는 중..."):
-                        req      = self._build_request(selected_mode, target_km)
-                        response = self._call_api(req)
+                    req = self._build_request(selected_mode, target_km)
+                    try:
+                        with st.spinner("최적의 경로를 계산하는 중..."):
+                            response = self._call_api(req)
+                    except Exception as e:
+                        st.error(f"백엔드 통신 오류 발생: 경로를 생성할 수 없습니다. 다시 시도해 주세요. 상세: {e}")
+                        return
+
                     if response.status == "FAILED":
                         st.error(f"경로 생성 실패: {response.fallback_reason}")
                     else:
@@ -64,7 +69,19 @@ class WalkRouteButton:
 
         elif input_mode == "AI 챗봇":
             state = st.session_state.get("state", {})
-            if state and state.get("next_node") == "end" and not st.session_state.route_coordinates:
+            if state and state.get("is_complete") and not st.session_state.route_coordinates:
+                # 1) 백엔드에서 이미 route_result를 내려준 경우 -> 재호출 없이 즉시 렌더링
+                route_res = state.get("route_result")
+                if route_res:
+                    response = WalkRouteResponse(**route_res)
+                    if response.status == "FAILED":
+                        st.error(f"경로 생성 실패: {response.fallback_reason}")
+                    else:
+                        self._save(response)
+                        st.rerun()
+                    return
+
+                # 2) 예외/이전 흐름: 백엔드 경로가 없으면 기존 fallback API 호출
                 user_context = state.get("user_context", {})
                 origin       = user_context.get("origin", {})
                 destination  = user_context.get("destination")
@@ -74,17 +91,28 @@ class WalkRouteButton:
                         mode      = selected_mode,
                         target_km = target_km,
                         origin    = Coordinate(
-                            lat = origin.get("lat", lat),
-                            lon = origin.get("lon", lng),
+                            lat = origin.get("lat") or lat,
+                            lon = origin.get("lon") or lng,
                         ),
                         destination = (
                             Coordinate(lat=destination.get("lat"), lon=destination.get("lon"))
-                            if destination else None
+                            if (
+                                destination
+                                and destination.get("lat") is not None
+                                and destination.get("lon") is not None
+                            )
+                            else None
                         ),
+                        user_context = user_context,
+                        current_location = Coordinate(lat=lat, lon=lng)
                     )
-                    response = self._call_api(req)
-                    if response.status == "FAILED":
-                        st.error(f"경로 생성 실패: {response.fallback_reason}")
-                    else:
-                        self._save(response)
-                        st.rerun()
+                    
+                    try:
+                        response = self._call_api(req)
+                        if response.status == "FAILED":
+                            st.error(f"경로 생성 실패: {response.fallback_reason}")
+                        else:
+                            self._save(response)
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"백엔드 통신 오류 발생: 경로를 생성할 수 없습니다. 다시 시도해 주세요. 상세: {e}")

@@ -28,7 +28,7 @@ class App:
         lat, lng, env = render_header(ctx)
         sidebar       = render_sidebar()
         ctx.weather_card.render(env)
-        params        = apply_input_mode(ctx, sidebar)
+        params        = apply_input_mode(ctx, sidebar, lat, lng)
         render_map(ctx, sidebar)
         render_result(ctx, sidebar, params, lat, lng)
 

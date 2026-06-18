@@ -73,6 +73,9 @@ class BannerCarousel:
         """
         배너 캐러셀 HTML, 선택 버튼, 모달 팝업을 렌더링합니다.
         """
+        if not banners:
+            banners = [{"emoji": "🌿", "text": "가볍게 걷기 좋은 날이에요", "sub": "현재 상태에 맞는 산책 코스를 준비해볼게요."}]
+            
         st_html(self._build_html(banners), height=160)
 
         modal = Modal(key="banner_modal", title="")

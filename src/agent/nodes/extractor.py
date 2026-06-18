@@ -40,7 +40,8 @@ class Extractor(GPTClient):
 
         args               = tool_call["args"]  # tool에 들어갈 인자
         pref               = self.mode_tool.tool_map[tool_name].invoke(args)  # tool 사용 결과
-        pref.purpose       = state.user_context.purpose if state.user_context else None
+        if pref.purpose is None and state.user_context:
+            pref.purpose = state.user_context.purpose
         state.mode         = pref.mode
         state.user_context = pref
 

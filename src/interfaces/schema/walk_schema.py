@@ -39,10 +39,12 @@ class FallbackReason(str, Enum):
 
 
 class WalkRouteRequest(BaseModel):
-    origin:      Coordinate
+    origin:      Optional[Coordinate] = None
     destination: Optional[Coordinate] = None
     target_km:   Optional[float] = None
-    mode:        Union[CircularMode, OnewayMode]
+    mode:        Optional[str] = None
+    user_context: Optional[dict] = None
+    current_location: Optional[Coordinate] = None
 
 
 class WalkRouteResponse(BaseModel):
