@@ -62,9 +62,13 @@ class OnewayChildEngine:
 
         coords  = self._utils.extract_coordinates(nodes)      # [lat, lon] 좌표 목록
         total_m = self._utils.calc_distance(nodes)            # 총 이동 거리(미터)
+        if len(coords) < 2 or total_m <= 0:
+            return WalkRouteResponse(status="FAILED", mode=self.mode,
+                               coordinates=[], total_km=0.0,
+                               fallback_reason=FallbackReason.NO_PATH)
 
         return WalkRouteResponse(
-            status          = "SUCCESS" if coords else "FAILED",
+            status          = "SUCCESS",
             mode            = self.mode,
             coordinates     = coords,
             total_km        = round(total_m / 1000, 2),

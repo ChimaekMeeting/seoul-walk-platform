@@ -44,6 +44,27 @@ class Interviewer(GPTClient):
                 parser=self.str_parser,
             )
         else:
+            candidates = await self._lookup_unresolved_place_candidates(state)
+            if candidates:
+                if "origin_candidate" in candidates:
+                    state.origin_candidate = candidates["origin_candidate"]
+                if "destination_candidate" in candidates:
+                    state.destination_candidate = candidates["destination_candidate"]
+
+                response = await super().get_response(
+                    prompt_name="location_formatter",
+                    input_variables={
+                        "tool_calls": self.prompt_utils.format_for_prompt(candidates),
+                        "user_input": state.user_prompt,
+                        "current_location": self.prompt_utils.format_for_prompt(state.current_location),
+                        "target": self._resolve_candidate_target(candidates),
+                    },
+                    parser=self.str_parser,
+                )
+                state.is_complete = False
+                state.response = response
+                return state
+
             raw_response = await super().get_response(
                 prompt_name="interview",
                 input_variables=input_variables,
@@ -64,6 +85,7 @@ class Interviewer(GPTClient):
                         "tool_calls": self.prompt_utils.format_for_prompt(candidates),
                         "user_input": state.user_prompt,
                         "current_location": self.prompt_utils.format_for_prompt(state.current_location),
+                        "target": self._resolve_candidate_target(candidates),
                     },
                     parser=self.str_parser,
                 )
@@ -121,6 +143,64 @@ class Interviewer(GPTClient):
                 missing.append("목표 거리")
 
         return ", ".join(missing) if missing else ""
+
+    async def _lookup_unresolved_place_candidates(self, state: State) -> dict:
+        """
+        place_name만 있고 좌표가 없는 장소는 LLM 재질문 대신 후보 검색으로 넘깁니다.
+        """
+        pref = state.user_context
+        if pref is None or not self._has_location(state.current_location):
+            return {}
+
+        targets = {}
+        if self._needs_place_lookup(pref.origin):
+            targets["origin"] = pref.origin.place_name
+        if isinstance(pref, (OnewayPreference, OnewayShortestPreference)):
+            if self._needs_place_lookup(pref.destination):
+                targets["destination"] = pref.destination.place_name
+
+        candidates = {}
+        for target, keyword in targets.items():
+            output = await self.place_tool.get_address_from_keyword(
+                keyword=keyword,
+                lat=state.current_location.lat,
+                lon=state.current_location.lon,
+                target=target,
+            )
+            if isinstance(output, PlaceSearchResult) and output.documents:
+                candidates[f"{target}_candidate"] = [
+                    Location(
+                        lat=float(d.y),
+                        lon=float(d.x),
+                        address=d.address_name,
+                        place_name=d.place_name,
+                    )
+                    for d in output.documents
+                ]
+
+        return candidates
+
+    def _needs_place_lookup(self, loc: Optional[Location]) -> bool:
+        """
+        장소명은 있지만 좌표가 없으면 검색 후보 확인이 필요합니다.
+        """
+        return (
+            loc is not None
+            and loc.place_name is not None
+            and (loc.lat is None or loc.lon is None)
+        )
+
+    def _resolve_candidate_target(self, candidates: dict) -> str:
+        """
+        장소 후보가 출발지용인지 목적지용인지 formatter 프롬프트에 전달합니다.
+        """
+        has_origin = "origin_candidate" in candidates
+        has_destination = "destination_candidate" in candidates
+        if has_origin and not has_destination:
+            return "origin"
+        if has_destination and not has_origin:
+            return "destination"
+        return ""
 
     async def _execute_tool_calls(self, tool_calls: list) -> dict:
         """

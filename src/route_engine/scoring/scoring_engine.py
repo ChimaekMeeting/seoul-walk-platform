@@ -54,13 +54,19 @@ def calculate_custom_score(graph: nx.Graph, profile: dict) -> nx.Graph:
             graph[u][v]["custom_score"] = float("inf")
             continue
 
+        def _feature(key: str, default: float) -> float:
+            # Some graph edges have nullable feature columns; use neutral defaults
+            # so incomplete DB rows do not crash route generation.
+            value = data.get(key, default)
+            return default if value is None else float(value)
+
         length = data.get("length", 1.0) or 1.0
-        safety = data.get("safety_score", 0.5)
-        nature = data.get("nature_score", 0.5)
-        slope  = data.get("slope_score",  0.5)
+        safety = _feature("safety_score", 0.5)
+        nature = _feature("nature_score", 0.5)
+        slope  = _feature("slope_score",  0.5)
 
         if mode == "running":
-            running       = data.get("running_score", 0.0)
+            running       = _feature("running_score", 0.0)
             running_bonus = 1.0 + running * running_w
             slope_factor  = 1.0 + slope * slope_w
             length_bonus  = 1.0 + math.log1p(length / 50.0)
@@ -71,9 +77,9 @@ def calculate_custom_score(graph: nx.Graph, profile: dict) -> nx.Graph:
             slope_penalty = (2.0 - slope) ** slope_w
             denominator   = (safety + 1e-6) ** safety_w * (nature + 1e-6) ** nature_w
             if landmark_w > 0:
-                denominator *= 1.0 + data.get("landmark_score", 0.0) * landmark_w
+                denominator *= 1.0 + _feature("landmark_score", 0.0) * landmark_w
             if child_w > 0:
-                denominator *= 1.0 + data.get("child_score", 0.0) * child_w
+                denominator *= 1.0 + _feature("child_score", 0.0) * child_w
             calculated    = (length * slope_penalty) / denominator
 
         graph[u][v]["custom_score"] = max(1.0, calculated)

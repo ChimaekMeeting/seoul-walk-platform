@@ -29,11 +29,18 @@ class PathUtils:
         """
         노드 ID 리스트를 [[lat, lon], ...] 좌표 리스트로 변환합니다.
         """
-        return [
-            [self.G.nodes[n]["lat"], self.G.nodes[n]["lon"]]
-            for n in node_list
-            if n in self.G.nodes  # 그래프에 없는 노드 제외
-        ]
+        coords = []
+        for n in node_list:
+            if n not in self.G.nodes:
+                continue
+            lat = self.G.nodes[n].get("lat")
+            lon = self.G.nodes[n].get("lon")
+            # Some graph nodes can be incomplete in DB snapshots; skip them
+            # instead of crashing the whole route response.
+            if lat is None or lon is None:
+                continue
+            coords.append([lat, lon])
+        return coords
 
     def prune_dead_ends(self, path_nodes: list, max_branch_length: float = 400.0) -> list:
         """
@@ -80,7 +87,7 @@ class PathUtils:
         노드 목록의 총 이동 거리(미터)를 반환합니다.
         """
         return sum(
-            (self.G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("length", 0)
+            ((self.G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("length", 0) or 0)
             for i in range(len(nodes) - 1)
         )  # 인접 노드 쌍의 length 합산
 

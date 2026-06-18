@@ -60,10 +60,21 @@ class CircularChildEngine:
             )
 
         pruned  = self._utils.prune_dead_ends(nodes)       # 왕복 가지 제거
-        coords  = self._utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
         total_m = self._utils.calc_distance(pruned)        # 총 이동 거리(미터)
+        if total_m <= 0:
+            # Pruning can collapse short out-and-back walks to the start node only.
+            # Keep the generated route instead of reporting a misleading 0 km success.
+            pruned = nodes
+            total_m = self._utils.calc_distance(pruned)
+        coords  = self._utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
+        if len(coords) < 2 or total_m <= 0:
+            return WalkRouteResponse(
+                status="FAILED", mode=self.mode,
+                coordinates=[], total_km=0.0,
+                fallback_reason=FallbackReason.NO_PATH,
+            )
         return WalkRouteResponse(
-            status          = "SUCCESS" if coords else "FAILED",
+            status          = "SUCCESS",
             mode            = self.mode,
             coordinates     = coords,
             total_km        = round(total_m / 1000, 2),
