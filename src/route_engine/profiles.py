@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from src.interfaces.schema.walk_schema import CircularMode, OnewayMode
 from src.schema.route_schema import Weights
 
+
 class ProfileConfig(BaseModel):
     weights:      Weights
     blocked_tags: list[str] = []
@@ -32,5 +33,7 @@ PROFILES: dict[Union[CircularMode, OnewayMode], ProfileConfig] = {
 }
 
 
-def get_profile(mode: Union[CircularMode, OnewayMode]) -> ProfileConfig:
-    return PROFILES.get(mode, _DEFAULT)
+# ── 진입점 ────────────────────────────────────────────────
+
+def get_profile(profile_name: Union[str, OnewayMode, CircularMode]) -> ProfileConfig:
+    return PROFILES.get(profile_name, PROFILES["default"])

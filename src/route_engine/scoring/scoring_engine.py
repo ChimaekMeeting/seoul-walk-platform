@@ -55,12 +55,14 @@ def calculate_custom_score(graph: nx.Graph, profile: dict) -> nx.Graph:
             continue
 
         length = data.get("length", 1.0) or 1.0
-        safety = data.get("safety_score", 0.5)
-        nature = data.get("nature_score", 0.5)
-        slope  = data.get("slope_score",  0.5)
+        # DB 이상값이 [0, 1] 범위를 벗어날 경우 공식이 역효과를 낼 수 있어 클램핑
+        # 예: slope=1.5 → (2.0-1.5)^w=0.5 → 패널티 감소 → 급경사 엣지를 오히려 선호
+        safety = max(0.0, min(1.0, data.get("safety_score", 0.5) or 0.5))
+        nature = max(0.0, min(1.0, data.get("nature_score", 0.5) or 0.5))
+        slope  = max(0.0, min(1.0, data.get("slope_score",  0.5) or 0.5))
 
         if mode == "running":
-            running       = data.get("running_score", 0.0)
+            running       = max(0.0, min(1.0, data.get("running_score", 0.0) or 0.0))  # 동일하게 클램핑
             running_bonus = 1.0 + running * running_w
             slope_factor  = 1.0 + slope * slope_w
             length_bonus  = 1.0 + math.log1p(length / 50.0)

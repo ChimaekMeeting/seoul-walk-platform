@@ -2,29 +2,19 @@ import networkx as nx
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.interfaces.schema.walk_schema import (
-    FallbackReason,
-    OnewayMode,
-    WalkRouteResponse
-)
+from src.interfaces.schema.walk_schema import FallbackReason, OnewayMode, WalkRouteResponse
 from src.schema.route_schema import OnewayRouteInput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 
 class OnewayLandmarkEngine:
-    def __init__(
-        self,
-        inp: OnewayRouteInput,
-        G: nx.Graph,
-        landmark_node: int,
-        mode: OnewayMode = OnewayMode.LANDMARK
-    ):
+    def __init__(self, inp: OnewayRouteInput, G: nx.Graph, landmark_node: int, mode: OnewayMode = OnewayMode.LANDMARK):
         self._inp           = inp
         self._G             = G.copy()  # 원본 그래프 보호
         self._utils         = PathUtils(self._G)
         self._landmark_node = landmark_node  # 경유 랜드마크 노드
         self.mode           = mode
-        profile             = get_profile(self.mode)
+        profile             = get_profile("scenic")
         self._weights       = profile.weights
         self._blocked_tags  = profile.blocked_tags
 
@@ -64,9 +54,8 @@ class OnewayLandmarkEngine:
                                coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.NO_PATH)
 
-        coords  = self._utils.extract_coordinates(nodes)  # [lat, lon] 좌표 목록
-        total_m = self._utils.calc_distance(nodes)        # 총 이동 거리(미터)
-
+        coords  = self._utils.extract_coordinates(nodes)
+        total_m = self._calc_distance(nodes)
         return WalkRouteResponse(
             status          = "SUCCESS" if coords else "FAILED",
             mode            = self.mode,
@@ -80,10 +69,16 @@ class OnewayLandmarkEngine:
         출발 → 랜드마크 → 도착 경로를 연결합니다.
         """
         try:
-            path1 = nx.shortest_path(self._G, start, self._landmark_node, weight="custom_score")    # 출발 노드 -> 랜드마크 노드
-            self._penalize(path1)                                                                   # 1구간 엣지 페널티
-            path2 = nx.shortest_path(self._G, self._landmark_node, end, weight="custom_score")      # 랜드마크 노드 -> 도착 노드
-            return path1[:-1] + path2  # 랜드마크 노드 중복 제거 후 연결
+            path1       = nx.shortest_path(self._G, start, self._landmark_node, weight="custom_score")
+            path1_edges = set(zip(path1[:-1], path1[1:]))
+
+            # _penalize/_restore 대신 callable weight 사용 → 예외 발생 시에도 그래프 오염 없음
+            def penalized_weight(u, v, data):
+                base = data.get("custom_score", 1.0)
+                return base * 100.0 if (u, v) in path1_edges or (v, u) in path1_edges else base
+
+            path2 = nx.shortest_path(self._G, self._landmark_node, end, weight=penalized_weight)
+            return path1[:-1] + path2
         except nx.NetworkXNoPath:
             print(f"[landmark/oneway] 경로 없음: {start} → {self._landmark_node} → {end}")
             return []
@@ -98,4 +93,24 @@ class OnewayLandmarkEngine:
         for i in range(len(path) - 1):
             u, v = path[i], path[i + 1]
             if self._G.has_edge(u, v):
-                self._G[u][v]["custom_score"] *= 100  # 재사용 억제 페널티
+                saved[(u, v)] = self._G[u][v]["custom_score"]
+                self._G[u][v]["custom_score"] *= 100
+        return saved
+
+    def _restore(self, saved: dict) -> None:
+        """
+        페널티 적용 전 가중치를 복원합니다.
+        """
+        for (u, v), w in saved.items():
+            self._G[u][v]["custom_score"] = w
+
+    def _calc_distance(self, nodes: list[int]) -> float:
+        """
+        노드 목록의 총 이동 거리(미터)를 반환합니다.
+        """
+        return sum(
+            (self._G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("length", 0)
+            for i in range(len(nodes) - 1)
+        )
+
+

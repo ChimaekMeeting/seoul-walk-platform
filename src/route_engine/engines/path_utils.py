@@ -26,14 +26,18 @@ class PathUtils:
         return nearest
 
     def extract_coordinates(self, node_list: list) -> list:
-        """
-        노드 ID 리스트를 [[lat, lon], ...] 좌표 리스트로 변환합니다.
-        """
-        return [
-            [self.G.nodes[n]["lat"], self.G.nodes[n]["lon"]]
-            for n in node_list
-            if n in self.G.nodes  # 그래프에 없는 노드 제외
-        ]
+        """노드 ID 리스트 → [[lat, lon], ...] 변환"""
+        result = []
+        for n in node_list:
+            if n not in self.G.nodes:
+                continue
+            nd  = self.G.nodes[n]
+            lat = nd.get("lat")
+            lon = nd.get("lon")
+            # 직접 접근(["lat"])은 속성 없는 노드에서 KeyError 발생 → .get()으로 안전 처리
+            if lat is not None and lon is not None:
+                result.append([lat, lon])
+        return result
 
     def prune_dead_ends(self, path_nodes: list, max_branch_length: float = 400.0) -> list:
         """
@@ -109,11 +113,18 @@ class PathUtils:
                 score      = (self.G.get_edge_data(current, n) or {}).get("custom_score", 1.0)
 
                 if total_dist / target_m < 0.7:
-                    # 전반부에는 출발점에서 멀어지는 방향을 선호
+                    # 전반부: 출발점에서 멀수록 score 작아짐 → 확률 높아짐 (탐색 확장)
                     dx    = self.G.nodes[n].get("lon", 0) - sx
                     dy    = self.G.nodes[n].get("lat", 0) - sy
-                    dist  = (dx ** 2 + dy ** 2) ** 0.5   # 출발점 기준 거리
-                    score = score / ((dist + 1e-6) ** 2) # 가까울수록 불리하게 보정
+                    dist  = (dx ** 2 + dy ** 2) ** 0.5
+                    score = score / ((dist + 1e-6) ** 2)
+                else:
+                    # 후반부: 출발점에서 멀수록 score 커짐 → 확률 낮아짐 (귀환 유도)
+                    # Dijkstra 복귀 전 워커가 자연스럽게 출발점 방향으로 수렴하도록 함
+                    dx    = self.G.nodes[n].get("lon", 0) - sx
+                    dy    = self.G.nodes[n].get("lat", 0) - sy
+                    dist  = (dx ** 2 + dy ** 2) ** 0.5
+                    score = score * (1.0 + dist ** 2 * 1e6)
 
                 probs.append((1.0 / (score + 1e-6)) * visit_pen * degree_pen)
 
@@ -149,42 +160,54 @@ class PathUtils:
         p1       = self.G.nodes[start]
         p2       = self.G.nodes[end]
 
+        lon1, lat1 = p1.get("lon", 0), p1.get("lat", 0)
+        lon2, lat2 = p2.get("lon", 0), p2.get("lat", 0)
+        dx, dy     = lon2 - lon1, lat2 - lat1
+        dist_se    = math.sqrt(dx ** 2 + dy ** 2)
+
+        # 출발-도착 직선에 수직인 방향으로 중점을 offset하여 실제 우회 루프 유도
+        # 기존 방식(직선거리 비율 필터만)은 직선 근처 노드가 선택되어 우회 효과 약함
+        offset_deg = (target_km * 0.35) / 111.0
+        if dist_se > 1e-9:
+            side = random.choice([1, -1])
+            px   = -dy / dist_se * side  # 수직 단위벡터 (90도 회전)
+            py   =  dx / dist_se * side
+        else:
+            angle = random.uniform(0, 2 * math.pi)
+            px, py = math.cos(angle), math.sin(angle)
+
+        target_lon = (lon1 + lon2) / 2 + px * offset_deg
+        target_lat = (lat1 + lat2) / 2 + py * offset_deg
+
         candidates = []
         for node, data in self.G.nodes(data=True):
             if node in (start, end):
                 continue
-            d1    = math.sqrt((data.get("lon", 0) - p1.get("lon", 0)) ** 2 + (data.get("lat", 0) - p1.get("lat", 0)) ** 2) * 111000  # 출발점까지 거리
-            d2    = math.sqrt((data.get("lon", 0) - p2.get("lon", 0)) ** 2 + (data.get("lat", 0) - p2.get("lat", 0)) ** 2) * 111000  # 도착점까지 거리
-            total = d1 + d2  # 경유 시 총 이동 거리 추정
-            if target_m * 0.6 <= total <= target_m * 0.9:  # 목표 거리 60~90% 구간 후보
-                candidates.append((node, abs(total - target_m * 0.8)))  # 목표 80%에 가까울수록 우선
+            nlon, nlat = data.get("lon", 0), data.get("lat", 0)
+            d1    = math.sqrt((nlon - lon1) ** 2 + (nlat - lat1) ** 2) * 111000
+            d2    = math.sqrt((nlon - lon2) ** 2 + (nlat - lat2) ** 2) * 111000
+            total = d1 + d2
+            if target_m * 0.6 <= total <= target_m * 0.9:
+                d_target = math.sqrt((nlon - target_lon) ** 2 + (nlat - target_lat) ** 2)
+                candidates.append((node, d_target))
 
         if not candidates:
-            # 후보가 없으면 중간점 근처 노드를 경유지로 사용
-            mid_lat  = (p1.get("lat", 0) + p2.get("lat", 0)) / 2 + 0.005
-            mid_lon  = (p1.get("lon", 0) + p2.get("lon", 0)) / 2 + 0.005
-            waypoint = self.find_nearest_node(mid_lat, mid_lon)
+            waypoint = self.find_nearest_node(target_lat, target_lon)
         else:
             candidates.sort(key=lambda x: x[1])
             waypoint = random.choice(candidates[:5])[0]  # 상위 5개 중 랜덤 선택
 
         try:
-            path1 = nx.shortest_path(self.G, start, waypoint, weight="custom_score")  # 출발→경유 구간
+            path1       = nx.shortest_path(self.G, start, waypoint, weight="custom_score")
+            path1_edges = set(zip(path1[:-1], path1[1:]))
 
-            saved = {}
-            for i in range(len(path1) - 1):
-                u, v = path1[i], path1[i + 1]
-                if self.G.has_edge(u, v):
-                    saved[(u, v)]                = self.G[u][v]["custom_score"]   # 원본 가중치 백업
-                    self.G[u][v]["custom_score"] *= 100                           # 1구간 재사용 억제
+            # G 엣지를 직접 수정하지 않고 클로저로 페널티 적용 → 그래프 오염 방지
+            def penalized_weight(u, v, data):
+                base = data.get("custom_score", 1.0)
+                return base * 100.0 if (u, v) in path1_edges or (v, u) in path1_edges else base
 
-            try:
-                path2 = nx.shortest_path(self.G, waypoint, end, weight="custom_score")  # 경유→도착 구간
-            finally:
-                for (u, v), w in saved.items():
-                    self.G[u][v]["custom_score"] = w  # 가중치 원복
-
-            return path1[:-1] + path2  # 경유 노드 중복 제거 후 연결
+            path2 = nx.shortest_path(self.G, waypoint, end, weight=penalized_weight)
+            return path1[:-1] + path2
 
         except Exception:
             try:
