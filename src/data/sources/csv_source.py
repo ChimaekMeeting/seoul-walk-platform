@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.repository.csv_raw_repository import CsvRawRepository
+from src.repository.raw.csv_raw_repository import CsvRawRepository
 
 
 class CSVSource:

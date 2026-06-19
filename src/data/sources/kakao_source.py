@@ -3,7 +3,7 @@ import os
 import httpx
 from dotenv import load_dotenv
 
-from src.repository.kakao_raw_repository import KakaoRawRepository
+from src.repository.raw.kakao_raw_repository import KakaoRawRepository
 
 load_dotenv()
 

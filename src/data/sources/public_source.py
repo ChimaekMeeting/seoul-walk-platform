@@ -3,7 +3,7 @@ import os
 import httpx
 from dotenv import load_dotenv
 
-from src.repository.public_raw_repository import PublicRawRepository
+from src.repository.raw.public_raw_repository import PublicRawRepository
 
 load_dotenv()
 

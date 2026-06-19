@@ -1,6 +1,6 @@
 import geopandas as gpd
 import osmnx as ox
-from src.repository.osm_raw_repository import OsmRawRepository
+from src.repository.raw.osm_raw_repository import OsmRawRepository
 
 
 class OSMSource:
