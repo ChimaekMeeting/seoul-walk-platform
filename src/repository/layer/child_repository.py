@@ -51,9 +51,7 @@ class ChildRepository:
         with get_postgresql_db() as db:
             rows = db.execute(
                 select(
-                    ChildLayer.name,
                     ChildLayer.category,
-                    ChildLayer.address,
                     lat_expr.label("lat"),
                     lon_expr.label("lon"),
                 ).where(
@@ -67,9 +65,7 @@ class ChildRepository:
 
         return [
             {
-                "name": row.name,
                 "category": row.category,
-                "address": row.address,
                 "lat": row.lat,
                 "lon": row.lon,
             }
