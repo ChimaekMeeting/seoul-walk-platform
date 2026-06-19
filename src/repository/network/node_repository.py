@@ -6,6 +6,11 @@ from typing import List
 
 class NodeRepository:
     @staticmethod
+    def is_populated() -> bool:
+        with get_postgresql_db() as db:
+            return db.execute(select(func.count()).select_from(WalkNode)).scalar() > 0
+
+    @staticmethod
     def get_max_node_id() -> int:
         """
         walk_nodes 테이블에서 현재 최대 node_id를 반환합니다.

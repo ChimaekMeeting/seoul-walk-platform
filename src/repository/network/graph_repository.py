@@ -76,6 +76,10 @@ class GraphRepository:
 
         print(f"그래프 로드 완료: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
 
+        if G.number_of_nodes() == 0:
+            print("  ⚠️  walk_edges 데이터 없음. 빈 그래프로 초기화합니다.")
+            return G
+
         largest_cc = max(nx.connected_components(G), key=len)
         G = G.subgraph(largest_cc).copy()
         G = PathUtils(G).remove_dead_ends()
@@ -151,6 +155,9 @@ class GraphRepository:
                 )
 
         print(f"반경 {radius_m}m 그래프 로드: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+
+        if G.number_of_nodes() == 0:
+            return G
 
         largest_cc = max(nx.connected_components(G), key=len)
         G = G.subgraph(largest_cc).copy()
