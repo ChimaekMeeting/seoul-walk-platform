@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from streamlit.components.v1 import html as st_html
 from streamlit_folium import st_folium
 
-from src.repository.network.graph_repository import GraphRepository
+import src.interfaces.dependencies as deps
 
 from frontend.streamlit_prototype.components.carousel.banner_data_carousel import BannerDataCarousel
 from frontend.streamlit_prototype.components.carousel.banner_carousel import BannerCarousel
@@ -18,22 +18,12 @@ from frontend.streamlit_prototype.components.button.route_button import RouteBut
 load_dotenv()
 
 
-@st.cache_resource
-def _load_graph():
-    """
-    전체 그래프 데이터를 로드하고 프로세스 생애 동안 캐싱합니다.
-    """
-    G = GraphRepository.load_graph()
-    print(list(G.nodes(data=True))[:3])
-    return G
-
-
 class WalkRoutePage:
 
     SEOUL_CENTER = [37.5665, 126.9780]
 
     def __init__(self):
-        self.G = _load_graph()
+        self.G = deps.G
 
         self.banner_data      = BannerDataCarousel()
         self.banner_carousel  = BannerCarousel()

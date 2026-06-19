@@ -1,22 +1,31 @@
+from langchain_core.output_parsers import StrOutputParser
+
+from src.infrastructure.external.client.gpt_client import GPTClient
+from src.infrastructure.external.client.kakao_client import KakaoClient
 from src.infrastructure.external.client.weather_client import WeatherClient
 from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
-from typing import Tuple
-import textwrap
 
 
-class WeatherChecker:
+class WeatherChecker(GPTClient):
     def __init__(self):
-        self._client = WeatherClient()
-        self.init_message = textwrap.dedent("""
-            현재 위치를 중심으로 최적의 산책로를 추천해 드릴게요.
-            원하시는 산책 조건을 말씀해 주시겠어요?
-            1. 코스 종류: 순환 vs 편도
-            2. 도착 지점: (편도 선택 시) 목적지 명칭
-            3. 산책 테마: 운동, 데이트, 반려동물 동반 등
-        """).strip()
+        super().__init__()
+        self.weather_client = WeatherClient(KakaoClient())
+        self.str_parser = StrOutputParser()
 
-    async def generate_init_message(self, lat: float, lon: float) -> Tuple[EnvironmentInfo, str]:
-        """날씨 조회 후 초기 메시지를 조립하여 반환"""
-        weather_data = await self._client.get_environment_info(lat, lon)
-        weather_msg = weather_data.display_msg
-        return weather_data, f"{weather_msg}\n{self.init_message}"
+    async def run(self, lat: float, lon: float) -> EnvironmentInfo:
+        """
+        날씨·대기질 조회 후 GPT로 친절한 첫 인사 메시지를 생성하여 반환합니다.
+        """
+        weather_info = await self.weather_client.get_weather(lat, lon)
+        air_info     = await self.weather_client.get_air_quality(lat, lon)
+
+        response = await self.get_response(
+            prompt_name="weather_checker",
+            input_variables={
+                "weather_info": str(weather_info),
+                "air_info":     str(air_info),
+            },
+            parser=self.str_parser
+        )
+
+        return EnvironmentInfo(weather=weather_info, air=air_info, display_msg=response)

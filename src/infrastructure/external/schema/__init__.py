@@ -5,11 +5,7 @@ from src.infrastructure.external.schema.place_schema import (
     PlaceSearchMeta,
     PlaceSearchResult,
 )
-from src.infrastructure.external.schema.weather_schema import (
-    WeatherStatus,
-    AirStatus,
-    EnvironmentInfo,
-)
+from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
 
 __all__ = [
     "MarathonEvent",
@@ -17,7 +13,5 @@ __all__ = [
     "PlaceDocument",
     "PlaceSearchMeta",
     "PlaceSearchResult",
-    "WeatherStatus",
-    "AirStatus",
     "EnvironmentInfo",
 ]
