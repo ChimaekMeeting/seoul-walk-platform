@@ -11,6 +11,11 @@ from src.repository.utils import RepositoryUtils
 
 class ChildRepository:
     @staticmethod
+    def is_populated() -> bool:
+        with get_postgresql_db() as db:
+            return db.execute(select(func.count()).select_from(ChildLayer)).scalar() > 0
+
+    @staticmethod
     def save_all(records: List[dict]) -> None:
         """
         어린이 시설 데이터를 child_layer에 벌크 저장합니다.
@@ -46,9 +51,7 @@ class ChildRepository:
         with get_postgresql_db() as db:
             rows = db.execute(
                 select(
-                    ChildLayer.name,
                     ChildLayer.category,
-                    ChildLayer.address,
                     lat_expr.label("lat"),
                     lon_expr.label("lon"),
                 ).where(
@@ -62,9 +65,7 @@ class ChildRepository:
 
         return [
             {
-                "name": row.name,
                 "category": row.category,
-                "address": row.address,
                 "lat": row.lat,
                 "lon": row.lon,
             }

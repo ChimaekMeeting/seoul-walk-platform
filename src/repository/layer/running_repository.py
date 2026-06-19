@@ -22,6 +22,11 @@ class RunningRepository:
     """
 
     @staticmethod
+    def is_populated() -> bool:
+        with get_postgresql_db() as db:
+            return db.execute(select(func.count()).select_from(RunningLayer)).scalar() > 0
+
+    @staticmethod
     def save_all(records: list[dict]):
         """
         코스 데이터를 running_layer 테이블에 벌크 저장합니다.

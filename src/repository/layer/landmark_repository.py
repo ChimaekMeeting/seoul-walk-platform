@@ -10,6 +10,11 @@ from src.repository.utils import RepositoryUtils
 
 class LandmarkRepository:
     @staticmethod
+    def is_populated() -> bool:
+        with get_postgresql_db() as db:
+            return db.execute(select(func.count()).select_from(LandmarkLayer)).scalar() > 0
+
+    @staticmethod
     def save_all(landmarks: List[dict]):
         """
         랜드마크 데이터를 landmark_layer에 벌크 저장합니다.

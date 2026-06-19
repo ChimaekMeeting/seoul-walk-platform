@@ -10,6 +10,11 @@ from collections import Counter
 
 class SafetyRepository:
     @staticmethod
+    def is_populated() -> bool:
+        with get_postgresql_db() as db:
+            return db.execute(select(func.count()).select_from(SafetyLayer)).scalar() > 0
+
+    @staticmethod
     def save_all(records: List[dict]):
         """
         안전 시설물 데이터를 safety_layer에 벌크 저장합니다.

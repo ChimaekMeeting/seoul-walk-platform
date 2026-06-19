@@ -1,7 +1,7 @@
 from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import BigInteger, Integer, String
+from sqlalchemy import BigInteger, ForeignKey, Integer, String
 from typing import Optional
 
 
@@ -16,9 +16,10 @@ class NatureLayer(Base):
         primary_key=True,
         autoincrement=True
     )
-    name: Mapped[Optional[str]] = mapped_column(
-        String(200),
-        nullable=True
+    osm_raw_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey("osm_raw.id", ondelete="CASCADE"),
+        nullable=True,
     )
     green_type: Mapped[Optional[str]] = mapped_column(
         String(50),
