@@ -61,7 +61,7 @@ class PrewalkOrchestrator:
         thread_id = str(uuid4())
         ChatSessionRepository.save(user_id, thread_id)
 
-        env_info         = await self.weather_checker.run(lat, lon)
+        env_info, init_message = await self.weather_checker.run(lat, lon)
         current_location = await self.kakao_client.get_address_from_coords(lat, lon)
 
         initial_state = State(
@@ -73,7 +73,7 @@ class PrewalkOrchestrator:
                 place_name = current_location.place_name,
             ),
             weather_data = env_info,
-            response     = env_info.display_msg
+            response     = init_message
         )
 
         await ChatStateRepository.save_state(thread_id=thread_id, state=initial_state)

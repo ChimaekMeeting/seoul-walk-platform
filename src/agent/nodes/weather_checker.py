@@ -28,4 +28,4 @@ class WeatherChecker(GPTClient):
             parser=self.str_parser
         )
 
-        return EnvironmentInfo(weather=weather_info, air=air_info, display_msg=response)
+        return EnvironmentInfo(weather=weather_info, air=air_info), response
