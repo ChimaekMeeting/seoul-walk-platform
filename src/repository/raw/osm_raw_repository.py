@@ -17,7 +17,7 @@ class OsmRawRepository:
             ).scalar()
 
     @staticmethod
-    def save_geodataframe(gdf: gpd.GeoDataFrame, query_key: str) -> None:
+    def save(gdf: gpd.GeoDataFrame, query_key: str) -> None:
         geom_col = gdf.geometry.name
         records = []
 

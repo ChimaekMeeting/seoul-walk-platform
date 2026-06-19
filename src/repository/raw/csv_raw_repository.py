@@ -17,7 +17,7 @@ class CsvRawRepository:
             ).scalar()
 
     @staticmethod
-    def save_dataframe(
+    def save(
         df: pd.DataFrame,
         query_key: str,
         lat_col: str,

@@ -17,7 +17,7 @@ class KakaoRawRepository:
             ).scalar()
 
     @staticmethod
-    def save_items(
+    def save(
         items: list[dict],
         query_key: str,
         lat_key: str = "y",
