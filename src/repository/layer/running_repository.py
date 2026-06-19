@@ -13,7 +13,6 @@ from sqlalchemy import func, insert, select
 
 from src.database.postgresql import get_postgresql_db
 from src.entity.layer.running_layer import RunningLayer
-from src.interfaces.schema.running_schema import CourseInfo
 from src.repository.utils import RepositoryUtils
 
 
