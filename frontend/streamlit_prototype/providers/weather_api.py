@@ -13,6 +13,18 @@ from frontend.streamlit_prototype.components.carousel.banner_data_carousel impor
 from frontend.streamlit_prototype.providers.base import EnvData, EnvProvider
 
 
+def _khai_to_grade(khai_str: str) -> str:
+    """통합대기환경지수(숫자 문자열) → 등급 문자열 변환"""
+    try:
+        v = int(float(khai_str))
+    except (TypeError, ValueError):
+        return "알 수 없음"
+    if v <= 50:   return "좋음"
+    if v <= 100:  return "보통"
+    if v <= 250:  return "나쁨"
+    return "매우나쁨"
+
+
 class WeatherEnvProvider(EnvProvider):
 
     def __init__(self):
@@ -24,13 +36,24 @@ class WeatherEnvProvider(EnvProvider):
         output: EnvData
 
         /api/weather 호출 결과를 EnvData로 변환하여 반환한다.
+        새 응답 포맷: {"weather_info": {...}, "air_info": {...}}
         """
         raw = _fetch_weather(lat, lng)
+        weather = raw.get("weather_info") or {}
+        air     = raw.get("air_info") or {}
+
+        weather_status = weather.get("강수형태", "맑음")
+        weather_msg    = weather.get("기온", "")
+        air_status     = _khai_to_grade(air.get("통합대기환경지수", ""))
+        air_msg        = air.get("미세먼지", "")
+
         return EnvData(
-            weather_status=raw["weather_status"],
-            weather_msg=raw["weather_msg"],
-            air_status=raw["air_status"],
-            air_msg=raw["air_msg"],
+            weather_status=weather_status,
+            weather_msg=weather_msg,
+            air_status=air_status,
+            air_msg=air_msg,
+            weather_raw=weather,
+            air_raw=air,
         )
 
     def get_banners(self, env: EnvData) -> list:

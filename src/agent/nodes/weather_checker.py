@@ -11,7 +11,7 @@ class WeatherChecker(GPTClient):
         self.weather_client = WeatherClient(KakaoClient())
         self.str_parser = StrOutputParser()
 
-    async def run(self, lat: float, lon: float) -> str:
+    async def run(self, lat: float, lon: float) -> tuple[dict, str]:
         """
         날씨·대기질 조회 후 GPT로 친절한 첫 인사 메시지를 생성하여 반환합니다.
         """

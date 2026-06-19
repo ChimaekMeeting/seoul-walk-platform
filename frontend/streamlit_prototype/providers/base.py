@@ -13,11 +13,12 @@ from dataclasses import dataclass
 
 @dataclass
 class EnvData:
-    # 날씨 상태·메시지, 대기질 상태·메시지를 담는 dataclass
-    weather_status: str
-    weather_msg:    str
-    air_status:     str
-    air_msg:        str
+    weather_status: str   # 강수형태 (비, 눈, 없음 등)
+    weather_msg:    str   # "22.9℃ / 습도 90%"
+    air_status:     str   # 대기질 등급 (좋음/보통/나쁨/매우나쁨)
+    air_msg:        str   # "미세먼지 22㎍/㎥"
+    weather_raw:    dict = None  # get_weather() 원본
+    air_raw:        dict = None  # get_air_quality() 원본
 
 
 class EnvProvider(ABC):

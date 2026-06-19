@@ -48,7 +48,7 @@ def init_route_service():
 
 # 날씨
 def get_weather_client() -> WeatherClient:
-    weather_client
+    return weather_client
 
 # 사용자 인증
 def get_auth_service() -> AuthService:
