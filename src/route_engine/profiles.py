@@ -36,4 +36,4 @@ PROFILES: dict[Union[CircularMode, OnewayMode], ProfileConfig] = {
 # ── 진입점 ────────────────────────────────────────────────
 
 def get_profile(profile_name: Union[str, OnewayMode, CircularMode]) -> ProfileConfig:
-    return PROFILES.get(profile_name, PROFILES["default"])
+    return PROFILES.get(profile_name, _DEFAULT)
