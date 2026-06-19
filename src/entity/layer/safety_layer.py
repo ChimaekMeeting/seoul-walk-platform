@@ -15,5 +15,4 @@ class SafetyLayer(Base):
         nullable=True,
     )
     safety_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    address: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     geom = mapped_column(Geometry("POINT", srid=4326), nullable=False)

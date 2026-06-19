@@ -21,7 +21,5 @@ class ChildLayer(Base):
         ForeignKey("public_raw.id", ondelete="CASCADE"),
         nullable=True,
     )
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False)
-    address: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     geom = mapped_column(Geometry("POINT", srid=4326), nullable=False)
