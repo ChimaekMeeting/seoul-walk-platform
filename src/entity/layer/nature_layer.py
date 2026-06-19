@@ -21,10 +21,6 @@ class NatureLayer(Base):
         ForeignKey("osm_raw.id", ondelete="CASCADE"),
         nullable=True,
     )
-    name: Mapped[Optional[str]] = mapped_column(
-        String(200),
-        nullable=True
-    )
     green_type: Mapped[Optional[str]] = mapped_column(
         String(50),
         nullable=True
