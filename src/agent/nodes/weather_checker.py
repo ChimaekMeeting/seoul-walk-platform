@@ -18,7 +18,7 @@ class WeatherChecker(GPTClient):
         weather_info = await self.weather_client.get_weather(lat, lon)
         air_info     = await self.weather_client.get_air_quality(lat, lon)
 
-        return await self.get_response(
+        response = await self.get_response(
             prompt_name="weather_checker",
             input_variables={
                 "weather_info": str(weather_info),
@@ -26,3 +26,5 @@ class WeatherChecker(GPTClient):
             },
             parser=self.str_parser
         )
+
+        return {**weather_info, **air_info}, response

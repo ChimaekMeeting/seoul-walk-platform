@@ -15,17 +15,21 @@ from src.agent.nodes import (
     Interviewer,
     RouteExecutor
 )
-from src.infrastructure.external.client.kakao_client import KakaoClient
+from src.infrastructure.external.client import (
+    KakaoClient,
+    MarathonClient,
+    WeatherClient
+)
 from src.repository.network.graph_repository import GraphRepository
-from src.infrastructure.external.client.marathon_client import MarathonClient
 
 # 싱글톤 패턴
 auth_service        = AuthService()
 user_service        = UserService(auth_service)
 kakao_login_service = KakaoLoginService(user_service, auth_service)
-weather_checker     = WeatherChecker()
 banner_service      = BannerService(MarathonClient())
-map_service         = MapService(KakaoClient())
+kakao_client        = KakaoClient()
+weather_client      = WeatherClient(kakao_client)
+map_service         = MapService(kakao_client)
 
 route_service: Optional[RouteService] = None
 prewalk_orchestrator: Optional[PrewalkOrchestrator] = None
@@ -35,16 +39,16 @@ def init_route_service():
     global route_service, prewalk_orchestrator
     route_service = RouteService(G=GraphRepository.load_graph())
     prewalk_orchestrator = PrewalkOrchestrator(
-        weather_checker = weather_checker,
-        kakao_client    = KakaoClient(),
+        weather_checker = WeatherChecker(),
+        kakao_client    = kakao_client,
         extractor       = Extractor(),
         interviewer     = Interviewer(),
         route_executor  = RouteExecutor(),
     )
 
 # 날씨
-def get_weather_checker() -> WeatherChecker:
-    return weather_checker
+def get_weather_client() -> WeatherClient:
+    weather_client
 
 # 사용자 인증
 def get_auth_service() -> AuthService:
