@@ -156,7 +156,7 @@ class CSVSource:
         자전거도로 데이터를 로드합니다. 기점·종점 좌표로 LINESTRING을 구성합니다.
         """
         df = self._read_csv("전국자전거도로표준데이터.csv")
-        cols = [c for c in ["기점위도", "기점경도", "종점위도", "종점경도", "시도명", "노선명", "자전거도로종류"] if c]
+        cols = [c for c in ["기점위도", "기점경도", "종점위도", "종점경도", "시도명", "노선명", "자전거도로종류", "총길이(km)"] if c]
         df = df[[c for c in cols if c in df.columns]]
         #             lat,      lon,      name,  addr,   city,           end
         return df, "기점위도", "기점경도", "노선명", None, "시도명", "종점위도", "종점경도"

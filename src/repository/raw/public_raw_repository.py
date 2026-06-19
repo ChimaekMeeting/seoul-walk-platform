@@ -17,27 +17,21 @@ class PublicRawRepository:
             ).scalar()
 
     @staticmethod
-    def save(
-        items: list[dict],
-        query_key: str,
-        lat_key: str,
-        lon_key: str,
-        name_key: str | None = None,
-    ) -> None:
+    def save(items: list[dict], query_key: str) -> None:
+        exclude = {"lat", "lon", "name"}
         records = []
         for item in items:
             try:
-                lat = float(item[lat_key])
-                lon = float(item[lon_key])
+                lat = float(item["lat"])
+                lon = float(item["lon"])
             except (KeyError, ValueError, TypeError):
                 continue
 
-            exclude = {lat_key, lon_key, name_key} - {None}
             props = {k: serialize(v) for k, v in item.items() if k not in exclude}
 
             records.append(PublicRaw(
                 query_key=query_key,
-                name=item.get(name_key) if name_key else None,
+                name=item.get("name"),
                 geom=WKTElement(f"POINT({lon} {lat})", srid=4326),
                 properties=props or None,
             ))

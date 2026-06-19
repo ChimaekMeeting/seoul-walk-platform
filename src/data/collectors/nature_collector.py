@@ -2,6 +2,7 @@ import geopandas as gpd
 import pandas as pd
 
 from src.data.sources.osm_source import OSMSource
+from src.data.utils import CollectorUtils
 from src.repository.layer.nature_repository import NatureRepository
 from src.repository.network.edge_repository import EdgeRepository
 
@@ -31,7 +32,7 @@ class NatureCollector:
                 gdf = gdf.rename_geometry("geom")
                 gdf["green_type"]   = value
                 gdf["green_weight"] = weight
-                frames.append(gdf[["osm_raw_id", "name", "green_type", "green_weight", "geom"]])
+                frames.append(gdf[["osm_raw_id", "green_type", "green_weight", "geom"]])
                 print(f"{key}={value}: {len(gdf)}개")
             except Exception as e:
                 print(f"{key}={value} 실패: {e}")
@@ -44,15 +45,13 @@ class NatureCollector:
         """
         combined = self.build_records()
         NatureRepository.save_geodataframe(combined)
-        print(f"  ✅ 총 {len(combined)}개 폴리곤 저장 완료")
 
     def update_edge(self) -> None:
         """
         walk_edges.nature_score를 업데이트합니다.
         """
-        EdgeRepository.reset_nature_score()
-        count = EdgeRepository.update_nature_score_from_osm()
-        print(f"  ✅ nature_score 업데이트 완료: {count}개 엣지")
+        EdgeRepository.ensure_score_column("nature_score")
+        CollectorUtils.update_edge_scores("nature_score", NatureRepository.get_nature_h3_counts())
 
     def save(self) -> None:
         if NatureRepository.is_populated():

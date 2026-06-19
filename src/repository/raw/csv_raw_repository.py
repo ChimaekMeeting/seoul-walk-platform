@@ -17,32 +17,42 @@ class CsvRawRepository:
             ).scalar()
 
     @staticmethod
-    def save(
-        df: pd.DataFrame,
-        query_key: str,
-        lat_col: str,
-        lon_col: str,
-        name_col: str | None = None,
-    ) -> None:
+    def save(df: pd.DataFrame, query_key: str) -> None:
+        use_linestring = "end_lat" in df.columns
+        # lat/lon/end coords와 name은 전용 컬럼으로 저장하므로 properties에서 제외
+        # address는 properties에 "address" 키로 유지
+        geom_cols = {"lat", "lon", "end_lat", "end_lon"} if use_linestring else {"lat", "lon"}
+        exclude = geom_cols | {"name"}
         records = []
+
         for _, row in df.iterrows():
             try:
-                lat = float(row[lat_col])
-                lon = float(row[lon_col])
+                lat = float(row["lat"])
+                lon = float(row["lon"])
             except (KeyError, ValueError, TypeError):
                 continue
 
-            exclude = {lat_col, lon_col, name_col} - {None}
+            if use_linestring:
+                try:
+                    end_lat = float(row["end_lat"])
+                    end_lon = float(row["end_lon"])
+                except (KeyError, ValueError, TypeError):
+                    continue
+                wkt = f"LINESTRING({lon} {lat}, {end_lon} {end_lat})"
+            else:
+                wkt = f"POINT({lon} {lat})"
+
             props = {
                 col: serialize(row[col])
                 for col in row.index
                 if col not in exclude
             }
 
+            name_val = row.get("name")
             records.append(CsvRaw(
                 query_key=query_key,
-                name=str(row[name_col]) if name_col and row.get(name_col) is not None else None,
-                geom=WKTElement(f"POINT({lon} {lat})", srid=4326),
+                name=str(name_val) if name_val is not None and str(name_val) != "nan" else None,
+                geom=WKTElement(wkt, srid=4326),
                 properties=props or None,
             ))
 

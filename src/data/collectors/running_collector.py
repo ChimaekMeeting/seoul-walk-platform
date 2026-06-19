@@ -238,18 +238,13 @@ class RunningCourseCollector:
         if gdf.empty:
             return []
 
-        dist_col = _find_col(gdf, ["총길이(km)", "연장(m)", "연장", "거리(m)", "구간길이", "거리(km)", "거리"])
+        dist_col = "총길이(km)"
 
         records = []
         for _, row in gdf.iterrows():
-            name = str(row.get("name") or "").strip()
-            if not name or name == "nan":
-                continue
+            name = row.get("name")
 
-            lat = row.geometry.y
-            lon = row.geometry.x
-            if not (37.4 <= lat <= 37.7 and 126.7 <= lon <= 127.2):
-                continue
+            lon, lat = row.geometry.coords[0][:2]
 
             dist_m: Optional[float] = None
             if dist_col:
@@ -278,7 +273,6 @@ class RunningCourseCollector:
             + self.build_bike_records()
         )
         RunningRepository.save_all(records)
-        print(f"  ✅ 달리기 코스 {len(records)}건 저장 완료")
 
     def update_edge(self) -> None:
         EdgeRepository.ensure_score_column("running_score")

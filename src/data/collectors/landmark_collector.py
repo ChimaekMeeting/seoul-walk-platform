@@ -2,7 +2,6 @@ import asyncio
 
 import pandas as pd
 
-from src.data.sources.csv_source import CSVSource
 from src.infrastructure.external.client.kakao_client import KakaoClient
 from src.data.utils import CollectorUtils
 from src.repository.network.edge_repository import EdgeRepository
@@ -16,13 +15,12 @@ class LandmarkCollector:
     """
     def __init__(self):
         self.kakao_client = KakaoClient()
-        self.csv = CSVSource()
 
         self.SHEET_URL = (
             "https://docs.google.com/spreadsheets/d/"
             "1h4PPOJ6qSIBRghrqn0cXT-UrlToyMIM-NTSNtATF0gc/export?format=csv&hl=ko&gid=0#gid=0"
         )
-        self.data = self.csv.load_landmark_sheet(self.SHEET_URL)
+        self.data = pd.read_csv(self.SHEET_URL)
 
     async def get_location(self, keyword: str) -> list[dict]:
         res = await self.kakao_client.get_address_from_keyword(

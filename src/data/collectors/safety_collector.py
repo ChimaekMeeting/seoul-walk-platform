@@ -17,7 +17,6 @@ class SafetyCollector:
             records.append({
                 "csv_raw_id":  row.get("csv_raw_id"),
                 "safety_type": "streetlight",
-                "address":     str(row.get("소재지도로명주소", "")) if pd.notna(row.get("소재지도로명주소")) else "",
                 "geom":        CollectorUtils.make_point(row.geometry.y, row.geometry.x),
             })
         return records
@@ -29,7 +28,6 @@ class SafetyCollector:
             records.append({
                 "csv_raw_id":  row.get("csv_raw_id"),
                 "safety_type": "cctv",
-                "address":     str(row.get("소재지도로명주소", "")) if pd.notna(row.get("소재지도로명주소")) else "",
                 "geom":        CollectorUtils.make_point(row.geometry.y, row.geometry.x),
             })
         return records
