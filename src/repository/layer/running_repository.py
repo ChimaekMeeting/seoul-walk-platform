@@ -100,14 +100,15 @@ class RunningRepository:
                 return []
 
         return [
-            CourseInfo(
-                id=row.id,
-                name=row.name,
-                course_type=row.course_type,
-                difficulty=row.difficulty,
-                start_lat=row.start_lat,
-                start_lon=row.start_lon,
-                distance_from_origin_m=round(row.distance_from_origin_m, 1),
-            )
+            {
+                "id":                     row.id,
+                "name":                   row.name,
+                "course_type":            row.course_type,
+                "difficulty":             row.difficulty,
+                "start_lat":              row.start_lat,
+                "start_lon":              row.start_lon,
+                "distance_from_origin_m": round(row.distance_from_origin_m, 1),
+            }
             for row in rows
         ]
+
