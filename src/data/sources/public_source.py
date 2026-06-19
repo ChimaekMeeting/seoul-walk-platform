@@ -16,7 +16,6 @@ class PublicSource:
     def __init__(self):
         self.api_key = os.getenv("PUBLIC_DATA_API_KEY")
 
-
     def fetch_and_store(self, key: str, value: str) -> None:
         """
         단일 데이터셋을 수집하여 DB에 저장합니다. 이미 저장된 경우 스킵합니다.
@@ -24,22 +23,31 @@ class PublicSource:
         query_key = f"{key}={value}"
         if PublicRawRepository.exists(query_key):
             return
+        
+        # 수집
+        items, lat_key, lon_key, name_key, addr_key, city_key = self._fetch_all(value)
 
-        items, lat_key, lon_key, name_key, city_key = self._fetch_all(value)
-        items = self.clean(items, lat_key=lat_key, lon_key=lon_key, city_key=city_key)
-        PublicRawRepository.save_items(items, query_key,
-                                       lat_key=lat_key, lon_key=lon_key, name_key=name_key)
+        # 전처리
+        items = self.clean(
+            items,
+            lat_key=lat_key, lon_key=lon_key,
+            name_key=name_key, addr_key=addr_key,
+            city_key=city_key,
+        )
+
+        # 저장
+        PublicRawRepository.save(items, query_key)
 
     def store(self) -> None:
         """
-        TAGS의 모든 데이터셋을 DB에 저장합니다.
+        모든 데이터셋을 DB에 저장합니다.
         """
         for key, value in self.TAGS:
             self.fetch_and_store(key, value)
 
     def get(self, key: str, value: str):
         """
-        DB에서 데이터를 조회합니다. DB에 없으면 수집 후 저장합니다.
+        DB에서 데이터를 조회합니다. 없으면 수집 후 저장합니다.
         """
         query_key = f"{key}={value}"
         if not PublicRawRepository.exists(query_key):
@@ -51,34 +59,47 @@ class PublicSource:
         items: list[dict],
         lat_key: str,
         lon_key: str,
+        name_key: str | None = None,
+        addr_key: str | None = None,
         city_key: str | None = None,
         city_value: str = "서울",
     ) -> list[dict]:
         """
-        기본 전처리를 수행합니다.
+        전처리를 수행합니다.
         """
+        rename_map = {lat_key: "lat", lon_key: "lon"}
+        if name_key:
+            rename_map[name_key] = "name"
+        if addr_key:
+            rename_map[addr_key] = "address"
+
         result: list[dict] = []
         seen: set[tuple] = set()
 
         for item in items:
+            # 결측치 제거
             if any(v in (None, "", "null") for v in item.values()):
                 continue
 
+            # 서울 필터링
             if city_key and city_value not in str(item.get(city_key, "")):
                 continue
 
+            # 경위도 중복 데이터 제거
             coord = (item.get(lat_key), item.get(lon_key))
             if coord in seen:
                 continue
             seen.add(coord)
 
-            result.append(item)
+            # 컬럼명 수정
+            result.append({rename_map.get(k, k): v for k, v in item.items()})
 
         return result
 
-    def _fetch_all(self, value: str) -> tuple[list[dict], str, str, str | None, str | None]:
+    def _fetch_all(self, value: str):
         """
-        데이터셋 value에 따라 수집 메서드를 디스패치합니다.
+        value에 따라 수집 메서드를 디스패치합니다.
+        Returns: (items, lat_key, lon_key, name_key, addr_key, city_key)
         """
         dispatch = {
             "play_facility": self._fetch_play_facility,
@@ -87,7 +108,7 @@ class PublicSource:
             raise NotImplementedError(f"'{value}' 데이터셋 fetch 미구현")
         return dispatch[value]()
 
-    def _fetch_play_facility(self) -> tuple[list[dict], str, str, str, str]:
+    def _fetch_play_facility(self):
         """
         어린이놀이시설 데이터를 수집합니다. 운영 중인 시설만 포함합니다.
         """
@@ -118,4 +139,5 @@ class PublicSource:
                     "lotCrtsVl": row.get("lotCrtsVl"),
                 })
 
-        return items, "latCrtsVl", "lotCrtsVl", "pfctNm", "ronaAddr"
+        #                 lat          lon         name       addr       city
+        return items, "latCrtsVl", "lotCrtsVl", "pfctNm", "ronaAddr", "ronaAddr"

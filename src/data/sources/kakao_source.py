@@ -45,28 +45,36 @@ class KakaoSource:
 
     def fetch_and_store(self, key: str, value: str) -> None:
         """
-        단일 카테고리의 Kakao 데이터를 수집하여 DB에 저장합니다. 이미 저장된 경우 스킵합니다.
+        단일 카테고리 데이터를 수집하여 DB에 저장합니다. 이미 저장된 경우 스킵합니다.
         """
         query_key = f"{key}={value}"
         if KakaoRawRepository.exists(query_key):
             return
-
+        
+        # 수집
         items = self._fetch_all(value)
-        items = self.clean(items, cols=["place_name", "x", "y",
-                                        "category_name", "address_name",
-                                        "phone", "place_url"])
-        KakaoRawRepository.save_items(items, query_key)
+
+        # 전처리
+        items = self.clean(
+            items,
+            cols=["place_name", "x", "y", "category_name", "address_name", "phone", "place_url"],
+            lat_key="y", lon_key="x",
+            name_key="place_name", addr_key="address_name",
+        )
+
+        # 저장
+        KakaoRawRepository.save(items, query_key)
 
     def store(self) -> None:
         """
-        TAGS의 모든 카테고리 데이터를 DB에 저장합니다.
+        모든 카테고리 데이터를 DB에 저장합니다.
         """
         for key, value in self.TAGS:
             self.fetch_and_store(key, value)
 
     def get(self, key: str, value: str):
         """
-        DB에서 Kakao 데이터를 조회합니다. DB에 없으면 수집 후 저장합니다.
+        DB에서 데이터를 조회합니다. 없으면 수집 후 저장합니다.
         """
         query_key = f"{key}={value}"
         if not KakaoRawRepository.exists(query_key):
@@ -79,10 +87,18 @@ class KakaoSource:
         cols: list[str],
         lat_key: str = "y",
         lon_key: str = "x",
+        name_key: str | None = None,
+        addr_key: str | None = None,
     ) -> list[dict]:
         """
-        기본 전처리를 수행합니다.
+        전처리를 수행합니다.
         """
+        rename_map = {lat_key: "lat", lon_key: "lon"}
+        if name_key:
+            rename_map[name_key] = "name"
+        if addr_key:
+            rename_map[addr_key] = "address"
+
         result: list[dict] = []
         seen: set[tuple] = set()
 
@@ -100,7 +116,8 @@ class KakaoSource:
                 continue
             seen.add(coord)
 
-            result.append(extracted)
+            # 컬럼명 수정
+            result.append({rename_map.get(k, k): v for k, v in extracted.items()})
 
         return result
 
@@ -115,7 +132,7 @@ class KakaoSource:
 
     def _fetch_pages(self, category_code: str, lat: float, lon: float) -> list[dict]:
         """
-        단일 좌표에서 페이지네이션으로 카테고리 데이터를 수집합니다.
+        단일 좌표에서 페이지네이션으로 데이터를 수집합니다.
         """
         results = []
         for page in range(1, 4):
