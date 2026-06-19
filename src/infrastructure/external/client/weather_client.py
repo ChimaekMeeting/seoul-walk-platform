@@ -53,13 +53,14 @@ class WeatherClient:
         async with httpx.AsyncClient(timeout=10) as client:
             try:
                 res = await client.get(url, params=params)
-                data = res.json().get("response").get("body").get("items").get("item")
+                items = res.json().get("response").get("body").get("items").get("item")
+                data = {item["category"]: item["obsrValue"] for item in items}
                 return {
-                    new_key: PTY_map.get(data.get(key)) + unit if key == "PTY" else str(data.get(key)) + unit
+                    new_key: (PTY_map.get(int(float(data[key])), "없음") + unit) if key == "PTY"
+                             else str(data[key]) + unit
                     for key, (new_key, unit) in rename_map.items()
                     if key in data
                 }
-                
             except Exception:
                 print("날씨 데이터 조회 시 오류가 발생했습니다.")
 
@@ -92,7 +93,7 @@ class WeatherClient:
 
         rename_map = {
             "KhaiValue": ("통합대기환경지수", ""),
-            "so2Value":  ("이상화황", "ppm"),
+            "so2Value":  ("이산화황", "ppm"),
             "coValue":   ("일산화탄소", "ppm"),
             "pm10Value": ("미세먼지", "㎍/㎥"),
             "pm25Value": ("초미세먼지", "㎍/㎥"),
@@ -104,7 +105,11 @@ class WeatherClient:
             try:
                 res = await client.get(url=url, params=params)
                 data = res.json().get("response").get("body").get("items")[0]
-                return {new_key: str(data.get(key)) + idx for key, (new_key, idx) in rename_map.items() if key in data}
+                return {
+                    new_key: str(v) + unit
+                    for key, (new_key, unit) in rename_map.items()
+                    if key in data and (v := data.get(key)) is not None and v != "-"
+                }
             except Exception:
                 print("대기질 데이터 조회 시 오류가 발생했습니다.")
 

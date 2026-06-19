@@ -3,6 +3,7 @@ from langchain_core.output_parsers import StrOutputParser
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.infrastructure.external.client.kakao_client import KakaoClient
 from src.infrastructure.external.client.weather_client import WeatherClient
+from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
 
 
 class WeatherChecker(GPTClient):
@@ -11,7 +12,7 @@ class WeatherChecker(GPTClient):
         self.weather_client = WeatherClient(KakaoClient())
         self.str_parser = StrOutputParser()
 
-    async def run(self, lat: float, lon: float) -> tuple[dict, str]:
+    async def run(self, lat: float, lon: float) -> EnvironmentInfo:
         """
         날씨·대기질 조회 후 GPT로 친절한 첫 인사 메시지를 생성하여 반환합니다.
         """
@@ -27,4 +28,4 @@ class WeatherChecker(GPTClient):
             parser=self.str_parser
         )
 
-        return {**weather_info, **air_info}, response
+        return EnvironmentInfo(weather=weather_info, air=air_info, display_msg=response)

@@ -31,13 +31,15 @@ kakao_client        = KakaoClient()
 weather_client      = WeatherClient(kakao_client)
 map_service         = MapService(kakao_client)
 
+G = None
 route_service: Optional[RouteService] = None
 prewalk_orchestrator: Optional[PrewalkOrchestrator] = None
 
 # lifespan에서 호출
 def init_route_service():
-    global route_service, prewalk_orchestrator
-    route_service = RouteService(G=GraphRepository.load_graph())
+    global G, route_service, prewalk_orchestrator
+    G             = GraphRepository.load_graph()
+    route_service = RouteService(G=G)
     prewalk_orchestrator = PrewalkOrchestrator(
         weather_checker = WeatherChecker(),
         kakao_client    = kakao_client,

@@ -46,7 +46,9 @@ class WeatherCard:
         with col1:
             st.metric("강수형태", env.weather_status)
         with col2:
-            st.metric("기온 / 습도", w.get("기온", "-"), w.get("습도", ""))
+            temp = w.get("기온", "-")
+            humi = w.get("습도", "")
+            st.metric("기온 / 습도", f"{temp} / {humi}" if humi else temp)
         with col3:
             st.metric("대기질", env.air_status, env.air_msg)
         with col4:

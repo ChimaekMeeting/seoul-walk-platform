@@ -4,7 +4,6 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
 from src.interfaces.dependencies import get_banner_service
 from src.service.route.banner_service import BannerService
 
@@ -19,12 +18,6 @@ async def get_banner(
     service: BannerService = Depends(get_banner_service),
 ):
     try:
-        weather = EnvironmentInfo(
-            weather_status=weather_status,
-            weather_msg=weather_msg,
-            air_status="", air_msg="", display_msg="",
-        )
-
         if hour is None:
             hour = datetime.now().hour
 
@@ -40,10 +33,10 @@ async def get_banner(
                 break
 
         # 시즌 배너
-        if service._is_hot(weather.weather_msg):
+        if service._is_hot(weather_msg):
             if 6 <= hour < 9:
                 banners.append(service.BANNERS["season"]["hot_morning"])
-            elif service._is_humid(weather.weather_status):
+            elif service._is_humid(weather_status):
                 banners.append(service.BANNERS["season"]["hot_humid"])
             else:
                 banners.append(service.BANNERS["season"]["hot_sunny"])

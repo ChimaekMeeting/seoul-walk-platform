@@ -5,12 +5,11 @@ frontend/streamlit_prototype/bootstrap.py
 도보 네트워크 그래프는 @st.cache_resource로 캐싱 -> 앱 재실행 시 재사용
 """
 
-import time
 from dataclasses import dataclass
 
 import streamlit as st
 
-from src.repository.network.graph_repository import GraphRepository
+import src.interfaces.dependencies as deps
 from frontend.streamlit_prototype.components.card.weather_card import WeatherCard
 from frontend.streamlit_prototype.components.carousel.banner_carousel import BannerCarousel
 from frontend.streamlit_prototype.components.panel.chat_panel import ChatPanel
@@ -20,20 +19,6 @@ from frontend.streamlit_prototype.components.map.walk_route_map import WalkRoute
 from frontend.streamlit_prototype.components.button.walk_route_button import WalkRouteButton
 from frontend.streamlit_prototype.providers.base import EnvProvider
 from frontend.streamlit_prototype.providers.registry import build_provider
-
-
-@st.cache_resource
-def _load_graph():
-    """
-    input : X
-    output: NetworkX Graph
-
-    GraphRepository에서 도보 네트워크 그래프 로드
-    @st.cache_resource로 캐싱되어 최초 1회만 실행
-    """
-    G = GraphRepository.load_graph()
-    print(list(G.nodes(data=True))[:3])
-    return G
 
 
 @dataclass
@@ -58,17 +43,13 @@ def create_app_context() -> AppContext:
     모든 컴포넌트를 초기화하고 AppContext 인스턴스를 반환
     그래프 로드 시간을 콘솔에 출력
     """
-    t = time.time()
-    G = _load_graph()
-    print(f"graph: {time.time()-t:.2f}s")
-
     return AppContext(
         weather_card      = WeatherCard(),
         banner_carousel   = BannerCarousel(),
         chat_panel        = ChatPanel(),
         coordinate_panel  = CoordinatePanel(),
         walk_result_panel = WalkResultPanel(),
-        walk_route_map    = WalkRouteMap(G),
+        walk_route_map    = WalkRouteMap(deps.G),
         walk_route_button = WalkRouteButton(),
         provider          = build_provider(),
     )

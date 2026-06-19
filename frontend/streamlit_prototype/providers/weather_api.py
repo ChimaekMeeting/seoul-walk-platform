@@ -18,10 +18,22 @@ def _khai_to_grade(khai_str: str) -> str:
     try:
         v = int(float(khai_str))
     except (TypeError, ValueError):
-        return "알 수 없음"
+        return ""
     if v <= 50:   return "좋음"
     if v <= 100:  return "보통"
     if v <= 250:  return "나쁨"
+    return "매우나쁨"
+
+
+def _pm10_to_grade(pm_str: str) -> str:
+    """미세먼지(PM10) 수치 문자열 → 등급 문자열 변환 (KhaiValue 없을 때 폴백)"""
+    try:
+        v = int(float(pm_str.replace("㎍/㎥", "").strip()))
+    except (TypeError, ValueError):
+        return "알 수 없음"
+    if v <= 30:   return "좋음"
+    if v <= 80:   return "보통"
+    if v <= 150:  return "나쁨"
     return "매우나쁨"
 
 
@@ -44,7 +56,7 @@ class WeatherEnvProvider(EnvProvider):
 
         weather_status = weather.get("강수형태", "맑음")
         weather_msg    = weather.get("기온", "")
-        air_status     = _khai_to_grade(air.get("통합대기환경지수", ""))
+        air_status     = _khai_to_grade(air.get("통합대기환경지수", "")) or _pm10_to_grade(air.get("미세먼지", ""))
         air_msg        = air.get("미세먼지", "")
 
         return EnvData(
