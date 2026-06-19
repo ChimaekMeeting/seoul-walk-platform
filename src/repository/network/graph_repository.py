@@ -6,12 +6,12 @@ from sqlalchemy import select
 from src.database.postgresql import get_postgresql_db
 from src.entity.network.walk_edge import WalkEdge
 from src.entity.network.walk_node import WalkNode
-from src.route_engine.engines.path_utils import PathUtils
 
 
 class GraphRepository:
     @staticmethod
     def load_graph() -> nx.Graph:
+        from src.route_engine.engines.path_utils import PathUtils
         """
         walk_nodes + walk_edges를 PostGIS에서 읽어 NetworkX 그래프로 반환.
 
