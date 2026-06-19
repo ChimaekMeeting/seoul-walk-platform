@@ -5,8 +5,8 @@ from src.data.sources.csv_source import CSVSource
 
 if __name__ == "__main__":
     # raw 테이블(osm_raw, kakao_raw, public_raw, csv_raw)을 미리 채웁니다.
-    # 이미 저장된 query_key는 자동으로 스킵됩니다.
-    #
+    # 이미 저장된 데이터는 자동으로 스킵됩니다.
+
     # 실행 순서:
     # 1. python -m src.main                    # 테이블 생성
     # 2. python -m src.data.source_collector   # raw 데이터 적재  ← 여기
