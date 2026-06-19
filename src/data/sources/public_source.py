@@ -11,6 +11,7 @@ load_dotenv()
 class PublicSource:
     TAGS: list[tuple[str, str]] = [
         ("type", "play_facility"),
+        ("type", "landmark"),
     ]
 
     def __init__(self):
@@ -104,6 +105,7 @@ class PublicSource:
         """
         dispatch = {
             "play_facility": self._fetch_play_facility,
+            "landmark": self._fetch_landmark,
         }
         if value not in dispatch:
             raise NotImplementedError(f"'{value}' 데이터셋 fetch 미구현")
@@ -123,9 +125,12 @@ class PublicSource:
                     "serviceKey": self.api_key,
                     "recordCountPerPage": 1000,
                     "pageIndex": page,
+                    "_type": "json",
                 },
                 timeout=30.0,
             )
+            print(res.status_code)
+            print(res.text)
             rows = res.json().get("response", {}).get("body", {}).get("items", [])
             if not rows:
                 break
@@ -142,3 +147,47 @@ class PublicSource:
 
         #                 lat          lon         name       addr       city
         return items, "latCrtsVl", "lotCrtsVl", "pfctNm", "ronaAddr", "ronaAddr"
+
+    def _fetch_landmark(self):
+        url = "https://apis.data.go.kr/B551011/KorService2/areaBasedList2"
+        items = []
+
+        for content_type_id in [12, 14]:  # 관광지, 문화시설
+            page = 1
+            while True:
+                res = httpx.get(url, params={
+                    "serviceKey":    self.api_key,
+                    "MobileOS":      "ETC",
+                    "MobileApp":     "SeoulWalk",
+                    "_type":         "json",
+                    "areaCode":      1,
+                    "contentTypeId": content_type_id,
+                    "numOfRows":     100,
+                    "pageNo":        page,
+                    "arrange":       "A",
+                }, timeout=30.0)
+                print(res.status_code)
+                print(res.text[:500])
+
+                body = res.json().get("response", {}).get("body", {})
+                item_list = body.get("items", {}).get("item", [])
+                if isinstance(item_list, dict):
+                    item_list = [item_list]
+                if not item_list:
+                    break
+
+                for item in item_list:
+                    if not item.get("mapx") or not item.get("mapy"):
+                        continue
+                    items.append({
+                        "title": item.get("title"),
+                        "addr1": item.get("addr1"),
+                        "mapx":  item.get("mapx"),
+                        "mapy":  item.get("mapy"),
+                    })
+
+                if page * 100 >= body.get("totalCount", 0):
+                    break
+                page += 1
+
+        return items, "mapy", "mapx", "title", "addr1", "addr1"

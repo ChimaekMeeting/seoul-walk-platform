@@ -1,5 +1,3 @@
-import asyncio
-
 from src.data import (
     BaseNetworkCollector,
     NatureCollector,
@@ -33,8 +31,8 @@ if __name__ == "__main__":
     # print("--- 경사로 적재 ---")
     # SlopeCalculator().save()
 
-    # print("--- 랜드마크 적재 ---")
-    # asyncio.run(LandmarkCollector().save())
+    print("--- 랜드마크 적재 ---")
+    LandmarkCollector().save()
 
     # print("--- 러닝 데이터 적재 ---")
     # RunningCourseCollector().save()
