@@ -27,9 +27,6 @@ if __name__ == "__main__":
     print("--- 안전 데이터 적재 ---")
     SafetyCollector().save()
 
-    print("--- 러닝 데이터 적재 ---")
-    RunningCourseCollector().save()
-
     print("--- 어린이 시설 적재 ---")
     ChildCollector().save()
 
@@ -38,3 +35,6 @@ if __name__ == "__main__":
 
     # print("--- 랜드마크 적재 ---")
     # asyncio.run(LandmarkCollector().save())
+
+    # print("--- 러닝 데이터 적재 ---")
+    # RunningCourseCollector().save()

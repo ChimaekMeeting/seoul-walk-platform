@@ -17,7 +17,7 @@ class SafetyCollector:
             records.append({
                 "csv_raw_id":  row.get("csv_raw_id"),
                 "safety_type": "streetlight",
-                "geom":        CollectorUtils.make_point(row.geometry.y, row.geometry.x),
+                "geom":        CollectorUtils.make_point(row["geom"].y, row["geom"].x),
             })
         return records
 
@@ -28,7 +28,7 @@ class SafetyCollector:
             records.append({
                 "csv_raw_id":  row.get("csv_raw_id"),
                 "safety_type": "cctv",
-                "geom":        CollectorUtils.make_point(row.geometry.y, row.geometry.x),
+                "geom":        CollectorUtils.make_point(row["geom"].y, row["geom"].x),
             })
         return records
 

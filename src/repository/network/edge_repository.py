@@ -1,5 +1,5 @@
 import pandas as pd
-from sqlalchemy import func, select, update, insert, inspect, text, cast
+from sqlalchemy import func, select, insert, inspect, text, cast
 from geoalchemy2 import Geography
 from src.database.postgresql import get_postgresql_db, engine
 from src.entity.network.walk_edge import WalkEdge
@@ -69,9 +69,21 @@ class EdgeRepository:
         Args:
             updates : 업데이트할 딕셔너리 목록. 각 항목은 link_id와 변경할 스코어 필드를 포함해야 합니다.
         """
-        with get_postgresql_db() as db:
-            db.execute(update(WalkEdge), updates)
-            db.commit()
+        if not updates:
+            return
+        score_col = next(k for k in updates[0] if k != "link_id")
+        link_ids = [u["link_id"] for u in updates]
+        vals     = [u[score_col] for u in updates]
+        with engine.begin() as conn:
+            conn.execute(
+                text(f"""
+                    UPDATE walk_edges w
+                    SET {score_col} = t.val
+                    FROM unnest(CAST(:ids AS bigint[]), CAST(:vals AS float[])) AS t(link_id, val)
+                    WHERE w.link_id = t.link_id
+                """),
+                {"ids": link_ids, "vals": vals},
+            )
 
     @staticmethod
     def get_all_for_slope() -> list:

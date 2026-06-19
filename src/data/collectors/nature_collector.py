@@ -29,7 +29,8 @@ class NatureCollector:
             try:
                 gdf = self.osm.get(key, value)
                 gdf = gdf[gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
-                gdf = gdf.rename_geometry("geom")
+                if gdf.geometry.name != "geom":
+                    gdf = gdf.rename_geometry("geom")
                 gdf["green_type"]   = value
                 gdf["green_weight"] = weight
                 frames.append(gdf[["osm_raw_id", "green_type", "green_weight", "geom"]])
@@ -37,6 +38,8 @@ class NatureCollector:
             except Exception as e:
                 print(f"{key}={value} 실패: {e}")
 
+        if not frames:
+            return gpd.GeoDataFrame(columns=["osm_raw_id", "green_type", "green_weight", "geom"])
         return gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), geometry="geom", crs="EPSG:4326")
 
     def update_node(self) -> None:

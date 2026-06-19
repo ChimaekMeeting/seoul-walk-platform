@@ -24,7 +24,7 @@ class ChildCollector:
                 "csv_raw_id":    row.get("csv_raw_id"),
                 "public_raw_id": None,
                 "category":      "어린이보호구역",
-                "geom":          CollectorUtils.make_point(row.geometry.y, row.geometry.x),
+                "geom":          CollectorUtils.make_point(row["geom"].y, row["geom"].x),
             })
 
         # 어린이놀이시설 (public_raw → child_layer)
@@ -34,7 +34,7 @@ class ChildCollector:
                 "csv_raw_id":    None,
                 "public_raw_id": row.get("public_raw_id"),
                 "category":      "어린이놀이시설",
-                "geom":          CollectorUtils.make_point(row.geometry.y, row.geometry.x),
+                "geom":          CollectorUtils.make_point(row["geom"].y, row["geom"].x),
             })
 
         return records

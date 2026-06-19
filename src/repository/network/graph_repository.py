@@ -6,12 +6,12 @@ from sqlalchemy import select
 from src.database.postgresql import get_postgresql_db
 from src.entity.network.walk_edge import WalkEdge
 from src.entity.network.walk_node import WalkNode
-from src.route_engine.engines.path_utils import PathUtils
 
 
 class GraphRepository:
     @staticmethod
     def load_graph() -> nx.Graph:
+        from src.route_engine.engines.path_utils import PathUtils
         """
         walk_nodes + walk_edges를 PostGIS에서 읽어 NetworkX 그래프로 반환.
 
@@ -75,6 +75,10 @@ class GraphRepository:
                 )
 
         print(f"그래프 로드 완료: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+
+        if G.number_of_nodes() == 0:
+            print("  ⚠️  walk_edges 데이터 없음. 빈 그래프로 초기화합니다.")
+            return G
 
         largest_cc = max(nx.connected_components(G), key=len)
         G = G.subgraph(largest_cc).copy()
@@ -151,6 +155,9 @@ class GraphRepository:
                 )
 
         print(f"반경 {radius_m}m 그래프 로드: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+
+        if G.number_of_nodes() == 0:
+            return G
 
         largest_cc = max(nx.connected_components(G), key=len)
         G = G.subgraph(largest_cc).copy()

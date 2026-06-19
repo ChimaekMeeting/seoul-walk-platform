@@ -19,6 +19,7 @@ class CSVSource:
         """
         단일 데이터셋을 파일에서 읽어 DB에 저장합니다. 이미 저장된 경우 스킵합니다.
         """
+        print(f"{value} 데이터를 적재합니다")
         query_key = f"{key}={value}"
         if CsvRawRepository.exists(query_key):
             return

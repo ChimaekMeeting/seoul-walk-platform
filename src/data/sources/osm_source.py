@@ -23,6 +23,7 @@ class OSMSource:
         """
         단일 태그의 OSM 데이터를 수집하여 DB에 저장합니다. 이미 저장된 경우 스킵합니다.
         """
+        print(f"{key}-{value} 데이터를 적재합니다.")
         query_key = f"{key}={value}"
         if OsmRawRepository.exists(query_key):
             return
@@ -69,13 +70,14 @@ class OSMSource:
         gdf = gdf[keep].copy()
 
         # 결측치 제거
-        null_targets = [c for c in (required_cols or existing) if c in gdf.columns]
+        null_targets = [c for c in (required_cols if required_cols is not None else existing) if c in gdf.columns]
         if null_targets:
             gdf = gdf.dropna(subset=null_targets)
 
-        # 경위도 데이터 제거
-        gdf["_cx"] = gdf.geometry.centroid.x.round(6)
-        gdf["_cy"] = gdf.geometry.centroid.y.round(6)
+        # 경위도 중복 데이터 제거 (투영 좌표계로 변환 후 centroid 계산)
+        projected = gdf.to_crs(epsg=5179)
+        gdf["_cx"] = projected.geometry.centroid.x.round(0)
+        gdf["_cy"] = projected.geometry.centroid.y.round(0)
         gdf = gdf.drop_duplicates(subset=["_cx", "_cy"])
         gdf = gdf.drop(columns=["_cx", "_cy"])
 

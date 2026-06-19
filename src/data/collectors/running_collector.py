@@ -150,8 +150,8 @@ class RunningCourseCollector:
             if not _is_running_park(park_name):
                 continue
 
-            lat = row.geometry.y
-            lon = row.geometry.x
+            lat = row["geom"].y
+            lon = row["geom"].x
             if not (37.4 <= lat <= 37.7 and 126.7 <= lon <= 127.2):
                 continue
 
@@ -244,7 +244,7 @@ class RunningCourseCollector:
         for _, row in gdf.iterrows():
             name = row.get("name")
 
-            lon, lat = row.geometry.coords[0][:2]
+            lon, lat = row["geom"].coords[0][:2]
 
             dist_m: Optional[float] = None
             if dist_col:

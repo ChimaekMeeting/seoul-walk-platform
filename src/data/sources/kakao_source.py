@@ -47,6 +47,7 @@ class KakaoSource:
         """
         단일 카테고리 데이터를 수집하여 DB에 저장합니다. 이미 저장된 경우 스킵합니다.
         """
+        print(f"{value} 데이터를 적재합니다.")
         query_key = f"{key}={value}"
         if KakaoRawRepository.exists(query_key):
             return
