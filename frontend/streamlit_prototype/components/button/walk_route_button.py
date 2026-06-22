@@ -16,7 +16,8 @@ class WalkRouteButton:
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        raw = loop.run_until_complete(WalkRouter().post_route(request.model_dump()))
+        access_token = st.session_state.get("access_token")
+        raw = loop.run_until_complete(WalkRouter().post_route(access_token, request.model_dump()))
         return WalkRouteResponse(**raw)
 
     def _build_request(self, mode: str, target_km: float) -> WalkRouteRequest:

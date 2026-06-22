@@ -6,38 +6,30 @@ class PrewalkRouter:
     def __init__(self):
         self.base_url = f"{base_url}/api/prewalk"
 
-    async def post_init(self, user_uuid: str, lat: float, lon: float):
+    async def post_init(self, access_token: str, lat: float, lon: float):
         """
-        사용자 UUID와 현재 위치(위도, 경도)를 기반으로 산책 세션을 초기화하는 API를 호출합니다.
+        현재 위치(위도, 경도)를 기반으로 산책 세션을 초기화하는 API를 호출합니다.
+        access_token은 쿠키로 전송되어 사용자를 식별합니다.
         """
         async with httpx.AsyncClient(timeout=60.0) as client:
-            params = {
-                "user_uuid": user_uuid,
+            cookies = {"access_token": access_token} if access_token else {}
+            body = {
                 "lat": lat,
                 "lon": lon
             }
-            response = await client.post(f"{self.base_url}/init", json=params)
+            response = await client.post(f"{self.base_url}/init", json=body, cookies=cookies)
             return response.json()
 
-    async def post_intent(self, thread_id: str, user_prompt: str):
+    async def post_intent(self, access_token: str, thread_id: str, user_prompt: str):
         """
         thread_id와 사용자 프롬프트를 기반으로 산책 의도를 분석하는 API를 호출합니다.
+        access_token은 쿠키로 전송되어 세션 소유권을 검증합니다.
         """
         async with httpx.AsyncClient(timeout=60.0) as client:
-            params = {
+            cookies = {"access_token": access_token} if access_token else {}
+            body = {
                 "thread_id": thread_id,
                 "user_prompt": user_prompt
             }
-            response = await client.post(f"{self.base_url}/intent", json=params)
-            return response.json()
-
-    async def get_weights(self, thread_id: str):
-        """
-        thread_id에 해당하는 경로 가중치를 조회하는 API를 호출합니다.
-        """
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            params = {
-                "thread_id": thread_id
-            }
-            response = await client.get(f"{self.base_url}/weights", params=params)
+            response = await client.post(f"{self.base_url}/intent", json=body, cookies=cookies)
             return response.json()
