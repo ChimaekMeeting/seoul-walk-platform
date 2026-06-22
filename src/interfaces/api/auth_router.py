@@ -17,7 +17,7 @@ def check_access_token(
     """
     쿠키의 access_token 유효성을 검사합니다.
     """
-    status, _ = service.check_access_token(access_token)
+    status, _, _ = service.check_access_token(access_token)
     return AuthResponse(status=status)
 
 @router.get("/check/refresh_token", response_model=AuthResponse)

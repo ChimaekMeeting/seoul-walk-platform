@@ -77,11 +77,11 @@ class AuthService:
         """
         try:
             provider, provider_id = self.decode(access_token=access_token)
-            return Status.SUCCESS, provider_id
+            return Status.SUCCESS, provider, provider_id
         except InvalidTokenError:
-            return Status.INVALID_TOKEN, None
+            return Status.INVALID_TOKEN, None, None
         except ValueError:
-            return Status.ACCESS_EXPIRED_TOKEN, None
+            return Status.ACCESS_EXPIRED_TOKEN, None, None
         
     async def check_refresh_token(self, refresh_token: Optional[str] = None):
         """

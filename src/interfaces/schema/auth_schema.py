@@ -1,7 +1,7 @@
 from enum import Enum
 from pydantic import BaseModel
 
-class Status(Enum):
+class Status(str, Enum):
     SUCCESS = "success"
     DUPLICATED_DISPLAY_ID = "duplicated_display_id"
     ACCESS_EXPIRED_TOKEN = "access_expired_token"

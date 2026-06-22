@@ -98,7 +98,7 @@ class KakaoLoginService:
         provider_id = None
 
         if access_token:
-            status, pid = self.auth_service.check_access_token(access_token)
+            status, _, pid = self.auth_service.check_access_token(access_token)
             if status == Status.SUCCESS:
                 provider_id = pid
 
