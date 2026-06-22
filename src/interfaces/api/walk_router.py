@@ -1,6 +1,6 @@
 import traceback
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Cookie
 
 from src.interfaces.dependencies import get_route_service
 from src.interfaces.schema.walk_schema import (
@@ -17,13 +17,14 @@ router = APIRouter(
 @router.post("/route", response_model=WalkRouteResponse)
 async def walk_route(
     request: WalkRouteRequest,
+    access_token: str = Cookie(None),
     service: RouteService = Depends(get_route_service),
 ):
     """
     산책 경로를 추천합니다.
     """
     try:
-        return service.get_route(request.origin, request.destination, request.target_km, request.mode)
+        return service.get_route(access_token, request.origin, request.destination, request.target_km, request.mode)
     except HTTPException:
         raise
     except Exception as e:

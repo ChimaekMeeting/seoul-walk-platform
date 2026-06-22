@@ -48,7 +48,7 @@ class State(BaseModel):
     """
     대화 상태 관련 정보입니다.
     """
-    user_uuid: str
+    user_id: int
     current_location: Location
 
     mode: Optional[Union[CircularMode, OnewayMode]] = None

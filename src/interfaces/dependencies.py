@@ -39,10 +39,11 @@ prewalk_orchestrator: Optional[PrewalkOrchestrator] = None
 def init_route_service():
     global G, route_service, prewalk_orchestrator
     G             = GraphRepository.load_graph()
-    route_service = RouteService(G=G)
+    route_service = RouteService(G=G, auth_service=auth_service)
     prewalk_orchestrator = PrewalkOrchestrator(
         weather_checker = WeatherChecker(),
         kakao_client    = kakao_client,
+        auth_service    = auth_service,
         extractor       = Extractor(),
         interviewer     = Interviewer(),
         route_executor  = RouteExecutor(),

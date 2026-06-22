@@ -28,4 +28,5 @@ class WeatherChecker(GPTClient):
             parser=self.str_parser
         )
 
-        return EnvironmentInfo(weather=weather_info, air=air_info), response
+        # 날씨/대기질 조회가 실패하면 None이 반환될 수 있으므로 빈 dict로 보정합니다.
+        return EnvironmentInfo(weather=weather_info or {}, air=air_info or {}), response

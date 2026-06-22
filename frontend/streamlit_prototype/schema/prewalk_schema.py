@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from typing import Optional
 
 from src.schema.prewalk_schema import State
 
@@ -6,8 +7,8 @@ from src.schema.prewalk_schema import State
 class InitRequest(BaseModel):
     """
     챗봇 세션 생성을 위한 입력 스키마입니다.
+    사용자 식별은 access_token 쿠키로 처리되므로 별도 식별자를 받지 않습니다.
     """
-    user_uuid: str
     lat: float
     lon: float
 
@@ -23,9 +24,11 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     """
     챗봇과 상호작용을 통해 제공되는 출력 스키마입니다.
+    status가 success가 아니면 thread_id/state는 비어 있습니다.
     """
-    thread_id: str
-    state: State
+    status: str
+    thread_id: Optional[str] = None
+    state: Optional[State] = None
 
 
 class Weights(BaseModel):

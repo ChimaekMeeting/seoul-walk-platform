@@ -26,6 +26,8 @@ class OnewayMode(str, Enum):
 
 
 class FallbackReason(str, Enum):
+    ACCESS_EXPIRED_TOKEN   = "access_expired_token"
+    INVALID_TOKEN          = "invalid_token"
     INVALID_ORIGIN         = "INVALID_ORIGIN"
     INVALID_DESTINATION    = "INVALID_DESTINATION"
     NO_NEAREST_START_NODE  = "NO_NEAREST_START_NODE"

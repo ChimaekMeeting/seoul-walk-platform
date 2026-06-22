@@ -76,3 +76,12 @@ class ChatSessionRepository:
                 session = ChatSessionRepository.save(user_id, thread_id)
 
             return session.thread_id
+        
+    @staticmethod
+    def find_by_thread_id(thread_id: str) -> ChatSession:
+        """
+        thread_id를 기반으로 ChatSession을 찾습니다.
+        """
+        with get_postgresql_db() as db:
+            query = select(ChatSession).where(ChatSession.thread_id==thread_id)
+            return db.execute(query).scalar_one_or_none()

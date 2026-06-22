@@ -3,6 +3,7 @@ import asyncio
 import streamlit as st
 
 from frontend.streamlit_prototype.api.walk_router import WalkRouter
+from frontend.streamlit_prototype.api.auth_client import call_with_auto_refresh
 from frontend.streamlit_prototype.schema.walk_schema import (
     Coordinate, WalkRouteRequest, WalkRouteResponse,
 )
@@ -16,7 +17,11 @@ class WalkRouteButton:
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        raw = loop.run_until_complete(WalkRouter().post_route(request.model_dump()))
+        raw = loop.run_until_complete(
+            call_with_auto_refresh(
+                lambda token: WalkRouter().post_route(token, request.model_dump())
+            )
+        )
         return WalkRouteResponse(**raw)
 
     def _build_request(self, mode: str, target_km: float) -> WalkRouteRequest:
