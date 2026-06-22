@@ -5,6 +5,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from frontend.streamlit_prototype.api.prewalk_router import PrewalkRouter
+from frontend.streamlit_prototype.api.auth_client import call_with_auto_refresh
 from frontend.streamlit_prototype.schema.prewalk_schema import InitRequest, ChatRequest
 
 
@@ -29,16 +30,16 @@ class ChatPanel:
         access_token으로 산책 인터뷰 서버 세션을 초기화합니다.
         """
         if "initialized" not in st.session_state:
-            access_token = st.session_state.get("access_token")
-
             init_req = InitRequest(
                 lat=37.634496,
                 lon=126.832852,
             )
-            init_res = await self.prewalk_router.post_init(
-                access_token=access_token,
-                lat=init_req.lat,
-                lon=init_req.lon,
+            init_res = await call_with_auto_refresh(
+                lambda token: self.prewalk_router.post_init(
+                    access_token=token,
+                    lat=init_req.lat,
+                    lon=init_req.lon,
+                )
             )
 
             if init_res.get("status") != "success":
@@ -56,14 +57,15 @@ class ChatPanel:
         """
         LLM과의 상호작용을 통해 산책 정보를 수집하고, 완료 시 경로를 생성합니다.
         """
-        access_token = st.session_state.get("access_token")
         chat_req = ChatRequest(thread_id=st.session_state.thread_id, user_prompt=prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        response = await self.prewalk_router.post_intent(
-            access_token=access_token,
-            thread_id=chat_req.thread_id,
-            user_prompt=chat_req.user_prompt,
+        response = await call_with_auto_refresh(
+            lambda token: self.prewalk_router.post_intent(
+                access_token=token,
+                thread_id=chat_req.thread_id,
+                user_prompt=chat_req.user_prompt,
+            )
         )
 
         if response.get("status") != "success":
