@@ -1,0 +1,225 @@
+# 데이터 적재 registry
+#
+# 이 파일은 "팀이 이 데이터는 이렇게 쓰기로 승인했다"는 데이터 계약서입니다.
+# AI나 자동 분석기가 추측한 결과를 그대로 적는 곳이 아닙니다.
+#
+# approved: true
+#   - 현재 파이프라인에서 사용 중이거나, 팀이 layer/score/profile 연결을 승인한 데이터입니다.
+#
+# approved: false
+#   - raw 파일은 있거나 후보로 검토 중이지만, 아직 score/profile 반영이 승인되지 않은 데이터입니다.
+#   - approved가 false인 데이터는 AI가 사용자에게 보장하는 표현으로 사용하면 안 됩니다.
+#
+# score_effect:
+#   - bonus: 값이 높을수록 경로 비용이 낮아지는 score
+#   - penalty: 값이 높을수록 경로 비용이 높아지는 score
+#   - mode-specific: mode/profile에 따라 효과가 달라지는 score
+#   - none: walk_edges.*_score에 직접 반영되지 않는 기반 데이터
+
+version: 1
+
+datasets:
+  walk_network:
+    approved: true
+    source_type: csv
+    file: 서울시 자치구별 도보 네트워크 공간정보.csv
+    raw_table: none
+    source: CSVSource.load_walk_network
+    collector: BaseNetworkCollector
+    layer: walk_nodes_and_walk_edges
+    geometry: LINESTRING
+    score_column: none
+    score_effect: none
+    profiles: []
+    update_type: static
+    note: 도보 경로 탐색의 기반 네트워크 데이터입니다.
+
+  osm_green_area:
+    approved: true
+    source_type: osm
+    file: none
+    raw_table: osm_raw
+    source: OSMSource
+    collector: NatureCollector
+    layer: nature_layer
+    geometry: POLYGON
+    score_column: nature_score
+    score_effect: bonus
+    profiles:
+      - default
+      - flat
+      - child
+      - running
+      - landmark
+    update_type: static
+    note: OSM natural/landuse/leisure 태그 기반 녹지 데이터입니다.
+
+  streetlight:
+    approved: true
+    source_type: csv
+    file: 전국스마트가로등표준데이터.csv
+    raw_table: csv_raw
+    source: CSVSource
+    collector: SafetyCollector
+    layer: safety_layer
+    geometry: POINT
+    score_column: safety_score
+    score_effect: bonus
+    profiles:
+      - default
+      - flat
+      - child
+      - running
+      - landmark
+    update_type: static
+    note: 스마트 가로등 위치를 안전 점수에 반영합니다.
+
+  cctv:
+    approved: true
+    source_type: xlsx
+    file: 서울시CCTV정보.xlsx
+    raw_table: csv_raw
+    source: CSVSource
+    collector: SafetyCollector
+    layer: safety_layer
+    geometry: POINT
+    score_column: safety_score
+    score_effect: bonus
+    profiles:
+      - default
+      - flat
+      - child
+      - running
+      - landmark
+    update_type: static
+    note: CCTV 위치를 안전 점수에 반영합니다.
+
+  protection_zone:
+    approved: true
+    source_type: csv
+    file: 전국어린이보호구역표준데이터.csv
+    raw_table: csv_raw
+    source: CSVSource
+    collector: ChildCollector
+    layer: child_layer
+    geometry: POINT
+    score_column: child_score
+    score_effect: bonus
+    profiles:
+      - child
+    update_type: static
+    note: 어린이보호구역 위치를 child_score에 반영합니다.
+
+  play_facility:
+    approved: true
+    source_type: api
+    file: none
+    raw_table: public_raw
+    source: PublicSource
+    collector: ChildCollector
+    layer: child_layer
+    geometry: POINT
+    score_column: child_score
+    score_effect: bonus
+    profiles:
+      - child
+    update_type: api_static
+    env:
+      - PUBLIC_DATA_API_KEY
+    note: 공공데이터포털 어린이놀이시설 API를 child_score에 반영합니다.
+
+  landmark_tour_api:
+    approved: true
+    source_type: api
+    file: none
+    raw_table: public_raw
+    source: PublicSource
+    collector: LandmarkCollector
+    layer: landmark_layer
+    geometry: POINT
+    score_column: landmark_score
+    score_effect: bonus
+    profiles:
+      - landmark
+    update_type: api_static
+    env:
+      - PUBLIC_DATA_API_KEY
+    note: Tour API 관광지/문화시설 데이터를 landmark_score에 반영합니다.
+
+  running_park:
+    approved: true
+    source_type: csv
+    file: 서울시 주요 공원현황.csv
+    raw_table: csv_raw
+    source: CSVSource
+    collector: RunningCourseCollector
+    layer: running_layer
+    geometry: POINT
+    score_column: running_score
+    score_effect: bonus
+    profiles:
+      - running
+    update_type: static
+    note: 주요 공원 중 러닝에 적합한 공원을 running_score에 반영합니다.
+
+  bike_road:
+    approved: true
+    source_type: csv
+    file: 전국자전거도로표준데이터.csv
+    raw_table: csv_raw
+    source: CSVSource
+    collector: RunningCourseCollector
+    layer: running_layer
+    geometry: LINESTRING
+    score_column: running_score
+    score_effect: bonus
+    profiles:
+      - running
+    update_type: static
+    note: 자전거도로 데이터를 러닝 가능 경로 후보로 반영합니다.
+
+  river_geojson:
+    approved: true
+    source_type: geojson
+    file: 서울시 하천.geojson
+    raw_table: none
+    source: RunningCourseCollector
+    collector: RunningCourseCollector
+    layer: running_layer
+    geometry: LINESTRING
+    score_column: running_score
+    score_effect: bonus
+    profiles:
+      - running
+    update_type: static
+    note: 하천 주변 러닝 코스 후보로 사용합니다.
+
+  street_tree:
+    approved: false
+    source_type: csv
+    file: 전국가로수길정보표준데이터.csv
+    raw_table: csv_raw
+    source: CSVSource
+    collector: undecided
+    layer: undecided
+    geometry: undecided
+    score_column: undecided
+    score_effect: undecided
+    profiles: []
+    update_type: static
+    note: nature_score 또는 shade_score 후보입니다. 좌표/geometry 검수와 score 정책 확정 전까지 profile에 반영하지 않습니다.
+
+  seoul_trail:
+    approved: false
+    source_type: csv
+    file: 서울 둘레길.csv
+    raw_table: undecided
+    source: undecided
+    collector: undecided
+    layer: undecided
+    geometry: undecided
+    score_column: undecided
+    score_effect: undecided
+    profiles: []
+    update_type: static
+    note: running_score 또는 scenic/landmark 계열 후보입니다. 현재 RunningCourseCollector는 하드코딩된 둘레길 좌표를 사용하므로 이 파일과의 연결은 별도 검토가 필요합니다.
