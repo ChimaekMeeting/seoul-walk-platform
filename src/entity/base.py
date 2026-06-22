@@ -36,6 +36,9 @@ def init_table():
 
             for col_name, col in defined.items():
                 if col_name not in existing:
+                    # Postgres ENUM 등 별도 생성이 필요한 타입(SchemaType)을 먼저 만든 뒤 컬럼을 추가합니다.
+                    if hasattr(col.type, "create"):
+                        col.type.create(bind=conn, checkfirst=True)
                     col_type = col.type.compile(engine.dialect)
                     conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col_name}" {col_type}'))
 

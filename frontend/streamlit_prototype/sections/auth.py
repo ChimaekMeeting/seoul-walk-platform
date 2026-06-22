@@ -1,21 +1,33 @@
 """
 frontend/streamlit_prototype/sections/auth.py
 
-카카오 OAuth 로그인 게이트.
-- 로그인 상태면 True를 반환하여 앱 진입을 허용한다.
-- 미로그인 시 카카오 로그인 UI를 렌더링하고 False를 반환한다.
-- 카카오 리다이렉트로 돌아온 경우(?code=...) 백엔드 콜백을 호출해
-  access_token / refresh_token을 session_state에 저장한다.
+카카오 OAuth 로그인 게이트 + 토큰 영속화(브라우저 쿠키).
+
+- access_token/refresh_token/nickname을 브라우저 쿠키에 저장해 새로고침·재접속에도
+  로그인 상태를 유지한다. (st.session_state는 연결 단위라 새로고침 시 사라지므로 쿠키로 복원)
+- 카카오 리다이렉트로 돌아온 경우(?code=...) 백엔드 콜백을 호출해 토큰을 발급받는다.
 
 주의: 카카오 리다이렉트가 이 Streamlit 앱으로 돌아오도록
 KAKAO_REDIRECT_URI를 Streamlit 앱 URL(예: http://localhost:8501)로 설정해야 한다.
 """
 
 import asyncio
+import datetime
 
 import streamlit as st
+import extra_streamlit_components as stx
 
 from frontend.streamlit_prototype.api.login_router import LoginRouter
+
+# 쿠키 유효기간(refresh_token 수명과 동일하게 14일)
+_COOKIE_MAX_AGE_DAYS = 14
+
+
+def get_cookie_manager() -> stx.CookieManager:
+    """CookieManager 싱글톤. 위젯 중복(DuplicateWidgetID)을 막기 위해 1회만 생성합니다."""
+    if "cookie_manager" not in st.session_state:
+        st.session_state.cookie_manager = stx.CookieManager(key="cookie_manager")
+    return st.session_state.cookie_manager
 
 
 def _run_async(coro):
@@ -28,6 +40,36 @@ def _run_async(coro):
     return loop.run_until_complete(coro)
 
 
+def _expires_at() -> datetime.datetime:
+    return datetime.datetime.now() + datetime.timedelta(days=_COOKIE_MAX_AGE_DAYS)
+
+
+def _persist_tokens(cm: stx.CookieManager, access_token: str, refresh_token: str, nickname) -> None:
+    """발급된 토큰을 브라우저 쿠키에 저장합니다."""
+    expires_at = _expires_at()
+    cm.set("access_token", access_token, expires_at=expires_at, key="set_access_token")
+    if refresh_token:
+        cm.set("refresh_token", refresh_token, expires_at=expires_at, key="set_refresh_token")
+    if nickname:
+        cm.set("nickname", nickname, expires_at=expires_at, key="set_nickname")
+
+
+def update_access_token_cookie(access_token: str) -> None:
+    """자동 재발급으로 갱신된 access_token을 쿠키에도 반영합니다."""
+    cm = get_cookie_manager()
+    cm.set("access_token", access_token, expires_at=_expires_at(), key="update_access_token")
+
+
+def clear_auth_cookies() -> None:
+    """로그아웃/재발급 실패 시 인증 쿠키를 삭제합니다."""
+    cm = get_cookie_manager()
+    for name in ("access_token", "refresh_token", "nickname"):
+        try:
+            cm.delete(name, key=f"del_{name}")
+        except Exception:
+            pass
+
+
 def require_login() -> bool:
     """
     로그인 여부를 확인하고, 미로그인 시 카카오 로그인 UI를 렌더링합니다.
@@ -35,12 +77,23 @@ def require_login() -> bool:
     Returns:
         bool: 로그인 완료 시 True, 그렇지 않으면 False.
     """
+    cm = get_cookie_manager()
+    cookies = cm.get_all() or {}
+
+    # 1) 현재 세션에 토큰이 있으면 통과
     if st.session_state.get("access_token"):
+        return True
+
+    # 2) 브라우저 쿠키에서 복원 (새로고침/재접속 시)
+    if cookies.get("access_token"):
+        st.session_state.access_token = cookies.get("access_token")
+        st.session_state.refresh_token = cookies.get("refresh_token")
+        st.session_state.nickname = cookies.get("nickname")
         return True
 
     login_router = LoginRouter()
 
-    # 카카오 인가 코드를 들고 리다이렉트로 돌아온 경우
+    # 3) 카카오 인가 코드를 들고 리다이렉트로 돌아온 경우
     code = st.query_params.get("code")
     if code:
         with st.spinner("로그인 처리 중..."):
@@ -50,13 +103,14 @@ def require_login() -> bool:
             st.session_state.access_token = access_token
             st.session_state.refresh_token = refresh_token
             st.session_state.nickname = res.get("nickname")
+            _persist_tokens(cm, access_token, refresh_token, res.get("nickname"))
             st.query_params.clear()
             st.rerun()
         else:
             st.query_params.clear()
             st.error("로그인에 실패했습니다. 다시 시도해주세요.")
 
-    # 로그인 화면
+    # 4) 로그인 화면
     st.subheader("🔐 로그인이 필요합니다")
     st.write("서비스를 이용하려면 카카오 로그인을 진행해주세요.")
 

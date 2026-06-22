@@ -53,9 +53,15 @@ class KakaoLoginService:
 
         async with httpx.AsyncClient() as client:
             res = await client.post(url, headers=headers, data=data)
-            data = res.json()
+            token_data = res.json()
 
-            return data.get("access_token")
+            # 인가 코드 만료/재사용/redirect_uri 불일치 등으로 교환이 실패하면
+            # 카카오 에러 페이로드를 그대로 드러내 원인을 알 수 있게 합니다.
+            access_token = token_data.get("access_token")
+            if access_token is None:
+                raise ValueError(f"카카오 토큰 발급 실패: {token_data}")
+
+            return access_token
         
     async def get_user_info(self, access_token: str):
         """
@@ -71,8 +77,17 @@ class KakaoLoginService:
             user_res = await client.get(url, headers=headers)
             user_data = user_res.json()
 
-            provider_id = user_data.get("id")
-            nickname = user_data.get("kakao_account").get("profile").get("nickname")
+            # id가 없으면 토큰 교환 실패 등으로 사용자 정보 조회가 실패한 것이므로
+            # 카카오 응답 페이로드를 그대로 드러내 원인을 알 수 있게 합니다.
+            if "id" not in user_data:
+                raise ValueError(f"카카오 사용자 정보 조회 실패: {user_data}")
+
+            provider_id = str(user_data.get("id"))
+
+            # 동의항목(profile_nickname) 미설정 시 nickname이 없을 수 있으므로 안전하게 파싱합니다.
+            kakao_account = user_data.get("kakao_account") or {}
+            profile = kakao_account.get("profile") or {}
+            nickname = profile.get("nickname")
 
             return provider_id, nickname
         

@@ -29,9 +29,14 @@ def _is_access_expired(response: dict) -> bool:
 
 
 def clear_auth() -> None:
-    """인증/세션 상태를 비워 재로그인을 유도합니다."""
+    """인증/세션 상태(session_state + 브라우저 쿠키)를 비워 재로그인을 유도합니다."""
     for key in _AUTH_KEYS:
         st.session_state.pop(key, None)
+    try:
+        from frontend.streamlit_prototype.sections.auth import clear_auth_cookies
+        clear_auth_cookies()
+    except Exception:
+        pass
 
 
 async def _refresh_access_token() -> bool:
@@ -47,6 +52,12 @@ async def _refresh_access_token() -> bool:
 
     if (res or {}).get("status") == "success" and new_access_token:
         st.session_state.access_token = new_access_token
+        # 갱신된 토큰을 쿠키에도 반영해 새로고침 후에도 이어지게 합니다.
+        try:
+            from frontend.streamlit_prototype.sections.auth import update_access_token_cookie
+            update_access_token_cookie(new_access_token)
+        except Exception:
+            pass
         return True
 
     # refresh_token도 만료/무효 → 재로그인 필요

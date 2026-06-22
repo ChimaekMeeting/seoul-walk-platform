@@ -31,8 +31,8 @@ class ChatPanel:
         """
         if "initialized" not in st.session_state:
             init_req = InitRequest(
-                lat=37.634496,
-                lon=126.832852,
+                lat=37.5665,
+                lon=126.978,
             )
             init_res = await call_with_auto_refresh(
                 lambda token: self.prewalk_router.post_init(
