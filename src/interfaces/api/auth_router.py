@@ -21,7 +21,7 @@ def check_access_token(
     return AuthResponse(status=status)
 
 @router.get("/check/refresh_token", response_model=AuthResponse)
-def check_refresh_token(
+async def check_refresh_token(
     response: Response,
     refresh_token: str = Cookie(None),
     service: AuthService = Depends(get_auth_service)
@@ -29,7 +29,7 @@ def check_refresh_token(
     """
     refresh_token으로 access_token을 재발급하고 쿠키에 저장합니다.
     """
-    status, access_token, _ = service.check_refresh_token(refresh_token)
+    status, access_token, _ = await service.check_refresh_token(refresh_token)
 
     response.set_cookie(
         key="access_token",

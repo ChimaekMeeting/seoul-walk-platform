@@ -6,9 +6,10 @@ from urllib.parse import urlencode
 
 from src.service.user.user_service import UserService
 from src.service.user.auth_service import AuthService
-from src.repository.user.user_repository import UserRepository
+from src.infrastructure.cache.repository.user_repository import UserRepository as CacheUserRepository
 from src.interfaces.schema.login_schema import LoginUrlResponse
 from src.interfaces.schema.auth_schema import Status
+from src.entity.user import Provider
 
 load_dotenv()
 
@@ -79,32 +80,32 @@ class KakaoLoginService:
         """
         로그인을 진행합니다.
         """
-        access_token = await self.get_access_token(code)
-        provider_id, nickname = await self.get_user_info(access_token)
+        kakao_access_token = await self.get_access_token(code)
+        provider_id, nickname = await self.get_user_info(kakao_access_token)
 
-        jwt_access_token = self.auth_service.get_access_token(provider_id)
-        jwt_refresh_token = self.auth_service.get_refresh_token(provider_id)
+        jwt_access_token = self.auth_service.get_access_token(Provider.KAKAO, provider_id)
+        jwt_refresh_token = self.auth_service.get_refresh_token(Provider.KAKAO, provider_id)
 
-        # user = self.user_service.login(provider_id, jwt_refresh_token, nickname)
+        user = await self.user_service.save(Provider.KAKAO, provider_id, jwt_refresh_token, nickname)
         
-        return jwt_access_token, jwt_refresh_token, nickname, None
+        return jwt_access_token, jwt_refresh_token, nickname
 
 
-    # def logout(self, access_token: Optional[str], refresh_token: Optional[str]):
-    #     """
-    #     DB의 refresh_token을 제거합니다. 토큰이 모두 유효하지 않아도 쿠키는 클라이언트에서 제거됩니다.
-    #     """
-    #     provider_id = None
+    async def logout(self, access_token: Optional[str], refresh_token: Optional[str]):
+        """
+        DB의 refresh_token을 제거하여 완전히 로그아웃합니다.
+        """
+        provider_id = None
 
-    #     if access_token:
-    #         status, pid = self.auth_service.check_access_token(access_token)
-    #         if status == Status.SUCCESS:
-    #             provider_id = pid
+        if access_token:
+            status, pid = self.auth_service.check_access_token(access_token)
+            if status == Status.SUCCESS:
+                provider_id = pid
 
-    #     if provider_id is None and refresh_token:
-    #         status, _, pid = self.auth_service.check_refresh_token(refresh_token)
-    #         if status == Status.SUCCESS:
-    #             provider_id = pid
+        if provider_id is None and refresh_token:
+            status, _, pid = await self.auth_service.check_refresh_token(refresh_token)
+            if status == Status.SUCCESS:
+                provider_id = pid
 
-    #     if provider_id is not None:
-    #         UserRepository.clear_refresh_token(provider_id)
+        if provider_id is not None:
+            await CacheUserRepository.delete_refresh_token(Provider.KAKAO, provider_id)

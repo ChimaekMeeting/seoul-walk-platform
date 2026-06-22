@@ -7,7 +7,6 @@ class InitRequest(BaseModel):
     """
     챗봇 세션 생성을 위한 입력 스키마
     """
-    user_uuid: str
     lat: float
     lon: float
 

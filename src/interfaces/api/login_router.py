@@ -28,7 +28,7 @@ async def kakao_callback(
     """
     카카오 인가 코드로 로그인을 처리하고 access/refresh 토큰을 쿠키에 저장합니다.
     """
-    access_token, refresh_token, nickname, display_id = await service.login(code)
+    access_token, refresh_token, nickname = await service.login(code)
 
     response.set_cookie(
         key="access_token",
@@ -48,20 +48,20 @@ async def kakao_callback(
         max_age=14 * 24 * 60 * 60  # 14일
     )
 
-    return LoginResponse(status=Status.SUCCESS, token_type="Bearer", nickname=nickname, display_id=display_id)
+    return LoginResponse(status=Status.SUCCESS, token_type="Bearer", nickname=nickname)
 
-# @router.post("/kakao/logout", response_model=AuthResponse)
-# async def kakao_logout(
-#     request: Request,
-#     response: Response,
-#     service: KakaoLoginService = Depends(get_kakao_login_service)
-# ):
-#     access_token = request.cookies.get("access_token")
-#     refresh_token = request.cookies.get("refresh_token")
+@router.post("/kakao/logout", response_model=AuthResponse)
+async def kakao_logout(
+    request: Request,
+    response: Response,
+    service: KakaoLoginService = Depends(get_kakao_login_service)
+):
+    access_token = request.cookies.get("access_token")
+    refresh_token = request.cookies.get("refresh_token")
 
-#     service.logout(access_token, refresh_token)
+    await service.logout(access_token, refresh_token)
 
-#     response.delete_cookie(key="access_token")
-#     response.delete_cookie(key="refresh_token")
+    response.delete_cookie(key="access_token")
+    response.delete_cookie(key="refresh_token")
 
-#     return AuthResponse(status=Status.SUCCESS)
+    return AuthResponse(status=Status.SUCCESS)
