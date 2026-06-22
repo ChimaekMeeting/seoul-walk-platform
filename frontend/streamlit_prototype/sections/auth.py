@@ -70,6 +70,27 @@ def clear_auth_cookies() -> None:
             pass
 
 
+def _kakao_login_button_html(login_url: str) -> str:
+    """카카오 공식 가이드 스타일(노란 배경 + 말풍선 심볼)의 로그인 버튼 HTML을 생성합니다."""
+    return f'''
+    <div style="display:flex; justify-content:center; margin-top:8px;">
+      <a href="{login_url}" target="_self" style="
+          display:flex; align-items:center; justify-content:center; gap:8px;
+          width:300px; max-width:100%; box-sizing:border-box;
+          height:48px; padding:0 16px;
+          background-color:#FEE500; border-radius:12px;
+          color:rgba(0,0,0,0.85); font-size:16px; font-weight:700;
+          text-decoration:none;
+          font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
+        <svg width="20" height="20" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9 1C4.589 1 1 3.79 1 7.236c0 2.231 1.452 4.188 3.638 5.293-.16.598-.578 2.165-.662 2.502-.103.418.153.412.323.3.133-.089 2.107-1.43 2.962-2.012.563.083 1.145.127 1.739.127 4.411 0 8-2.79 8-6.21C17 3.79 13.411 1 9 1z" fill="#000000"/>
+        </svg>
+        <span>카카오 로그인</span>
+      </a>
+    </div>
+    '''
+
+
 def require_login() -> bool:
     """
     로그인 여부를 확인하고, 미로그인 시 카카오 로그인 UI를 렌더링합니다.
@@ -110,15 +131,12 @@ def require_login() -> bool:
             st.query_params.clear()
             st.error("로그인에 실패했습니다. 다시 시도해주세요.")
 
-    # 4) 로그인 화면
-    st.subheader("🔐 로그인이 필요합니다")
-    st.write("서비스를 이용하려면 카카오 로그인을 진행해주세요.")
-
+    # 4) 로그인 화면 — 카카오 버튼만 바로 노출
     url_res = _run_async(login_router.get_kakao_login_url())
     login_url = url_res.get("url") if url_res else None
 
     if login_url:
-        st.link_button("카카오로 로그인", login_url, type="primary", use_container_width=True)
+        st.markdown(_kakao_login_button_html(login_url), unsafe_allow_html=True)
     else:
         st.error("로그인 URL을 불러오지 못했습니다. 백엔드 서버 상태를 확인해주세요.")
 
