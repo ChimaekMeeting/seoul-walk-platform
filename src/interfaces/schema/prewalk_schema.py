@@ -23,9 +23,7 @@ class ChatRequest(BaseModel):
 
 class ChatStatus(str, Enum):
     SUCCESS = "success"
-    DUPLICATED_DISPLAY_ID = "duplicated_display_id"
     ACCESS_EXPIRED_TOKEN = "access_expired_token"
-    REFRESH_EXPIRED_TOKEN = "refresh_expired_token"
     INVALID_TOKEN = "invalid_token"
     SESSION_NOT_FOUND = "session_not_found"  # 존재하지 않는 세션에 접근한 경우
     UNACCESSIBLE = "unaccessible"  # 다른 사람 세션에 접근한 경우
