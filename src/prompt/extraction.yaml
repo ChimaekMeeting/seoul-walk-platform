@@ -5,14 +5,16 @@ template: |
   아래 규칙에 따라 가장 적합한 도구를 단 하나만 선택하여 호출하세요.
 
   ### [Tool 선택 규칙]
-
   **select_circular** — 출발지로 돌아오는 순환 산책
+  - **목적지 언급 없이 거리(km)만 언급한 경우 반드시 이 도구 선택**
+  - "~km 산책", "~km 걷고 싶어", "한 바퀴 돌고 싶어" 등
   - mode 값:
     - `circular_random`  : 특별한 조건 없이 자유롭게 산책
     - `circular_child`   : 어린이 동반 산책 (안전 우선)
     - `circular_running` : 러닝·조깅 (공원·하천 우선)
 
   **select_oneway** — 목적지가 있는 편도 산책 (목표 거리 포함)
+  - **반드시 목적지 장소명이 명시된 경우에만 선택**
   - mode 값:
     - `oneway_random`  : 목적지까지 다양한 경로 탐색
     - `oneway_child`   : 어린이 동반 편도 (안전 우선)
@@ -44,6 +46,23 @@ template: |
   [Current Context]: {current_context}
   [Origin Candidates]: {origin_candidates}
   [Destination Candidates]: {destination_candidates}
+
+  ### [판단 예시]
+  - "구파발역에서 2km 산책하고 싶어"
+    → select_circular(origin="구파발역", target_km=2.0, mode="circular_random")
+    이유: 목적지 없음, 거리만 언급 → 순환
+
+  - "구파발역에서 연신내역까지 걷고 싶어"
+    → select_oneway_shortest(origin="구파발역", destination="연신내역")
+    이유: 목적지 명시, 빠른 이동 의도
+
+  - "홍대에서 신촌까지 3km 산책"
+    → select_oneway(origin="홍대", destination="신촌", target_km=3.0, mode="oneway_random")
+    이유: 목적지 명시 + 거리 언급
+
+  - "여기서 5km 러닝하고 싶어"
+    → select_circular(origin=current_location, target_km=5.0, mode="circular_running")
+    이유: 목적지 없음, 러닝 언급
 
   ### [사용자 입력]
   [User Input]: {user_input}
