@@ -55,10 +55,10 @@ class RouteService:
         context에 적합한 경로 생성 엔진을 호출합니다.
         """
         # 사용자 인증
-        status, provider, provider_id = self.auth_service.check_access_token(access_token)
-        if status != Status.SUCCESS:
-            return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
-                                    fallback_reason=status)
+        # status, provider, provider_id = self.auth_service.check_access_token(access_token)
+        # if status != Status.SUCCESS:
+        #     return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
+        #                             fallback_reason=status)
         
         # 추후 사용자에게 추천한 경로를 저장하기 위해 필요
         # user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)

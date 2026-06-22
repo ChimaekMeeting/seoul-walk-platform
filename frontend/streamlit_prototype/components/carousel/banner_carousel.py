@@ -83,6 +83,9 @@ class BannerCarousel:
         if "selected_banner" not in st.session_state:
             st.session_state.selected_banner = None
 
+        if not banners:
+            return 
+
         cols = st.columns(len(banners))
         for i, (col, banner) in enumerate(zip(cols, banners)):
             with col:
