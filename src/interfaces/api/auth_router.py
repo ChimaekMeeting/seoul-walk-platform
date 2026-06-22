@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Cookie, Response
 
 from src.interfaces.dependencies import get_auth_service
 from src.service.user.auth_service import AuthService
-from src.interfaces.schema.auth_schema import AuthResponse
+from src.interfaces.schema.auth_schema import AuthResponse, Status
 
 router = APIRouter(
     prefix="/api/auth",
@@ -31,13 +31,15 @@ async def check_refresh_token(
     """
     status, access_token, _ = await service.check_refresh_token(refresh_token)
 
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        secure=False,  # 배포 시에는 True로 설정하여 HTTPS 환경에서만 전송되도록 수정
-        samesite="lax",
-        max_age=3600   # 1시간
-    )
+    # 재발급 성공 시에만 새 access_token을 쿠키에 저장합니다.
+    if status == Status.SUCCESS:
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            secure=False,  # 배포 시에는 True로 설정하여 HTTPS 환경에서만 전송되도록 수정
+            samesite="lax",
+            max_age=3600   # 1시간
+        )
 
     return AuthResponse(status=status)
