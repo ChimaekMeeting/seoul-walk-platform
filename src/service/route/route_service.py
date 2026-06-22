@@ -57,7 +57,7 @@ class RouteService:
         # 사용자 인증
         status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if status != Status.SUCCESS:
-            return WalkRouteResponse(status="FAILED", mode=None, coordinates=[], total_km=0.0,
+            return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
                                     fallback_reason=status)
         
         # 추후 사용자에게 추천한 경로를 저장하기 위해 필요

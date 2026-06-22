@@ -104,7 +104,7 @@ class PrewalkOrchestrator:
         
         # 챗봇 최근 대화 내역 조회
         state = await ChatStateRepository.get_state(thread_id)
-        if not State:
+        if not state:
             return ChatResponse(status=ChatStatus.SESSION_NOT_FOUND, thread_id=None, state=None)
 
         # 사용자의 접근 권한 확인
