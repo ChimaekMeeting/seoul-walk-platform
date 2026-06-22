@@ -25,9 +25,9 @@ _COOKIE_MAX_AGE_DAYS = 14
 
 def get_cookie_manager() -> stx.CookieManager:
     """CookieManager 싱글톤. 위젯 중복(DuplicateWidgetID)을 막기 위해 1회만 생성합니다."""
-    if "cookie_manager" not in st.session_state:
-        st.session_state.cookie_manager = stx.CookieManager(key="cookie_manager")
-    return st.session_state.cookie_manager
+    if "_cookie_manager_instance" not in st.session_state:
+        st.session_state["_cookie_manager_instance"] = stx.CookieManager(key="cookie_manager")
+    return st.session_state["_cookie_manager_instance"]
 
 
 def _run_async(coro):
