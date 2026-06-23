@@ -14,7 +14,6 @@ class PublicRaw(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     query_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    name: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     geom = mapped_column(Geometry("POINT", srid=4326), nullable=False)
     properties: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
