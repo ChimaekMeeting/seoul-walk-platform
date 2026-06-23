@@ -19,8 +19,7 @@ class CsvRawRepository:
     @staticmethod
     def save(df: pd.DataFrame, query_key: str) -> None:
         use_linestring = "end_lat" in df.columns
-        # lat/lon/end coords와 name은 전용 컬럼으로 저장하므로 properties에서 제외
-        # address는 properties에 "address" 키로 유지
+        # lat/lon/end 좌표는 geom으로 저장하므로 properties에서 제외
         exclude = {"lat", "lon", "end_lat", "end_lon"} if use_linestring else {"lat", "lon"}
         records = []
 
