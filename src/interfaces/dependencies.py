@@ -27,9 +27,9 @@ from src.repository.network.graph_repository import GraphRepository
 auth_service        = AuthService()
 user_service        = UserService(auth_service)
 kakao_login_service = KakaoLoginService(user_service, auth_service)
-banner_service      = BannerService(MarathonClient())
 kakao_client        = KakaoClient()
 weather_client      = WeatherClient(kakao_client)
+banner_service      = BannerService(MarathonClient(), weather_client)
 map_service         = MapService(kakao_client)
 survey_service      = SurveyService(auth_service)
 

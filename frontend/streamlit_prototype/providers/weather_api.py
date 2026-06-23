@@ -68,11 +68,11 @@ class WeatherEnvProvider(EnvProvider):
             air_raw=air,
         )
 
-    def get_banners(self, env: EnvData) -> list:
+    def get_banners(self, env: EnvData, lat: float = 0.0, lon: float = 0.0) -> list:
         """
-        input : env (EnvData)
+        input : env (EnvData), lat (float), lon (float)
         output: list
 
-        EnvData를 dict로 변환해 BannerDataCarousel에서 배너 리스트를 조회하여 반환
+        위치 좌표를 기반으로 배너 리스트를 조회하여 반환
         """
-        return self._banner_data.get_banner_list(dataclasses.asdict(env))
+        return self._banner_data.get_banner_list(lat=lat, lon=lon)

@@ -36,7 +36,7 @@ class EnvProvider(ABC):
     """
 
     @abstractmethod
-    def get_banners(self, env: EnvData) -> list: ...
+    def get_banners(self, env: EnvData, lat: float = 0.0, lon: float = 0.0) -> list: ...
     """
     input : env (EnvData)
     output: list

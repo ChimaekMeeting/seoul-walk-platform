@@ -8,7 +8,7 @@ def register_entities():
     """
     Base.metadata에 모든 엔티티 테이블 정보를 등록합니다.
     """
-    from src.entity import chat_session, user, user_preference
+    from src.entity import chat_session, user, user_preference, banner
     from src.entity.network import walk_node, walk_edge
     from src.entity.layer import (
         safety_layer,
@@ -52,3 +52,6 @@ def init_db():
     """
     register_entities()
     init_table()
+
+    from src.repository.banner.banner_repository import BannerRepository
+    BannerRepository.seed()
