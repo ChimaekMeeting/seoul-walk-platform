@@ -13,8 +13,8 @@ class MapPage:
     }
 
     DB_LAYER_CONFIGS = [
-        {"table": "safety_layer", "col": "safety_type", "val": "cctv",        "color": [255, 215, 0],   "name": "CCTV"},
-        {"table": "safety_layer", "col": "safety_type", "val": "streetlight", "color": [255, 255, 224], "name": "가로등"},
+        {"layer": "safety", "category": "cctv",        "color": [255, 215, 0],   "name": "CCTV"},
+        {"layer": "safety", "category": "streetlight", "color": [255, 255, 224], "name": "가로등"},
     ]
 
     def __init__(self):
@@ -41,7 +41,10 @@ class MapPage:
             )
 
         for cfg in self.DB_LAYER_CONFIGS:
-            df_p = self.map_layer.fetch_local_db_points(curr_lat, curr_lon, cfg["table"], cfg["col"], cfg["val"])
+            # 레이어 전체를 받아(캐시됨) category로 클라이언트 필터링
+            df_p = self.map_layer.fetch_local_db_points(curr_lat, curr_lon, cfg["layer"])
+            if not df_p.empty and "category" in df_p.columns:
+                df_p = df_p[df_p["category"] == cfg["category"]]
             if not df_p.empty:
                 df_p = df_p.copy()
                 df_p["name"] = cfg["name"]
