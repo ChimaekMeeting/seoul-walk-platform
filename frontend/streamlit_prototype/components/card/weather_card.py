@@ -22,10 +22,8 @@ def _fetch_weather(lat: float, lng: float) -> dict:
         return data
     except Exception:
         return {
-            "weather_status": "알 수 없음",
-            "weather_msg": "서버 연결 실패",
-            "air_status": "알 수 없음",
-            "air_msg": "",
+            "weather_info": {},
+            "air_info": {},
         }
 
 
@@ -39,12 +37,19 @@ class WeatherCard:
 
     def render(self, env: EnvData) -> None:
         """
-        날씨, 미세먼지, 추천 경로 수 지표를 3열로 렌더링합니다.
+        날씨 상세 정보와 대기질을 렌더링합니다.
         """
-        col1, col2, col3 = st.columns(3)
+        w = env.weather_raw or {}
+        a = env.air_raw or {}
+
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("현재 날씨", env.weather_status, env.weather_msg)
+            st.metric("강수형태", env.weather_status)
         with col2:
-            st.metric("미세먼지", env.air_status, env.air_msg)
+            temp = w.get("기온", "-")
+            humi = w.get("습도", "")
+            st.metric("기온 / 습도", f"{temp} / {humi}" if humi else temp)
         with col3:
-            st.metric("추천 경로", "3개", "평균 3.2km")
+            st.metric("대기질", env.air_status, env.air_msg)
+        with col4:
+            st.metric("초미세먼지", a.get("초미세먼지", "-"))

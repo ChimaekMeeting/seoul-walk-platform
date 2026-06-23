@@ -38,18 +38,17 @@ class MapLayer:
         _self,
         lat: float,
         lon: float,
-        table_name: str,
-        type_col: str | None = None,
-        type_val: str | None = None,
+        layer: str,
         radius_m: int = 2000,
     ) -> pd.DataFrame:
         """
-        input : lat, lon, table_name, type_col, type_val, radius_m
-        output: DataFrame (lat, lon)
+        input : lat, lon, layer(safety/nature/landmark), radius_m
+        output: DataFrame (lat, lon, category?)
 
-        GET /api/map/points 호출 후 DataFrame으로 변환
+        GET /api/map/points/{layer} 호출 후 DataFrame으로 변환 (레이어 전체)
+        카테고리 필터링은 호출측에서 df["category"]로 수행
         """
-        data = _self._router.get_points(lat, lon, table_name, type_col, type_val, radius_m)
+        data = _self._router.get_points(lat, lon, layer, radius_m)
         return pd.DataFrame(data) if data else pd.DataFrame()
 
     @st.cache_data(ttl=3600)

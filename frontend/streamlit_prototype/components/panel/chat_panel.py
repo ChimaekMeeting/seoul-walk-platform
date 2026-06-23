@@ -4,15 +4,14 @@ import folium
 import streamlit as st
 from streamlit_folium import st_folium
 
-from frontend.streamlit_prototype.api.user_router import UserRouter
 from frontend.streamlit_prototype.api.prewalk_router import PrewalkRouter
+from frontend.streamlit_prototype.api.auth_client import call_with_auto_refresh
 from frontend.streamlit_prototype.schema.prewalk_schema import InitRequest, ChatRequest
 
 
 class ChatPanel:
 
     def __init__(self):
-        self.user_router = UserRouter()
         self.prewalk_router = PrewalkRouter()
 
     def run_async(self, coro):
@@ -28,22 +27,25 @@ class ChatPanel:
 
     async def init_session(self):
         """
-        사용자 UUID를 생성하고 산책 인터뷰 서버 세션을 초기화합니다.
+        access_token으로 산책 인터뷰 서버 세션을 초기화합니다.
         """
-        if "user_uuid" not in st.session_state:
-            user_res = await self.user_router.post_user()
-            st.session_state.user_uuid = user_res.get("user_uuid")
-
+        if "initialized" not in st.session_state:
             init_req = InitRequest(
-                user_uuid=st.session_state.user_uuid,
-                lat=37.634496,
-                lon=126.832852,
+                lat=37.5665,
+                lon=126.978,
             )
-            init_res = await self.prewalk_router.post_init(
-                user_uuid=init_req.user_uuid,
-                lat=init_req.lat,
-                lon=init_req.lon,
+            init_res = await call_with_auto_refresh(
+                lambda token: self.prewalk_router.post_init(
+                    access_token=token,
+                    lat=init_req.lat,
+                    lon=init_req.lon,
+                )
             )
+
+            if init_res.get("status") != "success":
+                st.error("세션 초기화에 실패했습니다. 다시 로그인해주세요.")
+                return
+
             st.session_state.thread_id    = init_res.get("thread_id")
             st.session_state.state        = init_res.get("state")
             st.session_state.route_result = None
@@ -58,10 +60,20 @@ class ChatPanel:
         chat_req = ChatRequest(thread_id=st.session_state.thread_id, user_prompt=prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        response = await self.prewalk_router.post_intent(
-            thread_id=chat_req.thread_id,
-            user_prompt=chat_req.user_prompt,
+        response = await call_with_auto_refresh(
+            lambda token: self.prewalk_router.post_intent(
+                access_token=token,
+                thread_id=chat_req.thread_id,
+                user_prompt=chat_req.user_prompt,
+            )
         )
+
+        if response.get("status") != "success":
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "세션이 만료되었거나 접근 권한이 없습니다. 다시 로그인해주세요.",
+            })
+            return
 
         state  = response.get("state", {})
         answer = state.get("response", "죄송합니다. 응답을 이해하지 못했습니다.")

@@ -107,7 +107,7 @@ class WalkRouteMap:
         자연 마커를 Folium 지도에 추가합니다.
         """
         df_nature = self.map_layer.fetch_local_db_points(
-            center_lat, center_lon, "nature_layer", "green_type", None, radius_m=1000
+            center_lat, center_lon, "nature", radius_m=1000
         )
         if not df_nature.empty:
             for _, row in df_nature.iterrows():

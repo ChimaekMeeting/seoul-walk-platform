@@ -11,6 +11,7 @@ import config.path_setup  # noqa: F401 — must precede all src/ imports
 
 from frontend.streamlit_prototype.bootstrap import create_app_context, AppContext
 from frontend.streamlit_prototype.sections.page_setup import setup_page
+from frontend.streamlit_prototype.sections.auth import require_login
 from frontend.streamlit_prototype.sections.header import render_header
 from frontend.streamlit_prototype.sections.sidebar import render_sidebar, apply_input_mode
 from frontend.streamlit_prototype.sections.map_section import render_map
@@ -25,6 +26,11 @@ class App:
         # 앱의 전체 렌더링 흐름을 섹션 순서대로 실행
         ctx           = self._ctx
         setup_page(ctx.walk_route_map)
+
+        # 로그인 게이트: 미로그인 시 로그인 UI만 렌더링하고 중단
+        if not require_login():
+            return
+
         lat, lng, env = render_header(ctx)
         sidebar       = render_sidebar()
         ctx.weather_card.render(env)

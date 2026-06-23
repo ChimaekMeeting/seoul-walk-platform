@@ -64,7 +64,7 @@ class RouteService:
         # 매핑 가능한 모드가 없는 경우
         if mode not in self._circular_engines and mode not in self._oneway_engines:
             return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.UNKNOWN_ERROR)
+                                    fallback_reason=FallbackReason.UNKNOWN_ERROR)
 
         # ROUT-NODE-001/002: 엔진 호출 전 보행 노드 존재 여부 선행 검증
         utils = PathUtils(self.G)
@@ -79,7 +79,7 @@ class RouteService:
             engine = self._build_engine(mode, origin, destination, target_km)
         except ValueError:
             return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.INVALID_DESTINATION)
+                                    fallback_reason=FallbackReason.INVALID_DESTINATION)
 
         # 3. 경로 생성
         return engine.run()

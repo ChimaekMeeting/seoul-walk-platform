@@ -19,10 +19,8 @@ class CsvRawRepository:
     @staticmethod
     def save(df: pd.DataFrame, query_key: str) -> None:
         use_linestring = "end_lat" in df.columns
-        # lat/lon/end coords와 name은 전용 컬럼으로 저장하므로 properties에서 제외
-        # address는 properties에 "address" 키로 유지
-        geom_cols = {"lat", "lon", "end_lat", "end_lon"} if use_linestring else {"lat", "lon"}
-        exclude = geom_cols | {"name"}
+        # lat/lon/end 좌표는 geom으로 저장하므로 properties에서 제외
+        exclude = {"lat", "lon", "end_lat", "end_lon"} if use_linestring else {"lat", "lon"}
         records = []
 
         for _, row in df.iterrows():
@@ -48,10 +46,8 @@ class CsvRawRepository:
                 if col not in exclude
             }
 
-            name_val = row.get("name")
             records.append(CsvRaw(
                 query_key=query_key,
-                name=str(name_val) if name_val is not None and str(name_val) != "nan" else None,
                 geom=WKTElement(wkt, srid=4326),
                 properties=props or None,
             ))
@@ -64,7 +60,7 @@ class CsvRawRepository:
     def get(query_key: str) -> gpd.GeoDataFrame:
         with engine.connect() as conn:
             gdf = gpd.read_postgis(
-                "SELECT id AS csv_raw_id, name, properties, geom FROM csv_raw WHERE query_key = %(key)s",
+                "SELECT id AS csv_raw_id, properties, geom FROM csv_raw WHERE query_key = %(key)s",
                 conn,
                 geom_col="geom",
                 params={"key": query_key},

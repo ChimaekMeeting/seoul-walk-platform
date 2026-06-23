@@ -7,7 +7,8 @@ from src.service import (
     PrewalkOrchestrator,
     RouteService,
     BannerService,
-    MapService
+    MapService,
+    SurveyService
 )
 from src.agent.nodes import (
     WeatherChecker,
@@ -15,36 +16,44 @@ from src.agent.nodes import (
     Interviewer,
     RouteExecutor
 )
-from src.infrastructure.external.client.kakao_client import KakaoClient
+from src.infrastructure.external.client import (
+    KakaoClient,
+    MarathonClient,
+    WeatherClient
+)
 from src.repository.network.graph_repository import GraphRepository
-from src.infrastructure.external.client.marathon_client import MarathonClient
 
 # 싱글톤 패턴
 auth_service        = AuthService()
 user_service        = UserService(auth_service)
 kakao_login_service = KakaoLoginService(user_service, auth_service)
-weather_checker     = WeatherChecker()
-banner_service      = BannerService(MarathonClient())
-map_service         = MapService(KakaoClient())
+kakao_client        = KakaoClient()
+weather_client      = WeatherClient(kakao_client)
+banner_service      = BannerService(MarathonClient(), weather_client)
+map_service         = MapService(kakao_client)
+survey_service      = SurveyService(auth_service)
 
+G = None
 route_service: Optional[RouteService] = None
 prewalk_orchestrator: Optional[PrewalkOrchestrator] = None
 
 # lifespan에서 호출
 def init_route_service():
-    global route_service, prewalk_orchestrator
-    route_service = RouteService(G=GraphRepository.load_graph())
+    global G, route_service, prewalk_orchestrator
+    G             = GraphRepository.load_graph()
+    route_service = RouteService(G=G, auth_service=auth_service)
     prewalk_orchestrator = PrewalkOrchestrator(
-        weather_checker = weather_checker,
-        kakao_client    = KakaoClient(),
+        weather_checker = WeatherChecker(),
+        kakao_client    = kakao_client,
+        auth_service    = auth_service,
         extractor       = Extractor(),
         interviewer     = Interviewer(),
         route_executor  = RouteExecutor(),
     )
 
 # 날씨
-def get_weather_checker() -> WeatherChecker:
-    return weather_checker
+def get_weather_client() -> WeatherClient:
+    return weather_client
 
 # 사용자 인증
 def get_auth_service() -> AuthService:
@@ -71,3 +80,7 @@ def get_banner_service() -> BannerService:
 # 지도
 def get_map_service() -> MapService:
     return map_service
+
+# 온보딩 설문
+def get_survey_service() -> SurveyService:
+    return survey_service

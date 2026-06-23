@@ -8,7 +8,7 @@ def register_entities():
     """
     Base.metadata에 모든 엔티티 테이블 정보를 등록합니다.
     """
-    from src.entity import chat_session, user
+    from src.entity import chat_session, user, user_preference, banner
     from src.entity.network import walk_node, walk_edge
     from src.entity.layer import (
         safety_layer,
@@ -38,6 +38,9 @@ def init_table():
 
             for col_name, col in defined.items():
                 if col_name not in existing:
+                    # Postgres ENUM 등 별도 생성이 필요한 타입(SchemaType)을 먼저 만든 뒤 컬럼을 추가합니다.
+                    if hasattr(col.type, "create"):
+                        col.type.create(bind=conn, checkfirst=True)
                     col_type = col.type.compile(engine.dialect)
                     conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col_name}" {col_type}'))
 
@@ -51,3 +54,6 @@ def init_db():
     """
     register_entities()
     init_table()
+
+    from src.repository.banner.banner_repository import BannerRepository
+    BannerRepository.seed()

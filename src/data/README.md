@@ -32,3 +32,12 @@ def save(self) -> None:
 
 ## 5. 꿀팁
 - 작성한 collector를 data_collector.py에서 호출하면 `python -m src.data.data_collector` 한 줄의 명령어로 모든 데이터를 적재할 수 있습니다.
+
+## 6. 로컬 원본 데이터 준비
+- 다운로드 폴더에 받은 CSV/XLSX 원본은 `scripts/stage_raw_data.py`로 `src/data/raw`에 복사합니다.
+```
+poetry run python scripts/stage_raw_data.py
+poetry run python -m src.data.source_collector
+poetry run python -m src.data.data_collector
+```
+- 자세한 순서는 `docs/data_ingestion.md`를 참고합니다.
