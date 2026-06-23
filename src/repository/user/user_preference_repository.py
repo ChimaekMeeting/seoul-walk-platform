@@ -15,6 +15,16 @@ class UserPreferenceRepository:
     """
 
     @staticmethod
+    def find_survey_completed(user_id: int) -> bool:
+        """
+        user_id 기준으로 설문 완료 여부를 반환합니다. 레코드가 없으면 False를 반환합니다.
+        """
+        with get_postgresql_db() as db:
+            query = select(UserPreference.survey_completed).where(UserPreference.user_id == user_id)
+            result = db.execute(query).scalar_one_or_none()
+            return result if result is not None else False
+
+    @staticmethod
     def upsert(user_id: int, **kwargs) -> UserPreference:
         """
         user_id 기준으로 선호도 레코드를 생성하거나 갱신합니다.

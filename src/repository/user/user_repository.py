@@ -33,3 +33,21 @@ class UserRepository:
                 User.provider_id==provider_id
             )
             return db.execute(query).scalar_one_or_none()
+
+    @staticmethod
+    def update_nickname(provider: Provider, provider_id: str, nickname: str):
+        """
+        사용자의 닉네임을 수정합니다.
+        """
+        with get_postgresql_db() as db:
+            query = select(User).where(
+                User.provider==provider,
+                User.provider_id==provider_id
+            )
+            user = db.execute(query).scalar_one_or_none()
+            if user is None:
+                return None
+            user.nickname = nickname
+            db.commit()
+            db.refresh(user)
+            return user
