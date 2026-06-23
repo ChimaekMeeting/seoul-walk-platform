@@ -1,5 +1,6 @@
 from typing import Optional
 
+import pandas as pd
 from geoalchemy2 import Geography
 from geoalchemy2.functions import (
     ST_Distance,
@@ -20,6 +21,16 @@ class RunningRepository:
     """
     런닝 코스 수집(저장·초기화)과 조회를 담당하는 레포지토리입니다.
     """
+
+    @staticmethod
+    def get(lat: float, lon: float, radius_m: int = 2000) -> pd.DataFrame:
+        """
+        반경 내 러닝 코스 포인트(geom centroid 기준) 전체를 조회합니다.
+        course_type을 category로 노출합니다.
+        """
+        return RepositoryUtils.fetch_nearby_points(
+            RunningLayer, lat, lon, radius_m, category_col=RunningLayer.course_type,
+        )
 
     @staticmethod
     def is_populated() -> bool:

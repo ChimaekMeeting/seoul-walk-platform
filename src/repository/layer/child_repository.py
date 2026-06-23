@@ -1,6 +1,7 @@
 from collections import Counter
 from typing import List
 
+import pandas as pd
 from geoalchemy2 import Geography
 from sqlalchemy import cast, func, insert, select
 
@@ -10,6 +11,16 @@ from src.repository.utils import RepositoryUtils
 
 
 class ChildRepository:
+    @staticmethod
+    def get(lat: float, lon: float, radius_m: int = 2000) -> pd.DataFrame:
+        """
+        반경 내 어린이 시설 포인트 전체를 조회합니다.
+        category를 그대로 노출합니다.
+        """
+        return RepositoryUtils.fetch_nearby_points(
+            ChildLayer, lat, lon, radius_m, category_col=ChildLayer.category,
+        )
+
     @staticmethod
     def is_populated() -> bool:
         with get_postgresql_db() as db:
