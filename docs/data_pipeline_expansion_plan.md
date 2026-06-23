@@ -224,17 +224,271 @@ registry 등록 여부 확인
 python -m src.data.intake.inspect_dataset src/data/raw/전국가로수길정보표준데이터.csv
 ```
 
-출력 예:
+출력 예 (실제 구현, `src/data/intake/inspect_dataset.py`):
 
 ```text
+[Intake Inspector]
+file: src/data/raw/전국가로수길정보표준데이터.csv
 source_type: csv
-rows: 12034
-coordinate_candidates: 위도/경도
-geometry_candidate: POINT
-missing_coordinates: 32
-duplicate_coordinates: 14
-registry_status: not registered
-recommendation: registry에 score/layer/profile 승인 필요
+rows: 10333
+columns_count: 18
+
+[Candidates]
+lat_candidates: ['가로수길시작위도', '가로수길종료위도']
+lon_candidates: ['가로수길시작경도', '가로수길종료경도']
+address_candidates: []
+name_candidates: ['가로수길명', '도로명', '관리기관명', '제공기관명']
+geometry_candidate: LINESTRING
+
+[Quality]
+missing_coordinates: 0
+invalid_coordinates: 0
+duplicate_coordinates: 1040
+seoul_bbox_outliers: 9035
+
+[Registry]
+registry_status: registered
+dataset_key: street_tree
+approved: False
+layer: undecided
+score_column: undecided
+score_effect: undecided
+profiles: []
+```
+
+`seoul_bbox_outliers`가 9035/10333으로 매우 높은 것은 이 파일이 전국 데이터라는
+뜻이고, 이는 registry의 `street_tree` 항목을 `approved: true`로 바꾸기 전에
+서울 필터링이 먼저 필요하다는 신호로 해석합니다. inspector는 이 판단을 대신
+내리지 않고 수치만 보여줍니다.
+
+### 6.5. configured dataset vs adapter dataset
+
+신규 데이터가 늘어날 때마다 `CSVSource.TAGS`, dispatch, `_load_xxx()`, collector를 계속 수정하는 구조는 데이터 1개당 코드 1세트를 새로 만드는 방식이라 유지보수 부담이 커집니다. 반대로 모든 데이터를 하나의 만능 추상화로 처리하려 하면 잘못된 추상화가 될 위험이 있습니다.
+
+그래서 데이터셋을 두 종류로만 나눕니다.
+
+**A. configured dataset**
+
+- CSV/XLSX처럼 컬럼 기반으로 처리 가능한 정형 데이터입니다.
+- `registry.yaml`에 컬럼 매핑과 필터 조건을 기록하면 공통 로더가 처리합니다.
+- 데이터별 전용 함수를 새로 작성하지 않습니다.
+- 필드 예시:
+  - POINT 데이터: `lat_col`, `lon_col`
+  - LINESTRING 데이터: `start_lat_col`, `start_lon_col`, `end_lat_col`, `end_lon_col`
+  - 서울 필터: `city_filter_col`, `city_filter_value`
+  - 이름/주소 컬럼: `name_col`, `address_col`
+- 후보: `street_tree`(전국가로수길정보표준데이터.csv)
+
+**B. adapter dataset**
+
+- API, OSM, GeoJSON, 복잡한 전처리, 외부 호출, 하드코딩 로직이 필요한 데이터입니다.
+- 데이터별 adapter/collector를 개별 구현합니다. 공통 로더로 강제로 합치지 않습니다.
+- 현재 해당: Tour API landmark(`landmark_tour_api`), OSM 녹지(`osm_green_area`), Kakao API, 하천 GeoJSON(`river_geojson`), 러닝 코스 하드코딩 데이터(`running_park`, `bike_road`)
+
+**공통화 기준**
+
+공통화할 것:
+
+```text
+- intake inspector
+- registry.yaml
+- 컬럼 매핑
+- 서울 필터 조건
+- geometry 후보
+- score/profile/AI expression 기록
+- 승인 상태 approved
+```
+
+공통화하지 않을 것:
+
+```text
+- 데이터별 복잡한 전처리
+- API 호출 방식
+- OSM 태그 수집 방식
+- 특수 geometry 변환
+- profile 정책 판단
+```
+
+이 구분에 따르면 함수를 완전히 없앨 수는 없지만, 모든 신규 데이터마다 새 함수를 만들 필요도 없습니다. 표준 CSV/XLSX는 configured dataset으로 처리하고, 특수 데이터만 adapter dataset으로 남깁니다. AI는 raw 파일을 직접 고르지 않고, approved된 feature/score/ai_expression만 조합합니다.
+
+### 6.6. registry.yaml 필드 확장 (configured dataset)
+
+configured dataset은 `dataset_type: configured`와 컬럼 매핑 필드를 추가해 공통 로더가 바로 적재할 수 있게 합니다.
+
+```yaml
+street_tree:
+  approved: false
+  dataset_type: configured
+  source_type: csv
+  file: 전국가로수길정보표준데이터.csv
+  geometry: LINESTRING
+  start_lat_col: 가로수길시작위도
+  start_lon_col: 가로수길시작경도
+  end_lat_col: 가로수길종료위도
+  end_lon_col: 가로수길종료경도
+  city_filter_col: 제공기관명
+  city_filter_value: 서울
+  name_col: 가로수길명
+  score_column: nature_score
+  score_effect: bonus
+  profiles:
+    - nature
+    - healing
+  ai_expression: 가로수가 있는 길을 일부 반영할 수 있음
+```
+
+adapter dataset은 `dataset_type: adapter`만 추가하고, 기존처럼 `source`/`collector` 필드로 전용 구현을 가리킵니다.
+
+### 6.7. 앞으로 구현할 intake/ingest CLI 방향
+
+아직 구현하지 않으며, 방향만 문서화합니다.
+
+**draft (구현됨, `src/data/intake/draft_dataset.py`)**
+
+```bash
+python -m src.data.intake.draft_dataset src/data/raw/전국가로수길정보표준데이터.csv
+```
+
+동작:
+
+```text
+- inspect_dataset.build_report() 결과를 먼저 출력한다.
+- dataset_key, dataset_type(configured/adapter), feature, score_column,
+  score_effect, profiles, ai_expression을 사용자에게 입력받는다.
+- configured dataset이면 geometry, lat/lon 또는 start/end 좌표 컬럼,
+  city_filter_col/value, name_col, address_col을 추가로 입력받는다.
+  좌표/이름 후보가 감지되면 첫 번째 후보를 기본값으로 제안한다.
+- adapter dataset이면 adapter, collector, layer를 추가로 입력받는다.
+- registry.yaml에 approved: false로 draft 항목을 생성한다.
+- 같은 dataset_key가 이미 있으면 --overwrite 옵션 없이는 덮어쓰지 않는다.
+- DB는 변경하지 않는다.
+```
+
+실행 예 (입력값은 예시이며 실제로는 대화형으로 입력합니다):
+
+```text
+$ python -m src.data.intake.draft_dataset src/data/raw/전국가로수길정보표준데이터.csv
+[Intake Inspector]
+...
+dataset_key: street_tree
+dataset_type (configured/adapter) [configured]:
+feature: nature
+score_column: nature_score
+score_effect (bonus/penalty/mode-specific/none) [none]: bonus
+profiles (comma-separated): nature,healing
+ai_expression: 가로수가 있는 길을 일부 반영할 수 있음
+geometry [LINESTRING]:
+start_lat_col [가로수길시작위도]:
+start_lon_col [가로수길시작경도]:
+end_lat_col [가로수길종료위도]:
+end_lon_col [가로수길종료경도]:
+city_filter_col: 제공기관명
+city_filter_value: 서울
+name_col [가로수길명]:
+address_col:
+
+Draft dataset saved:
+- dataset_key: street_tree
+- approved: False
+- file: 전국가로수길정보표준데이터.csv
+- score_column: nature_score
+- score_effect: bonus
+
+Next:
+1. docs/data_intake_records.md에 검수/판단 기록을 남기세요.
+2. 팀 승인 후 python -m src.data.intake.approve_dataset street_tree 를 실행하세요.
+3. approved true 전까지 source_collector/data_collector에는 반영하지 않습니다.
+```
+
+이 도구는 layer/score/profile을 스스로 확정하지 않으며, 입력값을 그대로
+"초안"으로 저장할 뿐입니다.
+
+**approve (구현됨, `src/data/intake/approve_dataset.py`)**
+
+```bash
+python -m src.data.intake.approve_dataset street_tree \
+    --decision "nature_score로 반영" \
+    --reason "가로수길은 자연친화 근거로 사용 가능"
+```
+
+동작:
+
+```text
+- registry.yaml에서 approved: true로 변경하고 approved_at/decision/reason을 기록한다.
+- docs/data_intake_records.md의 해당 dataset_key 섹션에 승인 기록을 추가한다.
+- 이미 approved: true인 dataset은 --force 없이는 다시 승인하지 않는다.
+- DB는 변경하지 않는다. 실제 적재는 ingest 단계에서 수행한다.
+```
+
+**preview (구현됨, `src/data/configured/preview.py`)**
+
+approved: true, dataset_type: configured인 dataset을 registry.yaml 설정만으로
+읽고 정제한 결과를 DB에 적재하기 전에 미리 확인합니다.
+
+```bash
+python -m src.data.configured.preview street_tree
+```
+
+동작:
+
+```text
+- registry.yaml에서 approved/configured/csv·xlsx 여부를 검증한다.
+- 원본 파일을 읽어 city_filter, 좌표 결측/invalid 제거, 서울 bbox 밖 제거를 적용한다.
+- POINT/LINESTRING 표준 record(wkt, properties)를 만들어 일부를 출력한다.
+- DB는 변경하지 않는다.
+```
+
+**plan (구현됨, `src/data/configured/plan.py`)**
+
+preview가 만든 record를 실제 csv_raw → layer → score → profile 파이프라인에
+연결하기 전에, 무엇이 필요하고 어떤 schema 충돌이 있는지 보여줍니다.
+
+```bash
+python -m src.data.configured.plan street_tree
+```
+
+동작:
+
+```text
+- registry.yaml에서 approved/configured 여부를 검증한다.
+- [Raw Plan] raw_table/query_key/source_file/geometry를 보여준다.
+- [Layer Plan] score_column -> target_layer를 MVP 규칙으로 추정한다
+  (nature_score -> nature_layer, safety_score -> safety_layer,
+  running_score -> running_layer, child_score -> child_layer,
+  landmark_score -> landmark_layer, 그 외는 undecided).
+- target_layer가 csv_raw를 참조할 FK 컬럼(csv_raw_id)을 갖고 있지 않으면
+  [Schema Warning]을 출력한다. 예: street_tree(csv_raw)는 nature_layer에
+  연결하려 하지만 nature_layer는 현재 osm_raw_id만 가지고 있어 경고가 발생한다.
+  해결 방법은 (1) target_layer에 csv_raw_id nullable 컬럼 추가, (2) raw id 없이
+  저장, (3) 전용 layer를 별도로 만드는 것 중 하나이며, (1)을 권장한다.
+- [Score Plan] score_column/score_effect/update_method(H3 log normalization)와
+  함께, nature_score는 NatureRepository.get_nature_h3_counts()가 geom centroid
+  기반이라는 경고를, LINESTRING geometry는 선 전체가 아니라 중심점 기준으로
+  반영될 수 있다는 경고를 출력한다.
+- [Profile Plan] registry의 profiles를 보여주고, profile은 score 조합이며
+  healing_layer/healing_score 같은 새 layer/score를 자동 생성하지 않는다는
+  점과, 해당 profile이 profiles.py에 실제로 존재하는지는 별도 확인이
+  필요하다는 경고를 출력한다.
+- [AI Expression] registry의 ai_expression과, 데이터 근거가 부족한 표현은
+  사용하지 않는다는 안내를 출력한다.
+- DB는 절대 변경하지 않는다. 마지막에 실제 반영 전 결정해야 할 항목
+  (raw id 컬럼 추가 여부, 전용 layer 분리 여부, LINESTRING 집계 방식 등)을
+  번호 목록으로 출력한다.
+```
+
+**ingest (plan 이후, 공통 로더 본체, 아직 구현되지 않음)**
+
+```bash
+python -m src.data.ingest street_tree
+```
+
+동작:
+
+```text
+- dataset_type이 configured이면 registry 컬럼 설정으로 공통 적재를 수행한다.
+- dataset_type이 adapter이면 지정된 adapter를 호출한다.
+- approved: true가 아니면 적재하지 않는다.
+- plan에서 드러난 schema 충돌(raw id 컬럼 추가 등)을 먼저 해결해야 실행할 수 있다.
 ```
 
 ### 7. scoring_engine 일반화 설계 및 리팩토링
@@ -428,3 +682,7 @@ AI 응답에 보장 가능한 표현:
 - registry를 통해 승인된 데이터와 미승인 데이터를 구분할 수 있다.
 - intake inspector로 CSV/XLSX 신규 데이터의 기본 품질을 자동 확인할 수 있다.
 - 데이터 근거 없는 profile이 추가되지 않도록 팀 규칙이 생겼다.
+- `configured dataset`과 `adapter dataset` 구분이 문서에 명확히 추가되어 있다.
+- 가로수길 데이터가 configured dataset 후보로 예시화되어 있다.
+- registry.yaml이 단순 승인표가 아니라 공통 CSV/XLSX 적재 설정(컬럼 매핑, 서울 필터)으로 확장될 수 있음이 문서화되어 있다.
+- approved configured dataset의 raw/layer/score/profile 반영 계획과 schema 충돌(예: street_tree → nature_layer의 csv_raw_id 부재)을 DB 변경 없이 미리 확인할 수 있다.

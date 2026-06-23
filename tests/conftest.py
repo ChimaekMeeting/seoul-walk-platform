@@ -8,6 +8,9 @@ def _make_mock_module(name):
     mod = types.ModuleType(name)
     mod.__path__ = []
     mod.__package__ = name
+    # PEP 562: 정의되지 않은 속성(예: gpd.GeoDataFrame 타입 힌트)도
+    # AttributeError 없이 MagicMock으로 흘러가게 한다.
+    mod.__getattr__ = lambda attr: _mock.MagicMock(name=f"{name}.{attr}")
     sys.modules[name] = mod
     return mod
 
