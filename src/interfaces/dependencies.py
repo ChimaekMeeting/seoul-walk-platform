@@ -7,7 +7,8 @@ from src.service import (
     PrewalkOrchestrator,
     RouteService,
     BannerService,
-    MapService
+    MapService,
+    SurveyService
 )
 from src.agent.nodes import (
     WeatherChecker,
@@ -30,6 +31,7 @@ banner_service      = BannerService(MarathonClient())
 kakao_client        = KakaoClient()
 weather_client      = WeatherClient(kakao_client)
 map_service         = MapService(kakao_client)
+survey_service      = SurveyService(auth_service)
 
 G = None
 route_service: Optional[RouteService] = None
@@ -78,3 +80,7 @@ def get_banner_service() -> BannerService:
 # 지도
 def get_map_service() -> MapService:
     return map_service
+
+# 온보딩 설문
+def get_survey_service() -> SurveyService:
+    return survey_service

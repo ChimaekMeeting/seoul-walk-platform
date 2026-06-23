@@ -2,12 +2,13 @@ from src.entity.base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import Integer, String, DateTime, func, Enum, UniqueConstraint
 from datetime import datetime
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 import enum
 
 # 순환 참조를 방지하기 위해 타입 체크 시점에만 참조합니다.
 if TYPE_CHECKING:
     from src.entity.chat_session import ChatSession
+    from src.entity.user_preference import UserPreference
 
 class Provider(str, enum.Enum):
     KAKAO = "kakao"
@@ -51,5 +52,13 @@ class User(Base):
     chat_sessions: Mapped[List["ChatSession"]] = relationship(
         "ChatSession",
         back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
+    # UserPreference와 1:1 관계를 설정합니다.
+    user_preference: Mapped[Optional["UserPreference"]] = relationship(
+        "UserPreference",
+        back_populates="user",
+        uselist=False,
         cascade="all, delete-orphan"
     )

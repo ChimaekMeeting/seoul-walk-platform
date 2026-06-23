@@ -73,6 +73,7 @@ for _mod in [
     # Repository (geoalchemy2/h3 의존)
     "src.repository.utils",
     "src.repository.user.user_repository",
+    "src.repository.user.user_preference_repository",
     "src.repository.chat.chat_session_repository",
     "src.repository.layer.child_repository",
     "src.repository.layer.landmark_repository",
