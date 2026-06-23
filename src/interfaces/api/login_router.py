@@ -42,12 +42,11 @@ async def kakao_callback(
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
-        httponly=True,
+        httponly=False,  # stx.CookieManager가 JS로 읽어야 하므로 False
         secure=False,
         samesite="lax",
-        max_age=14 * 24 * 60 * 60  # 14일
+        max_age=14 * 24 * 60 * 60
     )
-
     return LoginResponse(status=Status.SUCCESS, token_type="Bearer", nickname=nickname)
 
 @router.post("/kakao/logout", response_model=AuthResponse)

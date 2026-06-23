@@ -21,7 +21,7 @@ def _is_access_expired(response: dict) -> bool:
     """응답이 access_token 만료를 의미하는지 판별합니다."""
     if not isinstance(response, dict):
         return False
-    if response.get("status") == "access_expired_token":
+    if response.get("status") in ("access_expired_token", "invalid_token"):
         return True
     if response.get("status") == "FAILED" and response.get("fallback_reason") == "access_expired_token":
         return True

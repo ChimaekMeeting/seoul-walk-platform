@@ -90,54 +90,42 @@ def _kakao_login_button_html(login_url: str) -> str:
     </div>
     '''
 
-
 def require_login() -> bool:
-    """
-    로그인 여부를 확인하고, 미로그인 시 카카오 로그인 UI를 렌더링합니다.
-
-    Returns:
-        bool: 로그인 완료 시 True, 그렇지 않으면 False.
-    """
-    cm = get_cookie_manager()
-    cookies = cm.get_all() or {}
-
-    # 1) 현재 세션에 토큰이 있으면 통과
+    # 1) session_state 체크 (stx 전혀 건드리지 않음)
     if st.session_state.get("access_token"):
         return True
 
-    # 2) 브라우저 쿠키에서 복원 (새로고침/재접속 시)
+    # 2) 카카오 인가 코드 처리 (stx 없이)
+    code = st.query_params.get("code")
+    if code and not st.session_state.get("_kakao_callback_done"):
+        st.session_state["_kakao_callback_done"] = True
+        login_router = LoginRouter()
+        with st.spinner("로그인 처리 중..."):
+            res, access_token, refresh_token = _run_async(login_router.kakao_callback(code))
+        if access_token:
+            st.session_state.access_token = access_token
+            st.session_state.refresh_token = refresh_token
+            st.session_state.nickname = res.get("nickname")
+            st.rerun()
+        else:
+            st.error("로그인에 실패했습니다. 다시 시도해주세요.")
+        return False
+
+    # 3) 브라우저 쿠키에서 복원 (새로고침/재접속 시)
+    cm = get_cookie_manager()
+    cookies = cm.get_all() or {}
     if cookies.get("access_token"):
         st.session_state.access_token = cookies.get("access_token")
         st.session_state.refresh_token = cookies.get("refresh_token")
         st.session_state.nickname = cookies.get("nickname")
         return True
 
+    # 4) 로그인 화면
     login_router = LoginRouter()
-
-    # 3) 카카오 인가 코드를 들고 리다이렉트로 돌아온 경우
-    code = st.query_params.get("code")
-    if code:
-        with st.spinner("로그인 처리 중..."):
-            res, access_token, refresh_token = _run_async(login_router.kakao_callback(code))
-
-        if access_token:
-            st.session_state.access_token = access_token
-            st.session_state.refresh_token = refresh_token
-            st.session_state.nickname = res.get("nickname")
-            _persist_tokens(cm, access_token, refresh_token, res.get("nickname"))
-            st.query_params.clear()
-            st.rerun()
-        else:
-            st.query_params.clear()
-            st.error("로그인에 실패했습니다. 다시 시도해주세요.")
-
-    # 4) 로그인 화면 — 카카오 버튼만 바로 노출
     url_res = _run_async(login_router.get_kakao_login_url())
     login_url = url_res.get("url") if url_res else None
-
     if login_url:
         st.markdown(_kakao_login_button_html(login_url), unsafe_allow_html=True)
     else:
         st.error("로그인 URL을 불러오지 못했습니다. 백엔드 서버 상태를 확인해주세요.")
-
     return False
