@@ -17,6 +17,8 @@ def register_entities():
         nature_layer,
         running_layer,
         child_layer,
+        seoul_administrative_boundary,
+        seoul_water_polygon,
     )
     from src.entity.raw import osm_raw, kakao_raw, public_raw, csv_raw
 

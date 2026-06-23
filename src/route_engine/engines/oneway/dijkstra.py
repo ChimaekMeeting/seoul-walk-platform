@@ -5,16 +5,17 @@ from src.route_engine.profiles import get_profile
 from src.interfaces.schema.walk_schema import FallbackReason, OnewayMode, WalkRouteResponse
 from src.schema.route_schema import OnewayRouteInput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
-
+from typing import Optional
+from src.schema.route_schema import Weights
 
 class OnewayDijkstraEngine:
-    def __init__(self, inp: OnewayRouteInput, G: nx.Graph, mode: OnewayMode = OnewayMode.SHORTEST):
+    def __init__(self, inp: OnewayRouteInput, G: nx.Graph, mode: OnewayMode = OnewayMode.SHORTEST, custom_weights: Optional[Weights] = None):
         self._inp          = inp
         self._G            = G.copy()  # 원본 그래프 보호
         self._utils        = PathUtils(self._G)
         self.mode          = mode
         profile            = get_profile("default")
-        self._weights      = profile.weights
+        self._weights      = custom_weights or profile.weights
         self._blocked_tags = profile.blocked_tags
 
     def run(self) -> WalkRouteResponse:
@@ -72,6 +73,16 @@ class OnewayDijkstraEngine:
             total_km        = round(total_m / 1000, 2),
             fallback_reason = None,
         )
+
+    def _calc_distance(self, nodes: list[int]) -> float:
+        """노드 목록의 총 이동 거리를 미터 단위로 반환합니다."""
+        total = 0.0
+        for a, b in zip(nodes, nodes[1:]):
+            d_a = self._G.nodes[a]
+            d_b = self._G.nodes[b]
+            if d_a.get("lat") and d_b.get("lat"):
+                total += PathUtils._haversine_m(d_a["lat"], d_a["lon"], d_b["lat"], d_b["lon"])
+        return total
 
     def _find_path(self, start: int, end: int) -> list[int]:
         """

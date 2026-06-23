@@ -4,19 +4,20 @@ from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
 from src.interfaces.schema.walk_schema import CircularMode, FallbackReason, WalkRouteResponse
 from src.schema.route_schema import CircularRouteInput
-
+from typing import Optional
+from src.schema.route_schema import Weights
 
 FLAT_THRESHOLD = 0.7  # 평지 판정 경사 점수 기준
 
 
 class CircularFlatEngine:
-    def __init__(self, inp: CircularRouteInput, G: nx.Graph, mode: CircularMode = CircularMode.FLAT):
+    def __init__(self, inp: CircularRouteInput, G: nx.Graph, mode: CircularMode = CircularMode.FLAT, custom_weights: Optional[Weights] = None):
         self._inp          = inp
         self._G            = G.copy()  # 원본 그래프 보호
         self._utils        = PathUtils(self._G)
         self.mode          = mode
         profile            = get_profile("flat")
-        self._weights      = profile.weights
+        self._weights      = custom_weights or profile.weights
         self._blocked_tags = profile.blocked_tags
 
     def run(self) -> WalkRouteResponse:

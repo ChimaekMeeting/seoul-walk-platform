@@ -1,11 +1,44 @@
 from typing import Optional, List, Literal, Union
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
 from enum import Enum
+
+from src.interfaces.validators.coord_validator import (
+    validate_coordinate_not_empty,
+    validate_coordinate_parseable,
+    validate_coordinates,
+    validate_seoul_bounding_box,
+)
+from src.interfaces.validators.dist_validator import (
+    validate_target_km_max,
+    validate_target_km_positive,
+    validate_target_km_vs_dest_proximity,
+    validate_target_km_vs_straight_dist,
+)
+from src.interfaces.validators.mode_validator import (
+    sanitize_circular_destination,
+    validate_oneway_requires_destination,
+)
 
 
 class Coordinate(BaseModel):
     lat: float
     lon: float
+
+    @field_validator("lat", "lon", mode="before")
+    @classmethod
+    def check_coordinate_not_empty(cls, value: object) -> object:
+        return validate_coordinate_not_empty(value)
+
+    @field_validator("lat", "lon", mode="before")
+    @classmethod
+    def check_coordinate_parseable(cls, value: object) -> object:
+        return validate_coordinate_parseable(value)
+
+    @model_validator(mode="after")
+    def check_coordinates(self) -> "Coordinate":
+        validate_coordinates(self.lat, self.lon)
+        validate_seoul_bounding_box(self.lat, self.lon)
+        return self
 
 
 class CircularMode(str, Enum):
@@ -45,6 +78,61 @@ class WalkRouteRequest(BaseModel):
     destination: Optional[Coordinate] = None
     target_km:   Optional[float] = None
     mode:        Union[CircularMode, OnewayMode]
+
+    @field_validator("target_km", mode="before")
+    @classmethod
+    def check_target_km_positive(cls, value: object) -> object:
+        return validate_target_km_positive(value)
+
+    @field_validator("target_km", mode="before")
+    @classmethod
+    def check_target_km_max(cls, value: object) -> object:
+        return validate_target_km_max(value)
+
+    @model_validator(mode="after")
+    def sanitize_destination_for_circular(self) -> "WalkRouteRequest":
+        self.destination = sanitize_circular_destination(self.mode.value, self.destination)
+        return self
+
+    @model_validator(mode="after")
+    def check_oneway_requires_destination(self) -> "WalkRouteRequest":
+        validate_oneway_requires_destination(self.mode.value, self.destination)
+        return self
+
+    @model_validator(mode="after")
+    def check_oneway_requires_target_km(self) -> "WalkRouteRequest":
+        """VAL-DIST-005: 편도 모드에서 target_km 누락 차단"""
+        if isinstance(self.mode, OnewayMode) and self.target_km is None:
+            raise ValueError("편도 모드에서는 목표 산책 거리(target_km) 입력이 필수입니다.")
+        return self
+
+    @model_validator(mode="after")
+    def check_target_km_vs_straight_dist(self) -> "WalkRouteRequest":
+        if (
+            isinstance(self.mode, OnewayMode)
+            and self.destination is not None
+            and self.target_km is not None
+        ):
+            validate_target_km_vs_straight_dist(
+                self.target_km,
+                self.origin.lat, self.origin.lon,
+                self.destination.lat, self.destination.lon,
+            )
+        return self
+
+    @model_validator(mode="after")
+    def check_target_km_vs_dest_proximity(self) -> "WalkRouteRequest":
+        if (
+            isinstance(self.mode, OnewayMode)
+            and self.destination is not None
+            and self.target_km is not None
+        ):
+            validate_target_km_vs_dest_proximity(
+                self.target_km,
+                self.origin.lat, self.origin.lon,
+                self.destination.lat, self.destination.lon,
+            )
+        return self
 
 
 class WalkRouteResponse(BaseModel):

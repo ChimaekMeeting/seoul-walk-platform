@@ -15,4 +15,5 @@ class WalkRouter:
         async with httpx.AsyncClient(timeout=60.0) as client:
             cookies = {"access_token": access_token} if access_token else {}
             response = await client.post(self.base_url, json=payload, cookies=cookies)
+            response.raise_for_status()
             return response.json()

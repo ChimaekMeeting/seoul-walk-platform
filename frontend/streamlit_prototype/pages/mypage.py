@@ -4,7 +4,8 @@ frontend/streamlit_prototype/pages/mypage.py
 마이페이지 - 로그인 연동 버전
 - st.session_state 기반 로그인 게이트 적용
 - 로그아웃 API (POST /api/login/kakao/logout) 연동
-- TODO: GET /api/user/me 연동 후 display_id, created_at 실제 데이터로 교체
+- GET /api/user/me 연동
+- PATCH /api/user/me 연동
 - TODO: 산책기록팀 API 연동 후 산책 기록 섹션 실제 데이터로 교체
 """
 
@@ -13,8 +14,12 @@ import asyncio
 import httpx
 import streamlit as st
 
+from frontend.streamlit_prototype.api.user_router import UserRouter
+from frontend.streamlit_prototype.api.auth_client import call_with_auto_refresh
+
 _BACKEND_URL = "http://localhost:8000"
 _AUTH_KEYS = ("access_token", "refresh_token", "nickname", "initialized", "thread_id")
+_user_router = UserRouter()
 
 
 def _clear_auth() -> None:
@@ -72,13 +77,18 @@ async def _call_logout():
 def render_profile():
     st.markdown("## 👤 프로필")
 
-    nickname = st.session_state.get("nickname", "알 수 없음")
+    me = _run_async(call_with_auto_refresh(_user_router.get_me))
+    if me.get("status") != "success":
+        st.error("사용자 정보를 불러오지 못했습니다.")
+        return
+
+    nickname = me.get("nickname") or st.session_state.get("nickname", "알 수 없음")
+    st.session_state["nickname"] = nickname
 
     col_info, col_btn = st.columns([3, 1])
 
     with col_info:
         st.markdown(f"**닉네임** &nbsp; {nickname}")
-        # TODO: GET /api/user/me 연동 후 display_id, created_at 실제 데이터로 교체
 
     with col_btn:
         if st.button("프로필 수정", use_container_width=True):
@@ -89,9 +99,18 @@ def render_profile():
             new_nickname = st.text_input("닉네임", value=nickname)
             submitted = st.form_submit_button("저장")
             if submitted:
-                # TODO: PATCH /api/user/me 호출로 교체
-                st.success("저장되었습니다. (Mock)")
-                st.session_state["edit_profile"] = False
+                result = _run_async(
+                    call_with_auto_refresh(
+                        lambda token: _user_router.patch_me(token, new_nickname)
+                    )
+                )
+                if result.get("status") == "success":
+                    st.session_state["nickname"] = result.get("nickname", new_nickname)
+                    st.success("저장되었습니다.")
+                    st.session_state["edit_profile"] = False
+                    st.rerun()
+                else:
+                    st.error("저장에 실패했습니다.")
 
 
 def render_stats():

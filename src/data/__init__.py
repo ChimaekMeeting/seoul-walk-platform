@@ -17,6 +17,8 @@ _EXPORTS = {
     "RunningCourseCollector": "src.data.collectors.running_collector",
     "SlopeCalculator": "src.data.collectors.slope_collector",
     "ChildCollector": "src.data.collectors.child_collector",
+    "SeoulBoundaryCollector": "src.data.collectors.boundary_collector",
+    "SeoulWaterCollector": "src.data.collectors.water_collector",
 }
 
 __all__ = list(_EXPORTS)

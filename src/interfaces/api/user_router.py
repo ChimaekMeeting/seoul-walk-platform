@@ -7,10 +7,14 @@ src/interfaces/api/user_router.py
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException
 
-from src.interfaces.dependencies import get_survey_service, get_auth_service
+from src.interfaces.dependencies import get_survey_service, get_auth_service, get_user_service
 from src.interfaces.schema.survey_schema import SurveyRequest, SurveyResponse
+from src.interfaces.schema.user_schema import (
+    UserMeResponse, UserUpdateRequest, UserUpdateResponse,
+    RouteHistoryResponse, RouteHistoryItem,
+)
 from src.service.user.survey_service import SurveyService
-from src.interfaces.schema.user_schema import RouteHistoryResponse, RouteHistoryItem
+from src.service.user.user_service import UserService
 from src.repository.user.user_repository import UserRepository
 from src.repository.user.route_history_repository import RouteHistoryRepository
 from src.service.user.auth_service import AuthService
@@ -20,11 +24,10 @@ import traceback
 router = APIRouter(prefix="/api/user", tags=["user"])
 
 
-@router.post("/survey", response_model=SurveyResponse)
-def submit_survey(
-    request: SurveyRequest,
+@router.get("/me", response_model=UserMeResponse)
+def get_me(
     access_token: str = Cookie(None),
-    service: SurveyService = Depends(get_survey_service),
+    service: UserService = Depends(get_user_service),
 ):
     """
     온보딩 설문 결과를 제출합니다.
@@ -32,6 +35,24 @@ def submit_survey(
     input : 키워드 태그 목록, 선호 거리 선택지
     output: 저장된 사용자 가중치 프로필
     """
+    return service.get_me(access_token)
+
+
+@router.patch("/me", response_model=UserUpdateResponse)
+def update_me(
+    request: UserUpdateRequest,
+    access_token: str = Cookie(None),
+    service: UserService = Depends(get_user_service),
+):
+    return service.update_me(access_token, request.nickname)
+
+
+@router.post("/survey", response_model=SurveyResponse)
+def submit_survey(
+    request: SurveyRequest,
+    access_token: str = Cookie(None),
+    service: SurveyService = Depends(get_survey_service),
+):
     return service.submit(access_token, request)
 
 
