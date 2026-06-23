@@ -1,6 +1,6 @@
 import traceback
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Cookie
 
 from src.database.postgresql import get_postgresql_db
 from src.interfaces.dependencies import get_route_service
@@ -22,6 +22,7 @@ router = APIRouter(
 @router.post("/route", response_model=WalkRouteResponse)
 async def walk_route(
     request: WalkRouteRequest,
+    access_token: str = Cookie(None),
     service: RouteService = Depends(get_route_service),
 ):
     """
@@ -51,7 +52,7 @@ async def walk_route(
                     validate_no_highway(request.destination.lat, request.destination.lon, db)
                 destination = Coordinate.model_construct(lat=dest_lat, lon=dest_lon)
 
-        return service.get_route(origin, destination, request.target_km, request.mode)
+        return service.get_route(access_token, origin, destination, request.target_km, request.mode)
     except HTTPException:
         raise
     except ValueError as e:

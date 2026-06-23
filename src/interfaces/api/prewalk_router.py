@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Cookie
 from src.database.postgresql import get_postgresql_db
 from src.interfaces.schema.prewalk_schema import InitRequest, ChatRequest, ChatResponse
 from src.interfaces.validators.coord_validator import validate_seoul_polygon_contains
@@ -15,6 +15,7 @@ router = APIRouter(
 @router.post("/init", response_model=ChatResponse)
 async def read_init_message(
     request: InitRequest,
+    access_token: str = Cookie(None),
     service: PrewalkOrchestrator = Depends(get_prewalk_orchestrator)
 ):
     """
@@ -33,7 +34,7 @@ async def read_init_message(
             if lat == request.lat and lon == request.lon:
                 validate_no_highway(request.lat, request.lon, db)
 
-        return await service.get_init_message(request.user_uuid, lat, lon)
+        return await service.get_init_message(access_token, lat, lon)
     except HTTPException:
         raise
     except ValueError as e:
@@ -42,9 +43,10 @@ async def read_init_message(
 @router.post("/intent", response_model=ChatResponse)
 async def read_message(
     request: ChatRequest,
+    access_token: str = Cookie(None),
     service: PrewalkOrchestrator = Depends(get_prewalk_orchestrator)
 ):
     """
     사용자가 메시지를 보낼 때마다 호출됩니다.
     """
-    return await service.orchestrator(request.thread_id, request.user_prompt)
+    return await service.orchestrator(access_token, request.thread_id, request.user_prompt)

@@ -18,7 +18,8 @@ class WalkRouteButton:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         try:
-            raw = loop.run_until_complete(WalkRouter().post_route(request.model_dump()))
+            access_token = st.session_state.get("access_token", "")
+            raw = loop.run_until_complete(WalkRouter().post_route(access_token, request.model_dump()))
             return WalkRouteResponse(**raw)
         except httpx.HTTPStatusError as e:
             detail = e.response.json().get("detail", "알 수 없는 오류가 발생했습니다.")

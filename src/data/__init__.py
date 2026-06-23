@@ -1,9 +1,34 @@
-from src.data.collectors.base_collector import BaseNetworkCollector
-from src.data.collectors.nature_collector import NatureCollector
-from src.data.collectors.safety_collector import SafetyCollector
-from src.data.collectors.landmark_collector import LandmarkCollector
-from src.data.collectors.running_collector import RunningCourseCollector
-from src.data.collectors.slope_collector import SlopeCalculator
-from src.data.collectors.child_collector import ChildCollector
-from src.data.collectors.boundary_collector import SeoulBoundaryCollector
-from src.data.collectors.water_collector import SeoulWaterCollector
+"""
+Data layer public exports.
+
+Collector imports are intentionally lazy so lightweight modules such as
+src.data.intake can run without importing DB/GIS dependencies first.
+"""
+
+from importlib import import_module
+from typing import Any
+
+
+_EXPORTS = {
+    "BaseNetworkCollector": "src.data.collectors.base_collector",
+    "NatureCollector": "src.data.collectors.nature_collector",
+    "SafetyCollector": "src.data.collectors.safety_collector",
+    "LandmarkCollector": "src.data.collectors.landmark_collector",
+    "RunningCourseCollector": "src.data.collectors.running_collector",
+    "SlopeCalculator": "src.data.collectors.slope_collector",
+    "ChildCollector": "src.data.collectors.child_collector",
+    "SeoulBoundaryCollector": "src.data.collectors.boundary_collector",
+    "SeoulWaterCollector": "src.data.collectors.water_collector",
+}
+
+__all__ = list(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _EXPORTS:
+        raise AttributeError(f"module 'src.data' has no attribute {name!r}")
+
+    module = import_module(_EXPORTS[name])
+    value = getattr(module, name)
+    globals()[name] = value
+    return value

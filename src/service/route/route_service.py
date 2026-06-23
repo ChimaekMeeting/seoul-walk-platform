@@ -22,11 +22,15 @@ from src.route_engine.engines import (
     OnewayRunningEngine,
 )
 from src.route_engine.engines.path_utils import PathUtils
+from src.service.user.auth_service import AuthService
+from src.repository.user.user_repository import UserRepository
+from src.interfaces.schema.auth_schema import Status
 
 
 class RouteService:
-    def __init__(self, G: nx.Graph):
+    def __init__(self, G: nx.Graph, auth_service: AuthService):
         self.G = G
+        self.auth_service = auth_service
         
         self._circular_engines: dict = {
             CircularMode.RANDOM:  CircularRandomEngine,
@@ -42,6 +46,7 @@ class RouteService:
 
     def get_route(
         self,
+        access_token: str,
         origin: Coordinate,
         destination: Optional[Coordinate] = None,
         target_km: Optional[float] = None,
@@ -50,6 +55,11 @@ class RouteService:
         """
         context에 적합한 경로 생성 엔진을 호출합니다.
         """
+        # 사용자 인증
+        status, _, __ = self.auth_service.check_access_token(access_token)
+        if status != Status.SUCCESS:
+            return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
+                                    fallback_reason=status)
 
         # 매핑 가능한 모드가 없는 경우
         if mode not in self._circular_engines and mode not in self._oneway_engines:

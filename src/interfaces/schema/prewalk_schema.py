@@ -1,3 +1,6 @@
+from enum import Enum
+from typing import Optional
+
 from pydantic import BaseModel, field_validator, model_validator
 
 from src.schema.prewalk_schema import State
@@ -42,9 +45,18 @@ class ChatRequest(BaseModel):
     user_prompt: str
 
 
+class ChatStatus(str, Enum):
+    SUCCESS = "success"
+    ACCESS_EXPIRED_TOKEN = "access_expired_token"
+    INVALID_TOKEN = "invalid_token"
+    SESSION_NOT_FOUND = "session_not_found"
+    UNACCESSIBLE = "unaccessible"
+
+
 class ChatResponse(BaseModel):
     """
     챗봇과 상호작용을 통해 제공되는 출력 스키마
     """
-    thread_id: str
-    state: State
+    status: ChatStatus
+    thread_id: Optional[str] = None
+    state: Optional[State] = None
