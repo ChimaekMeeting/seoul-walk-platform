@@ -350,36 +350,36 @@ class TestMapFacilitiesAPI:
 
 
 class TestMapPointsAPI:
-    def test_포인트_레이어_조회_성공(self, client):
+    def test_안전_포인트_레이어_조회_성공(self, client):
         import pandas as pd
 
         mock_df = pd.DataFrame(
             [
-                {"lat": 37.51, "lon": 127.01},
-                {"lat": 37.52, "lon": 127.02},
+                {"lat": 37.51, "lon": 127.01, "category": "cctv"},
+                {"lat": 37.52, "lon": 127.02, "category": "streetlight"},
             ]
         )
         mock_service = MagicMock()
-        mock_service.fetch_db_points.return_value = mock_df
+        mock_service.fetch_safety_points.return_value = mock_df
         with patch("src.interfaces.dependencies.map_service", mock_service):
             response = client.get(
-                "/api/map/points",
-                params={"lat": 37.5, "lon": 127.0, "table_name": "child_layer"},
+                "/api/map/points/safety",
+                params={"lat": 37.5, "lon": 127.0},
             )
         assert response.status_code == 200
         body = response.json()
         assert len(body) == 2
         assert "lat" in body[0]
+        assert "category" in body[0]
 
-    def test_지원하지_않는_table_name이면_400_반환(self, client):
+    def test_지원하지_않는_레이어_경로면_404_반환(self, client):
         mock_service = MagicMock()
-        mock_service.fetch_db_points.side_effect = ValueError("지원하지 않는 테이블")
         with patch("src.interfaces.dependencies.map_service", mock_service):
             response = client.get(
-                "/api/map/points",
-                params={"lat": 37.5, "lon": 127.0, "table_name": "invalid_table"},
+                "/api/map/points/invalid_layer",
+                params={"lat": 37.5, "lon": 127.0},
             )
-        assert response.status_code == 400
+        assert response.status_code == 404
 
 
 # ── GET /api/map/edges ───────────────────────────────────────────────────────
