@@ -13,5 +13,7 @@ __pycache__/
 !src/data/
 src/data/raw/
 venv/
+cache/
 .idea/
-/cache/
+.claude/
+
