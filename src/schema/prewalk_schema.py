@@ -50,6 +50,7 @@ class State(BaseModel):
     """
     user_id: int
     current_location: Location
+    access_token: Optional[str] = None
 
     mode: Optional[Union[CircularMode, OnewayMode]] = None
     user_context: Optional[
