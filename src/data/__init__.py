@@ -5,3 +5,5 @@ from src.data.collectors.landmark_collector import LandmarkCollector
 from src.data.collectors.running_collector import RunningCourseCollector
 from src.data.collectors.slope_collector import SlopeCalculator
 from src.data.collectors.child_collector import ChildCollector
+from src.data.collectors.boundary_collector import SeoulBoundaryCollector
+from src.data.collectors.water_collector import SeoulWaterCollector

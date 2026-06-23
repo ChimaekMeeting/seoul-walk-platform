@@ -3,27 +3,66 @@ import random
 
 import networkx as nx
 
+_R1_M: float = 30.0   # ROUT-NODE 1차 탐색 반경 (m)
+_R2_M: float = 100.0  # ROUT-NODE 2차 탐색 반경 (m)
+
 
 class PathUtils:
     def __init__(self, G: nx.Graph):
         self.G = G
 
-    def find_nearest_node(self, lat: float, lon: float) -> int | None:
+    @staticmethod
+    def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """두 좌표 사이의 Haversine 거리(미터)를 반환합니다."""
+        R  = 6_371_000.0
+        p1 = math.radians(lat1)
+        p2 = math.radians(lat2)
+        dp = math.radians(lat2 - lat1)
+        dl = math.radians(lon2 - lon1)
+        a  = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+        return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    def find_nearest_node(
+        self,
+        lat: float,
+        lon: float,
+        max_dist_m: float | None = None,
+    ) -> int | None:
         """
         위경도에서 그래프상 가장 가까운 노드 ID를 반환합니다.
+        max_dist_m 지정 시 해당 반경(m) 이내 노드만 탐색합니다.
         """
-        min_dist = float("inf")  # 최솟값 초기화
-        nearest  = None          # 최근접 노드 ID
+        min_dist = float("inf")
+        nearest  = None
         for node_id, data in self.G.nodes(data=True):
             node_lat = data.get("lat")
             node_lon = data.get("lon")
-            if node_lat is None or node_lon is None:  # 좌표 없는 노드 스킵
+            if node_lat is None or node_lon is None:
                 continue
-            dist = math.sqrt((lat - node_lat) ** 2 + (lon - node_lon) ** 2)  # 유클리드 거리
-            if dist < min_dist:  # 더 가까운 노드 갱신
-                min_dist = dist
+            dist_m = self._haversine_m(lat, lon, node_lat, node_lon)
+            if max_dist_m is not None and dist_m > max_dist_m:
+                continue
+            if dist_m < min_dist:
+                min_dist = dist_m
                 nearest  = node_id
         return nearest
+
+    def find_nearest_node_with_expansion(
+        self,
+        lat: float,
+        lon: float,
+        r1_m: float = _R1_M,
+        r2_m: float = _R2_M,
+    ) -> int | None:
+        """
+        ROUT-NODE-001/002: R1 → R2 2단계 반경 확장 탐색.
+        R1 이내에 없으면 R2까지 확장하여 재탐색합니다.
+        두 단계 모두 실패하면 None을 반환합니다.
+        """
+        node = self.find_nearest_node(lat, lon, max_dist_m=r1_m)
+        if node is None:
+            node = self.find_nearest_node(lat, lon, max_dist_m=r2_m)
+        return node
 
     def extract_coordinates(self, node_list: list) -> list:
         """노드 ID 리스트 → [[lat, lon], ...] 변환"""

@@ -5,6 +5,7 @@ from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.tools.place_tools import PlaceTool
 from src.infrastructure.external.schema.place_schema import PlaceSearchResult
 from src.agent.utils.chatbot_utils import PromptUtils
+from src.interfaces.validators.coord_validator import is_within_seoul_bbox
 from src.schema.prewalk_schema import (
     State,
     Location,
@@ -144,6 +145,7 @@ class Interviewer(GPTClient):
                         place_name = d.place_name,
                     )
                     for d in output.documents
+                    if is_within_seoul_bbox(float(d.y), float(d.x))
                 ]
 
         return candidates

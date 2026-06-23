@@ -10,8 +10,9 @@ def filter_graph_by_request(graph: nx.Graph, request: dict[str, Any]) -> nx.Grap
     Args:
         graph  : load_route_graph()로 로드된 nx.Graph
         request: {
-            "exclude_underground" : bool  지하 노드 제외 여부 (기본값 False)
-            "exclude_overpass"    : bool  고가 노드 제외 여부 (기본값 False)
+            "exclude_underground" : bool       지하 노드 제외 여부 (기본값 False)
+            "exclude_overpass"    : bool       고가 노드 제외 여부 (기본값 False)
+            "blocked_node_types"  : list[str]  제외할 node_type 목록 (예: ["highway"])
         }
 
     Returns:
@@ -23,13 +24,16 @@ def filter_graph_by_request(graph: nx.Graph, request: dict[str, Any]) -> nx.Grap
     G = graph.copy()
 
     exclude_underground = request.get("exclude_underground", False)
-    exclude_overpass = request.get("exclude_overpass", False)
+    exclude_overpass    = request.get("exclude_overpass", False)
+    # VAL-COORD-006 ①: profiles의 blocked_tags=["highway"] 등 node_type 기반 제외
+    blocked_node_types  = set(request.get("blocked_node_types", []))
 
     nodes_to_remove = [
         node_id
         for node_id, data in G.nodes(data=True)
         if (exclude_underground and data.get("is_underground"))
         or (exclude_overpass and data.get("is_overpass"))
+        or (blocked_node_types and data.get("node_type") in blocked_node_types)
     ]
 
     G.remove_nodes_from(nodes_to_remove)

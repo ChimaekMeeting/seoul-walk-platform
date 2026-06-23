@@ -12,7 +12,7 @@ from src.agent.nodes import (
     Interviewer,
     RouteExecutor
 )
-from src.interfaces.schema.prewalk_schema import ChatResponse
+from src.interfaces.schema.chat_schema import ChatResponse
 from src.schema.prewalk_schema import State, Location
 
 

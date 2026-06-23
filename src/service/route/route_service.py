@@ -21,6 +21,7 @@ from src.route_engine.engines import (
     OnewayRandomEngine,
     OnewayRunningEngine,
 )
+from src.route_engine.engines.path_utils import PathUtils
 
 
 class RouteService:
@@ -54,6 +55,14 @@ class RouteService:
         if mode not in self._circular_engines and mode not in self._oneway_engines:
             return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
                                fallback_reason=FallbackReason.UNKNOWN_ERROR)
+
+        # ROUT-NODE-001/002: 엔진 호출 전 보행 노드 존재 여부 선행 검증
+        utils = PathUtils(self.G)
+        if utils.find_nearest_node_with_expansion(origin.lat, origin.lon) is None:
+            raise ValueError("출발지 주변에서 연결 가능한 보행 도로를 찾을 수 없습니다.")
+        if isinstance(mode, OnewayMode) and destination is not None:
+            if utils.find_nearest_node_with_expansion(destination.lat, destination.lon) is None:
+                raise ValueError("목적지 주변에서 연결 가능한 보행 도로를 찾을 수 없습니다.")
 
         # 엔진 생성
         try:
