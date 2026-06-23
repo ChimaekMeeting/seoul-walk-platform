@@ -114,6 +114,7 @@ class PrewalkOrchestrator:
         
         # 최근 프롬프트로 업데이트
         state.user_prompt = user_prompt
+        state.access_token = access_token
 
         # state 업데이트
         result      = await self.graph.ainvoke(state)

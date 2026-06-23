@@ -15,12 +15,11 @@ class LoginRouter:
             return response.json()
 
     async def kakao_callback(self, code: str):
-        """
-        카카오 로그인 콜백을 처리하고 access_token 및 refresh_token을 반환하는 API를 호출합니다.
-        """
         async with httpx.AsyncClient(timeout=60.0) as client:
             params = {"code": code}
             response = await client.get(f"{self.base_url}/kakao/callback", params=params)
             access_token = response.cookies.get("access_token")
             refresh_token = response.cookies.get("refresh_token")
+            if response.status_code != 200:
+                return {}, None, None
             return response.json(), access_token, refresh_token

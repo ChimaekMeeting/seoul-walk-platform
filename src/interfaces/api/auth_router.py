@@ -36,7 +36,7 @@ async def check_refresh_token(
         response.set_cookie(
             key="access_token",
             value=access_token,
-            httponly=True,
+            httponly=False,
             secure=False,  # 배포 시에는 True로 설정하여 HTTPS 환경에서만 전송되도록 수정
             samesite="lax",
             max_age=3600   # 1시간
