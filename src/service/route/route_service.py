@@ -6,7 +6,7 @@ from src.interfaces.schema.walk_schema import (
     CircularMode,
     OnewayMode,
     Coordinate,
-    FallbackReason
+    WalkRouteStatus
 )
 from src.schema.route_schema import (
     OnewayRouteInput,
@@ -57,23 +57,20 @@ class RouteService:
         # 사용자 인증
         status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if status != Status.SUCCESS:
-            return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
-                                    fallback_reason=status)
+            return WalkRouteResponse(status=status, mode=mode, coordinates=[], total_km=0.0)
         
         # 추후 사용자에게 추천한 경로를 저장하기 위해 필요
         # user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
 
         # 매핑 가능한 모드가 없는 경우
         if mode not in self._circular_engines and mode not in self._oneway_engines:
-            return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
-                                    fallback_reason=FallbackReason.UNKNOWN_ERROR)
+            return WalkRouteResponse(status=WalkRouteStatus.UNKNOWN_ERROR, mode=mode, coordinates=[], total_km=0.0)
 
         # 엔진 생성
         try:
             engine = self._build_engine(mode, origin, destination, target_km)
         except ValueError:
-            return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
-                                    fallback_reason=FallbackReason.INVALID_DESTINATION)
+            return WalkRouteResponse(status=WalkRouteStatus.INVALID_DESTINATION, mode=mode, coordinates=[], total_km=0.0)
 
         # 3. 경로 생성
         return engine.run()

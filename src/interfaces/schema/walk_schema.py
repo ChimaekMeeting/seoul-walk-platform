@@ -1,4 +1,4 @@
-from typing import Optional, List, Literal, Union
+from typing import Optional, Union
 from pydantic import BaseModel
 from enum import Enum
 
@@ -25,7 +25,8 @@ class OnewayMode(str, Enum):
     FLAT     = "oneway_flat"
 
 
-class FallbackReason(str, Enum):
+class WalkRouteStatus(str, Enum):
+    SUCCESS                = "success"
     ACCESS_EXPIRED_TOKEN   = "access_expired_token"
     INVALID_TOKEN          = "invalid_token"
     INVALID_ORIGIN         = "INVALID_ORIGIN"
@@ -48,8 +49,7 @@ class WalkRouteRequest(BaseModel):
 
 
 class WalkRouteResponse(BaseModel):
-    status:          Literal["SUCCESS", "FAILED"]
+    status:          WalkRouteStatus
     mode:            Union[CircularMode, OnewayMode]
     coordinates:     list[list[float]]
     total_km:        float = 0.0
-    fallback_reason: Optional[FallbackReason] = None
