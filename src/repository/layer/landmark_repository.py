@@ -1,6 +1,7 @@
 from collections import Counter
 from typing import List
 
+import pandas as pd
 from sqlalchemy import func, select, insert, update
 
 from src.database.postgresql import get_postgresql_db
@@ -9,6 +10,13 @@ from src.repository.utils import RepositoryUtils
 
 
 class LandmarkRepository:
+    @staticmethod
+    def get(lat: float, lon: float, radius_m: int = 2000) -> pd.DataFrame:
+        """
+        반경 내 랜드마크 포인트를 조회합니다. (타입 필터 없음)
+        """
+        return RepositoryUtils.fetch_nearby_points(LandmarkLayer, lat, lon, radius_m)
+
     @staticmethod
     def is_populated() -> bool:
         with get_postgresql_db() as db:

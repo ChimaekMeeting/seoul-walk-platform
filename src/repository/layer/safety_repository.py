@@ -1,5 +1,6 @@
 from typing import List
 
+import pandas as pd
 from sqlalchemy import func, select, insert
 
 from src.database.postgresql import get_postgresql_db
@@ -9,6 +10,16 @@ from collections import Counter
 
 
 class SafetyRepository:
+    @staticmethod
+    def get(lat: float, lon: float, radius_m: int = 2000) -> pd.DataFrame:
+        """
+        반경 내 안전 시설물 포인트 전체를 조회합니다.
+        safety_type(예: cctv, streetlight)을 category로 노출합니다.
+        """
+        return RepositoryUtils.fetch_nearby_points(
+            SafetyLayer, lat, lon, radius_m, category_col=SafetyLayer.safety_type,
+        )
+
     @staticmethod
     def is_populated() -> bool:
         with get_postgresql_db() as db:

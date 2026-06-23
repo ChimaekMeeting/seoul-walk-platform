@@ -1,6 +1,7 @@
 from collections import Counter
 
 import geopandas as gpd
+import pandas as pd
 from sqlalchemy import func, select
 
 from src.database.postgresql import get_postgresql_db, engine
@@ -9,6 +10,16 @@ from src.repository.utils import RepositoryUtils
 
 
 class NatureRepository:
+    @staticmethod
+    def get(lat: float, lon: float, radius_m: int = 2000) -> pd.DataFrame:
+        """
+        반경 내 녹지 포인트(폴리곤은 centroid 기준) 전체를 조회합니다.
+        green_type을 category로 노출합니다.
+        """
+        return RepositoryUtils.fetch_nearby_points(
+            NatureLayer, lat, lon, radius_m, category_col=NatureLayer.green_type,
+        )
+
     @staticmethod
     def is_populated() -> bool:
         with get_postgresql_db() as db:

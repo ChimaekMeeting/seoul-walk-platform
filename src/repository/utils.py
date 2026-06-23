@@ -2,7 +2,11 @@ import math
 
 import h3
 import numpy as np
-from sqlalchemy import func
+import pandas as pd
+from sqlalchemy import func, select, cast
+from geoalchemy2 import Geography
+
+from src.database.postgresql import get_postgresql_db
 
 
 class RepositoryUtils:
@@ -14,6 +18,47 @@ class RepositoryUtils:
     @staticmethod
     def lat_lon_to_h3(lat: float, lon: float, resolution: int = 9) -> str:
         return h3.latlng_to_cell(lat, lon, resolution)
+
+    @staticmethod
+    def fetch_nearby_points(
+        entity,
+        lat: float,
+        lon: float,
+        radius_m: int = 2000,
+        category_col=None,
+    ) -> pd.DataFrame:
+        """
+        주어진 엔티티 테이블에서 반경 내 포인트(폴리곤은 centroid 기준) 전체를 조회합니다.
+
+        Args:
+            entity       : 조회 대상 SQLAlchemy 엔티티 클래스.
+            lat          : 중심 위도.
+            lon          : 중심 경도.
+            radius_m     : 탐색 반경(미터). 기본값 2,000.
+            category_col : 카테고리로 노출할 판별 컬럼 (선택). 지정 시 "category" 키로 반환.
+
+        Returns:
+            pd.DataFrame: lat, lon (+ category) 컬럼을 포함한 데이터프레임. 실패 시 빈 데이터프레임.
+        """
+        center = cast(func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326), Geography())
+        lat_expr, lon_expr = RepositoryUtils.geom_centroid_lat_lon(entity.geom)
+
+        columns = [lat_expr.label("lat"), lon_expr.label("lon")]
+        if category_col is not None:
+            columns.append(category_col.label("category"))
+
+        stmt = select(*columns).where(
+            func.ST_DWithin(cast(entity.geom, Geography()), center, radius_m)
+        )
+
+        df_columns = [c.name for c in columns]
+        try:
+            with get_postgresql_db() as db:
+                rows = db.execute(stmt).fetchall()
+            return pd.DataFrame(rows, columns=df_columns)
+        except Exception as e:
+            print(f"DB 포인트 조회 실패 ({entity.__tablename__}): {e}")
+            return pd.DataFrame()
 
 
 def serialize(val):
