@@ -18,12 +18,13 @@ class OsmRawRepository:
 
     @staticmethod
     def save(gdf: gpd.GeoDataFrame, query_key: str) -> None:
-        exclude = {gdf.geometry.name}
+        geom_col = gdf.geometry.name
+        exclude = {geom_col}
         records = []
 
         for _, row in gdf.iterrows():
             try:
-                wkt = row[exclude].wkt
+                wkt = row[geom_col].wkt
             except Exception:
                 continue
 
