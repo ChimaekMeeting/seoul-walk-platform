@@ -48,7 +48,7 @@ class KakaoRawRepository:
     def get(query_key: str) -> gpd.GeoDataFrame:
         with engine.connect() as conn:
             gdf = gpd.read_postgis(
-                "SELECT name, properties, geom FROM kakao_raw WHERE query_key = %(key)s",
+                "SELECT id AS kakao_raw_id, properties, geom FROM kakao_raw WHERE query_key = %(key)s",
                 conn,
                 geom_col="geom",
                 params={"key": query_key},

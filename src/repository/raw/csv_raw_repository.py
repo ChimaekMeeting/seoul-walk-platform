@@ -64,7 +64,7 @@ class CsvRawRepository:
     def get(query_key: str) -> gpd.GeoDataFrame:
         with engine.connect() as conn:
             gdf = gpd.read_postgis(
-                "SELECT id AS csv_raw_id, name, properties, geom FROM csv_raw WHERE query_key = %(key)s",
+                "SELECT id AS csv_raw_id, properties, geom FROM csv_raw WHERE query_key = %(key)s",
                 conn,
                 geom_col="geom",
                 params={"key": query_key},
