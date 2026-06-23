@@ -21,6 +21,7 @@ from src.route_engine.engines import (
     OnewayRandomEngine,
     OnewayRunningEngine,
 )
+from src.route_engine.engines.path_utils import PathUtils
 from src.service.user.auth_service import AuthService
 from src.repository.user.user_repository import UserRepository
 from src.interfaces.schema.auth_schema import Status
@@ -55,18 +56,23 @@ class RouteService:
         context에 적합한 경로 생성 엔진을 호출합니다.
         """
         # 사용자 인증
-        status, provider, provider_id = self.auth_service.check_access_token(access_token)
+        status, *_ = self.auth_service.check_access_token(access_token)
         if status != Status.SUCCESS:
             return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
                                     fallback_reason=status)
-        
-        # 추후 사용자에게 추천한 경로를 저장하기 위해 필요
-        # user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
 
         # 매핑 가능한 모드가 없는 경우
         if mode not in self._circular_engines and mode not in self._oneway_engines:
             return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
                                     fallback_reason=FallbackReason.UNKNOWN_ERROR)
+
+        # ROUT-NODE-001/002: 엔진 호출 전 보행 노드 존재 여부 선행 검증
+        utils = PathUtils(self.G)
+        if utils.find_nearest_node_with_expansion(origin.lat, origin.lon) is None:
+            raise ValueError("출발지 주변에서 연결 가능한 보행 도로를 찾을 수 없습니다.")
+        if isinstance(mode, OnewayMode) and destination is not None:
+            if utils.find_nearest_node_with_expansion(destination.lat, destination.lon) is None:
+                raise ValueError("목적지 주변에서 연결 가능한 보행 도로를 찾을 수 없습니다.")
 
         # 엔진 생성
         try:

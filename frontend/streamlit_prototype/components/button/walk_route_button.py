@@ -1,5 +1,6 @@
 import asyncio
 
+import httpx
 import streamlit as st
 
 from frontend.streamlit_prototype.api.walk_router import WalkRouter
@@ -11,18 +12,23 @@ from frontend.streamlit_prototype.schema.walk_schema import (
 
 class WalkRouteButton:
 
-    def _call_api(self, request: WalkRouteRequest) -> WalkRouteResponse:
+    def _call_api(self, request: WalkRouteRequest) -> WalkRouteResponse | None:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        raw = loop.run_until_complete(
-            call_with_auto_refresh(
-                lambda token: WalkRouter().post_route(token, request.model_dump())
+        try:
+            raw = loop.run_until_complete(
+                call_with_auto_refresh(
+                    lambda token: WalkRouter().post_route(token, request.model_dump())
+                )
             )
-        )
-        return WalkRouteResponse(**raw)
+            return WalkRouteResponse(**raw)
+        except httpx.HTTPStatusError as e:
+            detail = e.response.json().get("detail", "알 수 없는 오류가 발생했습니다.")
+            st.error(detail)
+            return None
 
     def _build_request(self, mode: str, target_km: float) -> WalkRouteRequest:
         return WalkRouteRequest(
@@ -61,7 +67,9 @@ class WalkRouteButton:
                     with st.spinner("최적의 경로를 계산하는 중..."):
                         req      = self._build_request(selected_mode, target_km)
                         response = self._call_api(req)
-                    if response.status == "FAILED":
+                    if response is None:
+                        pass
+                    elif response.status == "FAILED":
                         st.error(f"경로 생성 실패: {response.fallback_reason}")
                     else:
                         self._save(response)
@@ -88,7 +96,9 @@ class WalkRouteButton:
                         ),
                     )
                     response = self._call_api(req)
-                    if response.status == "FAILED":
+                    if response is None:
+                        pass
+                    elif response.status == "FAILED":
                         st.error(f"경로 생성 실패: {response.fallback_reason}")
                     else:
                         self._save(response)

@@ -75,7 +75,6 @@ class BannerCarousel:
         """
         if not banners:
             return
-
         st_html(self._build_html(banners), height=160)
 
         modal = Modal(key="banner_modal", title="")

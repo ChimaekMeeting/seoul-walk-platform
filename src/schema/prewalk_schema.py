@@ -1,3 +1,8 @@
+
+
+
+
+
 from pydantic import BaseModel, Field
 from typing import Optional, Union, List
 from src.infrastructure.external.schema.weather_schema import EnvironmentInfo

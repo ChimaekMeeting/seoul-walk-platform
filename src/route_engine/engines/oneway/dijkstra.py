@@ -73,6 +73,16 @@ class OnewayDijkstraEngine:
             fallback_reason = None,
         )
 
+    def _calc_distance(self, nodes: list[int]) -> float:
+        """노드 목록의 총 이동 거리를 미터 단위로 반환합니다."""
+        total = 0.0
+        for a, b in zip(nodes, nodes[1:]):
+            d_a = self._G.nodes[a]
+            d_b = self._G.nodes[b]
+            if d_a.get("lat") and d_b.get("lat"):
+                total += PathUtils._haversine_m(d_a["lat"], d_a["lon"], d_b["lat"], d_b["lon"])
+        return total
+
     def _find_path(self, start: int, end: int) -> list[int]:
         """
         Dijkstra 알고리즘으로 최단 경로 노드 목록을 반환합니다.

@@ -15,5 +15,11 @@ src/data/raw/
 venv/
 cache/
 .idea/
+node_modules/
+outputs/
+package.json
+package-lock.json
+tests/
+.claude/
 .claude/
 
