@@ -106,6 +106,7 @@ def require_login() -> bool:
             st.session_state.access_token = access_token
             st.session_state.refresh_token = refresh_token
             st.session_state.nickname = res.get("nickname")
+            st.query_params.clear()
             st.rerun()
         else:
             st.error("로그인에 실패했습니다. 다시 시도해주세요.")
