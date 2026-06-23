@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from src.database.postgresql import get_postgresql_db
-from src.interfaces.schema.chat_schema import InitRequest, ChatRequest, ChatResponse
+from src.interfaces.schema.prewalk_schema import InitRequest, ChatRequest, ChatResponse
 from src.interfaces.validators.coord_validator import validate_seoul_polygon_contains
 from src.interfaces.validators.highway_validator import validate_no_highway
 from src.interfaces.validators.water_validator import snap_coordinate_from_water
