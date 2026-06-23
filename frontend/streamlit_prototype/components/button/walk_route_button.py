@@ -22,6 +22,11 @@ class WalkRouteButton:
                 lambda token: WalkRouter().post_route(token, request.model_dump())
             )
         )
+        if "detail" in raw and "status" not in raw:
+            return WalkRouteResponse(
+                status="FAILED", mode=request.mode, coordinates=[], total_km=0.0,
+                fallback_reason=raw["detail"],
+            )
         return WalkRouteResponse(**raw)
 
     def _build_request(self, mode: str, target_km: float) -> WalkRouteRequest:

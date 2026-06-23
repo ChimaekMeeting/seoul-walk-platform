@@ -23,6 +23,7 @@ from src.route_engine.engines import (
 )
 from src.service.user.auth_service import AuthService
 from src.repository.user.user_repository import UserRepository
+from src.repository.user.route_history_repository import RouteHistoryRepository
 from src.interfaces.schema.auth_schema import Status
 
 
@@ -61,7 +62,7 @@ class RouteService:
                                     fallback_reason=status)
         
         # 추후 사용자에게 추천한 경로를 저장하기 위해 필요
-        # user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
+        user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
 
         # 매핑 가능한 모드가 없는 경우
         if mode not in self._circular_engines and mode not in self._oneway_engines:
@@ -76,7 +77,21 @@ class RouteService:
                                     fallback_reason=FallbackReason.INVALID_DESTINATION)
 
         # 3. 경로 생성
-        return engine.run()
+        result = engine.run()
+
+        if result.status == "SUCCESS" and user is not None:
+            RouteHistoryRepository.save(
+                user_id=user.id,
+                mode=mode,
+                origin_lat=origin.lat,
+                origin_lon=origin.lon,
+                coordinates=result.coordinates,
+                total_km=result.total_km,
+                destination_lat=destination.lat if destination else None,
+                destination_lon=destination.lon if destination else None,
+            )
+
+        return result
     
     def _build_engine(
         self,
