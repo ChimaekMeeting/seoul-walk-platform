@@ -1,19 +1,31 @@
-from fastapi import APIRouter, Depends
-from src.interfaces.dependencies import get_user_service
-from src.interfaces.schema.user_schema import UuidResponse
-from src.service.user.user_service import UserService
+"""
+src/interfaces/api/user_router.py
+
+/api/user 하위 엔드포인트 정의.
+현재 온보딩 설문 제출(POST /api/user/survey)을 제공합니다.
+"""
+from fastapi import APIRouter, Cookie, Depends
+
+from src.interfaces.dependencies import get_survey_service
+from src.interfaces.schema.survey_schema import SurveyRequest, SurveyResponse
+from src.service.user.survey_service import SurveyService
 
 router = APIRouter(
     prefix="/api/user",
     tags=["user"]
 )
 
-@router.post("/init", response_model=UuidResponse)
-def read_init(
-    service: UserService = Depends(get_user_service)
+
+@router.post("/survey", response_model=SurveyResponse)
+def submit_survey(
+    request: SurveyRequest,
+    access_token: str = Cookie(None),
+    service: SurveyService = Depends(get_survey_service),
 ):
     """
-    서비스에 처음 방문한 유저에게 uuid를 제공합니다.
+    온보딩 설문 결과를 제출합니다.
+
+    input : 키워드 태그 목록, 선호 거리 선택지
+    output: 저장된 사용자 가중치 프로필
     """
-    user_uuid = service.save_and_get_uuid()
-    return UuidResponse(user_uuid=user_uuid)
+    return service.submit(access_token, request)

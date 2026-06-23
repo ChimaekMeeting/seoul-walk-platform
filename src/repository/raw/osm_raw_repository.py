@@ -19,6 +19,7 @@ class OsmRawRepository:
     @staticmethod
     def save(gdf: gpd.GeoDataFrame, query_key: str) -> None:
         geom_col = gdf.geometry.name
+        exclude = {geom_col}
         records = []
 
         for _, row in gdf.iterrows():
@@ -27,16 +28,14 @@ class OsmRawRepository:
             except Exception:
                 continue
 
-            name_val = serialize(row.get("name"))
             props = {
                 col: serialize(row[col])
                 for col in row.index
-                if col not in (geom_col, "name")
+                if col not in exclude
             }
 
             records.append(OsmRaw(
                 query_key=query_key,
-                name=str(name_val) if name_val is not None else None,
                 geom=WKTElement(wkt, srid=4326),
                 properties=props or None,
             ))
@@ -49,7 +48,7 @@ class OsmRawRepository:
     def get(query_key: str) -> gpd.GeoDataFrame:
         with engine.connect() as conn:
             gdf = gpd.read_postgis(
-                "SELECT id AS osm_raw_id, name, properties, geom FROM osm_raw WHERE query_key = %(key)s",
+                "SELECT id AS osm_raw_id, properties, geom FROM osm_raw WHERE query_key = %(key)s",
                 conn,
                 geom_col="geom",
                 params={"key": query_key},

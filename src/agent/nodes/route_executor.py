@@ -40,7 +40,8 @@ class RouteExecutor(GPTClient):
             k: Coordinate(lat=v["lat"], lon=v["lon"]) if k in ("origin", "destination") else v
             for k, v in state.user_context.model_dump(exclude={"mode", "purpose"}, exclude_none=True).items()
         }
-
+        
+        args["access_token"] = state.access_token or ""
         state.route_result = await self.route_tool.tool_map[tool_name].ainvoke(args)
 
         state.response = await super().get_response(

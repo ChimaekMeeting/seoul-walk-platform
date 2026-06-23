@@ -15,10 +15,14 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from streamlit_folium import st_folium
 
+import config.path_setup  # noqa: F401 — must precede all src/ imports (sys.path 부트스트랩)
+from src.service.route.map_service import MapService
+
 load_dotenv(encoding="utf-8")
 
 SEOUL_CENTER = [37.5665, 126.9780]
 SEOUL_ZOOM = 11
+SEOUL_RADIUS_M = 30_000  # 서울 전역을 덮는 반경
 POINT_LIMIT = 10_000  # 브라우저 성능 한계로 최대 렌더 개수 제한
 
 PALETTE = [
@@ -28,37 +32,15 @@ PALETTE = [
 ]
 
 # ── 레이어 설정 ───────────────────────────────────────────────────────────────
-LAYER_CONFIG: dict[str, dict] = {
-    "safety_layer": {
-        "label": "안전 (CCTV / 가로등)",
-        "color": "#e74c3c",
-        "group_col": "safety_type",
-        "use_centroid": False,
-    },
-    "child_layer": {
-        "label": "어린이",
-        "color": "#3498db",
-        "group_col": "category",
-        "use_centroid": False,
-    },
-    "landmark_layer": {
-        "label": "랜드마크",
-        "color": "#9b59b6",
-        "group_col": None,
-        "use_centroid": False,
-    },
-    "nature_layer": {
-        "label": "자연 / 녹지",
-        "color": "#27ae60",
-        "group_col": "green_type",
-        "use_centroid": True,
-    },
-    "running_layer": {
-        "label": "러닝 코스",
-        "color": "#f39c12",
-        "group_col": "course_type",
-        "use_centroid": True,
-    },
+# 포인트 조회는 MapService에 위임 (테이블명/centroid/카테고리 컬럼은 서버가 캡슐화)
+_map_service = MapService(kakao_client=None)
+
+LAYER_OPTIONS: dict[str, tuple] = {
+    "safety":   ("안전 (CCTV / 가로등)", _map_service.fetch_safety_points),
+    "child":    ("어린이",              _map_service.fetch_child_points),
+    "landmark": ("랜드마크",            _map_service.fetch_landmark_points),
+    "nature":   ("자연 / 녹지",         _map_service.fetch_nature_points),
+    "running":  ("러닝 코스",           _map_service.fetch_running_points),
 }
 
 SCORE_OPTIONS: dict[str, str] = {
@@ -86,23 +68,13 @@ def _get_engine():
 
 # ── 데이터 로드 ───────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300, show_spinner="데이터 로딩 중…")
-def load_layer_points(table: str, use_centroid: bool, group_col: str | None) -> pd.DataFrame:
-    """레이어 포인트를 개별 행으로 가져옵니다. 최대 POINT_LIMIT개로 제한합니다."""
-    geom_expr = "ST_Centroid(geom)" if use_centroid else "geom"
-    cat_clause = group_col if group_col else "NULL"
-
-    sql = f"""
-        SELECT
-            {cat_clause} AS category,
-            ST_Y({geom_expr}) AS lat,
-            ST_X({geom_expr}) AS lng
-        FROM {table}
-        WHERE {geom_expr} IS NOT NULL
-        LIMIT {POINT_LIMIT}
-    """
-    with _get_engine().connect() as conn:
-        df = pd.read_sql(text(sql), conn)
-    df["category"] = df["category"].fillna("기타")
+def load_layer_points(layer: str) -> pd.DataFrame:
+    """MapService로 서울 전역 레이어 포인트를 가져옵니다. 최대 POINT_LIMIT개로 제한합니다."""
+    df = LAYER_OPTIONS[layer][1](SEOUL_CENTER[0], SEOUL_CENTER[1], radius_m=SEOUL_RADIUS_M)
+    if df.empty:
+        return df
+    df = df.head(POINT_LIMIT).rename(columns={"lon": "lng"})
+    df["category"] = df["category"].fillna("기타") if "category" in df.columns else "기타"
     return df
 
 
@@ -160,10 +132,9 @@ with tab1:
         st.subheader("설정")
         selected_layer = st.selectbox(
             "데이터 레이어",
-            options=list(LAYER_CONFIG.keys()),
-            format_func=lambda k: LAYER_CONFIG[k]["label"],
+            options=list(LAYER_OPTIONS.keys()),
+            format_func=lambda k: LAYER_OPTIONS[k][0],
         )
-        cfg = LAYER_CONFIG[selected_layer]
 
         dot_radius = st.slider("점 크기", 2, 8, 4)
         dot_opacity = st.slider("투명도", 0.3, 1.0, 0.75, step=0.05)
@@ -172,9 +143,7 @@ with tab1:
 
         df_layer = None
         try:
-            df_layer = load_layer_points(
-                selected_layer, cfg["use_centroid"], cfg["group_col"]
-            )
+            df_layer = load_layer_points(selected_layer)
             total = len(df_layer)
             st.metric("표시 데이터 수", f"{total:,}개")
             if total >= POINT_LIMIT:

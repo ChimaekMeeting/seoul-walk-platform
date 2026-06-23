@@ -12,9 +12,16 @@ class PathUtils:
         """
         위경도에서 그래프상 가장 가까운 노드 ID를 반환합니다.
         """
+        # 최대 연결 컴포넌트 노드만 대상으로 탐색
+        if self.G.is_directed():
+            largest_cc = max(nx.weakly_connected_components(self.G), key=len)
+        else:
+            largest_cc = max(nx.connected_components(self.G), key=len)
         min_dist = float("inf")  # 최솟값 초기화
         nearest  = None          # 최근접 노드 ID
         for node_id, data in self.G.nodes(data=True):
+            if node_id not in largest_cc:
+                continue
             node_lat = data.get("lat")
             node_lon = data.get("lon")
             if node_lat is None or node_lon is None:  # 좌표 없는 노드 스킵

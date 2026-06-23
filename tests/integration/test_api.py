@@ -28,6 +28,7 @@ from src.interfaces.schema.walk_schema import (
     FallbackReason,
 )
 from src.interfaces.schema.auth_schema import Status
+from src.interfaces.schema.survey_schema import SurveyResponse, SurveyStatus
 from src.service.user.auth_service import AuthService
 
 # ── 공통 픽스처 ──────────────────────────────────────────────────────────────
@@ -349,36 +350,36 @@ class TestMapFacilitiesAPI:
 
 
 class TestMapPointsAPI:
-    def test_포인트_레이어_조회_성공(self, client):
+    def test_안전_포인트_레이어_조회_성공(self, client):
         import pandas as pd
 
         mock_df = pd.DataFrame(
             [
-                {"lat": 37.51, "lon": 127.01},
-                {"lat": 37.52, "lon": 127.02},
+                {"lat": 37.51, "lon": 127.01, "category": "cctv"},
+                {"lat": 37.52, "lon": 127.02, "category": "streetlight"},
             ]
         )
         mock_service = MagicMock()
-        mock_service.fetch_db_points.return_value = mock_df
+        mock_service.fetch_safety_points.return_value = mock_df
         with patch("src.interfaces.dependencies.map_service", mock_service):
             response = client.get(
-                "/api/map/points",
-                params={"lat": 37.5, "lon": 127.0, "table_name": "child_layer"},
+                "/api/map/points/safety",
+                params={"lat": 37.5, "lon": 127.0},
             )
         assert response.status_code == 200
         body = response.json()
         assert len(body) == 2
         assert "lat" in body[0]
+        assert "category" in body[0]
 
-    def test_지원하지_않는_table_name이면_400_반환(self, client):
+    def test_지원하지_않는_레이어_경로면_404_반환(self, client):
         mock_service = MagicMock()
-        mock_service.fetch_db_points.side_effect = ValueError("지원하지 않는 테이블")
         with patch("src.interfaces.dependencies.map_service", mock_service):
             response = client.get(
-                "/api/map/points",
-                params={"lat": 37.5, "lon": 127.0, "table_name": "invalid_table"},
+                "/api/map/points/invalid_layer",
+                params={"lat": 37.5, "lon": 127.0},
             )
-        assert response.status_code == 400
+        assert response.status_code == 404
 
 
 # ── GET /api/map/edges ───────────────────────────────────────────────────────
@@ -424,4 +425,61 @@ class TestMapEdgesAPI:
 
     def test_lat_lon_누락_시_422_반환(self, client):
         response = client.get("/api/map/edges")
+        assert response.status_code == 422
+
+
+# ── POST /api/user/survey ────────────────────────────────────────────────────
+
+class TestSurveyAPI:
+    def test_설문_정상_제출(self, client):
+        mock_service = MagicMock()
+        mock_service.submit.return_value = SurveyResponse(
+            status=SurveyStatus.SUCCESS,
+            default_target_km=3.0,
+            weights_nature=0.9,
+            weights_slope=0.5,
+        )
+        with patch("src.interfaces.dependencies.survey_service", mock_service):
+            response = client.post(
+                "/api/user/survey",
+                json={
+                    "tags": ["나무 많은", "초록초록"],
+                    "distance": "normal",
+                },
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "success"
+        assert body["default_target_km"] == 3.0
+        assert body["weights_nature"] == 0.9
+
+    def test_태그_없이_제출하면_성공(self, client):
+        mock_service = MagicMock()
+        mock_service.submit.return_value = SurveyResponse(
+            status=SurveyStatus.SUCCESS,
+        )
+        with patch("src.interfaces.dependencies.survey_service", mock_service):
+            response = client.post("/api/user/survey", json={})
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+
+    def test_만료된_토큰이면_ACCESS_EXPIRED_TOKEN_반환(self, client):
+        mock_service = MagicMock()
+        mock_service.submit.return_value = SurveyResponse(
+            status=SurveyStatus.ACCESS_EXPIRED_TOKEN,
+        )
+        with patch("src.interfaces.dependencies.survey_service", mock_service):
+            response = client.post(
+                "/api/user/survey",
+                json={"tags": []},
+                cookies={"access_token": "expired.token"},
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "access_expired_token"
+
+    def test_유효하지_않은_distance_값이면_422_반환(self, client):
+        response = client.post(
+            "/api/user/survey",
+            json={"tags": [], "distance": "invalid_option"},
+        )
         assert response.status_code == 422

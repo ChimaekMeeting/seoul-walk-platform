@@ -1,66 +1,32 @@
-from src.infrastructure.external.client.marathon_client import MarathonClient
-from src.infrastructure.external.schema.marathon_schema import MarathonEvent
-from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
 from datetime import datetime, date
-import asyncio
 import re
+
+from src.infrastructure.external.client.marathon_client import MarathonClient
+from src.infrastructure.external.client.weather_client import WeatherClient
+from src.infrastructure.external.schema.marathon_schema import MarathonEvent
+from src.repository.banner.banner_repository import BannerRepository
 
 
 class BannerService:
 
-    BANNERS = {
-        "season": {
-            "hot_sunny":   {"emoji": "🌳", "text": "오늘 덥죠? 그늘 가득한 숲길 어떠세요?",  "sub": "더위를 피하는 나만의 산책 코스"},
-            "hot_humid":   {"emoji": "🌊", "text": "습한 날엔 물가 바람이 최고예요",         "sub": "시원한 물가 코스 추천"},
-            "hot_morning": {"emoji": "🌅", "text": "더워지기 전에 먼저 걸어볼까요?",         "sub": "상쾌한 새벽 산책 코스"},
-        },
-        "fixed": {
-            "dog":     {"emoji": "🐶", "text": "강아지랑 함께 걷기 좋은 길이에요",         "sub": "반려견 동반 가능 코스"},
-            "healing": {"emoji": "🌿", "text": "조용하게 걷고 싶을 때 추천해요",           "sub": "힐링 숲길 코스"},
-            "night":   {"emoji": "🌃", "text": "저녁에 걷기 좋은 야경 코스예요",           "sub": "야경 명소 산책로"},
-        }
-    }
-
-    def __init__(self, marathon_client: MarathonClient):
-        """
-        BannerService 초기화
-        """
+    def __init__(self, marathon_client: MarathonClient, weather_client: WeatherClient):
         self.marathon_client = marathon_client
+        self.weather_client  = weather_client
 
     # ── 이벤트 관련 메서드 ─────────────────────────────────────
 
-    async def _fetch_all_events(self) -> list[dict]:
-        """
-        서울/경기/인천 이벤트를 병렬로 조회
-        """
-        results = await asyncio.gather(
-            self.marathon_client.get_events("서울"),
-            self.marathon_client.get_events("경기"),
-            self.marathon_client.get_events("인천"),
-        )
-        return [event for region_events in results for event in region_events]
+    async def _fetch_all_events(self) -> list[MarathonEvent]:
+        return await self.marathon_client.get_events("서울")
 
-    def get_events(self) -> list[MarathonEvent]:
-        """
-        이벤트 목록을 조회합니다.
-        """
-        return asyncio.run(self._fetch_all_events())
-
-    def get_active_event(self) -> dict | None:
-        """
-        D-14 이내 이벤트 반환
-        """
+    async def get_active_event(self) -> dict | None:
         today = date.today()
-        for event in self.get_events():
+        for event in await self._fetch_all_events():
             diff = (event.date - today).days
             if -1 <= diff <= 14:
                 return {**event.model_dump(), "diff": diff}
         return None
 
     def _get_event_text(self, event: dict) -> dict:
-        """
-        이벤트 정보를 배너 텍스트 형식으로 변환합니다.
-        """
         diff       = event["diff"]
         name       = event["name"]
         loc        = event["location"]
@@ -88,11 +54,9 @@ class BannerService:
 
     # ── 날씨 헬퍼 메서드 ───────────────────────────────────────
 
-    def _is_hot(self, weather_msg: str) -> bool:
-        """
-        weather_msg에서 기온을 파싱해 23도 이상이면 True 반환
-        """
-        match = re.search(r"[-+]?\d+(\.\d+)?", weather_msg)
+    def _is_hot(self, weather: dict) -> bool:
+        temp_str = weather.get("기온", "")
+        match = re.search(r"[-+]?\d+(\.\d+)?", temp_str)
         if match:
             try:
                 return float(match.group()) >= 23
@@ -100,57 +64,47 @@ class BannerService:
                 pass
         return False
 
-    def _is_humid(self, weather_status: str) -> bool:
-        """
-        날씨 상태에 흐림/습함 관련 키워드가 있으면 True 반환
-        """
+    def _is_humid(self, weather: dict) -> bool:
+        status   = weather.get("강수형태", "")
         keywords = ["흐림", "구름", "습", "비"]
-        return any(k in weather_status for k in keywords)
+        return any(k in status for k in keywords)
 
     # ── 메인 메서드 ────────────────────────────────────────────
 
-    def get_banner(self, weather: EnvironmentInfo, hour: int | None = None) -> dict:
-        """
-        단일 배너 반환 (하위 호환용)
-        """
-        banners = self.get_banner_list(weather, hour)
-        return banners[0] if banners else self.BANNERS["fixed"]["healing"]
-
-    def get_banner_list(self, weather: EnvironmentInfo, hour: int | None = None) -> list:
-        """
-        홈 화면에 노출할 배너 목록 전체를 반환합니다.
-        우선순위: 이벤트 → 시즌 → 고정
-        """
+    async def get_banner_list(self, lat: float, lon: float, hour: int | None = None) -> list:
         if hour is None:
             hour = datetime.now().hour
 
-        status  = weather.weather_status
-        msg     = weather.weather_msg
-        banners = []
+        weather = await self.weather_client.get_weather(lat, lon) or {}
+        banners = {b.key: b for b in BannerRepository.find_all()}
+        result  = []
 
         # 1순위: 이벤트 배너
-        active_event = self.get_active_event()
+        active_event = await self.get_active_event()
         if active_event:
-            banners.append(self._get_event_text(active_event))
+            result.append(self._get_event_text(active_event))
 
         # 2순위: 시즌 배너 (날씨 기반)
-        if self._is_hot(msg):
+        if self._is_hot(weather):
             if 6 <= hour < 9:
-                banners.append(self.BANNERS["season"]["hot_morning"])
-            elif self._is_humid(status):
-                banners.append(self.BANNERS["season"]["hot_humid"])
+                key = "hot_morning"
+            elif self._is_humid(weather):
+                key = "hot_humid"
             else:
-                banners.append(self.BANNERS["season"]["hot_sunny"])
+                key = "hot_sunny"
+            if key in banners:
+                result.append(banners[key].to_dict())
 
-        # 3순위: 고정 배너 (시간대 기반 전체 추가)
+        # 3순위: 고정 배너 (시간대 기반)
         if hour < 17:
-            keys = ["dog", "healing"]
+            fixed_keys = ["dog", "healing"]
         elif hour < 21:
-            keys = ["dog", "healing", "night"]
+            fixed_keys = ["dog", "healing", "night"]
         else:
-            keys = ["night"]
+            fixed_keys = ["night"]
 
-        for key in keys:
-            banners.append(self.BANNERS["fixed"][key])
+        for key in fixed_keys:
+            if key in banners:
+                result.append(banners[key].to_dict())
 
-        return banners
+        return result

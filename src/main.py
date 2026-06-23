@@ -1,3 +1,4 @@
+from src.config.settings import settings  # noqa: F401 — LangSmith 트레이싱 활성화를 위해 최상단에 위치
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager

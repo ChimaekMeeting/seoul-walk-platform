@@ -47,28 +47,110 @@ async def get_facilities(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/points")
-def get_points(
+@router.get("/points/safety")
+def get_safety_points(
     lat: float,
     lon: float,
-    table_name: str,
-    type_col: Optional[str] = None,
-    type_val: Optional[str] = None,
     radius_m: int = 2000,
     service: MapService = Depends(get_map_service)
 ):
     """
-    input : lat, lon, table_name, type_col, type_val, radius_m
-    output: [{"lat", "lon"}, ...]
+    input : lat, lon, radius_m
+    output: [{"lat", "lon", "category"}, ...]
 
-    DB에서 반경 내 포인트 레이어 데이터를 조회해 반환
-    지원하지 않는 table_name 입력 시 400 반환
+    DB에서 반경 내 안전 시설물 포인트 전체를 조회해 반환
+    카테고리(cctv/streetlight) 필터링은 클라이언트가 수행
     """
     try:
-        df = service.fetch_db_points(lat, lon, table_name, type_col, type_val, radius_m)
+        df = service.fetch_safety_points(lat, lon, radius_m)
         return df.to_dict(orient="records")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/points/nature")
+def get_nature_points(
+    lat: float,
+    lon: float,
+    radius_m: int = 2000,
+    service: MapService = Depends(get_map_service)
+):
+    """
+    input : lat, lon, radius_m
+    output: [{"lat", "lon", "category"}, ...]
+
+    DB에서 반경 내 녹지 포인트 전체를 조회해 반환
+    카테고리(green_type) 필터링은 클라이언트가 수행
+    """
+    try:
+        df = service.fetch_nature_points(lat, lon, radius_m)
+        return df.to_dict(orient="records")
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/points/landmark")
+def get_landmark_points(
+    lat: float,
+    lon: float,
+    radius_m: int = 2000,
+    service: MapService = Depends(get_map_service)
+):
+    """
+    input : lat, lon, radius_m
+    output: [{"lat", "lon"}, ...]
+
+    DB에서 반경 내 랜드마크 포인트 전체를 조회해 반환
+    """
+    try:
+        df = service.fetch_landmark_points(lat, lon, radius_m)
+        return df.to_dict(orient="records")
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/points/child")
+def get_child_points(
+    lat: float,
+    lon: float,
+    radius_m: int = 2000,
+    service: MapService = Depends(get_map_service)
+):
+    """
+    input : lat, lon, radius_m
+    output: [{"lat", "lon", "category"}, ...]
+
+    DB에서 반경 내 어린이 시설 포인트 전체를 조회해 반환
+    카테고리 필터링은 클라이언트가 수행
+    """
+    try:
+        df = service.fetch_child_points(lat, lon, radius_m)
+        return df.to_dict(orient="records")
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/points/running")
+def get_running_points(
+    lat: float,
+    lon: float,
+    radius_m: int = 2000,
+    service: MapService = Depends(get_map_service)
+):
+    """
+    input : lat, lon, radius_m
+    output: [{"lat", "lon", "category"}, ...]
+
+    DB에서 반경 내 러닝 코스 포인트 전체를 조회해 반환
+    카테고리(course_type) 필터링은 클라이언트가 수행
+    """
+    try:
+        df = service.fetch_running_points(lat, lon, radius_m)
+        return df.to_dict(orient="records")
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

@@ -29,20 +29,16 @@ class MapRouter:
         except Exception:
             return []
 
-    def get_points(self, lat, lon, table_name, type_col=None, type_val=None, radius_m=2000) -> list:
+    def get_points(self, lat, lon, layer, radius_m=2000) -> list:
         """
-        input : lat, lon, table_name, type_col, type_val, radius_m
-        output: [{"lat", "lon"}, ...] 또는 실패 시 []
+        input : lat, lon, layer(safety/nature/landmark), radius_m
+        output: [{"lat", "lon", "category"?}, ...] 또는 실패 시 []
 
-        GET /api/map/points 호출
+        GET /api/map/points/{layer} 호출 (레이어 전체 반환, 카테고리 필터는 호출측에서)
         """
         try:
-            params = {"lat": lat, "lon": lon, "table_name": table_name, "radius_m": radius_m}
-            if type_col:
-                params["type_col"] = type_col
-            if type_val:
-                params["type_val"] = type_val
-            return httpx.get(f"{self.base_url}/points", params=params, timeout=10.0).json()
+            params = {"lat": lat, "lon": lon, "radius_m": radius_m}
+            return httpx.get(f"{self.base_url}/points/{layer}", params=params, timeout=10.0).json()
         except Exception:
             return []
 

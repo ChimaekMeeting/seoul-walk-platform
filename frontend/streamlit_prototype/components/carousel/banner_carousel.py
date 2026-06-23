@@ -73,12 +73,18 @@ class BannerCarousel:
         """
         배너 캐러셀 HTML, 선택 버튼, 모달 팝업을 렌더링합니다.
         """
+        if not banners:
+            return
+
         st_html(self._build_html(banners), height=160)
 
         modal = Modal(key="banner_modal", title="")
 
         if "selected_banner" not in st.session_state:
             st.session_state.selected_banner = None
+
+        if not banners:
+            return 
 
         cols = st.columns(len(banners))
         for i, (col, banner) in enumerate(zip(cols, banners)):

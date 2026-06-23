@@ -34,8 +34,13 @@ class NatureLayer:
                 flipped = [[c[1], c[0]] for c in row["path"]]
                 folium.PolyLine(locations=flipped, color="#00BFFF", weight=2, opacity=0.4).add_to(m)
 
-        df_cctv = self.map_layer.fetch_local_db_points(
-            center_lat, center_lon, "safety_layer", "safety_type", "cctv", radius_m=1000
+        df_safety = self.map_layer.fetch_local_db_points(
+            center_lat, center_lon, "safety", radius_m=1000
+        )
+        df_cctv = (
+            df_safety[df_safety["category"] == "cctv"]
+            if not df_safety.empty and "category" in df_safety.columns
+            else df_safety
         )
         if not df_cctv.empty:
             for _, row in df_cctv.iterrows():

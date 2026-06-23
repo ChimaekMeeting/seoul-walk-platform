@@ -1,34 +1,35 @@
 from sqlalchemy import select
 from src.database.postgresql import get_postgresql_db
-from src.entity.user import User
+from src.entity.user import User, Provider
 
 
 class UserRepository:
     @staticmethod
-    def save(uuid: str):
+    def save(provider: Provider, provider_id: str, nickname: str):
         """
-        새 사용자를 users 테이블에 저장합니다.
-
-        Args:
-            uuid : 저장할 사용자의 고유 식별자.
+        새 사용자를 저장합니다.
         """
         with get_postgresql_db() as db:
-            new_user = User(uuid=uuid)
+            new_user = User(
+                provider=provider,
+                provider_id=provider_id,
+                nickname=nickname
+            )
+
             db.add(new_user)
             db.commit()
+            db.refresh(new_user)
+
+            return new_user
 
     @staticmethod
-    def get_id_by_uuid(uuid: str):
+    def find_by_provider_and_provider_id(provider: Provider, provider_id: str):
         """
-        uuid를 기반으로 users 테이블의 PK(id)를 반환합니다.
-
-        Args:
-            uuid : 조회할 사용자의 고유 식별자.
-
-        Returns:
-            int | None: 사용자의 id. 존재하지 않으면 None.
+        provider_id를 기반으로 사용자를 조회합니다.
         """
         with get_postgresql_db() as db:
-            return db.execute(
-                select(User.id).where(User.uuid == uuid)
-            ).scalar_one_or_none()
+            query = select(User).where(
+                User.provider==provider,
+                User.provider_id==provider_id
+            )
+            return db.execute(query).scalar_one_or_none()

@@ -27,5 +27,4 @@ class WeatherChecker(GPTClient):
             },
             parser=self.str_parser
         )
-
-        return EnvironmentInfo(weather=weather_info, air=air_info), response
+        return EnvironmentInfo(weather=weather_info or {}, air=air_info or {}), response
