@@ -24,6 +24,7 @@ from src.route_engine.engines import (
 from src.route_engine.engines.path_utils import PathUtils
 from src.service.user.auth_service import AuthService
 from src.repository.user.user_repository import UserRepository
+from src.repository.user.route_history_repository import RouteHistoryRepository
 from src.interfaces.schema.auth_schema import Status
 from src.schema.route_schema import OnewayRouteInput, CircularRouteInput, Weights
 
@@ -59,10 +60,13 @@ class RouteService:
         custom_weights가 있으면 모드 프로필 대신 해당 가중치를 사용합니다.
         """
         # 사용자 인증
-        status, *_ = self.auth_service.check_access_token(access_token)
+        status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if status != Status.SUCCESS:
             return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
                                     fallback_reason=status)
+
+        # 추후 사용자에게 추천한 경로를 저장하기 위해 필요
+        user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
 
         # 매핑 가능한 모드가 없는 경우
         if mode not in self._circular_engines and mode not in self._oneway_engines:
@@ -85,7 +89,21 @@ class RouteService:
                                     fallback_reason=FallbackReason.INVALID_DESTINATION)
 
         # 3. 경로 생성
-        return engine.run()
+        result = engine.run()
+
+        if result.status == "SUCCESS" and user is not None:
+            RouteHistoryRepository.save(
+                user_id=user.id,
+                mode=mode,
+                origin_lat=origin.lat,
+                origin_lon=origin.lon,
+                coordinates=result.coordinates,
+                total_km=result.total_km,
+                destination_lat=destination.lat if destination else None,
+                destination_lon=destination.lon if destination else None,
+            )
+
+        return result
     
     def _build_engine(self, mode, origin, destination=None, target_km=None, custom_weights=None):
         """custom_weights를 엔진에 주입해 경로 생성 엔진 인스턴스를 반환합니다."""

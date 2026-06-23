@@ -24,6 +24,11 @@ class WalkRouteButton:
                     lambda token: WalkRouter().post_route(token, request.model_dump())
                 )
             )
+            if "detail" in raw and "status" not in raw:
+                return WalkRouteResponse(
+                    status="FAILED", mode=request.mode, coordinates=[], total_km=0.0,
+                    fallback_reason=raw["detail"],
+                )
             return WalkRouteResponse(**raw)
         except httpx.HTTPStatusError as e:
             detail = e.response.json().get("detail", "알 수 없는 오류가 발생했습니다.")
