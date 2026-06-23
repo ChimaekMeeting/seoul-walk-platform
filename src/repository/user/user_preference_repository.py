@@ -13,7 +13,6 @@ class UserPreferenceRepository:
     """
     user_preferences 테이블에 대한 CRUD를 담당합니다.
     """
-
     @staticmethod
     def find_survey_completed(user_id: int) -> bool:
         """
@@ -44,3 +43,12 @@ class UserPreferenceRepository:
             db.commit()
             db.refresh(preference)
             return preference
+
+    @staticmethod
+    def get_by_user_id(user_id: int) -> UserPreference | None:
+        """
+        user_id로 선호도 레코드를 조회합니다. 없으면 None을 반환합니다.
+        """
+        with get_postgresql_db() as db:
+            query = select(UserPreference).where(UserPreference.user_id == user_id)
+            return db.execute(query).scalar_one_or_none()

@@ -68,6 +68,15 @@ BASE_WEIGHTS: dict[str, float] = {
     "child":    0.5,
 }
 
+# 온보딩 설문 UI에 노출할 태그 목록. TAG_WEIGHT_MAP의 부분집합.
+SURVEY_TAGS: list[str] = [
+    "나무 많은", "꽃길", "초록",
+    "밤에도 안전한", "큰길",
+    "숨 안 차는", "뛰고 싶은", "운동",
+    "볼거리 많은", "야경이 예쁜", "힙한",
+    "조용한", "활기찬",
+    "어린이", "반려동물",
+]
 
 class SurveyService:
     """
