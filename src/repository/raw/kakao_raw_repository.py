@@ -18,7 +18,7 @@ class KakaoRawRepository:
 
     @staticmethod
     def save(items: list[dict], query_key: str) -> None:
-        exclude = {"lat", "lon", "name"}
+        exclude = {"lat", "lon"}
         records = []
         for item in items:
             try:
@@ -35,7 +35,6 @@ class KakaoRawRepository:
 
             records.append(KakaoRaw(
                 query_key=query_key,
-                name=item.get("name"),
                 geom=WKTElement(f"POINT({lon} {lat})", srid=4326),
                 properties=props or None,
             ))

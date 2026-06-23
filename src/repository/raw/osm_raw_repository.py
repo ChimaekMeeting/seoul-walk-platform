@@ -18,25 +18,23 @@ class OsmRawRepository:
 
     @staticmethod
     def save(gdf: gpd.GeoDataFrame, query_key: str) -> None:
-        geom_col = gdf.geometry.name
+        exclude = {gdf.geometry.name}
         records = []
 
         for _, row in gdf.iterrows():
             try:
-                wkt = row[geom_col].wkt
+                wkt = row[exclude].wkt
             except Exception:
                 continue
 
-            name_val = serialize(row.get("name"))
             props = {
                 col: serialize(row[col])
                 for col in row.index
-                if col not in (geom_col, "name")
+                if col not in exclude
             }
 
             records.append(OsmRaw(
                 query_key=query_key,
-                name=str(name_val) if name_val is not None else None,
                 geom=WKTElement(wkt, srid=4326),
                 properties=props or None,
             ))
