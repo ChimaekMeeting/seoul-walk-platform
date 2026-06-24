@@ -6,19 +6,11 @@ frontend/streamlit_prototype/modes/registry.py
 """
 from frontend.streamlit_prototype.modes.base import BaseRouteMode
 from frontend.streamlit_prototype.modes.circular import CircularMode
-from frontend.streamlit_prototype.modes.circular_child import CircularChildMode
-from frontend.streamlit_prototype.modes.circular_running import CircularRunningMode
 from frontend.streamlit_prototype.modes.oneway_shortest import OnewayShortestMode
 from frontend.streamlit_prototype.modes.oneway_random import OnewayRandomMode
-from frontend.streamlit_prototype.modes.oneway_child import OnewayChildMode
-from frontend.streamlit_prototype.modes.oneway_running import OnewayRunningMode
 
 ROUTE_MODES: list[BaseRouteMode] = [
     CircularMode(),
-    CircularChildMode(),
-    CircularRunningMode(),
     OnewayShortestMode(),
     OnewayRandomMode(),
-    OnewayChildMode(),
-    OnewayRunningMode(),
 ]

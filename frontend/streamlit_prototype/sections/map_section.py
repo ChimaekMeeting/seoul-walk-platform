@@ -16,5 +16,5 @@ def render_map(ctx: AppContext, sidebar: SidebarConfig) -> None:
     coordinate_panel을 통해 현재 출발지·도착지 좌표를 표시
     """
     ctx.walk_route_map.init_session_state()
-    ctx.walk_route_map.render(sidebar.input_mode)
+    ctx.walk_route_map.render(sidebar.input_mode, sidebar.mode)
     ctx.coordinate_panel.render()
