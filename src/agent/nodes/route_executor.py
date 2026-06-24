@@ -1,22 +1,16 @@
-﻿from typing import Union
-
-from langchain_core.output_parsers import StrOutputParser
+﻿from langchain_core.output_parsers import StrOutputParser
 
 from src.schema.prewalk_schema import State
-from src.interfaces.schema.walk_schema import CircularMode, OnewayMode, Coordinate
+from src.interfaces.schema.walk_schema import WalkMode, Coordinate
 from src.agent.tools.route_tools import RouteTool
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.utils.chatbot_utils import PromptUtils
 
 
-MODE_TOOL_MAP: dict[Union[CircularMode, OnewayMode], str] = {
-    CircularMode.RANDOM:  "circular_random_route",
-    CircularMode.CHILD:   "circular_child_route",
-    CircularMode.RUNNING: "circular_running_route",
-    OnewayMode.SHORTEST:  "oneway_shortest_route",
-    OnewayMode.RANDOM:    "oneway_random_route",
-    OnewayMode.CHILD:     "oneway_child_route",
-    OnewayMode.RUNNING:   "oneway_running_route",
+MODE_TOOL_MAP: dict[WalkMode, str] = {
+    WalkMode.CIRCULAR_RANDOM: "circular_random_route",
+    WalkMode.ONEWAY_SHORTEST: "oneway_shortest_route",
+    WalkMode.ONEWAY_RANDOM:   "oneway_random_route",
 }
 
 

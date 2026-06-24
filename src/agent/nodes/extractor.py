@@ -1,5 +1,4 @@
 ﻿from src.schema.prewalk_schema import State, Location
-from src.interfaces.schema.walk_schema import CircularMode, OnewayMode
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.utils.chatbot_utils import PromptUtils
 from src.agent.tools.mode_tools import ModeTool
