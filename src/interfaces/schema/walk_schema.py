@@ -41,21 +41,10 @@ class Coordinate(BaseModel):
         return self
 
 
-class CircularMode(str, Enum):
-    RANDOM   = "circular_random"
-    CHILD    = "circular_child"
-    RUNNING  = "circular_running"
-    LANDMARK = "circular_landmark"
-    FLAT     = "circular_flat"
-
-
-class OnewayMode(str, Enum):
-    SHORTEST = "oneway_shortest"
-    RANDOM   = "oneway_random"
-    CHILD    = "oneway_child"
-    RUNNING  = "oneway_running"
-    LANDMARK = "oneway_landmark"
-    FLAT     = "oneway_flat"
+class WalkMode(str, Enum):
+    CIRCULAR_RANDOM = "circular_random"
+    ONEWAY_SHORTEST = "oneway_shortest"
+    ONEWAY_RANDOM   = "oneway_random"
 
 
 class FallbackReason(str, Enum):
@@ -77,7 +66,7 @@ class WalkRouteRequest(BaseModel):
     origin:      Coordinate
     destination: Optional[Coordinate] = None
     target_km:   Optional[float] = None
-    mode:        Union[CircularMode, OnewayMode]
+    mode:        WalkMode
 
     @field_validator("target_km", mode="before")
     @classmethod
@@ -101,15 +90,15 @@ class WalkRouteRequest(BaseModel):
 
     @model_validator(mode="after")
     def check_oneway_requires_target_km(self) -> "WalkRouteRequest":
-        """VAL-DIST-005: 편도 모드에서 target_km 누락 차단"""
-        if isinstance(self.mode, OnewayMode) and self.target_km is None:
-            raise ValueError("편도 모드에서는 목표 산책 거리(target_km) 입력이 필수입니다.")
+        """VAL-DIST-005: 편도 랜덤 모드에서 target_km 누락 차단"""
+        if self.mode == WalkMode.ONEWAY_RANDOM and self.target_km is None:
+            raise ValueError("편도 랜덤 모드에서는 목표 산책 거리(target_km) 입력이 필수입니다.")
         return self
 
     @model_validator(mode="after")
     def check_target_km_vs_straight_dist(self) -> "WalkRouteRequest":
         if (
-            isinstance(self.mode, OnewayMode)
+            self.mode == WalkMode.ONEWAY_RANDOM
             and self.destination is not None
             and self.target_km is not None
         ):
@@ -123,7 +112,7 @@ class WalkRouteRequest(BaseModel):
     @model_validator(mode="after")
     def check_target_km_vs_dest_proximity(self) -> "WalkRouteRequest":
         if (
-            isinstance(self.mode, OnewayMode)
+            self.mode == WalkMode.ONEWAY_RANDOM
             and self.destination is not None
             and self.target_km is not None
         ):
@@ -137,7 +126,7 @@ class WalkRouteRequest(BaseModel):
 
 class WalkRouteResponse(BaseModel):
     status:          Literal["SUCCESS", "FAILED"]
-    mode:            Union[CircularMode, OnewayMode]
+    mode:            WalkMode
     coordinates:     list[list[float]]
     total_km:        float = 0.0
     fallback_reason: Optional[FallbackReason] = None

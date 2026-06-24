@@ -3,8 +3,7 @@ from typing import Optional, Union
 
 from src.interfaces.schema.walk_schema import (
     WalkRouteResponse,
-    CircularMode,
-    OnewayMode,
+    WalkMode,
     Coordinate,
     FallbackReason
 )
@@ -13,13 +12,9 @@ from src.schema.route_schema import (
     CircularRouteInput
 )
 from src.route_engine.engines import (
-    CircularChildEngine,
     CircularRandomEngine,
-    CircularRunningEngine,
-    OnewayChildEngine,
     OnewayDijkstraEngine,
     OnewayRandomEngine,
-    OnewayRunningEngine,
 )
 from src.route_engine.engines.path_utils import PathUtils
 from src.service.user.auth_service import AuthService
@@ -32,16 +27,10 @@ class RouteService:
         self.G = G
         self.auth_service = auth_service
         
-        self._circular_engines: dict = {
-            CircularMode.RANDOM:  CircularRandomEngine,
-            CircularMode.CHILD:   CircularChildEngine,
-            CircularMode.RUNNING: CircularRunningEngine,
-        }
-        self._oneway_engines: dict = {
-            OnewayMode.SHORTEST: OnewayDijkstraEngine,
-            OnewayMode.RANDOM:   OnewayRandomEngine,
-            OnewayMode.CHILD:    OnewayChildEngine,
-            OnewayMode.RUNNING:  OnewayRunningEngine,
+        self.base_engines: dict = {
+            WalkMode.CIRCULAR_RANDOM:  CircularRandomEngine,
+            WalkMode.ONEWAY_SHORTEST: OnewayDijkstraEngine,
+            WalkMode.ONEWAY_RANDOM:   OnewayRandomEngine,
         }
 
     def get_route(
@@ -50,7 +39,7 @@ class RouteService:
         origin: Coordinate,
         destination: Optional[Coordinate] = None,
         target_km: Optional[float] = None,
-        mode: Union[CircularMode, OnewayMode] = CircularMode.RANDOM
+        mode: WalkMode = WalkMode.CIRCULAR_RANDOM
     ) -> WalkRouteResponse:
         """
         context에 적합한 경로 생성 엔진을 호출합니다.
@@ -58,19 +47,29 @@ class RouteService:
         # 사용자 인증
         status, *_ = self.auth_service.check_access_token(access_token)
         if status != Status.SUCCESS:
-            return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
-                                    fallback_reason=status)
+            return WalkRouteResponse(
+                status="FAILED",
+                mode=mode,
+                coordinates=[],
+                total_km=0.0,
+                fallback_reason=status
+            )
 
         # 매핑 가능한 모드가 없는 경우
-        if mode not in self._circular_engines and mode not in self._oneway_engines:
-            return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
-                                    fallback_reason=FallbackReason.UNKNOWN_ERROR)
+        if mode not in self.base_engines:
+            return WalkRouteResponse(
+                status="FAILED",
+                mode=mode,
+                coordinates=[],
+                total_km=0.0,
+                fallback_reason=FallbackReason.UNKNOWN_ERROR
+            )
 
         # ROUT-NODE-001/002: 엔진 호출 전 보행 노드 존재 여부 선행 검증
         utils = PathUtils(self.G)
         if utils.find_nearest_node_with_expansion(origin.lat, origin.lon) is None:
             raise ValueError("출발지 주변에서 연결 가능한 보행 도로를 찾을 수 없습니다.")
-        if isinstance(mode, OnewayMode) and destination is not None:
+        if mode != WalkMode.CIRCULAR_RANDOM and destination is not None:
             if utils.find_nearest_node_with_expansion(destination.lat, destination.lon) is None:
                 raise ValueError("목적지 주변에서 연결 가능한 보행 도로를 찾을 수 없습니다.")
 
@@ -78,15 +77,20 @@ class RouteService:
         try:
             engine = self._build_engine(mode, origin, destination, target_km)
         except ValueError:
-            return WalkRouteResponse(status="FAILED", mode=mode, coordinates=[], total_km=0.0,
-                                    fallback_reason=FallbackReason.INVALID_DESTINATION)
+            return WalkRouteResponse(
+                status="FAILED",
+                mode=mode,
+                coordinates=[],
+                total_km=0.0,
+                fallback_reason=FallbackReason.INVALID_DESTINATION
+            )
 
         # 3. 경로 생성
         return engine.run()
     
     def _build_engine(
         self,
-        mode: Union[CircularMode, OnewayMode],
+        mode: WalkMode,
         origin: Coordinate,
         destination: Optional[Coordinate] = None,
         target_km: Optional[float] = None
@@ -95,13 +99,13 @@ class RouteService:
         경로 생성 엔진을 호출합니다.
         """
         # 1. 순환 모드인 경우
-        if mode in self._circular_engines:
+        if mode == WalkMode.CIRCULAR_RANDOM:
             inp = CircularRouteInput(
                 start_lat=origin.lat,
                 start_lon=origin.lon,
                 target_km=target_km
             )
-            engine_cls = self._circular_engines[mode]
+            engine_cls = self.base_engines[mode]
             return engine_cls(inp, self.G)
         
         # 2. 편도 모드인 경우
@@ -117,5 +121,5 @@ class RouteService:
             end_lon=destination.lon,
             target_km=target_km,
         )
-        engine_cls = self._oneway_engines[mode]
+        engine_cls = self.base_engines[mode]
         return engine_cls(inp, self.G)
