@@ -1,7 +1,6 @@
 from langchain_core.tools import StructuredTool
 
 from src.schema.prewalk_schema import Location, CircularPreference, OnewayPreference, OnewayShortestPreference
-from src.interfaces.schema.walk_schema import CircularMode, OnewayMode
 
 
 class ModeTool:
@@ -13,20 +12,20 @@ class ModeTool:
         ]
         self.tool_map = {t.name: t for t in self.tools}
 
-    def select_circular(self, origin: Location, mode: CircularMode, target_km: float) -> CircularPreference:
+    def select_circular(self, origin: Location, target_km: float) -> CircularPreference:
         """
-        순환 경로 모드를 선택합니다.
-        mode: circular_random(기본 산책), circular_child(어린이 동반), circular_running(러닝·조깅)
+        출발지 주변을 자유롭게 순환하는 산책 경로(circular_random)를 선택합니다.
+        목적지 없이 목표 거리만큼 걷고 싶을 때 사용하세요.
         """
-        return CircularPreference(origin=origin, mode=mode, target_km=target_km)
+        return CircularPreference(origin=origin, target_km=target_km)
 
 
-    def select_oneway(self, origin: Location, destination: Location, mode: OnewayMode, target_km: float) -> OnewayPreference:
+    def select_oneway(self, origin: Location, destination: Location, target_km: float) -> OnewayPreference:
         """
-        편도 경로 모드를 선택합니다.
-        mode: oneway_random(목적지 우회), oneway_child(어린이 동반), oneway_running(러닝·조깅)
+        목적지까지 목표 거리를 채우며 우회하는 편도 경로(oneway_random)를 선택합니다.
+        목적지가 있지만 중간 경로를 다양하게 탐색하고 싶을 때 사용하세요.
         """
-        return OnewayPreference(origin=origin, destination=destination, mode=mode, target_km=target_km)
+        return OnewayPreference(origin=origin, destination=destination, target_km=target_km)
 
 
     def select_oneway_shortest(self, origin: Location, destination: Location) -> OnewayShortestPreference:

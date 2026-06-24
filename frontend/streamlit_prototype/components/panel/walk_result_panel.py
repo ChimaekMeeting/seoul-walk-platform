@@ -1,7 +1,7 @@
 import streamlit as st
 
 from frontend.streamlit_prototype.schema.walk_schema import (
-    CircularMode,
+    WalkMode,
     WalkRouteResponse,
     WalkRouteStatus,
 )
@@ -12,7 +12,7 @@ class WalkResultPanel:
     def render(self, result: dict):
         """경로 결과 요약 패널을 렌더링합니다."""
         response   = WalkRouteResponse(**result)
-        mode_label = "순환 🔄" if response.mode in CircularMode else "편도 ➡️"
+        mode_label = "순환 🔄" if response.mode == WalkMode.CIRCULAR_RANDOM else "편도 ➡️"
         time_min   = round(response.total_km / 4.0 * 60)
 
         st.divider()

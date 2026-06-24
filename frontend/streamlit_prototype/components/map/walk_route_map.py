@@ -6,9 +6,6 @@ import streamlit as st
 from streamlit.components.v1 import html
 from streamlit_folium import st_folium
 
-from frontend.streamlit_prototype.components.layer.nature_layer import NatureLayer
-from frontend.streamlit_prototype.components.layer.map_layer import MapLayer
-
 
 _SEOUL_CENTER = [37.5665, 126.9780]
 
@@ -27,8 +24,6 @@ class WalkRouteMap:
     def __init__(self, G):
         self.mapbox_token = os.getenv("MAPBOX_API_KEY")
         self.G = G
-        self.nature_layer = NatureLayer()
-        self.map_layer = MapLayer()
 
     def inject_geolocation_js(self) -> None:
         """
@@ -72,18 +67,26 @@ class WalkRouteMap:
             if key not in st.session_state:
                 st.session_state[key] = val
 
-    def render(self, input_mode: str) -> None:
+    def render(self, input_mode: str, mode=None) -> None:
         """
         설정 모드 선택, 지도 렌더링, 클릭 이벤트 처리를 포함한 대화형 지도 섹션을 렌더링합니다.
+        mode.needs_destination에 따라 출발지만(순환) 또는 출발지+도착지(편도) 선택 UI를 노출합니다.
         """
+        needs_dest = getattr(mode, "needs_destination", True)
+
         if input_mode == "직접 설정":
-            st.radio(
-                "설정 모드",
-                options=["start", "end"],
-                format_func=lambda x: "출발지 설정" if x == "start" else "도착지 설정",
-                horizontal=True,
-                key="mode",
-            )
+            if needs_dest:
+                st.radio(
+                    "설정 모드",
+                    options=["start", "end"],
+                    format_func=lambda x: "출발지 설정" if x == "start" else "도착지 설정",
+                    horizontal=True,
+                    key="mode",
+                )
+            else:
+                # 순환 모드: 도착지 미사용 → 출발지만 설정
+                st.session_state.mode = "start"
+                st.session_state.end = None
             label = "출발지" if st.session_state.mode == "start" else "도착지"
             st.info(f"📍 **{label}** 설정 중 — 지도를 클릭하세요")
 
@@ -102,28 +105,9 @@ class WalkRouteMap:
                 st.session_state.end = clicked
                 st.rerun()
 
-    def _add_nature_markers(self, m: folium.Map, center_lat: float, center_lon: float) -> None:
-        """
-        자연 마커를 Folium 지도에 추가합니다.
-        """
-        df_nature = self.map_layer.fetch_local_db_points(
-            center_lat, center_lon, "nature", radius_m=1000
-        )
-        if not df_nature.empty:
-            for _, row in df_nature.iterrows():
-                folium.CircleMarker(
-                    location=[row["lat"], row["lon"]],
-                    radius=3,
-                    color="#2ECC71",
-                    fill=True,
-                    fill_color="#2ECC71",
-                    fill_opacity=0.7,
-                    tooltip=row.get("green_type", "자연"),
-                ).add_to(m)
-
     def build(self, center: list) -> folium.Map:
         """
-        세션 상태를 기반으로 마커, 경로 폴리라인, 자연·도보 네트워크 오버레이가 포함된 Folium 지도를 생성합니다.
+        세션 상태를 기반으로 출발/도착 마커와 경로 폴리라인이 포함된 Folium 지도를 생성합니다.
         """
         m = folium.Map(location=center, zoom_start=15, tiles="cartodbpositron")
 
@@ -151,13 +135,6 @@ class WalkRouteMap:
                 tooltip=f"총 {st.session_state.route_distance}km",
             ).add_to(m)
             m.fit_bounds(st.session_state.route_coordinates)
-
-            if st.session_state.get("route_result"):
-                self.nature_layer.add_to_map(
-                    m, center[0], center[1],
-                    st.session_state.route_coordinates,
-                )
-                self._add_nature_markers(m, center[0], center[1])
 
         if st.session_state.start and st.session_state.end:
             m.fit_bounds([st.session_state.start, st.session_state.end])

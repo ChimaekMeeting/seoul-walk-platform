@@ -13,6 +13,7 @@ class RouteParams:
 class BaseRouteMode(ABC):
     label:    ClassVar[str]
     mode_key: ClassVar[str]
+    needs_destination: ClassVar[bool] = False  # 도착지 입력 필요 여부 (편도=True, 순환=False)
 
     def default_params(self) -> RouteParams:
         return RouteParams(mode_key=self.mode_key, target_km=3.0)

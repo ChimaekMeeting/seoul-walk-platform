@@ -77,6 +77,7 @@ for _mod in [
     "src.repository.utils",
     "src.repository.user.user_repository",
     "src.repository.user.user_preference_repository",
+    "src.repository.user.route_history_repository",
     "src.repository.chat.chat_session_repository",
     "src.repository.layer.child_repository",
     "src.repository.layer.landmark_repository",

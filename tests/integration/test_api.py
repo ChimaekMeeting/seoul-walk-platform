@@ -25,7 +25,7 @@ from src.main import app
 from src.interfaces.schema.walk_schema import (
     WalkRouteResponse,
     WalkRouteStatus,
-    CircularMode,
+    WalkMode,
 )
 from src.interfaces.schema.auth_schema import Status
 from src.interfaces.schema.survey_schema import SurveyResponse, SurveyStatus
@@ -60,7 +60,7 @@ class TestWalkRouteAPI:
         mock_service = MagicMock()
         mock_service.get_route.return_value = WalkRouteResponse(
             status=WalkRouteStatus.SUCCESS,
-            mode=CircularMode.RANDOM,
+            mode=WalkMode.CIRCULAR_RANDOM,
             coordinates=[[37.5, 127.0], [37.51, 127.01], [37.5, 127.0]],
             total_km=3.1,
         )
@@ -84,7 +84,7 @@ class TestWalkRouteAPI:
         mock_service = MagicMock()
         mock_service.get_route.return_value = WalkRouteResponse(
             status=WalkRouteStatus.SUCCESS,
-            mode="oneway_shortest",
+            mode=WalkMode.ONEWAY_SHORTEST,
             coordinates=[[37.5, 127.0], [37.55, 127.05], [37.6, 127.1]],
             total_km=7.2,
         )
@@ -105,7 +105,7 @@ class TestWalkRouteAPI:
         mock_service = MagicMock()
         mock_service.get_route.return_value = WalkRouteResponse(
             status=WalkRouteStatus.NO_NEAREST_START_NODE,
-            mode=CircularMode.RANDOM,
+            mode=WalkMode.CIRCULAR_RANDOM,
             coordinates=[],
             total_km=0.0,
         )
@@ -125,7 +125,7 @@ class TestWalkRouteAPI:
         mock_service = MagicMock()
         mock_service.get_route.return_value = WalkRouteResponse(
             status=WalkRouteStatus.NO_PATH,
-            mode=CircularMode.RANDOM,
+            mode=WalkMode.CIRCULAR_RANDOM,
             coordinates=[],
             total_km=0.0,
         )
@@ -144,7 +144,7 @@ class TestWalkRouteAPI:
         mock_service = MagicMock()
         mock_service.get_route.return_value = WalkRouteResponse(
             status=WalkRouteStatus.INVALID_DESTINATION,
-            mode="oneway_shortest",
+            mode=WalkMode.ONEWAY_SHORTEST,
             coordinates=[],
             total_km=0.0,
         )
@@ -165,7 +165,7 @@ class TestWalkRouteAPI:
         mock_service = MagicMock()
         mock_service.get_route.return_value = WalkRouteResponse(
             status=WalkRouteStatus.UNKNOWN_ERROR,
-            mode=CircularMode.RANDOM,
+            mode=WalkMode.CIRCULAR_RANDOM,
             coordinates=[],
             total_km=0.0,
         )

@@ -111,16 +111,16 @@ JWT 토큰 발급, 검증, 만료, 상태 반환 로직을 검증해요.
 | `TestRemoveDeadEnds` | degree=1 노드 반복 제거, 원본 그래프 보호, 사이클 그래프 |
 | `TestPruneDeadEnds` | 왕복 가지 제거, max_branch_length 경계값 |
 
-### `test_route_service.py` — RouteService (16개)
+### `test_route_service.py` — RouteService
 
-모드에 따라 올바른 경로 생성 엔진이 선택되는지 검증해요.
+기본 3개 모드에서 status 기반 응답과 엔진 선택이 올바른지 검증해요.
 
 | 클래스 | 검증 내용 |
 |---|---|
-| `TestUnknownMode` | 알 수 없는 모드 → ValidationError 발생 확인 (이슈 #1) |
-| `TestOnewayWithoutDestination` | 편도 모드에 destination 없으면 FAILED 반환 |
-| `TestCircularModeRouting` | 순환 모드별 엔진 호출 및 결과 전달 |
-| `TestOnewayModeRouting` | 편도 모드별 엔진 호출 및 결과 전달 |
+| `TestAuthFailure` | 인증 실패 시 access/invalid token status 반환 |
+| `TestUnknownMode` | 알 수 없는 모드 → ValidationError 발생 확인 |
+| `TestOnewayWithoutDestination` | 편도 모드에 destination 없으면 invalid_destination 반환 |
+| `TestModeRouting` | circular_random / oneway_shortest / oneway_random 엔진 호출 및 결과 전달 |
 
 ### `test_scoring_engine.py` — ScoringEngine (16개)
 

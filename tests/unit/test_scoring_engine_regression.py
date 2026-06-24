@@ -6,8 +6,9 @@ scoring_engine.calculate_custom_score의 "현재 동작"을 고정하는 회귀 
   - score/profile을 확장하거나 scoring_engine을 일반화 리팩토링하기 전에,
     지금 시점의 custom_score 계산 방향(증가/감소)을 스냅샷처럼 남긴다.
   - 정확한 수치가 아니라 "어떤 score가 높아지면 cost가 어느 방향으로 움직이는가"만 검증한다.
-  - src/route_engine/profiles.py의 실제 PROFILES를 그대로 사용해서,
-    profile 가중치가 바뀌어도 이 테스트가 그 변화를 감지하게 한다.
+  - default(general) 프로파일은 src/route_engine/profiles.py의 실제 PROFILES를 사용한다.
+  - child/landmark/running 가중치는 현재 모드(3개)에서 사용되지 않지만 scoring_engine은
+    여전히 해당 score들을 계산하므로, 가중치를 인라인으로 구성해 방향 회귀를 고정한다.
 
 주의:
   - slope_score는 general 모드와 running 모드에서 반대 방향으로 작동한다
@@ -19,8 +20,9 @@ scoring_engine.calculate_custom_score의 "현재 동작"을 고정하는 회귀 
 import networkx as nx
 
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
-from src.route_engine.profiles import PROFILES
-from src.interfaces.schema.walk_schema import CircularMode
+from src.route_engine.profiles import PROFILES, ProfileConfig
+from src.interfaces.schema.walk_schema import WalkMode
+from src.schema.route_schema import Weights
 
 # ── 그래프 헬퍼 ──────────────────────────────────────────────────────────────
 
@@ -58,10 +60,14 @@ def profile_payload(config, mode: str) -> dict:
     }
 
 
-DEFAULT_PROFILE  = profile_payload(PROFILES[CircularMode.RANDOM],   mode="general")
-CHILD_PROFILE    = profile_payload(PROFILES[CircularMode.CHILD],    mode="general")
-LANDMARK_PROFILE = profile_payload(PROFILES[CircularMode.LANDMARK], mode="general")
-RUNNING_PROFILE  = profile_payload(PROFILES[CircularMode.RUNNING],  mode="running")
+_CHILD    = ProfileConfig(weights=Weights(safety=1.0, nature=0.3, slope=1.0, child=1.0),    blocked_tags=["underground", "highway"])
+_LANDMARK = ProfileConfig(weights=Weights(safety=0.5, nature=0.5, slope=0.3, landmark=1.0), blocked_tags=["underground"])
+_RUNNING  = ProfileConfig(weights=Weights(safety=0.5, nature=0.5, slope=0.7, running=1.0),  blocked_tags=["underground"])
+
+DEFAULT_PROFILE  = profile_payload(PROFILES[WalkMode.CIRCULAR_RANDOM], mode="general")
+CHILD_PROFILE    = profile_payload(_CHILD,    mode="general")
+LANDMARK_PROFILE = profile_payload(_LANDMARK, mode="general")
+RUNNING_PROFILE  = profile_payload(_RUNNING,  mode="running")
 
 
 # ── 1. default/general profile: safety/nature/slope가 높으면 cost가 낮다 ────

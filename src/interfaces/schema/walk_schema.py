@@ -1,4 +1,4 @@
-from typing import Optional, List, Union
+from typing import Optional
 from pydantic import BaseModel, field_validator, model_validator
 from enum import Enum
 
@@ -41,44 +41,33 @@ class Coordinate(BaseModel):
         return self
 
 
-class CircularMode(str, Enum):
-    RANDOM   = "circular_random"
-    CHILD    = "circular_child"
-    RUNNING  = "circular_running"
-    LANDMARK = "circular_landmark"
-    FLAT     = "circular_flat"
-
-
-class OnewayMode(str, Enum):
-    SHORTEST = "oneway_shortest"
-    RANDOM   = "oneway_random"
-    CHILD    = "oneway_child"
-    RUNNING  = "oneway_running"
-    LANDMARK = "oneway_landmark"
-    FLAT     = "oneway_flat"
+class WalkMode(str, Enum):
+    CIRCULAR_RANDOM = "circular_random"
+    ONEWAY_SHORTEST = "oneway_shortest"
+    ONEWAY_RANDOM = "oneway_random"
 
 
 class WalkRouteStatus(str, Enum):
-    SUCCESS                = "success"
-    INVALID_ORIGIN         = "invalid_origin"
-    INVALID_DESTINATION    = "invalid_destination"
-    NO_NEAREST_START_NODE  = "no_nearest_start_node"
-    NO_NEAREST_END_NODE    = "no_nearest_end_node"
-    NO_PATH                = "no_path"
-    RETURN_PATH_NOT_FOUND  = "return_path_not_found"
-    PARTIAL_ROUTE          = "partial_route"
-    WEIGHT_RELAXED         = "weight_relaxed"
-    RADIUS_EXPANDED        = "radius_expanded"
-    UNKNOWN_ERROR          = "unknown_error"
-    ACCESS_EXPIRED_TOKEN   = "access_expired_token"
-    INVALID_TOKEN          = "invalid_token"
+    SUCCESS = "success"
+    INVALID_ORIGIN = "invalid_origin"
+    INVALID_DESTINATION = "invalid_destination"
+    NO_NEAREST_START_NODE = "no_nearest_start_node"
+    NO_NEAREST_END_NODE = "no_nearest_end_node"
+    NO_PATH = "no_path"
+    RETURN_PATH_NOT_FOUND = "return_path_not_found"
+    PARTIAL_ROUTE = "partial_route"
+    WEIGHT_RELAXED = "weight_relaxed"
+    RADIUS_EXPANDED = "radius_expanded"
+    UNKNOWN_ERROR = "unknown_error"
+    ACCESS_EXPIRED_TOKEN = "access_expired_token"
+    INVALID_TOKEN = "invalid_token"
 
 
 class WalkRouteRequest(BaseModel):
-    origin:      Coordinate
+    origin: Coordinate
     destination: Optional[Coordinate] = None
-    target_km:   Optional[float] = None
-    mode:        Union[CircularMode, OnewayMode]
+    target_km: Optional[float] = None
+    mode: WalkMode
 
     @field_validator("target_km", mode="before")
     @classmethod
@@ -102,42 +91,46 @@ class WalkRouteRequest(BaseModel):
 
     @model_validator(mode="after")
     def check_oneway_requires_target_km(self) -> "WalkRouteRequest":
-        """VAL-DIST-005: 편도 모드에서 target_km 누락 차단"""
-        if isinstance(self.mode, OnewayMode) and self.target_km is None:
-            raise ValueError("편도 모드에서는 목표 산책 거리(target_km) 입력이 필수입니다.")
+        """VAL-DIST-005: 편도 랜덤 모드에서 target_km 누락 차단"""
+        if self.mode == WalkMode.ONEWAY_RANDOM and self.target_km is None:
+            raise ValueError("편도 랜덤 모드에서는 목표 산책 거리(target_km) 입력이 필수입니다.")
         return self
 
     @model_validator(mode="after")
     def check_target_km_vs_straight_dist(self) -> "WalkRouteRequest":
         if (
-            isinstance(self.mode, OnewayMode)
+            self.mode == WalkMode.ONEWAY_RANDOM
             and self.destination is not None
             and self.target_km is not None
         ):
             validate_target_km_vs_straight_dist(
                 self.target_km,
-                self.origin.lat, self.origin.lon,
-                self.destination.lat, self.destination.lon,
+                self.origin.lat,
+                self.origin.lon,
+                self.destination.lat,
+                self.destination.lon,
             )
         return self
 
     @model_validator(mode="after")
     def check_target_km_vs_dest_proximity(self) -> "WalkRouteRequest":
         if (
-            isinstance(self.mode, OnewayMode)
+            self.mode == WalkMode.ONEWAY_RANDOM
             and self.destination is not None
             and self.target_km is not None
         ):
             validate_target_km_vs_dest_proximity(
                 self.target_km,
-                self.origin.lat, self.origin.lon,
-                self.destination.lat, self.destination.lon,
+                self.origin.lat,
+                self.origin.lon,
+                self.destination.lat,
+                self.destination.lon,
             )
         return self
 
 
 class WalkRouteResponse(BaseModel):
-    status:      WalkRouteStatus
-    mode:        Union[CircularMode, OnewayMode]
+    status: WalkRouteStatus
+    mode: WalkMode
     coordinates: list[list[float]]
-    total_km:    float = 0.0
+    total_km: float = 0.0

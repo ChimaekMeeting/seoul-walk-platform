@@ -1,26 +1,21 @@
 import logging
-from typing import Optional, Union
+from typing import Optional
 
 import networkx as nx
 
 from src.interfaces.schema.auth_schema import Status
 from src.interfaces.schema.walk_schema import (
-    CircularMode,
     Coordinate,
-    OnewayMode,
+    WalkMode,
     WalkRouteResponse,
     WalkRouteStatus,
 )
 from src.repository.user.route_history_repository import RouteHistoryRepository
 from src.repository.user.user_repository import UserRepository
 from src.route_engine.engines import (
-    CircularChildEngine,
     CircularRandomEngine,
-    CircularRunningEngine,
-    OnewayChildEngine,
     OnewayDijkstraEngine,
     OnewayRandomEngine,
-    OnewayRunningEngine,
 )
 from src.route_engine.engines.path_utils import PathUtils
 from src.schema.route_schema import CircularRouteInput, OnewayRouteInput, Weights
@@ -34,16 +29,10 @@ class RouteService:
         self.G = G
         self.auth_service = auth_service
 
-        self._circular_engines: dict = {
-            CircularMode.RANDOM: CircularRandomEngine,
-            CircularMode.CHILD: CircularChildEngine,
-            CircularMode.RUNNING: CircularRunningEngine,
-        }
-        self._oneway_engines: dict = {
-            OnewayMode.SHORTEST: OnewayDijkstraEngine,
-            OnewayMode.RANDOM: OnewayRandomEngine,
-            OnewayMode.CHILD: OnewayChildEngine,
-            OnewayMode.RUNNING: OnewayRunningEngine,
+        self.base_engines: dict = {
+            WalkMode.CIRCULAR_RANDOM: CircularRandomEngine,
+            WalkMode.ONEWAY_SHORTEST: OnewayDijkstraEngine,
+            WalkMode.ONEWAY_RANDOM: OnewayRandomEngine,
         }
 
     def get_route(
@@ -52,7 +41,7 @@ class RouteService:
         origin: Coordinate,
         destination: Optional[Coordinate] = None,
         target_km: Optional[float] = None,
-        mode: Union[CircularMode, OnewayMode] = CircularMode.RANDOM,
+        mode: WalkMode = WalkMode.CIRCULAR_RANDOM,
         custom_weights: Optional[Weights] = None,
     ) -> WalkRouteResponse:
         """
@@ -78,7 +67,7 @@ class RouteService:
                 total_km=0.0,
             )
 
-        if mode not in self._circular_engines and mode not in self._oneway_engines:
+        if mode not in self.base_engines:
             logger.warning("walk route unknown mode: mode=%s", mode)
             return WalkRouteResponse(
                 status=WalkRouteStatus.UNKNOWN_ERROR,
@@ -97,7 +86,7 @@ class RouteService:
                 total_km=0.0,
             )
 
-        if isinstance(mode, OnewayMode) and destination is not None:
+        if mode != WalkMode.CIRCULAR_RANDOM and destination is not None:
             if utils.find_nearest_node_with_expansion(destination.lat, destination.lon) is None:
                 logger.warning("walk route no nearest end node: mode=%s", mode)
                 return WalkRouteResponse(
@@ -144,16 +133,20 @@ class RouteService:
 
     def _build_engine(
         self,
-        mode: Union[CircularMode, OnewayMode],
+        mode: WalkMode,
         origin: Coordinate,
         destination: Optional[Coordinate] = None,
         target_km: Optional[float] = None,
         custom_weights: Optional[Weights] = None,
     ):
         """custom_weights를 엔진에 주입해 경로 생성 엔진 인스턴스를 반환합니다."""
-        if mode in self._circular_engines:
-            inp = CircularRouteInput(start_lat=origin.lat, start_lon=origin.lon, target_km=target_km)
-            return self._circular_engines[mode](inp, self.G, custom_weights=custom_weights)
+        if mode == WalkMode.CIRCULAR_RANDOM:
+            inp = CircularRouteInput(
+                start_lat=origin.lat,
+                start_lon=origin.lon,
+                target_km=target_km,
+            )
+            return self.base_engines[mode](inp, self.G, custom_weights=custom_weights)
 
         if destination is None:
             raise ValueError(f"{mode} 모드에서는 destination이 필요합니다")
@@ -165,4 +158,4 @@ class RouteService:
             end_lon=destination.lon,
             target_km=target_km,
         )
-        return self._oneway_engines[mode](inp, self.G, custom_weights=custom_weights)
+        return self.base_engines[mode](inp, self.G, custom_weights=custom_weights)

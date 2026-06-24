@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 class CircularRouteInput(BaseModel):
     start_lat: float
     start_lon: float
-    target_km: float | None = None
+    target_km: Optional[float] = None
 
 
 class OnewayRouteInput(BaseModel):
@@ -13,7 +13,7 @@ class OnewayRouteInput(BaseModel):
     start_lon: float
     end_lat:   float
     end_lon:   float
-    target_km: float | None = None
+    target_km: Optional[float] = None
 
 
 class Weights(BaseModel):
