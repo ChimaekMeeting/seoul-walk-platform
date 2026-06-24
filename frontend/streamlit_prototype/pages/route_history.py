@@ -14,6 +14,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from frontend.streamlit_prototype.api.user_router import UserRouter
+from frontend.streamlit_prototype.api.favorite_router import FavoriteRouter
 
 _MODE_LABELS: dict[str, str] = {
     "circular_random":  "순환 산책",
@@ -91,6 +92,7 @@ def _render_history_list(histories: list[dict]) -> None:
         return
 
     selected_id = st.session_state.get("selected_history_id")
+    access_token = st.session_state.get("access_token", "")
 
     for h in histories:
         from datetime import datetime, timezone
@@ -99,9 +101,10 @@ def _render_history_list(histories: list[dict]) -> None:
         mode_label = _MODE_LABELS.get(h["mode"], h["mode"])
         time_min = round(h["total_km"] / 4.0 * 60)
         is_selected = h["id"] == selected_id
+        is_favorite = h.get("is_favorite", False)
 
         with st.container(border=True):
-            col1, col2, col3, col4, col5 = st.columns([2, 2, 1, 1, 1])
+            col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1, 1, 1, 1])
             with col1:
                 st.markdown(f"**{date_str}**")
             with col2:
@@ -111,6 +114,15 @@ def _render_history_list(histories: list[dict]) -> None:
             with col4:
                 st.markdown(f"약 {time_min}분")
             with col5:
+                fav_label = "★ 저장됨" if is_favorite else "☆ 저장"
+                if st.button(fav_label, key=f"fav_{h['id']}"):
+                    try:
+                        _run_async(FavoriteRouter().toggle_favorite(access_token, h["id"]))
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"저장 변경 실패: {e}")
+            with col6:
                 label = "닫기" if is_selected else "지도 보기"
                 if st.button(label, key=f"btn_{h['id']}"):
                     if is_selected:
