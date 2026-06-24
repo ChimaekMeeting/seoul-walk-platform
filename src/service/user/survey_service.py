@@ -5,10 +5,11 @@ src/service/user/survey_service.py
 키워드 태그를 경로 가중치로 변환하고 UserPreference에 저장한다.
 """
 from src.interfaces.schema.auth_schema import Status
-from src.interfaces.schema.survey_schema import DistanceOption, SurveyRequest, SurveyResponse, SurveyStatus
 from src.repository.user.user_preference_repository import UserPreferenceRepository
 from src.repository.user.user_repository import UserRepository
 from src.service.user.auth_service import AuthService
+from src.interfaces.schema.survey_schema import DistanceOption, SurveyRequest, SurveyResponse, SurveyStatus, SurveyStatusResponse
+
 
 TAG_WEIGHT_MAP: dict[str, dict[str, float]] = {
     # nature: 자연 친화도
@@ -121,6 +122,31 @@ class SurveyService:
 
         return SurveyResponse(
             status=SurveyStatus.SUCCESS,
+            default_target_km=preference.default_target_km,
+            weights_safety=preference.weights_safety,
+            weights_nature=preference.weights_nature,
+            weights_slope=preference.weights_slope,
+            weights_running=preference.weights_running,
+            weights_landmark=preference.weights_landmark,
+            weights_child=preference.weights_child,
+        )
+    
+    def get_status(self, access_token: str | None) -> SurveyStatusResponse:
+        """사용자의 설문 완료 여부와 저장된 가중치를 반환합니다."""
+        status, provider, provider_id = self.auth_service.check_access_token(access_token)
+        if status != Status.SUCCESS:
+            return SurveyStatusResponse(survey_completed=False)
+
+        user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
+        if user is None:
+            return SurveyStatusResponse(survey_completed=False)
+
+        preference = UserPreferenceRepository.get_by_user_id(user.id)
+        if preference is None or not preference.survey_completed:
+            return SurveyStatusResponse(survey_completed=False)
+
+        return SurveyStatusResponse(
+            survey_completed=True,
             default_target_km=preference.default_target_km,
             weights_safety=preference.weights_safety,
             weights_nature=preference.weights_nature,

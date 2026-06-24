@@ -8,7 +8,7 @@ src/interfaces/api/user_router.py
 from fastapi import APIRouter, Cookie, Depends, HTTPException
 
 from src.interfaces.dependencies import get_survey_service, get_auth_service, get_user_service
-from src.interfaces.schema.survey_schema import SurveyRequest, SurveyResponse
+from src.interfaces.schema.survey_schema import SurveyRequest, SurveyResponse, SurveyStatusResponse
 from src.interfaces.schema.user_schema import (
     UserMeResponse, UserUpdateRequest, UserUpdateResponse,
     RouteHistoryResponse, RouteHistoryItem,
@@ -145,3 +145,12 @@ def get_route_history(
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/survey", response_model=SurveyStatusResponse)
+def get_survey_status(
+    access_token: str = Cookie(None),
+    service: SurveyService = Depends(get_survey_service),
+):
+    """설문 완료 여부를 반환합니다."""
+    return service.get_status(access_token)
