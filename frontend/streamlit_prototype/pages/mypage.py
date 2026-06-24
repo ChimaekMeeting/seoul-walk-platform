@@ -16,6 +16,7 @@ import streamlit as st
 
 from frontend.streamlit_prototype.api.user_router import UserRouter
 from frontend.streamlit_prototype.api.auth_client import call_with_auto_refresh
+from datetime import datetime
 
 _BACKEND_URL = "http://localhost:8000"
 _AUTH_KEYS = ("access_token", "refresh_token", "nickname", "initialized", "thread_id")
@@ -34,24 +35,6 @@ if not st.session_state.get("access_token"):
     st.stop()
 # ─────────────────────────────────────────────────────────────────────────────
 
-
-# ── Mock 데이터 ──────────────────────────────────────────────────────────────
-MOCK_STATS = {
-    "total_count": 12,
-    "total_km": 45.3,
-    "this_month_count": 3,
-}
-
-MOCK_HISTORY = [
-    {"date": "2024-06-20", "mode": "순환 랜덤",    "total_km": 4.2, "time_min": 63},
-    {"date": "2024-06-17", "mode": "편도 최단거리", "total_km": 2.8, "time_min": 42},
-    {"date": "2024-06-14", "mode": "순환 어린이",   "total_km": 3.5, "time_min": 53},
-    {"date": "2024-06-10", "mode": "편도 랜덤",     "total_km": 5.1, "time_min": 77},
-    {"date": "2024-06-05", "mode": "순환 러닝",     "total_km": 6.0, "time_min": 90},
-]
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 def _run_async(coro):
     try:
         loop = asyncio.get_running_loop()
@@ -59,6 +42,19 @@ def _run_async(coro):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
     return loop.run_until_complete(coro)
+
+
+def _fetch_routes() -> list:
+    """경로 기록을 API에서 조회합니다. 실패 시 빈 리스트 반환."""
+    try:
+        result = _run_async(
+            call_with_auto_refresh(
+                lambda token: _user_router.get_routes(token)
+            )
+        )
+        return result.get("histories", [])
+    except Exception:
+        return []
 
 
 async def _call_logout():
@@ -113,35 +109,55 @@ def render_profile():
                     st.error("저장에 실패했습니다.")
 
 
-def render_stats():
+def render_stats(histories: list):
     st.divider()
     st.markdown("## 📊 산책 통계")
 
+    total_count = len(histories)
+    total_km    = round(sum(h.get("total_km", 0) for h in histories), 1)
+    this_month  = datetime.now().month
+    this_month_count = sum(
+        1 for h in histories
+        if datetime.fromisoformat(h["created_at"]).month == this_month
+    )
+
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("총 산책 횟수", f"{MOCK_STATS['total_count']}회")
+        st.metric("총 산책 횟수", f"{total_count}회")
     with col2:
-        st.metric("총 산책 거리", f"{MOCK_STATS['total_km']} km")
+        st.metric("총 산책 거리", f"{total_km} km")
     with col3:
-        st.metric("이번 달 산책", f"{MOCK_STATS['this_month_count']}회")
+        st.metric("이번 달 산책", f"{this_month_count}회")
 
 
-def render_history():
+def render_history(histories: list):
     st.divider()
     st.markdown("## 🗓️ 산책 기록")
 
-    # TODO: GET /api/walk/history 호출로 교체
-    for record in MOCK_HISTORY:
+    if not histories:
+        st.info("아직 산책 기록이 없어요.")
+        return
+
+    for record in histories:
         with st.container(border=True):
             col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
             with col1:
-                st.markdown(f"**{record['date']}**")
+                date_str = record["created_at"][:10]
+                st.markdown(f"**{date_str}**")
             with col2:
-                st.markdown(record["mode"])
+                st.markdown(record.get("mode", ""))
             with col3:
                 st.markdown(f"{record.get('total_km', 0)} km")
             with col4:
-                st.markdown(f"{record['time_min']} 분")
+                is_fav = record.get("is_favorite", False)
+                label  = "★" if is_fav else "☆"
+                if st.button(label, key=f"fav_{record['id']}"):
+                    _run_async(
+                        call_with_auto_refresh(
+                            lambda token, rid=record["id"]: _user_router.toggle_favorite(token, rid)
+                        )
+                    )
+                    st.rerun()
 
 
 def render_logout():
@@ -156,7 +172,9 @@ def render_logout():
         st.rerun()
 
 
+histories = _fetch_routes()
+
 render_profile()
-render_stats()
-render_history()
+render_stats(histories)
+render_history(histories)
 render_logout()
