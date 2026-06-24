@@ -70,3 +70,4 @@ class State(BaseModel):
     is_complete: bool = False
     user_prompt: str  = ""
     response:    str  = ""
+    themes: List[str] = []

@@ -1,5 +1,5 @@
 import networkx as nx
-from typing import Optional, Union
+from typing import Optional
 
 from src.interfaces.schema.walk_schema import (
     WalkRouteResponse,
@@ -9,7 +9,8 @@ from src.interfaces.schema.walk_schema import (
 )
 from src.schema.route_schema import (
     OnewayRouteInput,
-    CircularRouteInput
+    CircularRouteInput,
+    Weights,
 )
 from src.route_engine.engines import (
     CircularRandomEngine,
@@ -19,6 +20,7 @@ from src.route_engine.engines import (
 from src.route_engine.engines.path_utils import PathUtils
 from src.service.user.auth_service import AuthService
 from src.repository.user.user_repository import UserRepository
+from src.repository.user.route_history_repository import RouteHistoryRepository
 from src.interfaces.schema.auth_schema import Status
 
 
@@ -26,9 +28,9 @@ class RouteService:
     def __init__(self, G: nx.Graph, auth_service: AuthService):
         self.G = G
         self.auth_service = auth_service
-        
+
         self.base_engines: dict = {
-            WalkMode.CIRCULAR_RANDOM:  CircularRandomEngine,
+            WalkMode.CIRCULAR_RANDOM: CircularRandomEngine,
             WalkMode.ONEWAY_SHORTEST: OnewayDijkstraEngine,
             WalkMode.ONEWAY_RANDOM:   OnewayRandomEngine,
         }
@@ -39,13 +41,15 @@ class RouteService:
         origin: Coordinate,
         destination: Optional[Coordinate] = None,
         target_km: Optional[float] = None,
-        mode: WalkMode = WalkMode.CIRCULAR_RANDOM
+        mode: WalkMode = WalkMode.CIRCULAR_RANDOM,
+        custom_weights: Optional[Weights] = None,
     ) -> WalkRouteResponse:
         """
         context에 적합한 경로 생성 엔진을 호출합니다.
+        custom_weights가 있으면 모드 프로필 대신 해당 가중치를 사용합니다.
         """
         # 사용자 인증
-        status, *_ = self.auth_service.check_access_token(access_token)
+        status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if status != Status.SUCCESS:
             return WalkRouteResponse(
                 status="FAILED",
@@ -54,6 +58,9 @@ class RouteService:
                 total_km=0.0,
                 fallback_reason=status
             )
+
+        # 추후 사용자에게 추천한 경로를 저장하기 위해 필요
+        user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
 
         # 매핑 가능한 모드가 없는 경우
         if mode not in self.base_engines:
@@ -75,7 +82,7 @@ class RouteService:
 
         # 엔진 생성
         try:
-            engine = self._build_engine(mode, origin, destination, target_km)
+            engine = self._build_engine(mode, origin, destination, target_km, custom_weights)
         except ValueError:
             return WalkRouteResponse(
                 status="FAILED",
@@ -85,35 +92,48 @@ class RouteService:
                 fallback_reason=FallbackReason.INVALID_DESTINATION
             )
 
-        # 3. 경로 생성
-        return engine.run()
-    
+        # 경로 생성
+        result = engine.run()
+
+        # 성공 시 추천 경로 기록 저장
+        if result.status == "SUCCESS" and user is not None:
+            RouteHistoryRepository.save(
+                user_id=user.id,
+                mode=mode,
+                origin_lat=origin.lat,
+                origin_lon=origin.lon,
+                coordinates=result.coordinates,
+                total_km=result.total_km,
+                destination_lat=destination.lat if destination else None,
+                destination_lon=destination.lon if destination else None,
+            )
+
+        return result
+
     def _build_engine(
         self,
         mode: WalkMode,
         origin: Coordinate,
         destination: Optional[Coordinate] = None,
-        target_km: Optional[float] = None
+        target_km: Optional[float] = None,
+        custom_weights: Optional[Weights] = None,
     ):
         """
-        경로 생성 엔진을 호출합니다.
+        custom_weights를 엔진에 주입해 경로 생성 엔진 인스턴스를 반환합니다.
         """
-        # 1. 순환 모드인 경우
+        # 1. 순환 모드
         if mode == WalkMode.CIRCULAR_RANDOM:
             inp = CircularRouteInput(
                 start_lat=origin.lat,
                 start_lon=origin.lon,
-                target_km=target_km
+                target_km=target_km,
             )
-            engine_cls = self.base_engines[mode]
-            return engine_cls(inp, self.G)
-        
-        # 2. 편도 모드인 경우
+            return self.base_engines[mode](inp, self.G, custom_weights=custom_weights)
 
-        # 목적지가 없는 경우
+        # 2. 편도 모드 (목적지 필수)
         if destination is None:
             raise ValueError(f"{mode} 모드에서는 destination이 필요합니다")
-        
+
         inp = OnewayRouteInput(
             start_lat=origin.lat,
             start_lon=origin.lon,
@@ -121,5 +141,4 @@ class RouteService:
             end_lon=destination.lon,
             target_km=target_km,
         )
-        engine_cls = self.base_engines[mode]
-        return engine_cls(inp, self.G)
+        return self.base_engines[mode](inp, self.G, custom_weights=custom_weights)

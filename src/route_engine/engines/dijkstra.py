@@ -1,4 +1,5 @@
 import networkx as nx
+from typing import Optional
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
@@ -7,7 +8,7 @@ from src.interfaces.schema.walk_schema import (
     WalkMode,
     WalkRouteResponse
 )
-from src.schema.route_schema import OnewayRouteInput
+from src.schema.route_schema import OnewayRouteInput, Weights
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 
@@ -15,14 +16,15 @@ class OnewayDijkstraEngine:
     def __init__(
         self,
         inp: OnewayRouteInput,
-        G: nx.Graph
+        G: nx.Graph,
+        custom_weights: Optional[Weights] = None,
     ):
         self.inp          = inp
         self.G            = G.copy()  # 원본 그래프 보호
         self.utils        = PathUtils(self.G)
         self.mode         = WalkMode.ONEWAY_SHORTEST
         profile           = get_profile("default")
-        self.weights      = profile.weights
+        self.weights      = custom_weights or profile.weights
         self.blocked_tags = profile.blocked_tags
 
     def run(self) -> WalkRouteResponse:

@@ -1,5 +1,6 @@
 import networkx as nx
 import random
+from typing import Optional
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
@@ -8,7 +9,7 @@ from src.interfaces.schema.walk_schema import (
     FallbackReason,
     WalkRouteResponse
 )
-from src.schema.route_schema import CircularRouteInput
+from src.schema.route_schema import CircularRouteInput, Weights
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 
@@ -16,14 +17,15 @@ class CircularRandomEngine:
     def __init__(
         self,
         inp: CircularRouteInput,
-        G: nx.Graph
+        G: nx.Graph,
+        custom_weights: Optional[Weights] = None,
     ):
         self.inp          = inp
         self.G            = G.copy()  # 원본 그래프 보호
         self.utils        = PathUtils(self.G)
         self.mode         = WalkMode.CIRCULAR_RANDOM
         profile           = get_profile(self.mode)
-        self.weights      = profile.weights
+        self.weights      = custom_weights or profile.weights
         self.blocked_tags = profile.blocked_tags
 
     def run(self) -> WalkRouteResponse:

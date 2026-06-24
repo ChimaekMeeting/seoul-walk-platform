@@ -34,6 +34,8 @@ template: |
   - [Destination Candidates]에서 번호나 이름 언급 → 해당 후보 정보 할당
   - 새 장소명 언급 → place_name만 기록
   - 순환(select_circular) 모드에서는 null
+  - "자연친화적인 길", "조용한 길", "야경이 예쁜 곳" 등 길의 분위기·특성을 묘사하는 표현은 장소명이 아님 → destination null, select_circular로 처리
+
 
   **target_km (목표 거리)**
   - 숫자 언급 시 해당 값(float) 사용
@@ -63,6 +65,10 @@ template: |
   - "여기서 5km 러닝하고 싶어"
     → select_circular(origin=current_location, target_km=5.0, mode="circular_running")
     이유: 목적지 없음, 러닝 언급
+
+  - "시청역 근처에서 자연친화적인 길을 걷고 싶어"
+    → select_circular(origin="시청역", target_km=3.0, mode="circular_random")
+    이유: "자연친화적인 길"은 장소명이 아니라 분위기 묘사 → 테마 추출로 처리
 
   ### [사용자 입력]
   [User Input]: {user_input}
