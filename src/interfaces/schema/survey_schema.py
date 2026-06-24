@@ -51,3 +51,14 @@ class SurveyResponse(BaseModel):
     weights_running: Optional[float] = None
     weights_landmark: Optional[float] = None
     weights_child: Optional[float] = None
+    
+class SurveyStatusResponse(BaseModel):
+    """설문 완료 여부 및 저장된 가중치 조회 응답 스키마입니다."""
+    survey_completed: bool
+    default_target_km: Optional[float] = None
+    weights_safety: Optional[float] = None
+    weights_nature: Optional[float] = None
+    weights_slope: Optional[float] = None
+    weights_running: Optional[float] = None
+    weights_landmark: Optional[float] = None
+    weights_child: Optional[float] = None

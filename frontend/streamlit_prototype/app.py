@@ -16,6 +16,7 @@ from frontend.streamlit_prototype.sections.header import render_header
 from frontend.streamlit_prototype.sections.sidebar import render_sidebar, apply_input_mode
 from frontend.streamlit_prototype.sections.map_section import render_map
 from frontend.streamlit_prototype.sections.result_section import render_result
+from frontend.streamlit_prototype.sections.survey import require_survey
 
 class App:    
     def __init__(self):
@@ -24,11 +25,14 @@ class App:
 
     def run(self) -> None:
         # 앱의 전체 렌더링 흐름을 섹션 순서대로 실행
-        ctx           = self._ctx
+        ctx = self._ctx
         setup_page(ctx.walk_route_map)
 
         # 로그인 게이트: 미로그인 시 로그인 UI만 렌더링하고 중단
         if not require_login():
+            return
+        
+        if not require_survey():
             return
 
         lat, lng, env = render_header(ctx)
