@@ -12,45 +12,75 @@ from src.interfaces.schema.walk_schema import (
     CircularMode,
     OnewayMode,
     Coordinate,
-    FallbackReason,
+    WalkRouteStatus,
     WalkRouteResponse,
 )
+from src.interfaces.schema.auth_schema import Status
 
 # ── 공통 픽스처 ──────────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def empty_graph():
-    return nx.Graph()
+    """
+    완전히 빈 그래프는 PathUtils.find_nearest_node()의 connected_components
+    탐색에서 ValueError를 일으키므로, 보행 노드 선행 검증(ROUT-NODE-001/002)을
+    통과할 수 있게 출발/도착 좌표 근처에 노드를 하나씩 둔다.
+    """
+    G = nx.Graph()
+    G.add_node(1, lat=37.5, lon=127.0)
+    G.add_node(2, lat=37.6, lon=127.1)
+    G.add_edge(1, 2, length=1000)
+    return G
 
 
 @pytest.fixture
-def service(empty_graph):
-    return RouteService(empty_graph)
+def auth_service():
+    mock = MagicMock()
+    mock.check_access_token.return_value = (Status.SUCCESS, None, None)
+    return mock
 
 
+@pytest.fixture
+def service(empty_graph, auth_service):
+    return RouteService(empty_graph, auth_service)
+
+
+ACCESS_TOKEN = "dummy-access-token"
 ORIGIN = Coordinate(lat=37.5, lon=127.0)
 DEST = Coordinate(lat=37.6, lon=127.1)
 
 SUCCESS_RESPONSE = WalkRouteResponse(
-    status="SUCCESS",
+    status=WalkRouteStatus.SUCCESS,
     mode=CircularMode.RANDOM,
     coordinates=[[37.5, 127.0], [37.51, 127.01]],
     total_km=1.5,
 )
 
 FAILED_RESPONSE = WalkRouteResponse(
-    status="FAILED",
+    status=WalkRouteStatus.NO_PATH,
     mode=CircularMode.RANDOM,
     coordinates=[],
     total_km=0.0,
-    fallback_reason=FallbackReason.NO_PATH,
 )
 
 
+# ── 인증 실패 ────────────────────────────────────────────────────────────────
+
+
+class TestAuthFailure:
+    def test_토큰이_만료되면_access_expired_token_status를_반환한다(self, service, auth_service):
+        auth_service.check_access_token.return_value = (Status.ACCESS_EXPIRED_TOKEN, None, None)
+        result = service.get_route(ACCESS_TOKEN, origin=ORIGIN, mode=CircularMode.RANDOM)
+        assert result.status == WalkRouteStatus.ACCESS_EXPIRED_TOKEN
+
+    def test_토큰이_유효하지_않으면_invalid_token_status를_반환한다(self, service, auth_service):
+        auth_service.check_access_token.return_value = (Status.INVALID_TOKEN, None, None)
+        result = service.get_route(ACCESS_TOKEN, origin=ORIGIN, mode=CircularMode.RANDOM)
+        assert result.status == WalkRouteStatus.INVALID_TOKEN
+
+
 # ── 알 수 없는 모드 ──────────────────────────────────────────────────────────
-# 실제 코드에서 WalkRouteResponse(mode="invalid_mode")가 Pydantic ValidationError를
-# 발생시키는 버그가 있어요. 테스트는 그 예외를 확인하는 방향으로 작성해요.
 
 
 class TestUnknownMode:
@@ -64,17 +94,16 @@ class TestUnknownMode:
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
-            service.get_route(origin=ORIGIN, mode="invalid_mode")
+            service.get_route(ACCESS_TOKEN, origin=ORIGIN, mode="invalid_mode")
 
 
 # ── 편도 모드 destination 누락 ────────────────────────────────────────────────
 
 
 class TestOnewayWithoutDestination:
-    def test_편도_모드에_destination_없으면_FAILED를_반환한다(self, service):
-        result = service.get_route(origin=ORIGIN, mode=OnewayMode.SHORTEST)
-        assert result.status == "FAILED"
-        assert result.fallback_reason == FallbackReason.INVALID_DESTINATION
+    def test_편도_모드에_destination_없으면_invalid_destination을_반환한다(self, service):
+        result = service.get_route(ACCESS_TOKEN, origin=ORIGIN, mode=OnewayMode.SHORTEST)
+        assert result.status == WalkRouteStatus.INVALID_DESTINATION
 
     @pytest.mark.parametrize(
         "mode",
@@ -85,9 +114,9 @@ class TestOnewayWithoutDestination:
             OnewayMode.RUNNING,
         ],
     )
-    def test_모든_편도_모드에서_destination_없으면_FAILED다(self, service, mode):
-        result = service.get_route(origin=ORIGIN, mode=mode)
-        assert result.status == "FAILED"
+    def test_모든_편도_모드에서_destination_없으면_실패_status다(self, service, mode):
+        result = service.get_route(ACCESS_TOKEN, origin=ORIGIN, mode=mode)
+        assert result.status != WalkRouteStatus.SUCCESS
 
 
 # ── 순환 모드 엔진 라우팅 ────────────────────────────────────────────────────
@@ -110,7 +139,7 @@ class TestCircularModeRouting:
         MockEngineClass = MagicMock(return_value=mock_engine_instance)
 
         service._circular_engines[mode] = MockEngineClass
-        service.get_route(origin=ORIGIN, mode=mode, target_km=3.0)
+        service.get_route(ACCESS_TOKEN, origin=ORIGIN, mode=mode, target_km=3.0)
 
         MockEngineClass.assert_called_once()
 
@@ -120,21 +149,20 @@ class TestCircularModeRouting:
         MockEngineClass = MagicMock(return_value=mock_engine_instance)
 
         service._circular_engines[CircularMode.RANDOM] = MockEngineClass
-        result = service.get_route(origin=ORIGIN, mode=CircularMode.RANDOM)
+        result = service.get_route(ACCESS_TOKEN, origin=ORIGIN, mode=CircularMode.RANDOM)
 
-        assert result.status == "SUCCESS"
+        assert result.status == WalkRouteStatus.SUCCESS
         assert result.total_km == 1.5
 
-    def test_엔진이_FAILED를_반환하면_그대로_전달된다(self, service):
+    def test_엔진이_실패_status를_반환하면_그대로_전달된다(self, service):
         mock_engine_instance = MagicMock()
         mock_engine_instance.run.return_value = FAILED_RESPONSE
         MockEngineClass = MagicMock(return_value=mock_engine_instance)
 
         service._circular_engines[CircularMode.RANDOM] = MockEngineClass
-        result = service.get_route(origin=ORIGIN, mode=CircularMode.RANDOM)
+        result = service.get_route(ACCESS_TOKEN, origin=ORIGIN, mode=CircularMode.RANDOM)
 
-        assert result.status == "FAILED"
-        assert result.fallback_reason == FallbackReason.NO_PATH
+        assert result.status == WalkRouteStatus.NO_PATH
 
 
 # ── 편도 모드 엔진 라우팅 ────────────────────────────────────────────────────
@@ -156,7 +184,7 @@ class TestOnewayModeRouting:
         MockEngineClass = MagicMock(return_value=mock_engine_instance)
 
         service._oneway_engines[mode] = MockEngineClass
-        service.get_route(origin=ORIGIN, destination=DEST, mode=mode)
+        service.get_route(ACCESS_TOKEN, origin=ORIGIN, destination=DEST, mode=mode)
 
         MockEngineClass.assert_called_once()
 
@@ -167,7 +195,7 @@ class TestOnewayModeRouting:
 
         service._oneway_engines[OnewayMode.SHORTEST] = MockEngineClass
         result = service.get_route(
-            origin=ORIGIN, destination=DEST, mode=OnewayMode.SHORTEST
+            ACCESS_TOKEN, origin=ORIGIN, destination=DEST, mode=OnewayMode.SHORTEST
         )
 
-        assert result.status == "SUCCESS"
+        assert result.status == WalkRouteStatus.SUCCESS

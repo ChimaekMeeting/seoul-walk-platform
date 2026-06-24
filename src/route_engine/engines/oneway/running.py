@@ -5,7 +5,7 @@ from typing import Optional
 import networkx as nx
 
 from src.interfaces.schema.running_schema import CourseInfo, OnewayRunningResponse
-from src.interfaces.schema.walk_schema import FallbackReason, OnewayMode, WalkRouteResponse
+from src.interfaces.schema.walk_schema import WalkRouteStatus, OnewayMode, WalkRouteResponse
 from src.repository.layer.running_repository import RunningRepository
 from src.repository.network.graph_repository import GraphRepository
 from src.route_engine.engines.path_utils import PathUtils
@@ -34,16 +34,14 @@ class OnewayRunningEngine:
         self._G              = self._load_graph()
 
         if self._G.number_of_nodes() == 0:
-            return WalkRouteResponse(status="FAILED", mode=self.mode,
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
+            return WalkRouteResponse(status=WalkRouteStatus.NO_NEAREST_START_NODE, mode=self.mode,
+                               coordinates=[], total_km=0.0)
 
         self._remove_invalid_nodes()
 
         if self._G.number_of_nodes() == 0:
-            return WalkRouteResponse(status="FAILED", mode=self.mode,
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
+            return WalkRouteResponse(status=WalkRouteStatus.NO_NEAREST_START_NODE, mode=self.mode,
+                               coordinates=[], total_km=0.0)
 
         calculate_custom_score(self._G, {
             "mode": "running",
@@ -58,30 +56,26 @@ class OnewayRunningEngine:
 
         # 출발 노드가 없는 경우
         if start is None:
-            return WalkRouteResponse(status="FAILED", mode=self.mode,
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
+            return WalkRouteResponse(status=WalkRouteStatus.NO_NEAREST_START_NODE, mode=self.mode,
+                               coordinates=[], total_km=0.0)
         if end is None:
-            return WalkRouteResponse(status="FAILED", mode=self.mode,
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_NEAREST_END_NODE)
+            return WalkRouteResponse(status=WalkRouteStatus.NO_NEAREST_END_NODE, mode=self.mode,
+                               coordinates=[], total_km=0.0)
 
         nodes, _ = self._generate_route(start, end)
         if not nodes:
-            return WalkRouteResponse(status="FAILED", mode=self.mode,
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_PATH)
+            return WalkRouteResponse(status=WalkRouteStatus.NO_PATH, mode=self.mode,
+                               coordinates=[], total_km=0.0)
 
         print(f"[running/oneway] 완료 {time.time()-t0:.2f}s")
         pruned  = self._utils.prune_dead_ends(nodes, max_branch_length=300)
         coords  = self._utils.extract_coordinates(pruned)
         total_m = self._calc_distance(pruned)
         return WalkRouteResponse(
-            status          = "SUCCESS" if coords else "FAILED",
-            mode            = self.mode,
-            coordinates     = coords,
-            total_km        = round(total_m / 1000, 2),
-            fallback_reason = None,
+            status      = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
+            mode        = self.mode,
+            coordinates = coords,
+            total_km    = round(total_m / 1000, 2),
         )
 
     def _fetch_courses(self) -> list[CourseInfo]:

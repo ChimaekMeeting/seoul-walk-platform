@@ -2,7 +2,7 @@ import networkx as nx
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.interfaces.schema.walk_schema import CircularMode, FallbackReason, WalkRouteResponse
+from src.interfaces.schema.walk_schema import CircularMode, WalkRouteStatus, WalkRouteResponse
 from src.schema.route_schema import CircularRouteInput
 
 
@@ -25,9 +25,8 @@ class CircularFlatEngine:
         """
         start = self._utils.find_nearest_node(self._inp.start_lat, self._inp.start_lon)
         if start is None:
-            return WalkRouteResponse(status="FAILED", mode=self.mode,
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
+            return WalkRouteResponse(status=WalkRouteStatus.NO_NEAREST_START_NODE, mode=self.mode,
+                               coordinates=[], total_km=0.0)
 
         entry = self._find_flat_entry(start)
         self.flat_entry_node = entry
@@ -37,19 +36,17 @@ class CircularFlatEngine:
         path_nodes, total_dist = self._return_phase(path_nodes, total_dist, start)
 
         if not path_nodes:
-            return WalkRouteResponse(status="FAILED", mode=self.mode,
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_PATH)
+            return WalkRouteResponse(status=WalkRouteStatus.NO_PATH, mode=self.mode,
+                               coordinates=[], total_km=0.0)
 
         pruned               = self._utils.prune_dead_ends(path_nodes)
         self.avg_slope_score = self._calc_avg_slope(pruned)
         coords               = self._utils.extract_coordinates(pruned)
         return WalkRouteResponse(
-            status          = "SUCCESS" if coords else "FAILED",
-            mode            = self.mode,
-            coordinates     = coords,
-            total_km        = round(total_m / 1000, 2),
-            fallback_reason = None,
+            status      = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
+            mode        = self.mode,
+            coordinates = coords,
+            total_km    = round(total_m / 1000, 2),
         )
 
     def _find_flat_entry(self, start: int) -> int:

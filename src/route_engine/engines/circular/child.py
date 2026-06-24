@@ -1,6 +1,6 @@
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
-from src.interfaces.schema.walk_schema import CircularMode, FallbackReason, WalkRouteResponse
+from src.interfaces.schema.walk_schema import CircularMode, WalkRouteStatus, WalkRouteResponse
 from src.schema.route_schema import CircularRouteInput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
@@ -37,9 +37,8 @@ class CircularChildEngine:
         # 출발 노드가 없는 경우
         if start is None:
             return WalkRouteResponse(
-                status="FAILED", mode=self.mode,
+                status=WalkRouteStatus.NO_NEAREST_START_NODE, mode=self.mode,
                 coordinates=[], total_km=0.0,
-                fallback_reason=FallbackReason.NO_NEAREST_START_NODE,
             )
 
         best: dict | None = None
@@ -57,20 +56,18 @@ class CircularChildEngine:
 
         if best is None or not best.get("nodes"):
             return WalkRouteResponse(
-                status="FAILED", mode=self.mode,
+                status=WalkRouteStatus.NO_PATH, mode=self.mode,
                 coordinates=[], total_km=0.0,
-                fallback_reason=FallbackReason.NO_PATH,
             )
 
         self.child_index   = best["child_index"]
         self.child_profile = best["child_profile"]
         coords             = best["coords"]
         return WalkRouteResponse(
-            status          = "SUCCESS" if coords else "FAILED",
-            mode            = self.mode,
-            coordinates     = coords,
-            total_km        = round(total_m / 1000, 2),
-            fallback_reason = None,
+            status      = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
+            mode        = self.mode,
+            coordinates = coords,
+            total_km    = round(total_m / 1000, 2),
         )
 
     def _annotate(self, coords: list[list[float]], places: list[dict]) -> dict:

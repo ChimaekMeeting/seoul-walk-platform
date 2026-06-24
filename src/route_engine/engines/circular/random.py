@@ -4,7 +4,7 @@ from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
 from src.interfaces.schema.walk_schema import (
     CircularMode,
-    FallbackReason,
+    WalkRouteStatus,
     WalkRouteResponse
 )
 from src.schema.route_schema import CircularRouteInput
@@ -42,26 +42,23 @@ class CircularRandomEngine:
 
         # 출발 노드가 없는 경우
         if start is None:
-            return WalkRouteResponse(status="FAILED", mode=self.mode,
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_NEAREST_START_NODE)
+            return WalkRouteResponse(status=WalkRouteStatus.NO_NEAREST_START_NODE, mode=self.mode,
+                               coordinates=[], total_km=0.0)
         
         # 경로 생성
         nodes = self._utils.circular_random_walk(start, self._inp.target_km or 3.0)
 
         # 경로가 없는 경우
         if not nodes:
-            return WalkRouteResponse(status="FAILED", mode=self.mode,
-                               coordinates=[], total_km=0.0,
-                               fallback_reason=FallbackReason.NO_PATH)
+            return WalkRouteResponse(status=WalkRouteStatus.NO_PATH, mode=self.mode,
+                               coordinates=[], total_km=0.0)
 
         pruned  = self._utils.prune_dead_ends(nodes)       # 왕복 가지 제거
         coords  = self._utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
         total_m = self._utils.calc_distance(pruned)        # 총 이동 거리(미터)
         return WalkRouteResponse(
-            status          = "SUCCESS" if coords else "FAILED",
-            mode            = self.mode,
-            coordinates     = coords,
-            total_km        = round(total_m / 1000, 2),
-            fallback_reason = None,
+            status      = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
+            mode        = self.mode,
+            coordinates = coords,
+            total_km    = round(total_m / 1000, 2),
         )

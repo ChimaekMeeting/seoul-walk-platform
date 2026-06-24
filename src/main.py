@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
 
+from src.config.logging import setup_logging
 from src.entity.base import init_db
 from src.interfaces.dependencies import init_route_service
 from src.interfaces.api import (
@@ -20,6 +21,7 @@ from src.interfaces.api import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()
     init_db()
     init_route_service()
     yield

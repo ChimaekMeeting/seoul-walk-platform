@@ -1,4 +1,4 @@
-from typing import Optional, List, Literal, Union
+from typing import Optional, List, Union
 from pydantic import BaseModel, field_validator, model_validator
 from enum import Enum
 
@@ -58,19 +58,20 @@ class OnewayMode(str, Enum):
     FLAT     = "oneway_flat"
 
 
-class FallbackReason(str, Enum):
+class WalkRouteStatus(str, Enum):
+    SUCCESS                = "success"
+    INVALID_ORIGIN         = "invalid_origin"
+    INVALID_DESTINATION    = "invalid_destination"
+    NO_NEAREST_START_NODE  = "no_nearest_start_node"
+    NO_NEAREST_END_NODE    = "no_nearest_end_node"
+    NO_PATH                = "no_path"
+    RETURN_PATH_NOT_FOUND  = "return_path_not_found"
+    PARTIAL_ROUTE          = "partial_route"
+    WEIGHT_RELAXED         = "weight_relaxed"
+    RADIUS_EXPANDED        = "radius_expanded"
+    UNKNOWN_ERROR          = "unknown_error"
     ACCESS_EXPIRED_TOKEN   = "access_expired_token"
     INVALID_TOKEN          = "invalid_token"
-    INVALID_ORIGIN         = "INVALID_ORIGIN"
-    INVALID_DESTINATION    = "INVALID_DESTINATION"
-    NO_NEAREST_START_NODE  = "NO_NEAREST_START_NODE"
-    NO_NEAREST_END_NODE    = "NO_NEAREST_END_NODE"
-    NO_PATH                = "NO_PATH"
-    RETURN_PATH_NOT_FOUND  = "RETURN_PATH_NOT_FOUND"
-    PARTIAL_ROUTE          = "PARTIAL_ROUTE"
-    WEIGHT_RELAXED         = "WEIGHT_RELAXED"
-    RADIUS_EXPANDED        = "RADIUS_EXPANDED"
-    UNKNOWN_ERROR          = "UNKNOWN_ERROR"
 
 
 class WalkRouteRequest(BaseModel):
@@ -136,8 +137,7 @@ class WalkRouteRequest(BaseModel):
 
 
 class WalkRouteResponse(BaseModel):
-    status:          Literal["SUCCESS", "FAILED"]
-    mode:            Union[CircularMode, OnewayMode]
-    coordinates:     list[list[float]]
-    total_km:        float = 0.0
-    fallback_reason: Optional[FallbackReason] = None
+    status:      WalkRouteStatus
+    mode:        Union[CircularMode, OnewayMode]
+    coordinates: list[list[float]]
+    total_km:    float = 0.0

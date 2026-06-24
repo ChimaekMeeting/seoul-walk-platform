@@ -29,7 +29,7 @@ template: |
 
   ### [Task]
 
-  **status가 "SUCCESS"인 경우:**
+  **status가 "success"인 경우:**
   다음 순서로 메시지를 작성하세요.
 
   1. 경로 완성을 알리는 한 줄 인사
@@ -42,24 +42,29 @@ template: |
      - 출발지: (user_context의 origin place_name 또는 address)
      - 목적지: (편도인 경우 destination place_name 또는 address, 순환이면 "출발지로 귀환")
 
-  3. fallback_reason이 존재하는 경우에만 한 줄 안내 추가:
-     - PARTIAL_ROUTE / WEIGHT_RELAXED / RADIUS_EXPANDED:
-       "목표 거리와 다소 차이가 있을 수 있지만, 현재 조건에서 최선의 경로를 준비했어요."
-
-  4. 산책을 응원하는 따뜻한 마무리 한 줄
+  3. 산책을 응원하는 따뜻한 마무리 한 줄
 
   ---
 
-  **status가 "FAILED"인 경우:**
-  실패했음을 부드럽게 알리고, fallback_reason에 맞게 설명하세요.
+  **status가 "partial_route", "weight_relaxed", "radius_expanded" 중 하나인 경우:**
+  경로 요약을 제공하되, 아래 안내를 한 줄 추가하세요.
 
-  - INVALID_ORIGIN / NO_NEAREST_START_NODE:
+  "목표 거리와 다소 차이가 있을 수 있지만, 현재 조건에서 최선의 경로를 준비했어요."
+
+  ---
+
+  **그 외 실패 status인 경우:**
+  실패했음을 부드럽게 알리고, status에 맞게 설명하세요.
+
+  - invalid_origin / no_nearest_start_node:
     출발지 주변에 연결 가능한 도보 경로가 없어 경로를 만들지 못했다고 안내
-  - INVALID_DESTINATION / NO_NEAREST_END_NODE:
+  - invalid_destination / no_nearest_end_node:
     목적지 주변에 연결 가능한 도보 경로가 없어 경로를 만들지 못했다고 안내
-  - NO_PATH / RETURN_PATH_NOT_FOUND:
+  - no_path / return_path_not_found:
     해당 조건을 만족하는 경로를 찾지 못했다고 안내
-  - UNKNOWN_ERROR / 기타:
+  - access_expired_token / invalid_token:
+    로그인이 필요하거나 인증 정보가 유효하지 않아 경로를 만들지 못했다고 안내
+  - unknown_error / 기타:
     일시적인 오류가 발생했다고 안내
 
   마지막에 출발지 또는 목적지를 조금 바꿔서 다시 시도해보라고 제안하세요.
