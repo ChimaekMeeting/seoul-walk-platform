@@ -11,6 +11,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 
 from src.interfaces.dependencies import get_map_service
+from src.interfaces.schema.map_schema import (
+    FacilityResponse,
+    PointResponse,
+    LandmarkResponse,
+    EdgeResponse,
+)
 from src.service import MapService
 
 router = APIRouter(
@@ -19,7 +25,7 @@ router = APIRouter(
 )
 
 
-@router.get("/facilities")
+@router.get("/facilities", response_model=list[FacilityResponse])
 async def get_facilities(
     lat: float,
     lon: float,
@@ -47,7 +53,7 @@ async def get_facilities(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/points/safety")
+@router.get("/points/safety", response_model=list[PointResponse])
 def get_safety_points(
     lat: float,
     lon: float,
@@ -69,7 +75,7 @@ def get_safety_points(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/points/nature")
+@router.get("/points/nature", response_model=list[PointResponse])
 def get_nature_points(
     lat: float,
     lon: float,
@@ -91,7 +97,7 @@ def get_nature_points(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/points/landmark")
+@router.get("/points/landmark", response_model=list[LandmarkResponse])
 def get_landmark_points(
     lat: float,
     lon: float,
@@ -112,7 +118,7 @@ def get_landmark_points(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/points/child")
+@router.get("/points/child", response_model=list[PointResponse])
 def get_child_points(
     lat: float,
     lon: float,
@@ -134,7 +140,7 @@ def get_child_points(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/points/running")
+@router.get("/points/running", response_model=list[PointResponse])
 def get_running_points(
     lat: float,
     lon: float,
@@ -156,7 +162,7 @@ def get_running_points(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/edges")
+@router.get("/edges", response_model=list[EdgeResponse])
 def get_edges(
     lat: float,
     lon: float,
