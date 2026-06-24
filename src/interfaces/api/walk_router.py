@@ -55,7 +55,10 @@ async def walk_route(
                     validate_no_highway(request.destination.lat, request.destination.lon, db)
                 destination = Coordinate.model_construct(lat=dest_lat, lon=dest_lon)
 
-        response = service.get_route(access_token, origin, destination, request.target_km, request.mode)
+        response = service.get_route(
+            access_token, origin, destination, request.target_km, request.mode,
+            profile=request.profile,
+        )
         logger.info("walk route response completed: mode=%s status=%s", request.mode, response.status.value)
         return response
     except HTTPException:

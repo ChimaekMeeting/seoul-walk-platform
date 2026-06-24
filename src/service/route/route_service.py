@@ -18,6 +18,7 @@ from src.route_engine.engines import (
     OnewayRandomEngine,
 )
 from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.profiles import ScoringProfile
 from src.schema.route_schema import CircularRouteInput, OnewayRouteInput, Weights
 from src.service.user.auth_service import AuthService
 
@@ -43,10 +44,13 @@ class RouteService:
         target_km: Optional[float] = None,
         mode: WalkMode = WalkMode.CIRCULAR_RANDOM,
         custom_weights: Optional[Weights] = None,
+        profile: Optional[ScoringProfile] = None,
     ) -> WalkRouteResponse:
         """
         context에 적합한 경로 생성 엔진을 호출합니다.
-        custom_weights가 있으면 모드 프로필 대신 해당 가중치를 사용합니다.
+        mode는 경로 생성 방식(circular_random/oneway_shortest/oneway_random)을,
+        profile은 어떤 score 조합을 선호할지(scoring profile)를 결정하며 서로 독립적입니다.
+        custom_weights가 있으면 profile.weights를 base로 두고 해당 필드만 override합니다.
         """
         logger.info(
             "walk route request: mode=%s origin=(%.5f, %.5f) has_destination=%s target_km=%s",
@@ -97,7 +101,7 @@ class RouteService:
                 )
 
         try:
-            engine = self._build_engine(mode, origin, destination, target_km, custom_weights)
+            engine = self._build_engine(mode, origin, destination, target_km, custom_weights, profile)
         except ValueError:
             logger.warning("walk route invalid destination: mode=%s", mode)
             return WalkRouteResponse(
@@ -138,15 +142,16 @@ class RouteService:
         destination: Optional[Coordinate] = None,
         target_km: Optional[float] = None,
         custom_weights: Optional[Weights] = None,
+        profile: Optional[ScoringProfile] = None,
     ):
-        """custom_weights를 엔진에 주입해 경로 생성 엔진 인스턴스를 반환합니다."""
+        """profile/custom_weights를 엔진에 주입해 경로 생성 엔진 인스턴스를 반환합니다."""
         if mode == WalkMode.CIRCULAR_RANDOM:
             inp = CircularRouteInput(
                 start_lat=origin.lat,
                 start_lon=origin.lon,
                 target_km=target_km,
             )
-            return self.base_engines[mode](inp, self.G, custom_weights=custom_weights)
+            return self.base_engines[mode](inp, self.G, custom_weights=custom_weights, profile=profile)
 
         if destination is None:
             raise ValueError(f"{mode} 모드에서는 destination이 필요합니다")
@@ -158,4 +163,4 @@ class RouteService:
             end_lon=destination.lon,
             target_km=target_km,
         )
-        return self.base_engines[mode](inp, self.G, custom_weights=custom_weights)
+        return self.base_engines[mode](inp, self.G, custom_weights=custom_weights, profile=profile)

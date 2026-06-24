@@ -20,8 +20,7 @@ scoring_engine.calculate_custom_score의 "현재 동작"을 고정하는 회귀 
 import networkx as nx
 
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
-from src.route_engine.profiles import PROFILES, ProfileConfig
-from src.interfaces.schema.walk_schema import WalkMode
+from src.route_engine.profiles import PROFILES, ProfileConfig, ScoringProfile
 from src.schema.route_schema import Weights
 
 # ── 그래프 헬퍼 ──────────────────────────────────────────────────────────────
@@ -64,7 +63,7 @@ _CHILD    = ProfileConfig(weights=Weights(safety=1.0, nature=0.3, slope=1.0, chi
 _LANDMARK = ProfileConfig(weights=Weights(safety=0.5, nature=0.5, slope=0.3, landmark=1.0), blocked_tags=["underground"])
 _RUNNING  = ProfileConfig(weights=Weights(safety=0.5, nature=0.5, slope=0.7, running=1.0),  blocked_tags=["underground"])
 
-DEFAULT_PROFILE  = profile_payload(PROFILES[WalkMode.CIRCULAR_RANDOM], mode="general")
+DEFAULT_PROFILE  = profile_payload(PROFILES[ScoringProfile.DEFAULT], mode="general")
 CHILD_PROFILE    = profile_payload(_CHILD,    mode="general")
 LANDMARK_PROFILE = profile_payload(_LANDMARK, mode="general")
 RUNNING_PROFILE  = profile_payload(_RUNNING,  mode="running")

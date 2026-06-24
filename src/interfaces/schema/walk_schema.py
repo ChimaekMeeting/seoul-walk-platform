@@ -18,6 +18,7 @@ from src.interfaces.validators.mode_validator import (
     sanitize_circular_destination,
     validate_oneway_requires_destination,
 )
+from src.route_engine.profiles import ScoringProfile
 
 
 class Coordinate(BaseModel):
@@ -68,6 +69,7 @@ class WalkRouteRequest(BaseModel):
     destination: Optional[Coordinate] = None
     target_km: Optional[float] = None
     mode: WalkMode
+    profile: Optional[ScoringProfile] = None
 
     @field_validator("target_km", mode="before")
     @classmethod
