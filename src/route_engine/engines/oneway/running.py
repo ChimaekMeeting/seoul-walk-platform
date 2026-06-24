@@ -12,15 +12,17 @@ from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
 from src.schema.route_schema import OnewayRouteInput
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
+from typing import Optional
+from src.schema.route_schema import Weights
 
 class OnewayRunningEngine:
-    def __init__(self, inp: OnewayRouteInput, G: Optional[nx.Graph] = None, mode: OnewayMode = OnewayMode.RUNNING):
+    def __init__(self, inp: OnewayRouteInput, G: Optional[nx.Graph] = None, mode: OnewayMode = OnewayMode.RUNNING, custom_weights: Optional[Weights] = None):
         self._inp                     = inp
         self._G: nx.Graph | None      = G
         self._utils: PathUtils | None = None  # run() 이후 설정
         self.mode                     = mode
         profile                       = get_profile("running")
-        self._weights                 = profile.weights
+        self._weights                 = custom_weights or profile.weights
         self._blocked_tags            = profile.blocked_tags
         self.matched_courses: list[CourseInfo] = []  # run() 이후 접근 가능
 

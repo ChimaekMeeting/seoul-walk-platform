@@ -4,16 +4,17 @@ from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
 from src.interfaces.schema.walk_schema import WalkRouteStatus, OnewayMode, WalkRouteResponse
 from src.schema.route_schema import OnewayRouteInput
-
+from typing import Optional
+from src.schema.route_schema import Weights
 
 class OnewayFlatEngine:
-    def __init__(self, inp: OnewayRouteInput, G: nx.Graph, mode: OnewayMode = OnewayMode.FLAT):
+    def __init__(self, inp: OnewayRouteInput, G: nx.Graph, mode: OnewayMode = OnewayMode.FLAT, custom_weights: Optional[Weights] = None):
         self._inp          = inp
         self._G            = G.copy()  # 원본 그래프 보호
         self._utils        = PathUtils(self._G)
         self.mode          = mode
         profile            = get_profile("flat")
-        self._weights      = profile.weights
+        self._weights      = custom_weights or profile.weights
         self._blocked_tags = profile.blocked_tags
 
     def run(self) -> WalkRouteResponse:

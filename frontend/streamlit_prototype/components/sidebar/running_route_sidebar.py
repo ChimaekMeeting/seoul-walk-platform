@@ -31,7 +31,7 @@ class RunningRouteSidebar:
                     "coordinates":       output.coordinates,
                     "total_distance_km": output.total_km,
                     "matched_courses":   [c.model_dump() for c in engine.matched_courses],
-                    "error":             output.fallback_reason.value if output.fallback_reason else None,
+                    "error":             None if output.status.value == "success" else output.status.value,
                 }
                 st.session_state.result = result
                 st.rerun()

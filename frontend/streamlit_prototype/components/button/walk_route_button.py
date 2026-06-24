@@ -6,8 +6,23 @@ import streamlit as st
 from frontend.streamlit_prototype.api.walk_router import WalkRouter
 from frontend.streamlit_prototype.api.auth_client import call_with_auto_refresh
 from frontend.streamlit_prototype.schema.walk_schema import (
-    Coordinate, WalkRouteRequest, WalkRouteResponse,
+    Coordinate, WalkRouteRequest, WalkRouteResponse, WalkRouteStatus,
 )
+
+
+def _status_message(status: WalkRouteStatus) -> str:
+    messages = {
+        WalkRouteStatus.INVALID_ORIGIN: "출발지 주변에 연결 가능한 도보 경로가 없습니다.",
+        WalkRouteStatus.INVALID_DESTINATION: "목적지 주변에 연결 가능한 도보 경로가 없습니다.",
+        WalkRouteStatus.NO_NEAREST_START_NODE: "출발지 주변에 연결 가능한 도보 경로가 없습니다.",
+        WalkRouteStatus.NO_NEAREST_END_NODE: "목적지 주변에 연결 가능한 도보 경로가 없습니다.",
+        WalkRouteStatus.NO_PATH: "조건을 만족하는 경로를 찾지 못했습니다.",
+        WalkRouteStatus.RETURN_PATH_NOT_FOUND: "출발지로 돌아오는 경로를 찾지 못했습니다.",
+        WalkRouteStatus.ACCESS_EXPIRED_TOKEN: "로그인이 만료되었습니다.",
+        WalkRouteStatus.INVALID_TOKEN: "로그인이 필요합니다.",
+        WalkRouteStatus.UNKNOWN_ERROR: "알 수 없는 오류가 발생했습니다.",
+    }
+    return messages.get(status, f"경로 생성에 실패했습니다. ({status.value})")
 
 
 class WalkRouteButton:
@@ -24,6 +39,13 @@ class WalkRouteButton:
                     lambda token: WalkRouter().post_route(token, request.model_dump())
                 )
             )
+            if "detail" in raw and "status" not in raw:
+                return WalkRouteResponse(
+                    status=WalkRouteStatus.UNKNOWN_ERROR,
+                    mode=request.mode,
+                    coordinates=[],
+                    total_km=0.0,
+                )
             return WalkRouteResponse(**raw)
         except httpx.HTTPStatusError as e:
             detail = e.response.json().get("detail", "알 수 없는 오류가 발생했습니다.")
@@ -69,8 +91,8 @@ class WalkRouteButton:
                         response = self._call_api(req)
                     if response is None:
                         pass
-                    elif response.status == "FAILED":
-                        st.error(f"경로 생성 실패: {response.fallback_reason}")
+                    elif response.status != WalkRouteStatus.SUCCESS:
+                        st.error(_status_message(response.status))
                     else:
                         self._save(response)
                         st.rerun()
@@ -98,8 +120,8 @@ class WalkRouteButton:
                     response = self._call_api(req)
                     if response is None:
                         pass
-                    elif response.status == "FAILED":
-                        st.error(f"경로 생성 실패: {response.fallback_reason}")
+                    elif response.status != WalkRouteStatus.SUCCESS:
+                        st.error(_status_message(response.status))
                     else:
                         self._save(response)
                         st.rerun()

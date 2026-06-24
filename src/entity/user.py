@@ -9,6 +9,7 @@ import enum
 if TYPE_CHECKING:
     from src.entity.chat_session import ChatSession
     from src.entity.user_preference import UserPreference
+    from src.entity.route_history import RouteHistory
 
 class Provider(str, enum.Enum):
     KAKAO = "kakao"
@@ -60,5 +61,10 @@ class User(Base):
         "UserPreference",
         back_populates="user",
         uselist=False,
+        cascade="all, delete-orphan"
+    )
+    route_histories: Mapped[List["RouteHistory"]] = relationship(
+        "RouteHistory",
+        back_populates="user",
         cascade="all, delete-orphan"
     )
