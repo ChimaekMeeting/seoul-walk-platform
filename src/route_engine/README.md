@@ -22,7 +22,18 @@
 - FastAPI 라우터나 Streamlit 뷰 파일 임포트 금지
 - 기존 `src/service/route` 파일 꼬리물기 식 임포트 금지
 
-## 6. 추후 마이그레이션 순서
+## 6. WalkMode vs ScoringProfile
+경로 생성 방식과 점수 선호도는 서로 다른 축이며 독립적으로 조합됩니다.
+
+- **WalkMode** (`src/interfaces/schema/walk_schema.py`): 경로를 *어떻게* 만들지 결정합니다.
+  - `circular_random`, `oneway_shortest`, `oneway_random` 3개로 고정되어 있으며, 각각 별도의 엔진(`engines/circular_random.py`, `engines/dijkstra.py`, `engines/oneway_random.py`)에 매핑됩니다.
+- **ScoringProfile** (`profiles.py`): 경로 비용을 계산할 때 *어떤 score를 선호*할지 결정합니다.
+  - `default`, `nature`, `safe`, `flat`, `running`, `landmark` 6개이며, `ProfileConfig.weights`/`blocked_tags`/`scoring_mode`로 정의됩니다.
+  - 어떤 WalkMode를 쓰든 같은 ScoringProfile은 항상 같은 weights를 줍니다(`get_profile(profile)`이 WalkMode를 모릅니다).
+- 3개 엔진 생성자는 `(custom_weights, profile)`을 받아 `merge_weights(profile.weights, custom_weights)`로 최종 weights를 계산합니다. `custom_weights`는 명시적으로 지정한 필드만 profile 위에 override하고(부분 병합), 나머지는 profile의 base weights를 그대로 씁니다.
+- `scoring_engine.py`의 계산 공식(`general`/`running` 분기)은 그대로이며, `ProfileConfig.scoring_mode`로 어느 분기를 쓸지만 선택합니다(현재 `running` profile만 `"running"` 분기 사용).
+
+## 7. 추후 마이그레이션 순서
 1. Skeleton 완성 (현재)
 2. 팀원들이 본인 로직을 Skeleton으로 복사 (병렬 작업)
 3. 충분한 테스트 후 API Gateway의 라우터 연결점을 기존 로직에서 `route_orchestrator.py`로 점진 전환

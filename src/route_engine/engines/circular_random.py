@@ -3,7 +3,7 @@ import random
 from typing import Optional
 
 from src.route_engine.engines.path_utils import PathUtils
-from src.route_engine.profiles import get_profile
+from src.route_engine.profiles import ScoringProfile, get_profile, merge_weights
 from src.interfaces.schema.walk_schema import (
     WalkMode,
     WalkRouteStatus,
@@ -19,14 +19,16 @@ class CircularRandomEngine:
         inp: CircularRouteInput,
         G: nx.Graph,
         custom_weights: Optional[Weights] = None,
+        profile: Optional[ScoringProfile] = None,
     ):
-        self.inp          = inp
-        self.G            = G.copy()  # 원본 그래프 보호
-        self.utils        = PathUtils(self.G)
-        self.mode         = WalkMode.CIRCULAR_RANDOM
-        profile           = get_profile(self.mode)
-        self.weights      = custom_weights or profile.weights
-        self.blocked_tags = profile.blocked_tags
+        self.inp           = inp
+        self.G             = G.copy()  # 원본 그래프 보호
+        self.utils         = PathUtils(self.G)
+        self.mode          = WalkMode.CIRCULAR_RANDOM
+        profile_config     = get_profile(profile)
+        self.weights       = merge_weights(profile_config.weights, custom_weights)
+        self.blocked_tags  = profile_config.blocked_tags
+        self.scoring_mode  = profile_config.scoring_mode
 
     def run(self) -> WalkRouteResponse:
         """
@@ -34,7 +36,7 @@ class CircularRandomEngine:
         """
         # 엣지별 custom_score 기록 (in-place)
         calculate_custom_score(self.G, {
-            "mode": "general",
+            "mode": self.scoring_mode,
             "weights": self.weights,
             "blocked_tags": self.blocked_tags,
         })
