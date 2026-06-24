@@ -7,7 +7,7 @@ FE는 BE 스키마를 그대로 재사용한다 (단일 소스 — BE와 항상 
 from src.interfaces.schema.walk_schema import (
     Coordinate,
     WalkMode,
-    FallbackReason,
+    WalkRouteStatus,
     WalkRouteRequest,
     WalkRouteResponse,
 )
@@ -15,7 +15,7 @@ from src.interfaces.schema.walk_schema import (
 __all__ = [
     "Coordinate",
     "WalkMode",
-    "FallbackReason",
+    "WalkRouteStatus",
     "WalkRouteRequest",
     "WalkRouteResponse",
 ]

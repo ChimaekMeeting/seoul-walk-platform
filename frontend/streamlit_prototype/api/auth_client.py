@@ -4,9 +4,8 @@ frontend/streamlit_prototype/api/auth_client.py
 access_token 만료를 감지해 refresh_token으로 자동 재발급한 뒤 원래 요청을
 1회 재시도하는 reactive 래퍼.
 
-- prewalk 응답:  status == "access_expired_token"
-- walk 응답:     status == "FAILED" and fallback_reason == "access_expired_token"
-위 두 형태 모두를 "access_token 만료"로 인식한다.
+- prewalk/walk 응답: status == "access_expired_token" 또는 "invalid_token"
+위 형태를 "access_token 만료/무효"로 인식한다.
 """
 
 import streamlit as st
@@ -22,8 +21,6 @@ def _is_access_expired(response: dict) -> bool:
     if not isinstance(response, dict):
         return False
     if response.get("status") in ("access_expired_token", "invalid_token"):
-        return True
-    if response.get("status") == "FAILED" and response.get("fallback_reason") == "access_expired_token":
         return True
     return False
 

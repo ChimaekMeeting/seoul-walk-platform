@@ -1,4 +1,4 @@
-from typing import Optional, List, Literal, Union
+from typing import Optional
 from pydantic import BaseModel, field_validator, model_validator
 from enum import Enum
 
@@ -44,29 +44,30 @@ class Coordinate(BaseModel):
 class WalkMode(str, Enum):
     CIRCULAR_RANDOM = "circular_random"
     ONEWAY_SHORTEST = "oneway_shortest"
-    ONEWAY_RANDOM   = "oneway_random"
+    ONEWAY_RANDOM = "oneway_random"
 
 
-class FallbackReason(str, Enum):
-    ACCESS_EXPIRED_TOKEN   = "access_expired_token"
-    INVALID_TOKEN          = "invalid_token"
-    INVALID_ORIGIN         = "INVALID_ORIGIN"
-    INVALID_DESTINATION    = "INVALID_DESTINATION"
-    NO_NEAREST_START_NODE  = "NO_NEAREST_START_NODE"
-    NO_NEAREST_END_NODE    = "NO_NEAREST_END_NODE"
-    NO_PATH                = "NO_PATH"
-    RETURN_PATH_NOT_FOUND  = "RETURN_PATH_NOT_FOUND"
-    PARTIAL_ROUTE          = "PARTIAL_ROUTE"
-    WEIGHT_RELAXED         = "WEIGHT_RELAXED"
-    RADIUS_EXPANDED        = "RADIUS_EXPANDED"
-    UNKNOWN_ERROR          = "UNKNOWN_ERROR"
+class WalkRouteStatus(str, Enum):
+    SUCCESS = "success"
+    INVALID_ORIGIN = "invalid_origin"
+    INVALID_DESTINATION = "invalid_destination"
+    NO_NEAREST_START_NODE = "no_nearest_start_node"
+    NO_NEAREST_END_NODE = "no_nearest_end_node"
+    NO_PATH = "no_path"
+    RETURN_PATH_NOT_FOUND = "return_path_not_found"
+    PARTIAL_ROUTE = "partial_route"
+    WEIGHT_RELAXED = "weight_relaxed"
+    RADIUS_EXPANDED = "radius_expanded"
+    UNKNOWN_ERROR = "unknown_error"
+    ACCESS_EXPIRED_TOKEN = "access_expired_token"
+    INVALID_TOKEN = "invalid_token"
 
 
 class WalkRouteRequest(BaseModel):
-    origin:      Coordinate
+    origin: Coordinate
     destination: Optional[Coordinate] = None
-    target_km:   Optional[float] = None
-    mode:        WalkMode
+    target_km: Optional[float] = None
+    mode: WalkMode
 
     @field_validator("target_km", mode="before")
     @classmethod
@@ -104,8 +105,10 @@ class WalkRouteRequest(BaseModel):
         ):
             validate_target_km_vs_straight_dist(
                 self.target_km,
-                self.origin.lat, self.origin.lon,
-                self.destination.lat, self.destination.lon,
+                self.origin.lat,
+                self.origin.lon,
+                self.destination.lat,
+                self.destination.lon,
             )
         return self
 
@@ -118,15 +121,16 @@ class WalkRouteRequest(BaseModel):
         ):
             validate_target_km_vs_dest_proximity(
                 self.target_km,
-                self.origin.lat, self.origin.lon,
-                self.destination.lat, self.destination.lon,
+                self.origin.lat,
+                self.origin.lon,
+                self.destination.lat,
+                self.destination.lon,
             )
         return self
 
 
 class WalkRouteResponse(BaseModel):
-    status:          Literal["SUCCESS", "FAILED"]
-    mode:            WalkMode
-    coordinates:     list[list[float]]
-    total_km:        float = 0.0
-    fallback_reason: Optional[FallbackReason] = None
+    status: WalkRouteStatus
+    mode: WalkMode
+    coordinates: list[list[float]]
+    total_km: float = 0.0

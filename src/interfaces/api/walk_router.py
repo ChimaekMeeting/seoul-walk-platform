@@ -1,4 +1,4 @@
-import traceback
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Cookie
 
@@ -14,6 +14,8 @@ from src.interfaces.validators.highway_validator import validate_no_highway
 from src.interfaces.validators.water_validator import snap_coordinate_from_water
 from src.service.route.route_service import RouteService
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/api/walk",
     tags=["walk"],
@@ -28,6 +30,7 @@ async def walk_route(
     """
     산책 경로를 추천합니다.
     """
+    logger.info("walk route request received: mode=%s", request.mode)
     try:
         with get_postgresql_db() as db:
             # VAL-COORD-004 2차: PostGIS 폴리곤 정밀 검증
@@ -52,11 +55,14 @@ async def walk_route(
                     validate_no_highway(request.destination.lat, request.destination.lon, db)
                 destination = Coordinate.model_construct(lat=dest_lat, lon=dest_lon)
 
-        return service.get_route(access_token, origin, destination, request.target_km, request.mode)
+        response = service.get_route(access_token, origin, destination, request.target_km, request.mode)
+        logger.info("walk route response completed: mode=%s status=%s", request.mode, response.status.value)
+        return response
     except HTTPException:
         raise
     except ValueError as e:
+        logger.warning("walk route invalid request: mode=%s error=%s", request.mode, e)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("walk route unexpected server error: mode=%s", request.mode)
         raise HTTPException(status_code=500, detail=str(e))

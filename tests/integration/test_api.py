@@ -24,8 +24,8 @@ from fastapi.testclient import TestClient
 from src.main import app
 from src.interfaces.schema.walk_schema import (
     WalkRouteResponse,
+    WalkRouteStatus,
     WalkMode,
-    FallbackReason,
 )
 from src.interfaces.schema.auth_schema import Status
 from src.interfaces.schema.survey_schema import SurveyResponse, SurveyStatus
@@ -59,7 +59,7 @@ class TestWalkRouteAPI:
     def test_순환_랜덤_경로_요청_성공(self, client):
         mock_service = MagicMock()
         mock_service.get_route.return_value = WalkRouteResponse(
-            status="SUCCESS",
+            status=WalkRouteStatus.SUCCESS,
             mode=WalkMode.CIRCULAR_RANDOM,
             coordinates=[[37.5, 127.0], [37.51, 127.01], [37.5, 127.0]],
             total_km=3.1,
@@ -75,7 +75,7 @@ class TestWalkRouteAPI:
             )
         assert response.status_code == 200
         body = response.json()
-        assert body["status"] == "SUCCESS"
+        assert body["status"] == "success"
         assert body["mode"] == "circular_random"
         assert len(body["coordinates"]) > 0
         assert body["total_km"] == 3.1
@@ -83,8 +83,8 @@ class TestWalkRouteAPI:
     def test_편도_최단_경로_요청_성공(self, client):
         mock_service = MagicMock()
         mock_service.get_route.return_value = WalkRouteResponse(
-            status="SUCCESS",
-            mode="oneway_shortest",
+            status=WalkRouteStatus.SUCCESS,
+            mode=WalkMode.ONEWAY_SHORTEST,
             coordinates=[[37.5, 127.0], [37.55, 127.05], [37.6, 127.1]],
             total_km=7.2,
         )
@@ -93,21 +93,21 @@ class TestWalkRouteAPI:
                 "/api/walk/route",
                 json={
                     "origin": {"lat": 37.5, "lon": 127.0},
-                    "destination": {"lat": 37.6, "lon": 127.1},
+                    "destination": {"lat": 37.51, "lon": 127.01},
                     "mode": "oneway_shortest",
+                    "target_km": 3.0,
                 },
             )
         assert response.status_code == 200
-        assert response.json()["status"] == "SUCCESS"
+        assert response.json()["status"] == "success"
 
-    def test_경로_생성_실패_시_FAILED_반환(self, client):
+    def test_경로_생성_실패_시_상태값을_반환한다(self, client):
         mock_service = MagicMock()
         mock_service.get_route.return_value = WalkRouteResponse(
-            status="FAILED",
+            status=WalkRouteStatus.NO_NEAREST_START_NODE,
             mode=WalkMode.CIRCULAR_RANDOM,
             coordinates=[],
             total_km=0.0,
-            fallback_reason=FallbackReason.NO_NEAREST_START_NODE,
         )
         with patch("src.interfaces.dependencies.route_service", mock_service):
             response = client.post(
@@ -119,8 +119,66 @@ class TestWalkRouteAPI:
             )
         assert response.status_code == 200
         body = response.json()
-        assert body["status"] == "FAILED"
-        assert body["fallback_reason"] == "NO_NEAREST_START_NODE"
+        assert body["status"] == "no_nearest_start_node"
+
+    def test_경로_생성_실패_시_no_path_상태값을_반환한다(self, client):
+        mock_service = MagicMock()
+        mock_service.get_route.return_value = WalkRouteResponse(
+            status=WalkRouteStatus.NO_PATH,
+            mode=WalkMode.CIRCULAR_RANDOM,
+            coordinates=[],
+            total_km=0.0,
+        )
+        with patch("src.interfaces.dependencies.route_service", mock_service):
+            response = client.post(
+                "/api/walk/route",
+                json={
+                    "origin": {"lat": 37.5, "lon": 127.0},
+                    "mode": "circular_random",
+                },
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "no_path"
+
+    def test_편도_경로_요청_destination_없으면_invalid_destination_상태값을_반환한다(self, client):
+        mock_service = MagicMock()
+        mock_service.get_route.return_value = WalkRouteResponse(
+            status=WalkRouteStatus.INVALID_DESTINATION,
+            mode=WalkMode.ONEWAY_SHORTEST,
+            coordinates=[],
+            total_km=0.0,
+        )
+        with patch("src.interfaces.dependencies.route_service", mock_service):
+            response = client.post(
+                "/api/walk/route",
+                json={
+                    "origin": {"lat": 37.5, "lon": 127.0},
+                    "destination": {"lat": 37.51, "lon": 127.01},
+                    "mode": "oneway_shortest",
+                    "target_km": 3.0,
+                },
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "invalid_destination"
+
+    def test_알수없는_오류는_unknown_error_상태값을_반환한다(self, client):
+        mock_service = MagicMock()
+        mock_service.get_route.return_value = WalkRouteResponse(
+            status=WalkRouteStatus.UNKNOWN_ERROR,
+            mode=WalkMode.CIRCULAR_RANDOM,
+            coordinates=[],
+            total_km=0.0,
+        )
+        with patch("src.interfaces.dependencies.route_service", mock_service):
+            response = client.post(
+                "/api/walk/route",
+                json={
+                    "origin": {"lat": 37.5, "lon": 127.0},
+                    "mode": "circular_random",
+                },
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "unknown_error"
 
     def test_필수_필드_누락_시_422_반환(self, client):
         response = client.post("/api/walk/route", json={"mode": "circular_random"})

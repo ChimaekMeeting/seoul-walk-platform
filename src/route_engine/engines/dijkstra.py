@@ -4,8 +4,8 @@ from typing import Optional
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import get_profile
 from src.interfaces.schema.walk_schema import (
-    FallbackReason,
     WalkMode,
+    WalkRouteStatus,
     WalkRouteResponse
 )
 from src.schema.route_schema import OnewayRouteInput, Weights
@@ -45,21 +45,19 @@ class OnewayDijkstraEngine:
         # 출발 노드가 없는 경우
         if start is None:
             return WalkRouteResponse(
-            status="FAILED",
-            mode=self.mode,
-            coordinates=[],
-            total_km=0.0,
-            fallback_reason=FallbackReason.NO_NEAREST_START_NODE
-        )
+                status=WalkRouteStatus.NO_NEAREST_START_NODE,
+                mode=self.mode,
+                coordinates=[],
+                total_km=0.0,
+            )
         
         # 도착 노드가 없는 경우
         if end is None:
             return WalkRouteResponse(
-                status="FAILED",
+                status=WalkRouteStatus.NO_NEAREST_END_NODE,
                 mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
-                fallback_reason=FallbackReason.NO_NEAREST_END_NODE
             )
         
         # 경로 생성
@@ -68,22 +66,20 @@ class OnewayDijkstraEngine:
         # 경로가 없는 경우
         if not nodes:
             return WalkRouteResponse(
-                status="FAILED",
+                status=WalkRouteStatus.NO_PATH,
                 mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
-                fallback_reason=FallbackReason.NO_PATH
             )
 
         coords    = self.utils.extract_coordinates(nodes)  # [lat, lon] 좌표 목록
         total_m   = self.utils.calc_distance(nodes)        # 총 이동 거리(m)
 
         return WalkRouteResponse(
-            status          = "SUCCESS" if coords else "FAILED",
+            status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
             mode            = self.mode,
             coordinates     = coords,
             total_km        = round(total_m / 1000, 2),
-            fallback_reason = None,
         )
 
     def find_path(self, start: int, end: int) -> list[int]:
