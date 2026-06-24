@@ -6,7 +6,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Union, List
 from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
-from src.interfaces.schema.walk_schema import OnewayMode, CircularMode, WalkRouteResponse
+from src.interfaces.schema.walk_schema import WalkMode, WalkRouteResponse
 
 
 class Location(BaseModel):
@@ -26,26 +26,26 @@ class BasePreference(BaseModel):
 
 class CircularPreference(BasePreference):
     """
-    순환 경로일 때 채워야 할 필수 정보입니다.
+    순환 경로(circular_random)일 때 채워야 할 필수 정보입니다.
     """
-    mode:      CircularMode
+    mode:      WalkMode = WalkMode.CIRCULAR_RANDOM
     target_km: Optional[float] = None
 
 
 class OnewayPreference(BasePreference):
     """
-    편도 경로일 때 채워야 할 필수 정보입니다.
+    편도 우회 경로(oneway_random)일 때 채워야 할 필수 정보입니다.
     """
-    mode:        OnewayMode
+    mode:        WalkMode = WalkMode.ONEWAY_RANDOM
     destination: Optional[Location] = None
     target_km:   Optional[float]    = None
 
 
 class OnewayShortestPreference(BasePreference):
     """
-    다익스트라 기반 최단 경로일 때 채워야 할 필수 정보입니다.
+    다익스트라 기반 최단 편도 경로(oneway_shortest)일 때 채워야 할 필수 정보입니다.
     """
-    mode:        OnewayMode     = OnewayMode.SHORTEST
+    mode:        WalkMode = WalkMode.ONEWAY_SHORTEST
     destination: Optional[Location] = None
 
 
@@ -57,7 +57,7 @@ class State(BaseModel):
     current_location: Location
     access_token: Optional[str] = None
 
-    mode: Optional[Union[CircularMode, OnewayMode]] = None
+    mode: Optional[WalkMode] = None
     user_context: Optional[
         Union[CircularPreference, OnewayPreference, OnewayShortestPreference]
     ] = None

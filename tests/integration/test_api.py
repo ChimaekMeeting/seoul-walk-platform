@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 from src.main import app
 from src.interfaces.schema.walk_schema import (
     WalkRouteResponse,
-    CircularMode,
+    WalkMode,
     FallbackReason,
 )
 from src.interfaces.schema.auth_schema import Status
@@ -60,7 +60,7 @@ class TestWalkRouteAPI:
         mock_service = MagicMock()
         mock_service.get_route.return_value = WalkRouteResponse(
             status="SUCCESS",
-            mode=CircularMode.RANDOM,
+            mode=WalkMode.CIRCULAR_RANDOM,
             coordinates=[[37.5, 127.0], [37.51, 127.01], [37.5, 127.0]],
             total_km=3.1,
         )
@@ -104,7 +104,7 @@ class TestWalkRouteAPI:
         mock_service = MagicMock()
         mock_service.get_route.return_value = WalkRouteResponse(
             status="FAILED",
-            mode=CircularMode.RANDOM,
+            mode=WalkMode.CIRCULAR_RANDOM,
             coordinates=[],
             total_km=0.0,
             fallback_reason=FallbackReason.NO_NEAREST_START_NODE,
@@ -113,7 +113,7 @@ class TestWalkRouteAPI:
             response = client.post(
                 "/api/walk/route",
                 json={
-                    "origin": {"lat": 0.0, "lon": 0.0},
+                    "origin": {"lat": 37.5, "lon": 127.0},
                     "mode": "circular_random",
                 },
             )

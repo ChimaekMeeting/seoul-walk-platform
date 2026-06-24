@@ -1,16 +1,16 @@
-from typing import Optional, Union
+from typing import Optional
 from sqlalchemy import select
 
 from src.database.postgresql import get_postgresql_db
 from src.entity.route_history import RouteHistory
-from src.interfaces.schema.walk_schema import CircularMode, OnewayMode
+from src.interfaces.schema.walk_schema import WalkMode
 
 
 class RouteHistoryRepository:
     @staticmethod
     def save(
         user_id: int,
-        mode: Union[CircularMode, OnewayMode],
+        mode: WalkMode,
         origin_lat: float,
         origin_lon: float,
         coordinates: list,

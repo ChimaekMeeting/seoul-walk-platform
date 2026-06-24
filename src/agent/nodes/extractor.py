@@ -1,11 +1,9 @@
-﻿import json
+import json
 from langchain_core.output_parsers import StrOutputParser
 from src.schema.prewalk_schema import State, Location
-from src.interfaces.schema.walk_schema import CircularMode, OnewayMode
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.utils.chatbot_utils import PromptUtils
 from src.agent.tools.mode_tools import ModeTool
-from src.service.user.survey_service import TAG_WEIGHT_MAP
 
 
 class Extractor(GPTClient):
@@ -56,6 +54,8 @@ class Extractor(GPTClient):
         발화에서 TAG_WEIGHT_MAP 키에 해당하는 테마 태그를 0~3개 추출합니다.
         LLM 응답 파싱 실패 시 빈 리스트를 반환합니다.
         """
+        from src.service.user.survey_service import TAG_WEIGHT_MAP  # 순환 import 방지(지연 로드)
+
         tag_keys = list(TAG_WEIGHT_MAP.keys())
         res = await super().get_response(
             prompt_name     = "themes",

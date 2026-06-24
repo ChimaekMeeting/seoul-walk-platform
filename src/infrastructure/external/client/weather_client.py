@@ -116,10 +116,12 @@ class WeatherClient:
     def get_base_datetime(self) -> tuple[str, str]:
         """
         base_date, base_time을 계산합니다.
+        초단기실황(getUltraSrtNcst)은 정시 관측 데이터가 약 40분 뒤에 제공되므로,
+        현재 분이 40분 미만이면 직전 시각을 사용합니다.
         """
         now = datetime.now()
 
-        if now.minute < 10:
+        if now.minute < 40:
             now = now - timedelta(hours=1)
 
         return now.strftime("%Y%m%d"), now.strftime("%H00")

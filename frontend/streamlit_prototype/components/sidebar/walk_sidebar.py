@@ -1,19 +1,15 @@
 import streamlit as st
 
 from frontend.streamlit_prototype.api.health_router import HealthRouter
-from frontend.streamlit_prototype.schema.walk_schema import CircularMode, OnewayMode
+from frontend.streamlit_prototype.schema.walk_schema import WalkMode
 
 
 class WalkSidebar:
 
     MODE_OPTIONS: dict[str, str] = {
-        "순환 산책 (제자리 돌아오기)": CircularMode.RANDOM,
-        "어린이 동반 순환 산책":       CircularMode.CHILD,
-        "러닝·조깅 순환":             CircularMode.RUNNING,
-        "최단 거리 편도 (목적지 직행)": OnewayMode.SHORTEST,
-        "거리 설정 편도 (목적지 우회)": OnewayMode.RANDOM,
-        "어린이 동반 편도":            OnewayMode.CHILD,
-        "러닝·조깅 편도":             OnewayMode.RUNNING,
+        "순환 산책 (제자리 돌아오기)": WalkMode.CIRCULAR_RANDOM,
+        "최단 거리 편도 (목적지 직행)": WalkMode.ONEWAY_SHORTEST,
+        "거리 설정 편도 (목적지 우회)": WalkMode.ONEWAY_RANDOM,
     }
 
     def render(self) -> dict:
@@ -32,7 +28,7 @@ class WalkSidebar:
             config["selected_mode"] = self.MODE_OPTIONS[label]
             config["target_km"]     = st.sidebar.slider("목표 거리 (km)", 1.0, 10.0, 3.0, 0.5, key="target_km")
         else:
-            config["selected_mode"] = CircularMode.RANDOM
+            config["selected_mode"] = WalkMode.CIRCULAR_RANDOM
             config["target_km"]     = 3.0
 
         return config

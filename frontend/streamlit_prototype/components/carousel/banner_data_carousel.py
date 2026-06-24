@@ -11,6 +11,12 @@ import streamlit as st
 from frontend.streamlit_prototype.api.banner_router import BannerRouter
 
 
+@st.cache_data(ttl=300)
+def _fetch_banner_list(lat: float, lon: float, hour: int) -> list:
+    """GET /api/banner 결과를 (좌표, 시각) 기준 300초 캐싱하여 반환합니다."""
+    return BannerRouter().get_banner_list(lat=lat, lon=lon, hour=hour)
+
+
 class BannerDataCarousel:
 
     def __init__(self):
@@ -21,10 +27,10 @@ class BannerDataCarousel:
         input : lat (float), lon (float), hour (선택)
         output: [{"emoji", "text", "sub", ...}, ...]
 
-        GET /api/banner 호출 후 배너 목록 반환
+        GET /api/banner 결과를 캐싱하여 반환 (rerun마다 재호출 방지)
         hour 미입력 시 현재 시각 사용
         """
         if hour is None:
             hour = datetime.now().hour
 
-        return self._router.get_banner_list(lat=lat, lon=lon, hour=hour)
+        return _fetch_banner_list(lat, lon, hour)

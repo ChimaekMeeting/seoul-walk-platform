@@ -1,23 +1,17 @@
-﻿from typing import Union, Optional
 from langchain_core.output_parsers import StrOutputParser
 from src.schema.prewalk_schema import State
-from src.interfaces.schema.walk_schema import CircularMode, OnewayMode, Coordinate
+from src.interfaces.schema.walk_schema import WalkMode, Coordinate
 from src.agent.tools.route_tools import RouteTool
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.utils.chatbot_utils import PromptUtils
 from src.schema.route_schema import Weights
-from src.service.user.survey_service import TAG_WEIGHT_MAP
 from src.repository.user.user_preference_repository import UserPreferenceRepository
 
 
-MODE_TOOL_MAP: dict[Union[CircularMode, OnewayMode], str] = {
-    CircularMode.RANDOM:  "circular_random_route",
-    CircularMode.CHILD:   "circular_child_route",
-    CircularMode.RUNNING: "circular_running_route",
-    OnewayMode.SHORTEST:  "oneway_shortest_route",
-    OnewayMode.RANDOM:    "oneway_random_route",
-    OnewayMode.CHILD:     "oneway_child_route",
-    OnewayMode.RUNNING:   "oneway_running_route",
+MODE_TOOL_MAP: dict[WalkMode, str] = {
+    WalkMode.CIRCULAR_RANDOM: "circular_random_route",
+    WalkMode.ONEWAY_SHORTEST: "oneway_shortest_route",
+    WalkMode.ONEWAY_RANDOM:   "oneway_random_route",
 }
 
 
@@ -59,6 +53,8 @@ class RouteExecutor(GPTClient):
         UserPreference base weights에 state.themes의 delta를 합산해 최종 Weights를 반환합니다.
         UserPreference가 없으면 모든 가중치 기본값 0.5를 사용합니다.
         """
+        from src.service.user.survey_service import TAG_WEIGHT_MAP  # 순환 import 방지(지연 로드)
+
         preference = UserPreferenceRepository.get_by_user_id(state.user_id)
 
         base = {
