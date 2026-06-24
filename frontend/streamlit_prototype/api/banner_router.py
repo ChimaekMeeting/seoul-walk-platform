@@ -23,6 +23,7 @@ class BannerRouter:
             params = {"lat": lat, "lon": lon}
             if hour is not None:
                 params["hour"] = hour
-            return httpx.get(self.base_url, params=params, timeout=10.0).json()
+            data = httpx.get(self.base_url, params=params, timeout=10.0).json()
+            return data.get("items", [])
         except Exception:
             return []

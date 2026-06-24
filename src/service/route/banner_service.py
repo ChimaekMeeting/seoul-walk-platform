@@ -1,10 +1,14 @@
-from datetime import datetime, date
+import logging
 import re
+from datetime import datetime, date
 
 from src.infrastructure.external.client.marathon_client import MarathonClient
 from src.infrastructure.external.client.weather_client import WeatherClient
 from src.infrastructure.external.schema.marathon_schema import MarathonEvent
 from src.repository.banner.banner_repository import BannerRepository
+from src.interfaces.schema.banner_schema import BannerResponse, BannerStatus
+
+logger = logging.getLogger(__name__)
 
 
 class BannerService:
@@ -71,18 +75,31 @@ class BannerService:
 
     # ── 메인 메서드 ────────────────────────────────────────────
 
-    async def get_banner_list(self, lat: float, lon: float, hour: int | None = None) -> list:
+    async def get_banner_list(self, lat: float, lon: float, hour: int | None = None) -> BannerResponse:
         if hour is None:
             hour = datetime.now().hour
 
-        weather = await self.weather_client.get_weather(lat, lon) or {}
-        banners = {b.key: b for b in BannerRepository.find_all()}
-        result  = []
+        try:
+            weather = await self.weather_client.get_weather(lat, lon) or {}
+        except Exception:
+            logger.exception("weather_api_error | lat=%s | lon=%s", lat, lon)
+            weather = {}
+
+        try:
+            banners = {b.key: b for b in BannerRepository.find_all()}
+        except Exception:
+            logger.exception("banner_db_error | lat=%s | lon=%s", lat, lon)
+            return BannerResponse(status=BannerStatus.DB_ERROR, items=[])
+
+        result = []
 
         # 1순위: 이벤트 배너
-        active_event = await self.get_active_event()
-        if active_event:
-            result.append(self._get_event_text(active_event))
+        try:
+            active_event = await self.get_active_event()
+            if active_event:
+                result.append(self._get_event_text(active_event))
+        except Exception:
+            logger.exception("marathon_api_error | lat=%s | lon=%s", lat, lon)
 
         # 2순위: 시즌 배너 (날씨 기반)
         if self._is_hot(weather):
@@ -107,4 +124,5 @@ class BannerService:
             if key in banners:
                 result.append(banners[key].to_dict())
 
-        return result
+        logger.info("banner_served | lat=%s | lon=%s | count=%d", lat, lon, len(result))
+        return BannerResponse(status=BannerStatus.SUCCESS, items=result)
