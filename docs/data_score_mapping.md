@@ -1,4 +1,4 @@
-# Score Data Catalog
+# 데이터-score 연결표
 
 `src/data/raw`에 있는 원본 파일이 실제로 어떤 score/layer/collector와 연결되어 있는지,
 그리고 QA가 로컬에서 같은 결과를 재현하려면 어떤 명령을 실행해야 하는지를 정리한 문서입니다.
