@@ -52,8 +52,6 @@ class RouteExecutor(GPTClient):
             logger.exception("경로 생성에 실패했습니다.")
             return state
 
-        logger.info(f"total_km: {state.route_result.total_km}")
-
         # 추후 complete.yaml을 사용할지, route_result.yaml을 사용할지, 둘 다 사용할지 판단. 우선은 주석 처리
         # state.response = await super().get_response(
         #     prompt_name     = "route_result",

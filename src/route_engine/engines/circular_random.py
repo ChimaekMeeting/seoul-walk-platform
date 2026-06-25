@@ -1,6 +1,7 @@
 import networkx as nx
 import random
 from typing import Optional
+import logging
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import ScoringProfile, get_profile, merge_weights
@@ -12,6 +13,7 @@ from src.interfaces.schema.walk_schema import (
 from src.schema.route_schema import CircularRouteInput, Weights
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
+logger = logging.getLogger(__name__)
 
 class CircularRandomEngine:
     def __init__(
@@ -34,6 +36,8 @@ class CircularRandomEngine:
         """
         순환 랜덤 경로를 생성합니다.
         """
+        logger.info(f"순환 랜덤 경로 생성 엔진을 시작합니다: target_km={self.inp.target_km}, scoring_mode={self.scoring_mode}, weights={self.weights}")
+
         # 엣지별 custom_score 기록 (in-place)
         calculate_custom_score(self.G, {
             "mode": self.scoring_mode,
@@ -46,6 +50,7 @@ class CircularRandomEngine:
 
         # 출발 노드가 없는 경우
         if start is None:
+            logger.warning("출발 노드를 찾지 못했습니다.")
             return WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_START_NODE,
                 mode=self.mode,
@@ -58,6 +63,7 @@ class CircularRandomEngine:
 
         # 경로가 없는 경우
         if not nodes:
+            logger.warning("경로가 비어 있습니다.")
             return WalkRouteResponse(
                 status=WalkRouteStatus.NO_PATH,
                 mode=self.mode,
@@ -68,12 +74,15 @@ class CircularRandomEngine:
         pruned  = self.utils.prune_dead_ends(nodes)       # 왕복 가지 제거
         coords  = self.utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
         total_m = self.utils.calc_distance(pruned)        # 총 이동 거리(미터)
+        total_km = round(total_m / 1000, 2)
+
+        logger.info(f"total_km: {total_km}")
 
         return WalkRouteResponse(
             status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
             mode            = self.mode,
             coordinates     = coords,
-            total_km        = round(total_m / 1000, 2),
+            total_km        = total_km,
         )
     
     def find_path(self, start_node: int, target_km: float = 3.0) -> list[int]:
@@ -91,6 +100,7 @@ class CircularRandomEngine:
         while total_dist < target_m * 0.75:  # 목표의 75%까지 탐색
             neighbors = list(self.G.neighbors(current))
             if not neighbors:
+                logger.warning("이웃 노드가 없어 탐색을 중단합니다.")
                 break
 
             probs = []
@@ -118,6 +128,7 @@ class CircularRandomEngine:
 
             total_p = sum(probs)
             if total_p == 0:
+                logger.warning("선택 확률 합이 0이므로 탐색을 중단합니다.")
                 break
 
             next_node   = random.choices(neighbors, weights=[p / total_p for p in probs], k=1)[0]
@@ -135,7 +146,8 @@ class CircularRandomEngine:
 
                 return_path = nx.shortest_path(self.G, path_nodes[-1], start_node, weight=_return_w)
                 path_nodes += return_path[1:]  # 복귀 경로 연결 (중복 노드 제거)
+                logger.info("출발점 복귀에 성공했습니다")
             except nx.NetworkXNoPath:
-                pass
+                logger.exception("출발점 복귀에 실패했습니다")
 
         return path_nodes
