@@ -43,6 +43,13 @@ class ChatRequest(BaseModel):
     thread_id: str
     user_prompt: str
 
+    @field_validator("user_prompt")
+    @classmethod
+    def check_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("user_prompt는 공백일 수 없습니다.")
+        return v
+
 
 class ChatStatus(str, Enum):
     SUCCESS = "success"
@@ -50,6 +57,7 @@ class ChatStatus(str, Enum):
     INVALID_TOKEN = "invalid_token"
     SESSION_NOT_FOUND = "session_not_found"
     UNACCESSIBLE = "unaccessible"
+    INTERNAL_ERROR = "internal_error"
 
 
 class ChatResponse(BaseModel):

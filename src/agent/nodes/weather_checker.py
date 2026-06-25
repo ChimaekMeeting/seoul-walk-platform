@@ -1,8 +1,12 @@
+import logging
+
 from langchain_core.output_parsers import StrOutputParser
 
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.infrastructure.external.client.weather_client import WeatherClient
 from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
+
+logger = logging.getLogger(__name__)
 
 
 class WeatherChecker(GPTClient):
@@ -15,16 +19,29 @@ class WeatherChecker(GPTClient):
         """
         날씨·대기질 조회 후 LLM으로 친절한 첫 인사 메시지를 생성하여 반환합니다.
         """
-        weather_info = await self.weather_client.get_weather(lat, lon)
-        air_info     = await self.weather_client.get_air_quality(lat, lon)
+        try:
+            weather_info = await self.weather_client.get_weather(lat, lon)
+        except Exception:
+            logger.exception("weather_api_error | lat=%s | lon=%s", lat, lon)
+            weather_info = None
 
-        res = await self.get_response(
-            prompt_name="weather_checker",
-            input_variables={
-                "weather_info": str(weather_info),
-                "air_info":     str(air_info),
-            },
-            parser=self.str_parser
-        )
+        try:
+            air_info = await self.weather_client.get_air_quality(lat, lon)
+        except Exception:
+            logger.exception("air_quality_api_error | lat=%s | lon=%s", lat, lon)
+            air_info = None
+
+        try:
+            res = await self.get_response(
+                prompt_name="weather_checker",
+                input_variables={
+                    "weather_info": str(weather_info),
+                    "air_info":     str(air_info),
+                },
+                parser=self.str_parser
+            )
+        except Exception:
+            logger.exception("weather_checker_llm_error | lat=%s | lon=%s", lat, lon)
+            res = "안녕하세요! 오늘 어디로 산책을 떠나볼까요?"
 
         return EnvironmentInfo(weather=weather_info or {}, air=air_info or {}), res

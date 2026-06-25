@@ -31,11 +31,15 @@ class Extractor(GPTClient):
         }
 
         # extractor 응답 생성
-        res = await super().get_response(
-            prompt_name     = "extraction",
-            input_variables = input_variables,
-            llm             = self.model,
-        )
+        try:
+            res = await super().get_response(
+                prompt_name     = "extraction",
+                input_variables = input_variables,
+                llm             = self.model,
+            )
+        except Exception:
+            logger.exception("extractor_llm_error")
+            return state
 
         # 예외1. 산책 모드를 결정하지 못한 경우
         if not res or not res.tool_calls:
@@ -80,12 +84,12 @@ class Extractor(GPTClient):
         from src.service.user.survey_service import TAG_WEIGHT_MAP  # 순환 import 방지(지연 로드)
 
         tag_keys = list(TAG_WEIGHT_MAP.keys())
-        res = await super().get_response(
-            prompt_name     = "themes",
-            input_variables = {"user_input": user_input, "tag_keys": tag_keys},
-            parser          = self.str_parser,
-        )
         try:
+            res = await super().get_response(
+                prompt_name     = "themes",
+                input_variables = {"user_input": user_input, "tag_keys": tag_keys},
+                parser          = self.str_parser,
+            )
             tags = json.loads(res)
             return [t for t in tags if t in TAG_WEIGHT_MAP]
         except Exception:

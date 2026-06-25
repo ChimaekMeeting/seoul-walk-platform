@@ -44,21 +44,32 @@ class Interviewer(GPTClient):
             "user_input":       state.user_prompt,
         }
 
+        _FALLBACK_RESPONSE = "죄송해요, 일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요."
+
         # 정보가 충분하다면 -> 경로 생성 시작을 알리는 메시지 제공
         if is_complete:
-            response = await super().get_response(
-                prompt_name     = "complete",
-                input_variables = input_variables,
-                parser          = self.str_parser,
-            )
+            try:
+                response = await super().get_response(
+                    prompt_name     = "complete",
+                    input_variables = input_variables,
+                    parser          = self.str_parser,
+                )
+            except Exception:
+                logger.exception("interviewer_complete_llm_error")
+                response = _FALLBACK_RESPONSE
             logger.info("complete.yaml이 호출되었습니다.")
         # 정보가 부족하다면 -> 질문
         else:
-            raw_response = await super().get_response(
-                prompt_name="interview",
-                input_variables=input_variables,
-                llm=self.model,
-            )
+            try:
+                raw_response = await super().get_response(
+                    prompt_name="interview",
+                    input_variables=input_variables,
+                    llm=self.model,
+                )
+            except Exception:
+                logger.exception("interviewer_interview_llm_error")
+                state.response = _FALLBACK_RESPONSE
+                return state
             logger.info("interview.yaml이 호출되었습니다.")
 
             candidates = await self._execute_tool_calls(
@@ -86,22 +97,30 @@ class Interviewer(GPTClient):
 
                 if is_complete:
                     input_variables["current_context"] = self.prompt_utils.format_for_prompt(state.user_context)
-                    response = await super().get_response(
-                        prompt_name="complete",
-                        input_variables=input_variables,
-                        parser=self.str_parser,
-                    )
+                    try:
+                        response = await super().get_response(
+                            prompt_name="complete",
+                            input_variables=input_variables,
+                            parser=self.str_parser,
+                        )
+                    except Exception:
+                        logger.exception("interviewer_complete_llm_error")
+                        response = _FALLBACK_RESPONSE
                     logger.info("complete.yaml이 호출되었습니다.")
                 else:
-                    response = await super().get_response(
-                        prompt_name="location_formatter",
-                        input_variables={
-                            "tool_calls":       self.prompt_utils.format_for_prompt(candidates),
-                            "user_input":       state.user_prompt,
-                            "current_location": self.prompt_utils.format_for_prompt(state.current_location),
-                        },
-                        parser=self.str_parser,
-                    )
+                    try:
+                        response = await super().get_response(
+                            prompt_name="location_formatter",
+                            input_variables={
+                                "tool_calls":       self.prompt_utils.format_for_prompt(candidates),
+                                "user_input":       state.user_prompt,
+                                "current_location": self.prompt_utils.format_for_prompt(state.current_location),
+                            },
+                            parser=self.str_parser,
+                        )
+                    except Exception:
+                        logger.exception("interviewer_location_formatter_llm_error")
+                        response = _FALLBACK_RESPONSE
                     logger.info("location_formatter.yaml이 호출되었습니다.")
             else:
                 response = raw_response.content
