@@ -1,3 +1,4 @@
+import logging
 from uuid import uuid4
 
 from langgraph.graph import StateGraph, END
@@ -15,6 +16,8 @@ from src.agent.nodes import (
 from src.interfaces.schema.prewalk_schema import ChatResponse, ChatStatus
 from src.schema.prewalk_schema import State, Location
 from src.service.user.auth_service import AuthService
+
+logger = logging.getLogger(__name__)
 
 
 class PrewalkOrchestrator:
@@ -64,32 +67,52 @@ class PrewalkOrchestrator:
         status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if status != ChatStatus.SUCCESS:
             return ChatResponse(status=status, thread_id=None, state=None)
-        
-        user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
 
-        # 챗봇 스레드 생성
-        thread_id = str(uuid4())
-        ChatSessionRepository.save(user.id, thread_id)
+        try:
+            user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
+        except Exception:
+            logger.exception("prewalk_init_user_lookup_error | provider=%s", provider)
+            return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
 
-        # 날씨 확인
-        env_info, init_message = await self.weather_checker.run(lat, lon)
+        try:
+            thread_id = str(uuid4())
+            ChatSessionRepository.save(user.id, thread_id)
+        except Exception:
+            logger.exception("prewalk_init_session_save_error | user_id=%s", user.id)
+            return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
 
-        # 현재 위치 확인
-        current_location = await self.kakao_client.get_address_from_coords(lat, lon)
+        # 날씨 확인 — 실패 시 기본 인사 메시지로 대체
+        try:
+            env_info, init_message = await self.weather_checker.run(lat, lon)
+        except Exception:
+            logger.exception("prewalk_init_weather_error | lat=%s | lon=%s", lat, lon)
+            env_info     = None
+            init_message = "안녕하세요! 오늘 어디로 산책을 떠나볼까요?"
 
-        initial_state = State(
-            user_id = user.id,
-            current_location  = Location(
+        # 현재 위치 확인 — 실패 시 좌표만으로 Location 구성
+        try:
+            kakao_result = await self.kakao_client.get_address_from_coords(lat, lon)
+            location = Location(
                 lat        = lat,
                 lon        = lon,
-                address    = current_location.place_address,
-                place_name = current_location.place_name,
-            ),
-            weather_data = env_info,
-            response     = init_message
+                address    = kakao_result.place_address,
+                place_name = kakao_result.place_name,
+            )
+        except Exception:
+            logger.exception("prewalk_init_kakao_error | lat=%s | lon=%s", lat, lon)
+            location = Location(lat=lat, lon=lon)
+
+        initial_state = State(
+            user_id          = user.id,
+            current_location = location,
+            weather_data     = env_info,
+            response         = init_message,
         )
 
-        await ChatStateRepository.save_state(thread_id=thread_id, state=initial_state)
+        try:
+            await ChatStateRepository.save_state(thread_id=thread_id, state=initial_state)
+        except Exception:
+            logger.exception("prewalk_init_state_save_error | thread_id=%s", thread_id)
 
         return ChatResponse(status=status, thread_id=thread_id, state=initial_state)
 
@@ -101,25 +124,43 @@ class PrewalkOrchestrator:
         status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if status != ChatStatus.SUCCESS:
             return ChatResponse(status=status, thread_id=None, state=None)
-        
+
         # 챗봇 최근 대화 내역 조회
-        state = await ChatStateRepository.get_state(thread_id)
+        try:
+            state = await ChatStateRepository.get_state(thread_id)
+        except Exception:
+            logger.exception("prewalk_intent_state_load_error | thread_id=%s", thread_id)
+            return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
+
         if not state:
             return ChatResponse(status=ChatStatus.SESSION_NOT_FOUND, thread_id=None, state=None)
 
         # 사용자의 접근 권한 확인
-        user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
+        try:
+            user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
+        except Exception:
+            logger.exception("prewalk_intent_user_lookup_error | provider=%s", provider)
+            return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
+
         if state.user_id != user.id:
             return ChatResponse(status=ChatStatus.UNACCESSIBLE, thread_id=None, state=None)
-        
+
         # 최근 프롬프트로 업데이트
-        state.user_prompt = user_prompt
+        state.user_prompt  = user_prompt
         state.access_token = access_token
 
         # state 업데이트
-        result      = await self.graph.ainvoke(state)
-        final_state = State.model_validate(result)
-        await ChatStateRepository.save_state(thread_id, final_state)
+        try:
+            result      = await self.graph.ainvoke(state)
+            final_state = State.model_validate(result)
+        except Exception:
+            logger.exception("prewalk_intent_graph_error | thread_id=%s", thread_id)
+            return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
+
+        try:
+            await ChatStateRepository.save_state(thread_id, final_state)
+        except Exception:
+            logger.exception("prewalk_intent_state_save_error | thread_id=%s", thread_id)
 
         return ChatResponse(
             status    = status,
