@@ -51,11 +51,6 @@ class RouteExecutor(GPTClient):
             # 예외2. 경로 생성에 실패한 경우
             logger.exception("경로 생성에 실패했습니다.")
             return state
-        
-        # 예외3. 경로가 없는 경우
-        if state.route_result is None:
-            logger.warning("경로 생성 결과가 비어 있습니다.")
-            return state
 
         logger.info(f"total_km: {state.route_result.total_km}")
 
