@@ -183,8 +183,6 @@ class Interviewer(GPTClient):
             logger.info(f"위치를 검색합니다: keyword={args.get('query', name)}, target={target}, 결과수={len(output.documents) if isinstance(output, PlaceSearchResult) else 0}")
             
             if isinstance(output, PlaceSearchResult) and output.documents:
-                for d in output.documents:
-                    print(f"  - {d.place_name} ({d.address_name}) lat={d.y} lon={d.x}")
                 candidates[f"{target}_candidate"] = [
                     Location(lat=float(d.y), lon=float(d.x), address=d.address_name, place_name=d.place_name)
                     for d in output.documents
@@ -203,8 +201,6 @@ class Interviewer(GPTClient):
                     keyword=origin.place_name, lat=fallback_lat, lon=fallback_lon
                 )
                 if isinstance(result, PlaceSearchResult) and result.documents:
-                    for d in result.documents:
-                        print(f"  - {d.place_name} ({d.address_name}) lat={d.y} lon={d.x}")
                     candidates["origin_candidate"] = [
                         Location(lat=float(d.y), lon=float(d.x), address=d.address_name, place_name=d.place_name)
                         for d in result.documents
@@ -220,8 +216,6 @@ class Interviewer(GPTClient):
                         keyword=dest.place_name, lat=fallback_lat, lon=fallback_lon
                     )
                     if isinstance(result, PlaceSearchResult) and result.documents:
-                        for d in result.documents:
-                            print(f"  - {d.place_name} ({d.address_name}) lat={d.y} lon={d.x}")
                         candidates["destination_candidate"] = [
                             Location(lat=float(d.y), lon=float(d.x), address=d.address_name, place_name=d.place_name)
                             for d in result.documents
