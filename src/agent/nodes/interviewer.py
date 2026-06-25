@@ -1,5 +1,6 @@
 from langchain_core.output_parsers import StrOutputParser
 from typing import Optional
+import logging
 
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.tools.place_tools import PlaceTool
@@ -15,6 +16,7 @@ from src.schema.prewalk_schema import (
     OnewayShortestPreference,
 )
 
+logger = logging.getLogger(__name__)
 
 class Interviewer(GPTClient):
     def __init__(self):
@@ -32,6 +34,9 @@ class Interviewer(GPTClient):
         is_complete  = self._is_complete(state.user_context)
         missing_info = self._get_missing_info(state.user_context)
 
+        logger.info(f"is_complete: {is_complete}")
+        logger.info(f"missing_info: {missing_info}")
+
         input_variables = {
             "current_context":  self.prompt_utils.format_for_prompt(state.user_context),
             "current_location": self.prompt_utils.format_for_prompt(state.current_location),
@@ -46,6 +51,7 @@ class Interviewer(GPTClient):
                 input_variables = input_variables,
                 parser          = self.str_parser,
             )
+            logger.info("complete.yaml이 호출되었습니다.")
         # 정보가 부족하다면 -> 질문
         else:
             raw_response = await super().get_response(
@@ -53,6 +59,7 @@ class Interviewer(GPTClient):
                 input_variables=input_variables,
                 llm=self.model,
             )
+            logger.info("interview.yaml이 호출되었습니다.")
 
             candidates = await self._execute_tool_calls(
                 raw_response.tool_calls if raw_response.tool_calls else [],
@@ -64,13 +71,18 @@ class Interviewer(GPTClient):
                     state.origin_candidate = candidates["origin_candidate"]
                     if state.user_context and candidates["origin_candidate"]:
                         state.user_context.origin = candidates["origin_candidate"][0]
+                        logger.info(f"origin_candidate: {candidates['origin_candidate']}")
+                        logger.info(f"origin: {state.user_context.origin}")
 
                 if "destination_candidate" in candidates:
                     state.destination_candidate = candidates["destination_candidate"]
                     if state.user_context and hasattr(state.user_context, "destination") and candidates["destination_candidate"]:
                         state.user_context.destination = candidates["destination_candidate"][0]
+                        logger.info(f"destination_candidate: {candidates['destination_candidate']}")
+                        logger.info(f"destination: {state.user_context.destination}")
 
                 is_complete = self._is_complete(state.user_context)
+                logger.info(f"is_complete을 재확인합니다: is_complete = {is_complete}")
 
                 if is_complete:
                     input_variables["current_context"] = self.prompt_utils.format_for_prompt(state.user_context)
@@ -79,6 +91,7 @@ class Interviewer(GPTClient):
                         input_variables=input_variables,
                         parser=self.str_parser,
                     )
+                    logger.info("complete.yaml이 호출되었습니다.")
                 else:
                     response = await super().get_response(
                         prompt_name="location_formatter",
@@ -89,6 +102,7 @@ class Interviewer(GPTClient):
                         },
                         parser=self.str_parser,
                     )
+                    logger.info("location_formatter.yaml이 호출되었습니다.")
             else:
                 response = raw_response.content
 
@@ -96,7 +110,8 @@ class Interviewer(GPTClient):
         state.is_complete = is_complete
         state.response    = response
         
-        print("[interviewer] pref:", state.user_context.model_dump_json(indent=2) if state.user_context else None)
+        logger.info(f"response: {state.response}")
+        logger.info(f"user_context: {state.user_context.model_dump_json() if state.user_context else None}")
 
         return state
 
@@ -165,7 +180,7 @@ class Interviewer(GPTClient):
             
             output = await self.place_tool.tool_map[name].ainvoke(args)
 
-            print(f"[place_tool] keyword={args.get('query', name)}, target={target}, 결과수={len(output.documents) if isinstance(output, PlaceSearchResult) else 0}")
+            logger.info(f"위치를 검색합니다: keyword={args.get('query', name)}, target={target}, 결과수={len(output.documents) if isinstance(output, PlaceSearchResult) else 0}")
             
             if isinstance(output, PlaceSearchResult) and output.documents:
                 for d in output.documents:
@@ -187,7 +202,6 @@ class Interviewer(GPTClient):
                 result = await self.place_tool.get_address_from_keyword(
                     keyword=origin.place_name, lat=fallback_lat, lon=fallback_lon
                 )
-                print(f"[auto_resolve] origin 검색: '{origin.place_name}', 결과수={len(result.documents) if isinstance(result, PlaceSearchResult) else 0}")
                 if isinstance(result, PlaceSearchResult) and result.documents:
                     for d in result.documents:
                         print(f"  - {d.place_name} ({d.address_name}) lat={d.y} lon={d.x}")
@@ -205,7 +219,6 @@ class Interviewer(GPTClient):
                     result = await self.place_tool.get_address_from_keyword(
                         keyword=dest.place_name, lat=fallback_lat, lon=fallback_lon
                     )
-                    print(f"[auto_resolve] destination 검색: '{dest.place_name}', 결과수={len(result.documents) if isinstance(result, PlaceSearchResult) else 0}")
                     if isinstance(result, PlaceSearchResult) and result.documents:
                         for d in result.documents:
                             print(f"  - {d.place_name} ({d.address_name}) lat={d.y} lon={d.x}")
