@@ -66,7 +66,6 @@ class Extractor(GPTClient):
 
         # 로그
         logger.info(f"user_prompt: {state.user_prompt}")
-        logger.info(f"response: {state.response}")
         logger.info(f"mode: {state.mode}")
         logger.info(f"user_context: {state.user_context.model_dump_json() if state.user_context else None}")
         logger.info(f"themes: {state.themes}")
