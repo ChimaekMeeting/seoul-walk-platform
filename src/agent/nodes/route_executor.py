@@ -1,4 +1,6 @@
+import logging
 from langchain_core.output_parsers import StrOutputParser
+
 from src.schema.prewalk_schema import State
 from src.interfaces.schema.walk_schema import WalkMode, Coordinate
 from src.agent.tools.route_tools import RouteTool
@@ -7,13 +9,13 @@ from src.agent.utils.chatbot_utils import PromptUtils
 from src.schema.route_schema import Weights
 from src.repository.user.user_preference_repository import UserPreferenceRepository
 
+logger = logging.getLogger(__name__)
 
 MODE_TOOL_MAP: dict[WalkMode, str] = {
     WalkMode.CIRCULAR_RANDOM: "circular_random_route",
     WalkMode.ONEWAY_SHORTEST: "oneway_shortest_route",
     WalkMode.ONEWAY_RANDOM:   "oneway_random_route",
 }
-
 
 class RouteExecutor(GPTClient):
     def __init__(self):
@@ -23,9 +25,13 @@ class RouteExecutor(GPTClient):
         self.str_parser   = StrOutputParser()
 
     async def run(self, state: State) -> State:
-        """UserPreference와 테마 태그를 반영한 가중치로 경로를 생성합니다."""
+        """
+        UserPreference와 테마 태그를 반영한 가중치로 경로를 생성합니다.
+        """
+        # 예외1. 모드와 매핑되는 경로 생성 엔진이 없는 경우
         tool_name = MODE_TOOL_MAP.get(state.mode)
         if not tool_name:
+            logger.warning(f"모드와 매핑되는 경로 생성 엔진이 없습니다: mode = {state.mode}")
             return state
 
         args = {
@@ -35,17 +41,35 @@ class RouteExecutor(GPTClient):
         args["access_token"]   = state.access_token or ""
         args["custom_weights"] = self._build_weights(state)
 
-        state.route_result = await self.route_tool.tool_map[tool_name].ainvoke(args)
+        logger.info(f"mode: {state.mode}")
+        logger.info(f"custom_weights: {args['custom_weights']}")
 
-        state.response = await super().get_response(
-            prompt_name     = "route_result",
-            input_variables = {
-                "route_result":     self.prompt_utils.format_for_prompt(state.route_result),
-                "user_context":     self.prompt_utils.format_for_prompt(state.user_context),
-                "current_location": self.prompt_utils.format_for_prompt(state.current_location),
-            },
-            parser = self.str_parser,
-        )
+        # 경로 생성
+        try:
+            state.route_result = await self.route_tool.tool_map[tool_name].ainvoke(args)
+        except Exception:
+            # 예외2. 경로 생성에 실패한 경우
+            logger.exception("경로 생성에 실패했습니다.")
+            return state
+        
+        # 예외3. 경로가 없는 경우
+        if state.route_result is None:
+            logger.warning("경로 생성 결과가 비어 있습니다.")
+            return state
+
+        logger.info(f"total_km: {state.route_result.total_km}")
+
+        # 추후 complete.yaml을 사용할지, route_result.yaml을 사용할지, 둘 다 사용할지 판단. 우선은 주석 처리
+        # state.response = await super().get_response(
+        #     prompt_name     = "route_result",
+        #     input_variables = {
+        #         "route_result":     self.prompt_utils.format_for_prompt(state.route_result),
+        #         "user_context":     self.prompt_utils.format_for_prompt(state.user_context),
+        #         "current_location": self.prompt_utils.format_for_prompt(state.current_location),
+        #     },
+        #     parser = self.str_parser,
+        # )
+
         return state
 
     def _build_weights(self, state: State) -> Weights:
@@ -56,6 +80,8 @@ class RouteExecutor(GPTClient):
         from src.service.user.survey_service import TAG_WEIGHT_MAP  # 순환 import 방지(지연 로드)
 
         preference = UserPreferenceRepository.get_by_user_id(state.user_id)
+        if preference is None:
+            logger.debug("UserPreference가 없어, 기본 가중치(0.5)를 사용합니다.")
 
         base = {
             "safety":   (preference.weights_safety   if preference and preference.weights_safety   is not None else 0.5),
@@ -71,5 +97,4 @@ class RouteExecutor(GPTClient):
                 base[key] = max(0.1, min(0.8, base[key] + delta * 0.5))
 
         weights = Weights(**base)
-        print(f"[RouteExecutor] themes={state.themes}, weights={weights}")
         return weights
