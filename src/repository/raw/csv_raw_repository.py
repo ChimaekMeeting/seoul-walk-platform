@@ -1,7 +1,7 @@
 import geopandas as gpd
 import pandas as pd
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import exists, select
+from sqlalchemy import delete, exists, select
 
 from src.database.postgresql import engine, get_postgresql_db
 from src.entity.raw.csv_raw import CsvRaw
@@ -55,6 +55,13 @@ class CsvRawRepository:
         with get_postgresql_db() as db:
             db.add_all(records)
             db.commit()
+
+    @staticmethod
+    def delete(query_key: str) -> int:
+        with get_postgresql_db() as db:
+            result = db.execute(delete(CsvRaw).where(CsvRaw.query_key == query_key))
+            db.commit()
+            return result.rowcount
 
     @staticmethod
     def get(query_key: str) -> gpd.GeoDataFrame:

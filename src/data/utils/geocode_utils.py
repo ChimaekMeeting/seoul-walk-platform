@@ -42,6 +42,35 @@ class Geocoder:
             return None, None
         return asyncio.run(self._geocode_all([address]))[0]
 
+    async def _geocode_place_names(
+        self, place_names: list[str]
+    ) -> list[tuple[float | None, float | None]]:
+        """
+        장소명 목록을 키워드 검색으로 (위도, 경도) 튜플 목록으로 변환합니다.
+        """
+        results = []
+        for name in place_names:
+            if not name or (isinstance(name, float) and pd.isna(name)):
+                results.append((None, None))
+                continue
+            try:
+                result = await self.client.get_place_coords(name)
+                if result:
+                    lon, lat = result
+                    results.append((lat, lon))
+                else:
+                    results.append((None, None))
+            except Exception as e:
+                print(f"장소 변환 오류 ({name}): {e}")
+                results.append((None, None))
+        return results
+
+    def geocode_place_names(self, place_names: list[str]) -> list[tuple[float | None, float | None]]:
+        """
+        장소명 목록을 (위도, 경도) 튜플 목록으로 변환합니다.
+        """
+        return asyncio.run(self._geocode_place_names(place_names))
+
     def geocode_excel_file(
         self, input_excel_path: str, address_col: str, output_csv_path: str
     ) -> None:

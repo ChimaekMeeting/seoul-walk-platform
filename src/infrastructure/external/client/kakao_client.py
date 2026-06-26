@@ -135,3 +135,19 @@ class KakaoClient:
             docs = res.json().get("documents")
             return (float(docs[0]["x"]), float(docs[0]["y"]))
         return None
+
+    async def get_place_coords(self, keyword: str) -> Optional[tuple[float, float]]:
+        """
+        장소명 키워드로 검색하여 (경도, 위도)를 반환합니다.
+        주소가 아닌 장소명(역명, 공원명 등) 변환에 사용합니다.
+        """
+        async with httpx.AsyncClient() as client:
+            res = await client.get(
+                "https://dapi.kakao.com/v2/local/search/keyword.json",
+                headers=self.get_headers(),
+                params={"query": keyword, "size": 1},
+            )
+            docs = res.json().get("documents")
+            if docs:
+                return float(docs[0]["x"]), float(docs[0]["y"])
+        return None
