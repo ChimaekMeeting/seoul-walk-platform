@@ -1,3 +1,4 @@
+import logging
 import os
 
 import httpx
@@ -6,6 +7,8 @@ from dotenv import load_dotenv
 from src.repository.raw.public_raw_repository import PublicRawRepository
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class PublicSource:
@@ -18,16 +21,15 @@ class PublicSource:
         self.api_key = os.getenv("PUBLIC_DATA_API_KEY")
 
     def fetch_and_store(self, key: str, value: str) -> None:
-        """
-        단일 데이터셋을 수집하여 DB에 저장합니다. 이미 저장된 경우 스킵합니다.
-        """
-        print(f"{value} 데이터를 적재합니다.")
         query_key = f"{key}={value}"
         if PublicRawRepository.exists(query_key):
+            logger.debug("%s 이미 적재됨, 스킵", query_key)
             return
-        
+
+        logger.info("공공데이터 %s 수집 시작", value)
         # 수집
         items, lat_key, lon_key, name_key, addr_key, city_key = self._fetch_all(value)
+        logger.debug("%s 원본 %d건 수집", value, len(items))
 
         # 전처리
         items = self.clean(
@@ -36,9 +38,11 @@ class PublicSource:
             name_key=name_key, addr_key=addr_key,
             city_key=city_key,
         )
+        logger.debug("%s 전처리 후 %d건", value, len(items))
 
         # 저장
         PublicRawRepository.save(items, query_key)
+        logger.info("%s 적재 완료: %d건", value, len(items))
 
     def store(self) -> None:
         """
@@ -129,9 +133,14 @@ class PublicSource:
                 },
                 timeout=30.0,
             )
-            print(res.status_code)
-            print(res.text)
-            rows = res.json().get("response", {}).get("body", {}).get("items", [])
+            if res.status_code != 200:
+                logger.warning("어린이놀이시설 page %d HTTP %d, 건너뜀", page, res.status_code)
+                continue
+            try:
+                rows = res.json().get("response", {}).get("body", {}).get("items", [])
+            except Exception:
+                logger.warning("어린이놀이시설 page %d JSON 파싱 실패, 건너뜀", page)
+                continue
             if not rows:
                 break
 
@@ -166,8 +175,10 @@ class PublicSource:
                     "pageNo":        page,
                     "arrange":       "A",
                 }, timeout=30.0)
-                print(res.status_code)
-                print(res.text[:500])
+                logger.debug("TourAPI contentTypeId=%d page=%d → HTTP %d", content_type_id, page, res.status_code)
+                if res.status_code != 200:
+                    logger.warning("TourAPI contentTypeId=%d page=%d HTTP %d, 건너뜀", content_type_id, page, res.status_code)
+                    break
 
                 body = res.json().get("response", {}).get("body", {})
                 item_list = body.get("items", {}).get("item", [])

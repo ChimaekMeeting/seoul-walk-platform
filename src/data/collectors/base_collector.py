@@ -1,3 +1,4 @@
+import logging
 import re
 
 import pandas as pd
@@ -6,6 +7,8 @@ from geoalchemy2.elements import WKTElement
 from src.data.sources.csv_source import CSVSource
 from src.repository.network.node_repository import NodeRepository
 from src.repository.network.edge_repository import EdgeRepository
+
+logger = logging.getLogger(__name__)
 
 
 class BaseNetworkCollector:
@@ -55,14 +58,19 @@ class BaseNetworkCollector:
         ]
 
     def update_node(self) -> None:
-        NodeRepository.save_all(self.build_node_records())
+        records = self.build_node_records()
+        logger.info("walk_nodes 빌드 완료: %d개", len(records))
+        NodeRepository.save_all(records)
 
     def update_edge(self) -> None:
-        EdgeRepository.save_all(self.build_edge_records())
+        records = self.build_edge_records()
+        logger.info("walk_edges 빌드 완료: %d개", len(records))
+        EdgeRepository.save_all(records)
 
     def save(self) -> None:
         self.update_node()
         self.update_edge()
+        logger.info("walk_nodes/edges 적재 완료")
 
 
 if __name__ == "__main__":

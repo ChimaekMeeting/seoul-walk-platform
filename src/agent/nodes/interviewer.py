@@ -16,6 +16,8 @@ from src.schema.prewalk_schema import (
     OnewayShortestPreference,
 )
 
+_FALLBACK_RESPONSE = "죄송해요, 일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요."
+
 logger = logging.getLogger(__name__)
 
 class Interviewer(GPTClient):
@@ -28,8 +30,8 @@ class Interviewer(GPTClient):
 
     async def run(self, state: State) -> State:
         """
-        정보가 부족하다면 -> 질문을 던지고
-        정보가 충분하면   -> 경로 생성 시작을 알리는 메시지를 제공합니다.
+        정보가 부족하다면 → 질문을 던지고
+        정보가 충분하면   → 확인 메시지를 생성한다(경로는 사용자 확인 후 실행).
         """
         is_complete  = self._is_complete(state.user_context)
         missing_info = self._get_missing_info(state.user_context)
@@ -44,72 +46,78 @@ class Interviewer(GPTClient):
             "user_input":       state.user_prompt,
         }
 
-        # 정보가 충분하다면 -> 경로 생성 시작을 알리는 메시지 제공
+        # 정보가 충분하면 → 사용자 확인 질문 생성 (경로 실행은 확인 후)
         if is_complete:
-            response = await super().get_response(
-                prompt_name     = "complete",
-                input_variables = input_variables,
-                parser          = self.str_parser,
-            )
-            logger.info("complete.yaml이 호출되었습니다.")
-        # 정보가 부족하다면 -> 질문
-        else:
+            state.awaiting_confirmation = True
+            state.is_complete           = False
+            state.response              = self._build_confirmation_message(state)
+            logger.info(f"확인 대기 상태로 전환합니다: {state.response}")
+            return state
+
+        # 정보가 부족하면 → interview.yaml 호출
+        try:
             raw_response = await super().get_response(
                 prompt_name="interview",
                 input_variables=input_variables,
                 llm=self.model,
             )
-            logger.info("interview.yaml이 호출되었습니다.")
+        except Exception:
+            logger.exception("interviewer_interview_llm_error")
+            state.response = _FALLBACK_RESPONSE
+            return state
+        logger.info("interview.yaml이 호출되었습니다.")
 
-            candidates = await self._execute_tool_calls(
-                raw_response.tool_calls if raw_response.tool_calls else [],
-                state,
-            )
+        candidates = await self._execute_tool_calls(
+            raw_response.tool_calls if raw_response.tool_calls else [],
+            state,
+        )
 
-            if candidates:
-                if "origin_candidate" in candidates:
-                    state.origin_candidate = candidates["origin_candidate"]
-                    if state.user_context and candidates["origin_candidate"]:
-                        state.user_context.origin = candidates["origin_candidate"][0]
-                        logger.info(f"origin_candidate: {candidates['origin_candidate']}")
-                        logger.info(f"origin: {state.user_context.origin}")
+        if candidates:
+            if "origin_candidate" in candidates:
+                state.origin_candidate = candidates["origin_candidate"]
+                if state.user_context and candidates["origin_candidate"]:
+                    state.user_context.origin = candidates["origin_candidate"][0]
+                    logger.info(f"origin_candidate: {candidates['origin_candidate']}")
+                    logger.info(f"origin: {state.user_context.origin}")
 
-                if "destination_candidate" in candidates:
-                    state.destination_candidate = candidates["destination_candidate"]
-                    if state.user_context and hasattr(state.user_context, "destination") and candidates["destination_candidate"]:
-                        state.user_context.destination = candidates["destination_candidate"][0]
-                        logger.info(f"destination_candidate: {candidates['destination_candidate']}")
-                        logger.info(f"destination: {state.user_context.destination}")
+            if "destination_candidate" in candidates:
+                state.destination_candidate = candidates["destination_candidate"]
+                if state.user_context and hasattr(state.user_context, "destination") and candidates["destination_candidate"]:
+                    state.user_context.destination = candidates["destination_candidate"][0]
+                    logger.info(f"destination_candidate: {candidates['destination_candidate']}")
+                    logger.info(f"destination: {state.user_context.destination}")
 
-                is_complete = self._is_complete(state.user_context)
-                logger.info(f"is_complete을 재확인합니다: is_complete = {is_complete}")
+            is_complete = self._is_complete(state.user_context)
+            logger.info(f"is_complete을 재확인합니다: is_complete = {is_complete}")
 
-                if is_complete:
-                    input_variables["current_context"] = self.prompt_utils.format_for_prompt(state.user_context)
-                    response = await super().get_response(
-                        prompt_name="complete",
-                        input_variables=input_variables,
-                        parser=self.str_parser,
-                    )
-                    logger.info("complete.yaml이 호출되었습니다.")
-                else:
-                    response = await super().get_response(
-                        prompt_name="location_formatter",
-                        input_variables={
-                            "tool_calls":       self.prompt_utils.format_for_prompt(candidates),
-                            "user_input":       state.user_prompt,
-                            "current_location": self.prompt_utils.format_for_prompt(state.current_location),
-                        },
-                        parser=self.str_parser,
-                    )
-                    logger.info("location_formatter.yaml이 호출되었습니다.")
-            else:
-                response = raw_response.content
+            # 장소 검색 후 정보가 충분해진 경우 → 확인 질문
+            if is_complete:
+                state.awaiting_confirmation = True
+                state.is_complete           = False
+                state.response              = self._build_confirmation_message(state)
+                logger.info(f"확인 대기 상태로 전환합니다: {state.response}")
+                return state
 
+            try:
+                response = await super().get_response(
+                    prompt_name="location_formatter",
+                    input_variables={
+                        "tool_calls":       self.prompt_utils.format_for_prompt(candidates),
+                        "user_input":       state.user_prompt,
+                        "current_location": self.prompt_utils.format_for_prompt(state.current_location),
+                    },
+                    parser=self.str_parser,
+                )
+            except Exception:
+                logger.exception("interviewer_location_formatter_llm_error")
+                response = _FALLBACK_RESPONSE
+            logger.info("location_formatter.yaml이 호출되었습니다.")
+        else:
+            response = raw_response.content
 
-        state.is_complete = is_complete
+        state.is_complete = False
         state.response    = response
-        
+
         logger.info(f"response: {state.response}")
         logger.info(f"user_context: {state.user_context.model_dump_json() if state.user_context else None}")
 
@@ -156,6 +164,41 @@ class Interviewer(GPTClient):
 
         return ", ".join(missing) if missing else ""
 
+    def _is_same_location(self, a: Optional[Location], b: Optional[Location]) -> bool:
+        """두 Location이 같은 지점인지 좌표 기준으로 비교합니다."""
+        if a is None or b is None:
+            return False
+        if (a.lat is not None and b.lat is not None
+                and a.lon is not None and b.lon is not None):
+            return abs(a.lat - b.lat) < 1e-6 and abs(a.lon - b.lon) < 1e-6
+        return False
+
+    def _build_confirmation_message(self, state: State) -> str:
+        """경로 실행 전 사용자에게 보낼 확인 질문을 생성합니다."""
+        ctx     = state.user_context
+        current = state.current_location
+
+        if isinstance(ctx, (OnewayShortestPreference, OnewayPreference)):
+            origin    = ctx.origin
+            dest      = ctx.destination
+            dest_name = dest.place_name if dest and dest.place_name else "목적지"
+
+            if self._is_same_location(origin, current):
+                return f"현재 위치부터 {dest_name}까지가 맞나요?"
+            origin_name = origin.place_name if origin and origin.place_name else "현재 위치"
+            return f"{origin_name}부터 {dest_name}까지가 맞나요?"
+
+        if isinstance(ctx, CircularPreference):
+            origin    = ctx.origin
+            target_km = ctx.target_km or 3.0
+            km_str    = str(int(target_km)) if target_km == int(target_km) else str(target_km)
+
+            if self._is_same_location(origin, current):
+                return f"현재 위치에서 출발하는 {km_str}km 순환 산책이 맞나요?"
+            origin_name = origin.place_name if origin and origin.place_name else "현재 위치"
+            return f"{origin_name}에서 출발하는 {km_str}km 순환 산책이 맞나요?"
+
+        return "이 경로로 진행할까요?"
 
     async def _execute_tool_calls(self, tool_calls: list, state: State) -> dict:
         candidates = {}

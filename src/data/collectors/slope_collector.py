@@ -1,9 +1,12 @@
+import logging
 import os
 
 import numpy as np
 
 from src.repository.network.node_repository import NodeRepository
 from src.repository.network.edge_repository import EdgeRepository
+
+logger = logging.getLogger(__name__)
 
 
 class SlopeCalculator:
@@ -91,7 +94,7 @@ class SlopeCalculator:
         """
         updates = self.calculate_edge_slopes()
         EdgeRepository.update_slope_scores_batch(updates, batch_size=self.BATCH_SIZE)
-        print(f"  ✅ slope_score 업데이트 완료: {len(updates):,}개")
+        logger.info("slope_score 업데이트 완료: %d개", len(updates))
 
     def save(self) -> None:
         """

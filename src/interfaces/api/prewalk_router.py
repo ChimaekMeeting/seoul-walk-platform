@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Cookie
 from src.database.postgresql import get_postgresql_db
 from src.interfaces.schema.prewalk_schema import InitRequest, ChatRequest, ChatResponse
@@ -6,6 +8,8 @@ from src.interfaces.validators.highway_validator import validate_no_highway
 from src.interfaces.validators.water_validator import snap_coordinate_from_water
 from src.service.chat.prewalk_service import PrewalkOrchestrator
 from src.interfaces.dependencies import get_prewalk_orchestrator
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/prewalk",
@@ -39,6 +43,9 @@ async def read_init_message(
         raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("prewalk_init_unexpected_error | lat=%s | lon=%s", request.lat, request.lon)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/intent", response_model=ChatResponse)
 async def read_message(
@@ -49,4 +56,10 @@ async def read_message(
     """
     사용자가 메시지를 보낼 때마다 호출됩니다.
     """
-    return await service.orchestrator(access_token, request.thread_id, request.user_prompt)
+    try:
+        return await service.orchestrator(access_token, request.thread_id, request.user_prompt)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("prewalk_intent_unexpected_error | thread_id=%s", request.thread_id)
+        raise HTTPException(status_code=500, detail=str(e))

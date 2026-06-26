@@ -1,3 +1,5 @@
+import logging
+
 import geopandas as gpd
 import pandas as pd
 
@@ -5,6 +7,8 @@ from src.data.sources.osm_source import OSMSource
 from src.data.utils import CollectorUtils
 from src.repository.layer.nature_repository import NatureRepository
 from src.repository.network.edge_repository import EdgeRepository
+
+logger = logging.getLogger(__name__)
 
 
 class NatureCollector:
@@ -34,25 +38,22 @@ class NatureCollector:
                 gdf["green_type"]   = value
                 gdf["green_weight"] = weight
                 frames.append(gdf[["osm_raw_id", "green_type", "green_weight", "geom"]])
-                print(f"{key}={value}: {len(gdf)}개")
+                logger.info("%s=%s: %d개", key, value, len(gdf))
             except Exception as e:
-                print(f"{key}={value} 실패: {e}")
+                logger.error("%s=%s 수집 실패: %s", key, value, e)
 
         if not frames:
+            logger.warning("nature_layer 빌드: 수집된 데이터 없음")
             return gpd.GeoDataFrame(columns=["osm_raw_id", "green_type", "green_weight", "geom"])
-        return gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), geometry="geom", crs="EPSG:4326")
+        combined = gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), geometry="geom", crs="EPSG:4326")
+        logger.info("nature_layer 전체 %d개 레코드 빌드 완료", len(combined))
+        return combined
 
     def update_node(self) -> None:
-        """
-        nature_layer를 저장합니다.
-        """
         combined = self.build_records()
         NatureRepository.save_geodataframe(combined)
 
     def update_edge(self) -> None:
-        """
-        walk_edges.nature_score를 업데이트합니다.
-        """
         EdgeRepository.ensure_score_column("nature_score")
         CollectorUtils.update_edge_scores("nature_score", NatureRepository.get_nature_h3_counts())
 

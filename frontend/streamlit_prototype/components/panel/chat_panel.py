@@ -9,6 +9,23 @@ from frontend.streamlit_prototype.api.auth_client import call_with_auto_refresh
 from frontend.streamlit_prototype.schema.prewalk_schema import InitRequest, ChatRequest
 
 
+def _chat_error_message(response: dict) -> str:
+    """status 값에 따라 사용자 친화적인 오류 메시지를 반환합니다."""
+    status = response.get("status")
+    if status in ("access_expired_token", "invalid_token"):
+        return "로그인이 만료되었습니다. 페이지 상단에서 다시 로그인해주세요."
+    if status == "session_not_found":
+        return "채팅 세션이 만료되었습니다. 페이지를 새로고침(F5)하면 다시 시작할 수 있습니다."
+    if status == "unaccessible":
+        return "접근 권한이 없는 세션입니다."
+    if status == "internal_error":
+        return "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+    # HTTP 에러 (422 Pydantic validation 등)
+    if "detail" in response:
+        return "입력을 처리할 수 없습니다. 다시 입력해주세요."
+    return "오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+
+
 class ChatPanel:
 
     def __init__(self):
@@ -71,8 +88,12 @@ class ChatPanel:
         if response.get("status") != "success":
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": "세션이 만료되었거나 접근 권한이 없습니다. 다시 로그인해주세요.",
+                "content": _chat_error_message(response),
             })
+            # 인증 오류 시 세션 키 제거 → 다음 render에서 로그인 화면으로 전환
+            if response.get("status") in ("access_expired_token", "invalid_token"):
+                from frontend.streamlit_prototype.api.auth_client import clear_auth
+                clear_auth()
             return
 
         state  = response.get("state", {})
@@ -81,9 +102,7 @@ class ChatPanel:
         st.session_state.messages.append({"role": "assistant", "content": answer})
         st.session_state.state = state
 
-        route_result = state.get("route_result")
-        if route_result:
-            st.session_state.route_result = route_result
+        st.session_state.route_result = state.get("route_result")
 
     def _render_route_map(self, route_result: dict) -> None:
         """

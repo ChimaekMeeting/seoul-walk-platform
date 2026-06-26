@@ -1,9 +1,12 @@
+import logging
 import math
 
 from geoalchemy2.elements import WKTElement
 
 from src.repository.network.edge_repository import EdgeRepository
 from src.repository.network.node_repository import NodeRepository
+
+logger = logging.getLogger(__name__)
 
 
 class CollectorUtils:
@@ -34,6 +37,7 @@ class CollectorUtils:
             for i, rec in enumerate(records)
         ]
         NodeRepository.save_all(nodes)
+        logger.debug("walk_nodes에 %s 노드 %d개 등록 (base_id=%d)", node_type, len(nodes), base_id)
         return {rec[name_key]: base_id + i + 1 for i, rec in enumerate(records)}
 
     @staticmethod
@@ -44,8 +48,9 @@ class CollectorUtils:
         """
         edge_h3_rows = EdgeRepository.get_link_h3_cells()
         if not edge_h3_rows:
-            print(f"  walk_edges 데이터 없음 — {score_column} 업데이트 건너뜀")
+            logger.warning("walk_edges 데이터 없음 — %s 업데이트 건너뜀", score_column)
             return
+        logger.debug("%s: H3 셀 %d개, 엣지 %d개", score_column, len(h3_counts), len(edge_h3_rows))
         log_vals = [math.log(h3_counts.get(row.h3_cell, 0) + 1) for row in edge_h3_rows]
         max_log = max(log_vals) or 1.0
         updates = [
@@ -53,4 +58,4 @@ class CollectorUtils:
             for i, row in enumerate(edge_h3_rows)
         ]
         EdgeRepository.update_scores(updates)
-        print(f"  {score_column} 업데이트 완료: {len(updates)}건")
+        logger.info("%s 업데이트 완료: %d건", score_column, len(updates))

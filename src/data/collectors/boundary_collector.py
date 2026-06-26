@@ -1,7 +1,11 @@
+import logging
+
 import geopandas as gpd
 import osmnx as ox
 
 from src.repository.layer.boundary_repository import BoundaryRepository
+
+logger = logging.getLogger(__name__)
 
 
 class SeoulBoundaryCollector:
@@ -13,7 +17,7 @@ class SeoulBoundaryCollector:
     _PLACE = "Seoul, South Korea"
 
     def build_records(self) -> gpd.GeoDataFrame:
-        print(f"  OSM에서 서울 행정구역 경계 수집 중...")
+        logger.info("OSM에서 서울 행정구역 경계 수집 중...")
         gdf = ox.geocode_to_gdf(self._PLACE)
         gdf = gdf.to_crs("EPSG:4326")
 
@@ -23,13 +27,14 @@ class SeoulBoundaryCollector:
         if gdf.geometry.name != "geom":
             gdf = gdf.rename_geometry("geom")
 
+        logger.debug("경계 폴리곤 %d개 빌드 완료", len(gdf))
         return gdf[["name", "geom"]].reset_index(drop=True)
 
     def save(self) -> None:
         records = self.build_records()
         BoundaryRepository.save_geodataframe(records)
         BoundaryRepository.create_spatial_index()
-        print(f"  ✅ seoul_administrative_boundary 적재 완료: {len(records)}개 폴리곤")
+        logger.info("seoul_administrative_boundary 적재 완료: %d개 폴리곤", len(records))
 
 
 if __name__ == "__main__":

@@ -1,7 +1,11 @@
+import logging
+
 import pandas as pd
 
 from src.data.utils.geocode_utils import Geocoder
 from src.repository.raw.csv_raw_repository import CsvRawRepository
+
+logger = logging.getLogger(__name__)
 
 
 class CSVSource:
@@ -23,16 +27,15 @@ class CSVSource:
         self.raw_dir = raw_dir
 
     def fetch_and_store(self, key: str, value: str) -> None:
-        """
-        단일 데이터셋을 파일에서 읽어 DB에 저장합니다. 이미 저장된 경우 스킵합니다.
-        """
-        print(f"{value} 데이터를 적재합니다")
         query_key = f"{key}={value}"
         if CsvRawRepository.exists(query_key):
+            logger.debug("%s 이미 적재됨, 스킵", query_key)
             return
 
+        logger.info("%s 파일 로드 시작", value)
         # 수집
         df, lat_col, lon_col, name_col, addr_col, city_col, end_lat_col, end_lon_col = self._fetch_all(value)
+        logger.debug("%s 원본 %d행", value, len(df))
 
         # 전처리
         df = self.clean(
@@ -42,9 +45,11 @@ class CSVSource:
             city_col=city_col,
             end_lat_col=end_lat_col, end_lon_col=end_lon_col,
         )
+        logger.debug("%s 전처리 후 %d행", value, len(df))
 
         # 저장
         CsvRawRepository.save(df, query_key)
+        logger.info("%s 적재 완료: %d행", value, len(df))
 
     def store(self) -> None:
         """

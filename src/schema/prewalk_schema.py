@@ -68,6 +68,7 @@ class State(BaseModel):
     weather_data: Optional[EnvironmentInfo] = None
     route_result: Optional[WalkRouteResponse] = None
     is_complete: bool = False
+    awaiting_confirmation: bool = False
     user_prompt: str  = ""
     response:    str  = ""
     themes: List[str] = []

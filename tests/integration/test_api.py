@@ -288,37 +288,45 @@ class TestAuthCheckRefreshToken:
 
 class TestPrewalkInitAPI:
     def test_초기_메시지_요청_성공(self, client):
-        from src.schema.prewalk_schema import State
+        from src.interfaces.schema.prewalk_schema import ChatResponse, ChatStatus
+        from src.schema.prewalk_schema import State, Location
 
         mock_orchestrator = MagicMock()
         mock_orchestrator.get_init_message = AsyncMock(
-            return_value={
-                "thread_id": "thread-abc-123",
-                "state": State(
-                    user_uuid="user-uuid-001",
-                    current_location={"lat": 37.5, "lon": 127.0},
+            return_value=ChatResponse(
+                status=ChatStatus.SUCCESS,
+                thread_id="thread-abc-123",
+                state=State(
+                    user_id=1,
+                    current_location=Location(lat=37.5, lon=127.0),
                 ),
-            }
+            )
         )
-        with patch(
-            "src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator
-        ):
+        with patch("src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator):
             response = client.post(
                 "/api/prewalk/init",
-                json={
-                    "user_uuid": "user-uuid-001",
-                    "lat": 37.5,
-                    "lon": 127.0,
-                },
+                json={"lat": 37.5, "lon": 127.0},
             )
         assert response.status_code == 200
         body = response.json()
-        assert "thread_id" in body
+        assert body["status"] == "success"
         assert body["thread_id"] == "thread-abc-123"
 
     def test_필수_필드_누락_시_422_반환(self, client):
-        response = client.post("/api/prewalk/init", json={"user_uuid": "user-uuid-001"})
+        response = client.post("/api/prewalk/init", json={})
         assert response.status_code == 422
+
+    def test_서비스_내부_오류_시_500_반환(self, client):
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.get_init_message = AsyncMock(
+            side_effect=RuntimeError("DB 연결 실패")
+        )
+        with patch("src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator):
+            response = client.post(
+                "/api/prewalk/init",
+                json={"lat": 37.5, "lon": 127.0},
+            )
+        assert response.status_code == 500
 
 
 # ── POST /api/prewalk/intent ─────────────────────────────────────────────────
@@ -326,21 +334,21 @@ class TestPrewalkInitAPI:
 
 class TestPrewalkIntentAPI:
     def test_챗봇_대화_요청_성공(self, client):
-        from src.schema.prewalk_schema import State
+        from src.interfaces.schema.prewalk_schema import ChatResponse, ChatStatus
+        from src.schema.prewalk_schema import State, Location
 
         mock_orchestrator = MagicMock()
         mock_orchestrator.orchestrator = AsyncMock(
-            return_value={
-                "thread_id": "thread-abc-123",
-                "state": State(
-                    user_uuid="user-uuid-001",
-                    current_location={"lat": 37.5, "lon": 127.0},
+            return_value=ChatResponse(
+                status=ChatStatus.SUCCESS,
+                thread_id="thread-abc-123",
+                state=State(
+                    user_id=1,
+                    current_location=Location(lat=37.5, lon=127.0),
                 ),
-            }
+            )
         )
-        with patch(
-            "src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator
-        ):
+        with patch("src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator):
             response = client.post(
                 "/api/prewalk/intent",
                 json={
@@ -349,6 +357,7 @@ class TestPrewalkIntentAPI:
                 },
             )
         assert response.status_code == 200
+        assert response.json()["status"] == "success"
         assert response.json()["thread_id"] == "thread-abc-123"
 
     def test_필수_필드_누락_시_422_반환(self, client):
@@ -356,6 +365,40 @@ class TestPrewalkIntentAPI:
             "/api/prewalk/intent", json={"thread_id": "thread-abc-123"}
         )
         assert response.status_code == 422
+
+    def test_공백_user_prompt_시_422_반환(self, client):
+        response = client.post(
+            "/api/prewalk/intent",
+            json={"thread_id": "thread-abc-123", "user_prompt": "   "},
+        )
+        assert response.status_code == 422
+
+    def test_존재하지_않는_thread_id_시_session_not_found_반환(self, client):
+        from src.interfaces.schema.prewalk_schema import ChatResponse, ChatStatus
+
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.orchestrator = AsyncMock(
+            return_value=ChatResponse(status=ChatStatus.SESSION_NOT_FOUND, thread_id=None, state=None)
+        )
+        with patch("src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator):
+            response = client.post(
+                "/api/prewalk/intent",
+                json={"thread_id": "invalid-thread", "user_prompt": "산책 추천해줘"},
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "session_not_found"
+
+    def test_서비스_내부_오류_시_500_반환(self, client):
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.orchestrator = AsyncMock(
+            side_effect=RuntimeError("LLM 호출 실패")
+        )
+        with patch("src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator):
+            response = client.post(
+                "/api/prewalk/intent",
+                json={"thread_id": "thread-abc-123", "user_prompt": "산책 추천해줘"},
+            )
+        assert response.status_code == 500
 
 
 # ── GET /api/map/facilities ──────────────────────────────────────────────────

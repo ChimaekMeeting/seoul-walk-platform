@@ -1,5 +1,6 @@
 import networkx as nx
 from typing import Optional
+import logging
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import ScoringProfile, get_profile, merge_weights
@@ -11,6 +12,7 @@ from src.interfaces.schema.walk_schema import (
 from src.schema.route_schema import OnewayRouteInput, Weights
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
+logger = logging.getLogger(__name__)
 
 class OnewayDijkstraEngine:
     def __init__(
@@ -33,6 +35,8 @@ class OnewayDijkstraEngine:
         """
         Dijkstra 최단 경로를 생성합니다.
         """
+        logger.info(f"최단 경로 생성 엔진을 시작합니다: scoring_mode={self.scoring_mode}, weights={self.weights}")
+
         # 엣지별 custom_score 기록 (in-place)
         calculate_custom_score(self.G, {
             "mode": self.scoring_mode,
@@ -46,6 +50,7 @@ class OnewayDijkstraEngine:
 
         # 출발 노드가 없는 경우
         if start is None:
+            logger.warning("출발 노드를 찾지 못했습니다.")
             return WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_START_NODE,
                 mode=self.mode,
@@ -55,6 +60,7 @@ class OnewayDijkstraEngine:
         
         # 도착 노드가 없는 경우
         if end is None:
+            logger.warning("도착 노드를 찾지 못했습니다.")
             return WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_END_NODE,
                 mode=self.mode,
@@ -67,6 +73,7 @@ class OnewayDijkstraEngine:
 
         # 경로가 없는 경우
         if not nodes:
+            logger.warning("경로가 비어 있습니다.")
             return WalkRouteResponse(
                 status=WalkRouteStatus.NO_PATH,
                 mode=self.mode,
@@ -76,12 +83,15 @@ class OnewayDijkstraEngine:
 
         coords    = self.utils.extract_coordinates(nodes)  # [lat, lon] 좌표 목록
         total_m   = self.utils.calc_distance(nodes)        # 총 이동 거리(m)
+        total_km = round(total_m / 1000, 2)
+
+        logger.info(f"total_km: {total_km}")
 
         return WalkRouteResponse(
             status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
             mode            = self.mode,
             coordinates     = coords,
-            total_km        = round(total_m / 1000, 2),
+            total_km        = total_km,
         )
 
     def find_path(self, start: int, end: int) -> list[int]:
@@ -91,7 +101,8 @@ class OnewayDijkstraEngine:
         try:
             return nx.shortest_path(self.G, start, end, weight="custom_score")
         except nx.NetworkXNoPath:
+            logger.warning("출발-도착 노드 사이에 연결된 경로가 없습니다")
             return []
-        except Exception as e:
-            print(f"[dijkstra] 오류: {e}")
+        except Exception:
+            logger.exception("최단 경로 생성에에 실패했습니다")
             return []

@@ -5,7 +5,7 @@ src/interfaces/api/map_router.py
 카카오 시설(외부 API), DB 포인트, DB 엣지 3가지 데이터 소스를 각각 제공
 """
 import json
-import traceback
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -18,6 +18,8 @@ from src.interfaces.schema.map_schema import (
     EdgeResponse,
 )
 from src.service import MapService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/map",
@@ -49,7 +51,7 @@ async def get_facilities(
             for p in places
         ]
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("카카오 시설 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -71,7 +73,7 @@ def get_safety_points(
         df = service.fetch_safety_points(lat, lon, radius_m)
         return df.to_dict(orient="records")
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("안전 시설 포인트 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -93,7 +95,7 @@ def get_nature_points(
         df = service.fetch_nature_points(lat, lon, radius_m)
         return df.to_dict(orient="records")
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("녹지 포인트 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -114,7 +116,7 @@ def get_landmark_points(
         df = service.fetch_landmark_points(lat, lon, radius_m)
         return df.to_dict(orient="records")
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("랜드마크 포인트 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -136,7 +138,7 @@ def get_child_points(
         df = service.fetch_child_points(lat, lon, radius_m)
         return df.to_dict(orient="records")
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("어린이 시설 포인트 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -158,7 +160,7 @@ def get_running_points(
         df = service.fetch_running_points(lat, lon, radius_m)
         return df.to_dict(orient="records")
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("러닝 코스 포인트 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -182,5 +184,5 @@ def get_edges(
         df["path"] = df["geometry"].apply(lambda x: json.loads(x)["coordinates"])
         return df[["path", "link_id"]].to_dict(orient="records")
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("도보 네트워크 엣지 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
         raise HTTPException(status_code=500, detail=str(e))
