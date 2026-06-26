@@ -7,26 +7,25 @@
 
 ## 1. 원본 파일 준비
 
-다운로드 폴더에 아래 파일이 있는지 확인합니다.
+`src/data/raw`에 아래 파일이 있는지 확인합니다. 없으면 공공데이터포털에서 직접 다운로드한 뒤 해당 폴더에 넣습니다.
 
-- `전국어린이보호구역표준데이터.csv`
-- `전국스마트가로등표준데이터.csv`
-- `전국자전거도로표준데이터.csv`
-- `서울시CCTV정보.xlsx`
-- `서울시 주요 공원현황.csv` 또는 `서울시_주요_공원현황.csv`
-- `서울시 자치구별 도보 네트워크 공간정보.csv` 또는 `서울시_자치구별_도보_네트워크_공간정보.csv`
+| 파일명 | 출처 | CSVSource 태그 |
+|---|---|---|
+| `전국어린이보호구역표준데이터.csv` | 공공데이터포털 | `protection_zone` |
+| `전국스마트가로등표준데이터.csv` | 공공데이터포털 | `streetlight` |
+| `전국자전거도로표준데이터.csv` | 공공데이터포털 | `bike_road` |
+| `서울시_자전거도로.csv` | 서울 열린데이터광장 | `bike_road_seoul` |
+| `서울시CCTV정보.xlsx` | 서울 열린데이터광장 | `cctv` |
+| `서울시 주요 공원현황.csv` | 서울 열린데이터광장 | `running_park` |
+| `전국가로수길정보표준데이터.csv` | 공공데이터포털 | `street_tree` |
+| `서울 둘레길.csv` | 서울 열린데이터광장 | `seoul_trail` |
+| `공중화장실정보_서울특별시.csv` | 서울 열린데이터광장 | `toilet` |
+| `서울시 버스정류소 위치정보.csv` | 서울 열린데이터광장 | `bus_stop` |
+| `소상공인시장진흥공단_상가(상권)정보_서울_202603.csv` | 소상공인시장진흥공단 | `commercial` |
+| `서울시 자치구별 도보 네트워크 공간정보.csv` | 서울 열린데이터광장 | (walk_network) |
+| `서울시 하천.geojson` | 서울 열린데이터광장 | (river) |
 
-파일을 `src/data/raw`로 복사합니다.
-
-```bash
-poetry run python scripts/stage_raw_data.py
-```
-
-이미 복사된 파일을 최신 다운로드 파일로 덮어쓰려면 다음처럼 실행합니다.
-
-```bash
-poetry run python scripts/stage_raw_data.py --overwrite
-```
+> **주의:** 전국 데이터(`전국*` 파일)는 적재 시 서울 데이터만 필터링됩니다. 필터 기준은 `CSVSource.clean()` 내 `city_col` 설정을 따릅니다.
 
 ## 2. DB 테이블 생성
 
@@ -124,8 +123,120 @@ AI가 없는 정보를 만들지 않게 하려면 프롬프트만으로 막기�
 
 즉, AI는 경로와 데이터를 결정하는 주체가 아니라, 이미 검증된 결과를 사용자에게 자연어로 설명하는 역할에 가깝게 두는 것이 안전합니다.
 
-## 신규 데이터 확장
+## 5. CSV Raw 데이터 재적재
 
-새 데이터가 계속 추가되는 경우에는 단순히 raw에 적재하는 것만으로 끝내지 않습니다. layer, score, profile, scoring engine 반영 기준까지 함께 확인해야 합니다.
+`CSVSource`는 `CsvRawRepository.exists()` 검사로 이미 적재된 태그는 스킵합니다. 파일을 교체하거나 필터 로직을 수정한 뒤 재적재하려면 먼저 기존 데이터를 삭제해야 합니다.
 
-자세한 작업 범위와 PR 분할 계획은 `docs/data_pipeline_expansion_plan.md`를 참고합니다.
+### 특정 태그 재적재
+
+```python
+from src.repository.raw.csv_raw_repository import CsvRawRepository
+from src.data.sources.csv_source import CSVSource
+
+tag = "type=streetlight"
+CsvRawRepository.delete(tag)
+CSVSource().fetch_and_store("type", "streetlight")
+```
+
+### 전국 데이터 전체 서울 전용 재적재
+
+전국 데이터 파일(`전국*`) 기반 태그는 `시도명` 또는 주소 컬럼으로 서울만 필터링됩니다. 필터 적용 전 데이터가 남아 있다면 아래처럼 재적재합니다.
+
+```python
+from src.repository.raw.csv_raw_repository import CsvRawRepository
+from src.data.sources.csv_source import CSVSource
+
+NATIONWIDE_TAGS = [
+    ("type", "protection_zone"),
+    ("type", "streetlight"),
+    ("type", "bike_road"),
+    ("type", "street_tree"),
+]
+
+source = CSVSource()
+for key, value in NATIONWIDE_TAGS:
+    deleted = CsvRawRepository.delete(f"{key}={value}")
+    print(f"[삭제] {key}={value}: {deleted}건")
+    source.fetch_and_store(key, value)
+    print(f"[적재] {key}={value} 완료")
+```
+
+### 적재 현황 확인
+
+```python
+from src.database.postgresql import get_postgresql_db
+from sqlalchemy import text
+
+with get_postgresql_db() as db:
+    rows = db.execute(text(
+        "SELECT query_key, COUNT(*) FROM csv_raw GROUP BY query_key ORDER BY query_key"
+    )).fetchall()
+    for key, cnt in rows:
+        print(f"{key}: {cnt}건")
+```
+
+### `seoul_trail` 주의사항
+
+`서울 둘레길.csv`는 위경도 컬럼이 없어 시작/종료 위치를 카카오 키워드 검색으로 geocoding합니다. 적재 시 `KAKAO_API_KEY` 환경변수가 설정되어 있어야 하며, API 호출 수만큼 시간이 소요됩니다.
+
+### `toilet` 주의사항
+
+`공중화장실정보_서울특별시.csv`도 위경도 컬럼이 없어 도로명주소를 카카오 주소 검색으로 geocoding합니다. 서울 화장실 수천 건에 대해 API를 순차 호출하므로 시간이 오래 걸립니다.
+
+## 6. 신규 CSV/XLSX 데이터 추가 방법
+
+새 파일을 `src/data/raw`에 넣은 뒤 `src/data/sources/csv_source.py`를 아래 순서로 수정합니다.
+
+**① 파일 컬럼 확인**
+
+```python
+import pandas as pd
+df = pd.read_csv("src/data/raw/새파일.csv", encoding="cp949", nrows=3)
+print(df.columns.tolist())
+```
+
+인코딩이 cp949가 아니면 `utf-8` 또는 `utf-8-sig`로 시도합니다.
+
+**② `TAGS`에 추가**
+
+```python
+TAGS: list[tuple[str, str]] = [
+    ...
+    ("type", "new_tag"),  # 추가
+]
+```
+
+**③ `_fetch_all` dispatch에 추가**
+
+```python
+dispatch = {
+    ...
+    "new_tag": self._load_new_tag,  # 추가
+}
+```
+
+**④ `_load_xxx` 메서드 작성**
+
+```python
+def _load_new_tag(self):
+    df = self._read_csv("새파일.csv")
+    cols = ["위도", "경도", "시설명", "소재지도로명주소", "시도명"]
+    df = df[[c for c in cols if c in df.columns]]
+    #         lat,   lon,    name,      addr,           city_col(서울 필터)
+    return df, "위도", "경도", "시설명", "소재지도로명주소", "시도명", None, None
+```
+
+반환 순서: `df, lat_col, lon_col, name_col, addr_col, city_col, end_lat_col, end_lon_col`
+- LINESTRING(기점→종점)이면 `end_lat_col`, `end_lon_col` 지정
+- 이미 서울 전용 파일이면 `city_col=None`
+
+**⑤ 적재 실행**
+
+```bash
+poetry run python -c "
+from src.data.sources.csv_source import CSVSource
+CSVSource().fetch_and_store('type', 'new_tag')
+"
+```
+
+> 새 데이터를 layer/score/profile에 반영하려면 collector 연결까지 추가해야 합니다. 자세한 작업 범위는 `docs/data_pipeline_expansion_plan.md`를 참고합니다.
