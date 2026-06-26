@@ -45,7 +45,7 @@ class Extractor(GPTClient):
         if not res or not res.tool_calls:
             logger.warning("LLM이 산책 모드를 결정하지 못했습니다.")
             return state
-        
+
         tool_call = res.tool_calls[0]
         tool_name = tool_call["name"]  # LLM이 결정한 산책 모드
 
@@ -53,11 +53,27 @@ class Extractor(GPTClient):
         if tool_name not in self.mode_tool.tool_map:
             logger.warning(f"LLM이 정의되지 않은 산책 모드를 사용합니다: {tool_name}")
             return state
-        
+
         # LLM이 추출한 산책 모드 외 정보
         args = tool_call["args"]
 
-        # 예외3. 출발지가 없는 경우
+        # 예외3. origin과 destination이 동일한 장소명인데 명시적 출발지 표현이 없는 경우
+        # (e.g., "용산역으로 가는 길 알려줘" → origin을 null로 보정해 현재 위치로 대체)
+        _EXPLICIT_ORIGIN_MARKERS = ("에서", "부터", "출발", "시작")
+        origin_arg = args.get("origin")
+        dest_arg   = args.get("destination")
+        if origin_arg and dest_arg:
+            origin_name = origin_arg.get("place_name") if isinstance(origin_arg, dict) else None
+            dest_name   = dest_arg.get("place_name")   if isinstance(dest_arg,   dict) else None
+            if origin_name and dest_name and origin_name == dest_name:
+                if not any(m in state.user_prompt for m in _EXPLICIT_ORIGIN_MARKERS):
+                    args["origin"] = None
+                    logger.warning(
+                        f"origin과 destination이 동일한 장소명({origin_name})이며 "
+                        f"명시적 출발지 표현이 없어 origin을 null로 보정합니다."
+                    )
+
+        # 예외4. 출발지가 없는 경우
         if args.get("origin") is None:
             args["origin"] = state.current_location.model_dump()
             logger.warning(f"출발지가 정해지지 않아, 현 위치를 출발지로 설정합니다: {args['origin']}")

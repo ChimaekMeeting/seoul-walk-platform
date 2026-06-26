@@ -4,7 +4,7 @@ import random
 import networkx as nx
 
 _R1_M: float = 30.0   # ROUT-NODE 1차 탐색 반경 (m)
-_R2_M: float = 100.0  # ROUT-NODE 2차 탐색 반경 (m)
+_R2_M: float = 300.0  # ROUT-NODE 2차 탐색 반경 (m)
 
 
 class PathUtils:
