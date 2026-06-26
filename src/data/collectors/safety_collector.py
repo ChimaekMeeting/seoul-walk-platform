@@ -76,9 +76,6 @@ class SafetyCollector:
         CollectorUtils.update_edge_scores("safety_score", SafetyRepository.get_safety_h3_counts())
 
     def save(self) -> None:
-        if SafetyRepository.is_populated():
-            logger.info("safety_layer 이미 적재됨, 스킵")
-            return
         self.update_node()
         self.update_edge()
 

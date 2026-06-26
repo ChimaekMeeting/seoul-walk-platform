@@ -24,8 +24,12 @@ class EdgeRepository:
             if col.server_default is not None and col.name in existing_cols
         }
         with get_postgresql_db() as db:
-            for i in range(0, len(edges), chunksize):
-                chunk = [{**score_defaults, **e} for e in edges[i:i + chunksize]]
+            existing_ids = set(db.execute(select(WalkEdge.link_id)).scalars())
+            new_edges = [e for e in edges if e["link_id"] not in existing_ids]
+            if not new_edges:
+                return
+            for i in range(0, len(new_edges), chunksize):
+                chunk = [{**score_defaults, **e} for e in new_edges[i:i + chunksize]]
                 db.execute(insert(WalkEdge), chunk)
             db.commit()
 

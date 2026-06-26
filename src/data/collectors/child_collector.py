@@ -58,9 +58,6 @@ class ChildCollector:
         CollectorUtils.update_edge_scores("child_score", ChildRepository.get_child_h3_counts())
 
     def save(self) -> None:
-        if ChildRepository.is_populated():
-            logger.info("child_layer 이미 적재됨, 스킵")
-            return
         self.update_node()
         self.update_edge()
 

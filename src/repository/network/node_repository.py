@@ -6,11 +6,6 @@ from typing import List
 
 class NodeRepository:
     @staticmethod
-    def is_populated() -> bool:
-        with get_postgresql_db() as db:
-            return db.execute(select(func.count()).select_from(WalkNode)).scalar() > 0
-
-    @staticmethod
     def get_max_node_id() -> int:
         """
         walk_nodes 테이블에서 현재 최대 node_id를 반환합니다.
@@ -25,13 +20,16 @@ class NodeRepository:
     @staticmethod
     def save_all(nodes: List[dict]):
         """
-        노드 데이터를 walk_nodes에 벌크 저장합니다.
-
-        Args:
-            nodes : 저장할 노드 딕셔너리 목록.
+        노드 데이터를 walk_nodes에 벌크 저장합니다. 이미 같은 node_id가 있으면 스킵합니다.
         """
+        if not nodes:
+            return
         with get_postgresql_db() as db:
-            db.execute(insert(WalkNode), nodes)
+            existing_ids = set(db.execute(select(WalkNode.node_id)).scalars())
+            new_nodes = [n for n in nodes if n["node_id"] not in existing_ids]
+            if not new_nodes:
+                return
+            db.execute(insert(WalkNode), new_nodes)
             db.commit()
 
     @staticmethod

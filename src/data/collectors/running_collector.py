@@ -309,9 +309,6 @@ class RunningCourseCollector:
         CollectorUtils.update_edge_scores("running_score", RunningRepository.get_running_h3_counts())
 
     def save(self) -> None:
-        if RunningRepository.is_populated():
-            logger.info("running_layer 이미 적재됨, 스킵")
-            return
         self.update_node()
         self.update_edge()
 

@@ -21,15 +21,25 @@ class NatureRepository:
         )
 
     @staticmethod
-    def is_populated() -> bool:
-        with get_postgresql_db() as db:
-            return db.execute(select(func.count()).select_from(NatureLayer)).scalar() > 0
-
-    @staticmethod
     def save_geodataframe(gdf: gpd.GeoDataFrame) -> None:
         """
-        OSM 녹지 폴리곤 GeoDataFrame을 nature_layer 테이블에 저장합니다.
+        OSM 녹지 폴리곤 GeoDataFrame을 nature_layer 테이블에 저장합니다. 중심점 경위도가 같으면 스킵합니다.
         """
+        if gdf.empty:
+            return
+        with get_postgresql_db() as db:
+            rows = db.execute(
+                select(
+                    func.ST_Y(func.ST_Centroid(NatureLayer.geom)).label("lat"),
+                    func.ST_X(func.ST_Centroid(NatureLayer.geom)).label("lon"),
+                )
+            ).fetchall()
+        existing = {(round(float(r.lat), 6), round(float(r.lon), 6)) for r in rows}
+        centroids = gdf.geometry.centroid
+        mask = [(round(c.y, 6), round(c.x, 6)) not in existing for c in centroids]
+        gdf = gdf[mask]
+        if gdf.empty:
+            return
         gdf.to_postgis("nature_layer", engine, if_exists="append", index=False)
 
     @staticmethod
