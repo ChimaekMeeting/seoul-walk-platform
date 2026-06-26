@@ -1,3 +1,4 @@
+import logging
 import math
 from typing import Optional
 
@@ -9,6 +10,8 @@ from src.data.sources.csv_source import CSVSource
 from src.data.utils import CollectorUtils
 from src.repository.layer.running_repository import RunningRepository
 from src.repository.network.edge_repository import EdgeRepository
+
+logger = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -100,9 +103,10 @@ class RunningCourseCollector:
             gdf = gpd.read_file(self.RIVER_GEOJSON)
             if gdf.crs and gdf.crs.to_epsg() != 4326:
                 gdf = gdf.to_crs(epsg=4326)
+            logger.debug("하천 GeoJSON 로드 완료: %d개 피처", len(gdf))
             return gdf
         except Exception:
-            print(f"  ⚠️  파일 없음: {self.RIVER_GEOJSON}")
+            logger.warning("파일 없음: %s — 하천 GeoJSON 스킵", self.RIVER_GEOJSON)
             return None
 
     def _make_record(
@@ -280,7 +284,7 @@ class RunningCourseCollector:
 
     def save(self) -> None:
         if RunningRepository.is_populated():
-            print("  ⏭️  running_layer 이미 적재됨, 스킵")
+            logger.info("running_layer 이미 적재됨, 스킵")
             return
         self.update_node()
         self.update_edge()

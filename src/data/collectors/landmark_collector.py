@@ -1,7 +1,11 @@
+import logging
+
 from src.data.sources.public_source import PublicSource
 from src.data.utils.collector_utils import CollectorUtils
 from src.repository.layer.landmark_repository import LandmarkRepository
 from src.repository.network.edge_repository import EdgeRepository
+
+logger = logging.getLogger(__name__)
 
 
 class LandmarkCollector:
@@ -15,7 +19,7 @@ class LandmarkCollector:
 
     def build_records(self) -> list[dict]:
         gdf = self.public.get("type", "landmark")
-        return [
+        records = [
             {
                 "name": row["name"],
                 "geom": CollectorUtils.make_point(row["geom"].y, row["geom"].x),
@@ -23,13 +27,16 @@ class LandmarkCollector:
             for _, row in gdf.iterrows()
             if row.get("name")
         ]
+        logger.debug("랜드마크 레코드 %d개 빌드", len(records))
+        return records
 
     def update_node(self) -> None:
         records = self.build_records()
         if not records:
-            print("  ⚠️  수집된 랜드마크 데이터가 없습니다.")
+            logger.warning("수집된 랜드마크 데이터가 없습니다.")
             return
         LandmarkRepository.save_all(records)
+        logger.info("landmark_layer %d개 저장 완료", len(records))
         name_to_node_id = CollectorUtils.register_nodes(records, node_type="landmark")
         LandmarkRepository.update_walk_node_ids(name_to_node_id)
 
@@ -39,7 +46,7 @@ class LandmarkCollector:
 
     def save(self) -> None:
         if LandmarkRepository.is_populated():
-            print("  ⏭️  landmark_layer 이미 적재됨, 스킵")
+            logger.info("landmark_layer 이미 적재됨, 스킵")
             return
         self.update_node()
         self.update_edge()

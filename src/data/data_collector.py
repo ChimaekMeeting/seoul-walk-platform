@@ -1,3 +1,5 @@
+import logging
+
 from src.data import (
     BaseNetworkCollector,
     NatureCollector,
@@ -10,7 +12,11 @@ from src.data import (
     SeoulWaterCollector,
 )
 
+logger = logging.getLogger(__name__)
+
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] [%(name)s] %(message)s")
+
     # 실행 순서:
     # 1. python -m src.main                    # 테이블 생성
     # 2. python -m src.data.source_collector   # raw 데이터 적재
@@ -18,29 +24,29 @@ if __name__ == "__main__":
     #
     # 각 collector는 layer 테이블이 이미 채워진 경우 자동 스킵됩니다.
     #
-    print("--- 도보 네트워크 적재 ---")
+    logger.info("--- 도보 네트워크 적재 ---")
     BaseNetworkCollector().save()
 
-    print("--- 자연 데이터 적재 ---")
+    logger.info("--- 자연 데이터 적재 ---")
     NatureCollector().save()
 
-    print("--- 안전 데이터 적재 ---")
+    logger.info("--- 안전 데이터 적재 ---")
     SafetyCollector().save()
 
-    print("--- 어린이 시설 적재 ---")
+    logger.info("--- 어린이 시설 적재 ---")
     ChildCollector().save()
 
-    print("--- 서울 행정구역 경계 적재 ---")
+    logger.info("--- 서울 행정구역 경계 적재 ---")
     SeoulBoundaryCollector().save()
 
-    print("--- 서울 수계 폴리곤 적재 ---")
+    logger.info("--- 서울 수계 폴리곤 적재 ---")
     SeoulWaterCollector().save()
 
-    # print("--- 경사로 적재 ---")
+    # logger.info("--- 경사로 적재 ---")
     # SlopeCalculator().save()
 
-    print("--- 랜드마크 적재 ---")
+    logger.info("--- 랜드마크 적재 ---")
     LandmarkCollector().save()
 
-    # print("--- 러닝 데이터 적재 ---")
+    # logger.info("--- 러닝 데이터 적재 ---")
     # RunningCourseCollector().save()

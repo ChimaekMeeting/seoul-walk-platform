@@ -1,3 +1,4 @@
+import logging
 import os
 
 import httpx
@@ -6,6 +7,8 @@ from dotenv import load_dotenv
 from src.repository.raw.kakao_raw_repository import KakaoRawRepository
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 CATEGORY_CODES: dict[str, str] = {
     "대형마트":       "MT1",
@@ -44,16 +47,15 @@ class KakaoSource:
         self.headers = {"Authorization": f"KakaoAK {self.api_key}"}
 
     def fetch_and_store(self, key: str, value: str) -> None:
-        """
-        단일 카테고리 데이터를 수집하여 DB에 저장합니다. 이미 저장된 경우 스킵합니다.
-        """
-        print(f"{value} 데이터를 적재합니다.")
         query_key = f"{key}={value}"
         if KakaoRawRepository.exists(query_key):
+            logger.debug("%s 이미 적재됨, 스킵", query_key)
             return
-        
+
+        logger.info("Kakao 카테고리 %s 수집 시작", value)
         # 수집
         items = self._fetch_all(value)
+        logger.debug("%s 원본 %d건 수집", value, len(items))
 
         # 전처리
         items = self.clean(
@@ -62,9 +64,11 @@ class KakaoSource:
             lat_key="y", lon_key="x",
             name_key="place_name", addr_key="address_name",
         )
+        logger.debug("%s 전처리 후 %d건", value, len(items))
 
         # 저장
         KakaoRawRepository.save(items, query_key)
+        logger.info("%s 적재 완료: %d건", value, len(items))
 
     def store(self) -> None:
         """
