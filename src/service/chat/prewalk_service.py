@@ -195,6 +195,7 @@ class PrewalkOrchestrator:
         else:
             # 일반 흐름 → LangGraph 실행
             state.user_prompt = user_prompt
+            state.route_result = None
             try:
                 result      = await self.graph.ainvoke(state)
                 final_state = State.model_validate(result)
