@@ -283,16 +283,16 @@ class RunningCourseCollector:
 
     def update_outdoor_exercise(self) -> None:
         if RunningRepository.is_course_type_populated("outdoor_exercise"):
-            print("  ⏭️  outdoor_exercise 이미 적재됨, 스킵")
+            logger.info("outdoor_exercise 이미 적재됨, 스킵")
             return
         RunningRepository.ensure_generic_geometry()
         records = self.build_outdoor_exercise_records()
         if not records:
-            print("  ⚠️  수집된 outdoor_exercise 데이터가 없습니다.")
+            logger.warning("수집된 outdoor_exercise 데이터가 없습니다.")
             return
         RunningRepository.save_all(records)
         self.update_edge()
-        print(f"  outdoor_exercise 적재 완료: {len(records)}건")
+        logger.info("outdoor_exercise 적재 완료: %d건", len(records))
 
     def update_node(self) -> None:
         records = (

@@ -7,6 +7,9 @@ from src.database.postgresql import get_postgresql_db
 from src.entity.network.walk_edge import WalkEdge
 from src.entity.network.walk_node import WalkNode
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class GraphRepository:
     @staticmethod
@@ -74,16 +77,16 @@ class GraphRepository:
                     child_score=row.child_score,
                 )
 
-        print(f"그래프 로드 완료: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+        logger.info(f"그래프 로드 완료: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
 
         if G.number_of_nodes() == 0:
-            print("  ⚠️  walk_edges 데이터 없음. 빈 그래프로 초기화합니다.")
+            logger.info("  ⚠️  walk_edges 데이터 없음. 빈 그래프로 초기화합니다.")
             return G
 
         largest_cc = max(nx.connected_components(G), key=len)
         G = G.subgraph(largest_cc).copy()
         G = PathUtils(G).remove_dead_ends()
-        print(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+        logger.info(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
 
         return G
 
@@ -154,13 +157,13 @@ class GraphRepository:
                     child_score=row.child_score,
                 )
 
-        print(f"반경 {radius_m}m 그래프 로드: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+        logger.info(f"반경 {radius_m}m 그래프 로드: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
 
         if G.number_of_nodes() == 0:
             return G
 
         largest_cc = max(nx.connected_components(G), key=len)
         G = G.subgraph(largest_cc).copy()
-        print(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
+        logger.info(f"최대 연결 컴포넌트: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
 
         return G

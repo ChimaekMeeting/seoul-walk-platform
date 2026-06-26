@@ -53,15 +53,15 @@ class SafetyCollector:
 
     def update_accident(self) -> None:
         if SafetyRepository.is_type_populated("accident_zone"):
-            print("  ⏭️  accident_zone 이미 적재됨, 스킵")
+            logger.info("accident_zone 이미 적재됨, 스킵")
             return
         records = self.build_accident_records()
         if not records:
-            print("  ⚠️  수집된 accident_zone 데이터가 없습니다.")
+            logger.warning("수집된 accident_zone 데이터가 없습니다.")
             return
         SafetyRepository.save_all(records)
         self.update_edge()
-        print(f"  accident_zone 적재 완료: {len(records)}건")
+        logger.info("accident_zone 적재 완료: %d건", len(records))
 
     def update_node(self) -> None:
         streetlight = self.build_streetlight_records()
