@@ -7,6 +7,8 @@ from sqlalchemy import func, select, cast
 from geoalchemy2 import Geography
 
 from src.database.postgresql import get_postgresql_db
+import logging
+logger = logging.getLogger(__name__)
 
 
 class RepositoryUtils:
@@ -57,7 +59,7 @@ class RepositoryUtils:
                 rows = db.execute(stmt).fetchall()
             return pd.DataFrame(rows, columns=df_columns)
         except Exception as e:
-            print(f"DB 포인트 조회 실패 ({entity.__tablename__}): {e}")
+            logger.info(f"DB 포인트 조회 실패 ({entity.__tablename__}): {e}")
             return pd.DataFrame()
 
 

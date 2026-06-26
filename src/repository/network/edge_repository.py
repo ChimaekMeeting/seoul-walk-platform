@@ -6,6 +6,10 @@ from src.entity.network.walk_edge import WalkEdge
 from src.repository.utils import RepositoryUtils
 from typing import List
 
+import logging
+logger = logging.getLogger(__name__)
+
+
 
 class EdgeRepository:
     @staticmethod
@@ -145,5 +149,5 @@ class EdgeRepository:
                 ).fetchall()
             return pd.DataFrame(rows, columns=["geometry", "link_id"])
         except Exception as e:
-            print(f"DB 라인 조회 실패: {e}")
+            logger.info(f"DB 라인 조회 실패: {e}")
             return pd.DataFrame()

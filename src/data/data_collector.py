@@ -48,7 +48,7 @@ if __name__ == "__main__":
     logger.info("--- 랜드마크 적재 ---")
     LandmarkCollector().save()
 
-    # print("--- 러닝 데이터 적재 ---")
+    # logger.info("--- 러닝 데이터 적재 ---")
     # RunningCourseCollector().save()
 
     logger.info("--- 사고 다발지역 적재 ---")
