@@ -1,9 +1,13 @@
+import logging
+
 import pandas as pd
 
 from src.data.sources.csv_source import CSVSource
 from src.data.utils import CollectorUtils
 from src.repository.network.edge_repository import EdgeRepository
 from src.repository.layer.safety_repository import SafetyRepository
+
+logger = logging.getLogger(__name__)
 
 
 class SafetyCollector:
@@ -19,6 +23,7 @@ class SafetyCollector:
                 "safety_type": "streetlight",
                 "geom":        CollectorUtils.make_point(row["geom"].y, row["geom"].x),
             })
+        logger.debug("streetlight %d개 빌드", len(records))
         return records
 
     def build_cctv_records(self) -> list:
@@ -30,10 +35,16 @@ class SafetyCollector:
                 "safety_type": "cctv",
                 "geom":        CollectorUtils.make_point(row["geom"].y, row["geom"].x),
             })
+        logger.debug("cctv %d개 빌드", len(records))
         return records
 
     def update_node(self) -> None:
-        SafetyRepository.save_all(self.build_streetlight_records() + self.build_cctv_records())
+        streetlight = self.build_streetlight_records()
+        cctv = self.build_cctv_records()
+        records = streetlight + cctv
+        logger.info("safety_layer %d개 저장 시작 (streetlight=%d, cctv=%d)",
+                    len(records), len(streetlight), len(cctv))
+        SafetyRepository.save_all(records)
 
     def update_edge(self) -> None:
         EdgeRepository.ensure_score_column("safety_score")
@@ -41,7 +52,7 @@ class SafetyCollector:
 
     def save(self) -> None:
         if SafetyRepository.is_populated():
-            print("  ⏭️  safety_layer 이미 적재됨, 스킵")
+            logger.info("safety_layer 이미 적재됨, 스킵")
             return
         self.update_node()
         self.update_edge()

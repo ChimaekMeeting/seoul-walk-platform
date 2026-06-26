@@ -32,4 +32,7 @@ class PrewalkRouter:
                 "user_prompt": user_prompt
             }
             response = await client.post(f"{self.base_url}/intent", json=body, cookies=cookies)
-            return response.json()
+            try:
+                return response.json()
+            except Exception:
+                return {"status": "internal_error", "detail": response.text}
