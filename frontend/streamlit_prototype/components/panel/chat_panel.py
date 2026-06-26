@@ -102,9 +102,7 @@ class ChatPanel:
         st.session_state.messages.append({"role": "assistant", "content": answer})
         st.session_state.state = state
 
-        route_result = state.get("route_result")
-        if route_result:
-            st.session_state.route_result = route_result
+        st.session_state.route_result = state.get("route_result")
 
     def _render_route_map(self, route_result: dict) -> None:
         """
