@@ -26,6 +26,15 @@ class SafetyRepository:
             return db.execute(select(func.count()).select_from(SafetyLayer)).scalar() > 0
 
     @staticmethod
+    def is_type_populated(safety_type: str) -> bool:
+        with get_postgresql_db() as db:
+            return db.execute(
+                select(func.count()).select_from(SafetyLayer)
+                .where(SafetyLayer.safety_type == safety_type)
+            ).scalar() > 0
+
+
+    @staticmethod
     def save_all(records: List[dict]):
         """
         안전 시설물 데이터를 safety_layer에 벌크 저장합니다.

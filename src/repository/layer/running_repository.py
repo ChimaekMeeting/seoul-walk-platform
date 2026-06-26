@@ -38,6 +38,14 @@ class RunningRepository:
             return db.execute(select(func.count()).select_from(RunningLayer)).scalar() > 0
 
     @staticmethod
+    def is_course_type_populated(course_type: str) -> bool:
+        with get_postgresql_db() as db:
+            return db.execute(
+                select(func.count()).select_from(RunningLayer)
+                .where(RunningLayer.course_type == course_type)
+            ).scalar() > 0
+
+    @staticmethod
     def save_all(records: list[dict]):
         """
         코스 데이터를 running_layer 테이블에 벌크 저장합니다.
@@ -122,3 +130,18 @@ class RunningRepository:
             for row in rows
         ]
 
+    @staticmethod
+    def ensure_generic_geometry() -> None:
+        from sqlalchemy import text
+        with get_postgresql_db() as db:
+            result = db.execute(text(
+                "SELECT type FROM geometry_columns "
+                "WHERE f_table_name = 'running_layer' AND f_geometry_column = 'geom'"
+            )).fetchone()
+            if result and result.type != "GEOMETRY":
+                db.execute(text(
+                    "ALTER TABLE running_layer "
+                    "ALTER COLUMN geom TYPE geometry(Geometry, 4326) "
+                    "USING geom::geometry(Geometry, 4326)"
+                ))
+                db.commit()

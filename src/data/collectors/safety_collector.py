@@ -6,13 +6,14 @@ from src.data.sources.csv_source import CSVSource
 from src.data.utils import CollectorUtils
 from src.repository.network.edge_repository import EdgeRepository
 from src.repository.layer.safety_repository import SafetyRepository
+from src.data.sources.public_source import PublicSource
 
 logger = logging.getLogger(__name__)
-
 
 class SafetyCollector:
     def __init__(self):
         self.csv = CSVSource()
+        self.public = PublicSource()
 
     def build_streetlight_records(self) -> list:
         gdf = self.csv.get("type", "streetlight")
@@ -37,6 +38,30 @@ class SafetyCollector:
             })
         logger.debug("cctv %d개 빌드", len(records))
         return records
+    
+    def build_accident_records(self) -> list:
+        gdf = self.public.get("type", "accident_zone")
+        records = []
+        for _, row in gdf.iterrows():
+            records.append({
+                "csv_raw_id":    None,
+                "public_raw_id": row.get("public_raw_id"),
+                "safety_type":   "accident_zone",
+                "geom":          CollectorUtils.make_point(row["geom"].y, row["geom"].x),
+            })
+        return records
+
+    def update_accident(self) -> None:
+        if SafetyRepository.is_type_populated("accident_zone"):
+            print("  ⏭️  accident_zone 이미 적재됨, 스킵")
+            return
+        records = self.build_accident_records()
+        if not records:
+            print("  ⚠️  수집된 accident_zone 데이터가 없습니다.")
+            return
+        SafetyRepository.save_all(records)
+        self.update_edge()
+        print(f"  accident_zone 적재 완료: {len(records)}건")
 
     def update_node(self) -> None:
         streetlight = self.build_streetlight_records()
