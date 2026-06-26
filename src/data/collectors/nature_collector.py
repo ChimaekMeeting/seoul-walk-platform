@@ -57,9 +57,6 @@ class NatureCollector:
         CollectorUtils.update_edge_scores("nature_score", NatureRepository.get_nature_h3_counts())
 
     def save(self) -> None:
-        if NatureRepository.is_populated():
-            print("  ⏭️  nature_layer 이미 적재됨, 스킵")
-            return
         self.update_node()
         self.update_edge()
 

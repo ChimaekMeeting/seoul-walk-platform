@@ -53,9 +53,6 @@ class SeoulWaterCollector:
         return combined.reset_index(drop=True)
 
     def save(self) -> None:
-        if WaterPolygonRepository.is_populated():
-            print("  ⏭️  seoul_water_polygons 이미 적재됨, 스킵")
-            return
         records = self.build_records()
         if records.empty:
             print("  ⚠️  수계 데이터 없음, 스킵")

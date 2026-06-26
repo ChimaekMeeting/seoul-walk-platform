@@ -1,20 +1,25 @@
 import geopandas as gpd
-from sqlalchemy import func, select, text
+from sqlalchemy import text
 
 from src.database.postgresql import get_postgresql_db, engine
-from src.entity.layer.seoul_administrative_boundary import SeoulAdministrativeBoundary
 
 
 class BoundaryRepository:
     @staticmethod
-    def is_populated() -> bool:
-        with get_postgresql_db() as db:
-            return db.execute(
-                select(func.count()).select_from(SeoulAdministrativeBoundary)
-            ).scalar() > 0
-
-    @staticmethod
     def save_geodataframe(gdf: gpd.GeoDataFrame) -> None:
+        if gdf.empty:
+            return
+        with get_postgresql_db() as db:
+            rows = db.execute(text(
+                "SELECT ST_Y(ST_Centroid(geom)) as lat, ST_X(ST_Centroid(geom)) as lon "
+                "FROM seoul_administrative_boundary"
+            )).fetchall()
+        existing = {(round(float(r.lat), 6), round(float(r.lon), 6)) for r in rows}
+        centroids = gdf.geometry.centroid
+        mask = [(round(c.y, 6), round(c.x, 6)) not in existing for c in centroids]
+        gdf = gdf[mask]
+        if gdf.empty:
+            return
         gdf.to_postgis("seoul_administrative_boundary", engine, if_exists="append", index=False)
 
     @staticmethod

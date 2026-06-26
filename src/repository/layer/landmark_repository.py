@@ -2,6 +2,7 @@ from collections import Counter
 from typing import List
 
 import pandas as pd
+from shapely.wkt import loads as wkt_loads
 from sqlalchemy import func, select, insert, update
 
 from src.database.postgresql import get_postgresql_db
@@ -18,20 +19,25 @@ class LandmarkRepository:
         return RepositoryUtils.fetch_nearby_points(LandmarkLayer, lat, lon, radius_m)
 
     @staticmethod
-    def is_populated() -> bool:
-        with get_postgresql_db() as db:
-            return db.execute(select(func.count()).select_from(LandmarkLayer)).scalar() > 0
-
-    @staticmethod
     def save_all(landmarks: List[dict]):
         """
-        랜드마크 데이터를 landmark_layer에 벌크 저장합니다.
-
-        Args:
-            landmarks : 저장할 랜드마크 딕셔너리 목록.
+        랜드마크 데이터를 landmark_layer에 벌크 저장합니다. 이미 같은 경위도가 있으면 스킵합니다.
         """
+        if not landmarks:
+            return
         with get_postgresql_db() as db:
-            db.execute(insert(LandmarkLayer), landmarks)
+            rows = db.execute(
+                select(func.ST_Y(LandmarkLayer.geom).label("lat"), func.ST_X(LandmarkLayer.geom).label("lon"))
+            ).fetchall()
+            existing = {(round(float(r.lat), 6), round(float(r.lon), 6)) for r in rows}
+            new_records = []
+            for r in landmarks:
+                pt = wkt_loads(r["geom"].desc)
+                if (round(pt.y, 6), round(pt.x, 6)) not in existing:
+                    new_records.append(r)
+            if not new_records:
+                return
+            db.execute(insert(LandmarkLayer), new_records)
             db.commit()
 
     @staticmethod

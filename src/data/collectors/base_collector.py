@@ -61,9 +61,6 @@ class BaseNetworkCollector:
         EdgeRepository.save_all(self.build_edge_records())
 
     def save(self) -> None:
-        if NodeRepository.is_populated():
-            print("  ⏭️  walk_nodes/edges 이미 적재됨, 스킵")
-            return
         self.update_node()
         self.update_edge()
 

@@ -3,6 +3,7 @@ from typing import List
 
 import pandas as pd
 from geoalchemy2 import Geography
+from shapely.wkt import loads as wkt_loads
 from sqlalchemy import cast, func, insert, select
 
 from src.database.postgresql import get_postgresql_db
@@ -22,17 +23,25 @@ class ChildRepository:
         )
 
     @staticmethod
-    def is_populated() -> bool:
-        with get_postgresql_db() as db:
-            return db.execute(select(func.count()).select_from(ChildLayer)).scalar() > 0
-
-    @staticmethod
     def save_all(records: List[dict]) -> None:
         """
-        어린이 시설 데이터를 child_layer에 벌크 저장합니다.
+        어린이 시설 데이터를 child_layer에 벌크 저장합니다. 이미 같은 경위도가 있으면 스킵합니다.
         """
+        if not records:
+            return
         with get_postgresql_db() as db:
-            db.execute(insert(ChildLayer), records)
+            rows = db.execute(
+                select(func.ST_Y(ChildLayer.geom).label("lat"), func.ST_X(ChildLayer.geom).label("lon"))
+            ).fetchall()
+            existing = {(round(float(r.lat), 6), round(float(r.lon), 6)) for r in rows}
+            new_records = []
+            for r in records:
+                pt = wkt_loads(r["geom"].desc)
+                if (round(pt.y, 6), round(pt.x, 6)) not in existing:
+                    new_records.append(r)
+            if not new_records:
+                return
+            db.execute(insert(ChildLayer), new_records)
             db.commit()
 
     @staticmethod

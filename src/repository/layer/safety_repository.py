@@ -1,12 +1,13 @@
+from collections import Counter
 from typing import List
 
 import pandas as pd
+from shapely.wkt import loads as wkt_loads
 from sqlalchemy import func, select, insert
 
 from src.database.postgresql import get_postgresql_db
 from src.entity.layer.safety_layer import SafetyLayer
 from src.repository.utils import RepositoryUtils
-from collections import Counter
 
 
 class SafetyRepository:
@@ -21,20 +22,25 @@ class SafetyRepository:
         )
 
     @staticmethod
-    def is_populated() -> bool:
-        with get_postgresql_db() as db:
-            return db.execute(select(func.count()).select_from(SafetyLayer)).scalar() > 0
-
-    @staticmethod
     def save_all(records: List[dict]):
         """
-        안전 시설물 데이터를 safety_layer에 벌크 저장합니다.
-
-        Args:
-            records : 저장할 안전 시설물 딕셔너리 목록.
+        안전 시설물 데이터를 safety_layer에 벌크 저장합니다. 이미 같은 경위도가 있으면 스킵합니다.
         """
+        if not records:
+            return
         with get_postgresql_db() as db:
-            db.execute(insert(SafetyLayer), records)
+            rows = db.execute(
+                select(func.ST_Y(SafetyLayer.geom).label("lat"), func.ST_X(SafetyLayer.geom).label("lon"))
+            ).fetchall()
+            existing = {(round(float(r.lat), 6), round(float(r.lon), 6)) for r in rows}
+            new_records = []
+            for r in records:
+                pt = wkt_loads(r["geom"].desc)
+                if (round(pt.y, 6), round(pt.x, 6)) not in existing:
+                    new_records.append(r)
+            if not new_records:
+                return
+            db.execute(insert(SafetyLayer), new_records)
             db.commit()
 
     @staticmethod

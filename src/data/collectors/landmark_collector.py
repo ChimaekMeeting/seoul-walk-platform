@@ -38,9 +38,6 @@ class LandmarkCollector:
         CollectorUtils.update_edge_scores("landmark_score", LandmarkRepository.get_landmark_h3_counts())
 
     def save(self) -> None:
-        if LandmarkRepository.is_populated():
-            print("  ⏭️  landmark_layer 이미 적재됨, 스킵")
-            return
         self.update_node()
         self.update_edge()
 

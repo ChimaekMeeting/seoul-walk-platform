@@ -26,9 +26,6 @@ class SeoulBoundaryCollector:
         return gdf[["name", "geom"]].reset_index(drop=True)
 
     def save(self) -> None:
-        if BoundaryRepository.is_populated():
-            print("  ⏭️  seoul_administrative_boundary 이미 적재됨, 스킵")
-            return
         records = self.build_records()
         BoundaryRepository.save_geodataframe(records)
         BoundaryRepository.create_spatial_index()
