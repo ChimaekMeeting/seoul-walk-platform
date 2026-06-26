@@ -6,6 +6,7 @@ src/interfaces/api/user_router.py
 """
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException
+import logging
 
 from src.interfaces.dependencies import get_survey_service, get_auth_service, get_user_service
 from src.interfaces.schema.survey_schema import SurveyRequest, SurveyResponse, SurveyStatusResponse
@@ -19,7 +20,8 @@ from src.repository.user.user_repository import UserRepository
 from src.repository.user.route_history_repository import RouteHistoryRepository
 from src.service.user.auth_service import AuthService
 from src.interfaces.schema.auth_schema import Status
-import traceback
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/user", tags=["user"])
 
@@ -69,10 +71,12 @@ def get_route_histories(
     try:
         status, provider, provider_id = auth_service.check_access_token(access_token)
         if status != Status.SUCCESS:
+            logger.warning("경로 기록 조회 인증 실패: status=%s", status.value)
             raise HTTPException(status_code=401, detail=status.value)
 
         user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
         if user is None:
+            logger.warning("경로 기록 조회 - 사용자를 찾을 수 없습니다: provider=%s", provider)
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
         histories = RouteHistoryRepository.find_by_user_id(
@@ -85,7 +89,7 @@ def get_route_histories(
     except HTTPException:
         raise
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("경로 기록 조회 중 오류가 발생했습니다.")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -99,21 +103,24 @@ def toggle_favorite(
     try:
         status, provider, provider_id = auth_service.check_access_token(access_token)
         if status != Status.SUCCESS:
+            logger.warning("즐겨찾기 토글 인증 실패: status=%s, history_id=%s", status.value, history_id)
             raise HTTPException(status_code=401, detail=status.value)
 
         user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
         if user is None:
+            logger.warning("즐겨찾기 토글 - 사용자를 찾을 수 없습니다: provider=%s", provider)
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
         history = RouteHistoryRepository.toggle_favorite(history_id, user.id)
         if history is None:
+            logger.warning("즐겨찾기 토글 - 경로 기록을 찾을 수 없습니다: history_id=%s, user_id=%s", history_id, user.id)
             raise HTTPException(status_code=404, detail="경로 기록을 찾을 수 없습니다.")
 
         return RouteHistoryItem.model_validate(history)
     except HTTPException:
         raise
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("즐겨찾기 토글 중 오류가 발생했습니다: history_id=%s", history_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -129,21 +136,24 @@ def get_route_history(
     try:
         status, provider, provider_id = auth_service.check_access_token(access_token)
         if status != Status.SUCCESS:
+            logger.warning("경로 기록 상세 조회 인증 실패: status=%s, history_id=%s", status.value, history_id)
             raise HTTPException(status_code=401, detail=status.value)
 
         user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
         if user is None:
+            logger.warning("경로 기록 상세 조회 - 사용자를 찾을 수 없습니다: provider=%s", provider)
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
         history = RouteHistoryRepository.find_by_id(history_id, user.id)
         if history is None:
+            logger.warning("경로 기록 상세 조회 - 경로 기록을 찾을 수 없습니다: history_id=%s, user_id=%s", history_id, user.id)
             raise HTTPException(status_code=404, detail="경로 기록을 찾을 수 없습니다.")
 
         return RouteHistoryItem.model_validate(history)
     except HTTPException:
         raise
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("경로 기록 상세 조회 중 오류가 발생했습니다: history_id=%s", history_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 
