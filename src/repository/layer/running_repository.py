@@ -135,3 +135,18 @@ class RunningRepository:
             for row in rows
         ]
 
+    @staticmethod
+    def ensure_generic_geometry() -> None:
+        from sqlalchemy import text
+        with get_postgresql_db() as db:
+            result = db.execute(text(
+                "SELECT type FROM geometry_columns "
+                "WHERE f_table_name = 'running_layer' AND f_geometry_column = 'geom'"
+            )).fetchone()
+            if result and result.type != "GEOMETRY":
+                db.execute(text(
+                    "ALTER TABLE running_layer "
+                    "ALTER COLUMN geom TYPE geometry(Geometry, 4326) "
+                    "USING geom::geometry(Geometry, 4326)"
+                ))
+                db.commit()

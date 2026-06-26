@@ -10,9 +10,9 @@ from src.data.sources.csv_source import CSVSource
 from src.data.utils import CollectorUtils
 from src.repository.layer.running_repository import RunningRepository
 from src.repository.network.edge_repository import EdgeRepository
+from src.data.sources.public_source import PublicSource
 
 logger = logging.getLogger(__name__)
-
 
 # ──────────────────────────────────────────────────────────────
 # 하천변 데이터
@@ -95,6 +95,7 @@ def _find_col(df: pd.DataFrame, candidates: list[str]) -> Optional[str]:
 class RunningCourseCollector:
     def __init__(self):
         self.csv = CSVSource()
+        self.public = PublicSource()
         self.RIVER_GEOJSON = "src/data/raw/서울시 하천.geojson"
         self.river_gdf = self._load_river_geojson()
 
@@ -267,6 +268,31 @@ class RunningCourseCollector:
                 csv_raw_id=row.get("csv_raw_id"),
             ))
         return records
+    
+    def build_outdoor_exercise_records(self) -> list:
+        gdf = self.public.get("type", "outdoor_exercise")
+        records = []
+        for _, row in gdf.iterrows():
+            records.append(self._make_record(
+                name=str(row.get("name") or "실외운동기구"),
+                course_type="outdoor_exercise",
+                lat=row["geom"].y,
+                lon=row["geom"].x,
+            ))
+        return records
+
+    def update_outdoor_exercise(self) -> None:
+        if RunningRepository.is_course_type_populated("outdoor_exercise"):
+            print("  ⏭️  outdoor_exercise 이미 적재됨, 스킵")
+            return
+        RunningRepository.ensure_generic_geometry()
+        records = self.build_outdoor_exercise_records()
+        if not records:
+            print("  ⚠️  수집된 outdoor_exercise 데이터가 없습니다.")
+            return
+        RunningRepository.save_all(records)
+        self.update_edge()
+        print(f"  outdoor_exercise 적재 완료: {len(records)}건")
 
     def update_node(self) -> None:
         records = (
