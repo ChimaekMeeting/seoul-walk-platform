@@ -77,9 +77,10 @@ class CircularRandomEngine:
                 coordinates=[],
                 total_km=0.0,
             )
-
-        coords   = self.utils.extract_coordinates(nodes)  # [lat, lon] 좌표 목록
-        total_m  = self.utils.calc_distance(nodes)        # 총 이동 거리(미터)
+        
+        pruned  = self.utils.prune_dead_ends(nodes)        # 왕복 가지 제거
+        coords   = self.utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
+        total_m  = self.utils.calc_distance(pruned)        # 총 이동 거리(미터)
         total_km = round(total_m / 1000, 2)
 
         logger.info("경로 생성 완료: total_km=%.2f (target=%.2f), 노드=%d개", total_km, self.inp.target_km or 3.0, len(nodes))

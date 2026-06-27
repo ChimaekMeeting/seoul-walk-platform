@@ -83,8 +83,9 @@ class OnewayRandomEngine:
                 total_km=0.0,
             )
 
-        coords  = self.utils.extract_coordinates(nodes)  # [lat, lon] 좌표 목록
-        total_m = self.utils.calc_distance(nodes)        # 총 이동 거리(m)
+        pruned  = self.utils.prune_dead_ends(nodes)        # 왕복 가지 제거
+        coords  = self.utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
+        total_m = self.utils.calc_distance(pruned)        # 총 이동 거리(m)
         total_km = round(total_m / 1000, 2)
 
         logger.info(f"total_km: {total_km}")
