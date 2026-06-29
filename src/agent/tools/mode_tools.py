@@ -9,6 +9,7 @@ class ModeTool:
             StructuredTool.from_function(self.select_circular),
             StructuredTool.from_function(self.select_oneway),
             StructuredTool.from_function(self.select_oneway_shortest),
+            StructuredTool.from_function(self.select_none),
         ]
         self.tool_map = {t.name: t for t in self.tools}
 
@@ -34,3 +35,11 @@ class ModeTool:
         빠르게 이동하고 싶을 때 사용하세요.
         """
         return OnewayShortestPreference(origin=origin, destination=destination)
+
+    def select_none(self) -> None:
+        """
+        산책 경로 생성 요청이 아닌 경우에 호출하세요.
+        날씨·시간·잡담·인사·기타 질문 등 산책 의도가 없을 때 반드시 이 도구를 선택하고,
+        목적지나 출발지를 절대 지어내지 마세요.
+        """
+        return None

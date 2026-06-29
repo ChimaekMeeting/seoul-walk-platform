@@ -21,7 +21,6 @@ class Location(BaseModel):
 
 class BasePreference(BaseModel):
     origin: Optional[Location] = None
-    purpose: Optional[str]     = None
 
 
 class CircularPreference(BasePreference):
@@ -69,6 +68,7 @@ class State(BaseModel):
     route_result: Optional[WalkRouteResponse] = None
     is_complete: bool = False
     awaiting_confirmation: bool = False
+    confirm_decision: Optional[str] = None   # confirmer 판정 결과: "Y" | "N" | "U" | "C"
     user_prompt: str  = ""
     response:    str  = ""
     themes: List[str] = []

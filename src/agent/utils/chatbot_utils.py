@@ -39,6 +39,6 @@ class PromptUtils:
         # 딕셔너리나 리스트인 경우 JSON 문자열로 예쁘게 변환
         if isinstance(obj, (dict, list)):
             json_str = json.dumps(obj, ensure_ascii=False, indent=2)
-            self.escape_braces(json_str)
-        
+            return self.escape_braces(json_str)
+
         return self.escape_braces(str(obj))

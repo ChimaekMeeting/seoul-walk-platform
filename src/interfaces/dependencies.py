@@ -14,6 +14,8 @@ from src.agent.nodes import (
     WeatherChecker,
     Extractor,
     Interviewer,
+    Completer,
+    Confirmer,
     RouteExecutor
 )
 from src.infrastructure.external.client import (
@@ -48,6 +50,8 @@ def init_route_service():
         auth_service    = auth_service,
         extractor       = Extractor(),
         interviewer     = Interviewer(),
+        completer       = Completer(),
+        confirmer       = Confirmer(),
         route_executor  = RouteExecutor(),
     )
 

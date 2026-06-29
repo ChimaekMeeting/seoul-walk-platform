@@ -117,15 +117,20 @@ class WalkRouteMap:
                 attr="Mapbox", name="Mapbox Streets",
             ).add_to(m)
 
-        if st.session_state.start:
-            folium.Marker(
-                st.session_state.start, popup="출발지", tooltip="출발지",
-                icon=folium.Icon(color="green", icon="play", prefix="fa"),
+        # 출발지/목적지: 경로가 있으면 경로 양끝, 없으면 수동 설정한 좌표 (작은 원형 마커)
+        route    = st.session_state.route_coordinates
+        start_pt = route[0]  if route else st.session_state.start
+        end_pt   = route[-1] if route and len(route) > 1 else st.session_state.end
+
+        if start_pt:
+            folium.CircleMarker(
+                location=start_pt, radius=6, tooltip="출발지",
+                color="#28a745", fill=True, fill_color="#28a745", fill_opacity=1,
             ).add_to(m)
-        if st.session_state.end:
-            folium.Marker(
-                st.session_state.end, popup="도착지", tooltip="도착지",
-                icon=folium.Icon(color="red", icon="flag", prefix="fa"),
+        if end_pt:
+            folium.CircleMarker(
+                location=end_pt, radius=6, tooltip="도착지",
+                color="#dc3545", fill=True, fill_color="#dc3545", fill_opacity=1,
             ).add_to(m)
 
         if st.session_state.route_coordinates:

@@ -11,6 +11,8 @@ from src.agent.nodes import (
     WeatherChecker,
     Extractor,
     Interviewer,
+    Completer,
+    Confirmer,
     RouteExecutor
 )
 from src.interfaces.schema.prewalk_schema import ChatResponse, ChatStatus
@@ -18,15 +20,6 @@ from src.schema.prewalk_schema import State, Location
 from src.service.user.auth_service import AuthService
 
 logger = logging.getLogger(__name__)
-
-
-_NEGATIVE_WORDS = frozenset([
-    "아니", "아니요", "아냐", "틀려", "다시", "잠깐", "수정", "변경", "바꿔", "말고", "no", "nope",
-])
-_POSITIVE_WORDS = frozenset([
-    "응", "네", "맞아", "맞아요", "맞습니다", "좋아", "좋아요", "그래", "그래요",
-    "진행", "진행해", "경로 만들어", "예", "ok", "okay", "yes", "ㅇ", "ㅇㅇ", "넹", "넵",
-])
 
 
 class PrewalkOrchestrator:
@@ -37,49 +30,67 @@ class PrewalkOrchestrator:
         auth_service:    AuthService,
         extractor:       Extractor,
         interviewer:     Interviewer,
+        completer:       Completer,
+        confirmer:       Confirmer,
         route_executor:  RouteExecutor
     ):
         self.weather_checker = weather_checker
         self.kakao_client    = kakao_client
         self.auth_service    = auth_service
         self.route_executor  = route_executor
-        self.graph           = self._build_graph(extractor, interviewer, route_executor)
+        self.graph           = self._build_graph(extractor, interviewer, completer, confirmer, route_executor)
 
-    @staticmethod
-    def _is_positive_response(text: str) -> bool:
-        """사용자 입력이 긍정 응답인지 판단합니다. 부정 표현이 있으면 무조건 False."""
-        t = text.strip().lower()
-        for w in _NEGATIVE_WORDS:
-            if w in t:
-                return False
-        for w in _POSITIVE_WORDS:
-            if w in t:
-                return True
-        return False
-
-    def _build_graph(self, extractor, interviewer, route_executor):
+    def _build_graph(self, extractor, interviewer, completer, confirmer, route_executor):
         """
         extractor, interviewer, route_executor 노드를 연결합니다.
         """
         builder = StateGraph(State)
 
         # 모든 노드 정의
-        builder.add_node("extractor",      extractor.run)
-        builder.add_node("interviewer",    interviewer.run)
+        builder.add_node("extractor",    extractor.run)
+        builder.add_node("interviewer",  interviewer.run)
+        builder.add_node("completer",    completer.run)
+        builder.add_node("confirmer",    confirmer.run)
         builder.add_node("route_executor", route_executor.run)
 
-        # extractor -> interviewer -> 정보 부족O -> END -> extractor..
-        # extractor -> interviewer -> 정보 부족X -> route_executor -> END
-        builder.set_entry_point("extractor")
+        # 확인 응답 턴이면 confirmer, 아니면 extractor부터
+        builder.set_conditional_entry_point(
+            lambda state: "confirmer" if state.awaiting_confirmation else "extractor",
+            {"extractor": "extractor", "confirmer": "confirmer"}
+        )
+
+        # 정보 수집 흐름: extractor <-> interviewer -> completer -> END
         builder.add_edge("extractor", "interviewer")
         builder.add_conditional_edges(
             "interviewer",
-            lambda state: "route_executor" if state.is_complete else END,
-            {"route_executor": "route_executor", END: END},
+            lambda state: "completer" if state.is_complete else END,
+            {"completer": "completer", END: END}
+        )
+        builder.add_edge("completer", END)
+
+        # 확인 응답 판정 흐름:
+        # confirmer -> Y -> route_executor -> END
+        # confirmer -> U -> extractor <-> interviewer -> completer -> END
+        # confirmer -> N -> END
+        builder.add_conditional_edges(
+            "confirmer",
+            self._route_after_confirm,
+            {"route_executor": "route_executor", "extractor": "extractor", END: END}
         )
         builder.add_edge("route_executor", END)
 
         return builder.compile()
+
+    @staticmethod
+    def _route_after_confirm(state):
+        """
+        confirmer 판정 결과에 따라 다음 노드를 결정합니다.
+        """
+        if state.confirm_decision == "Y":
+            return "route_executor"   # 긍정 → 경로 생성
+        if state.confirm_decision == "U":
+            return "extractor"      # 수정 → 정보 재추출
+        return END                  # 거부(N) → 종료
 
     async def get_init_message(self, access_token: str, lat: float, lon: float) -> ChatResponse:
         """
@@ -169,39 +180,14 @@ class PrewalkOrchestrator:
 
         state.access_token = access_token
 
-        # awaiting_confirmation=True: 사용자 확인 응답 처리
-        if state.awaiting_confirmation:
-            state.user_prompt = user_prompt
-            if self._is_positive_response(user_prompt):
-                # 긍정 → route_executor 직접 실행 (LangGraph 우회)
-                state.awaiting_confirmation = False
-                state.is_complete           = True
-                state.response              = "경로를 생성하고 있어요. 잠시만 기다려주세요 🗺️"
-                try:
-                    final_state = await self.route_executor.run(state)
-                except Exception:
-                    logger.exception("prewalk_intent_route_executor_error | thread_id=%s", thread_id)
-                    return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
-            else:
-                # 부정/수정 → 확인 대기 해제 후, 무엇을 바꿀지 되묻고 멈춤
-                # (LangGraph 재실행 X: "아니"만으로는 새 정보가 없어 같은 확인 질문이 반복되기 때문)
-                # user_context는 유지 → 다음 턴에서 "3km로 바꿔줘"처럼 일부만 수정 가능
-                state.awaiting_confirmation = False
-                state.is_complete           = False
-                state.route_result          = None
-                state.response = "알겠어요. 어떤 부분을 바꿀까요? 출발지, 목적지, 거리 중 원하는 내용을 다시 알려주세요."
-                final_state = state
-
-        else:
-            # 일반 흐름 → LangGraph 실행
-            state.user_prompt = user_prompt
-            state.route_result = None
-            try:
-                result      = await self.graph.ainvoke(state)
-                final_state = State.model_validate(result)
-            except Exception:
-                logger.exception("prewalk_intent_graph_error | thread_id=%s", thread_id)
-                return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
+        state.user_prompt = user_prompt
+        state.route_result = None
+        try:
+            result      = await self.graph.ainvoke(state)
+            final_state = State.model_validate(result)
+        except Exception:
+            logger.exception("prewalk_intent_graph_error | thread_id=%s", thread_id)
+            return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
 
         try:
             await ChatStateRepository.save_state(thread_id, final_state)

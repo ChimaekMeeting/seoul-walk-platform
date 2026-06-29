@@ -30,13 +30,25 @@ class Interviewer(GPTClient):
 
     async def run(self, state: State) -> State:
         """
-        정보가 부족하다면 → 질문을 던지고
-        정보가 충분하면   → 확인 메시지를 생성한다(경로는 사용자 확인 후 실행).
+        좌표 미해결 위치를 먼저 보완한 뒤,
+        정보가 충분하면   → is_complete=True로 표시하고 종료(확인 메시지는 completer가 생성)
+        정보가 부족하면   → 부족 정보를 질문한다.
         """
-        is_complete  = self._is_complete(state.user_context)
-        missing_info = self._get_missing_info(state.user_context)
+        # 1) is_complete 여부와 무관하게, place_name만 있고 좌표 없는 위치를 항상 먼저 보완
+        #    (출발지/목적지가 수정되어 좌표가 비워진 경우에도 여기서 재검색됨)
+        candidates = await self._execute_tool_calls([], state)
+        self._apply_candidates(candidates, state)
 
+        is_complete = self._is_complete(state.user_context)
         logger.info(f"is_complete: {is_complete}")
+
+        # 2) 정보 충분 → completer로 넘김 (확인 메시지 생성은 completer 책임)
+        if is_complete:
+            state.is_complete = True
+            return state
+
+        # 3) 정보 부족 → interview.yaml로 추가 질문 + 추가 검색
+        missing_info = self._get_missing_info(state.user_context)
         logger.info(f"missing_info: {missing_info}")
 
         input_variables = {
@@ -46,15 +58,6 @@ class Interviewer(GPTClient):
             "user_input":       state.user_prompt,
         }
 
-        # 정보가 충분하면 → 사용자 확인 질문 생성 (경로 실행은 확인 후)
-        if is_complete:
-            state.awaiting_confirmation = True
-            state.is_complete           = False
-            state.response              = self._build_confirmation_message(state)
-            logger.info(f"확인 대기 상태로 전환합니다: {state.response}")
-            return state
-
-        # 정보가 부족하면 → interview.yaml 호출
         try:
             raw_response = await super().get_response(
                 prompt_name="interview",
@@ -73,29 +76,32 @@ class Interviewer(GPTClient):
         )
 
         if candidates:
-            if "origin_candidate" in candidates:
-                state.origin_candidate = candidates["origin_candidate"]
-                if state.user_context and candidates["origin_candidate"]:
-                    state.user_context.origin = candidates["origin_candidate"][0]
-                    logger.info(f"origin_candidate: {candidates['origin_candidate']}")
-                    logger.info(f"origin: {state.user_context.origin}")
+            # 정보성 장소 질문(target="info") → 출발지/목적지로 확정하지 않고 안내만
+            if candidates.get("info_candidate"):
+                try:
+                    response = await super().get_response(
+                        prompt_name="place_info",
+                        input_variables={
+                            "places":          self.prompt_utils.format_for_prompt(candidates["info_candidate"]),
+                            "user_input":      state.user_prompt,
+                            "current_context": self.prompt_utils.format_for_prompt(state.user_context),
+                            "missing_info":    missing_info,
+                        },
+                        parser=self.str_parser,
+                    )
+                except Exception:
+                    logger.exception("interviewer_place_info_llm_error")
+                    response = _FALLBACK_RESPONSE
+                logger.info("place_info.yaml이 호출되었습니다.")
+                state.is_complete = False
+                state.response    = response
+                return state
 
-            if "destination_candidate" in candidates:
-                state.destination_candidate = candidates["destination_candidate"]
-                if state.user_context and hasattr(state.user_context, "destination") and candidates["destination_candidate"]:
-                    state.user_context.destination = candidates["destination_candidate"][0]
-                    logger.info(f"destination_candidate: {candidates['destination_candidate']}")
-                    logger.info(f"destination: {state.user_context.destination}")
+            self._apply_candidates(candidates, state)
 
-            is_complete = self._is_complete(state.user_context)
-            logger.info(f"is_complete을 재확인합니다: is_complete = {is_complete}")
-
-            # 장소 검색 후 정보가 충분해진 경우 → 확인 질문
-            if is_complete:
-                state.awaiting_confirmation = True
-                state.is_complete           = False
-                state.response              = self._build_confirmation_message(state)
-                logger.info(f"확인 대기 상태로 전환합니다: {state.response}")
+            # 장소 검색 후 정보가 충분해진 경우 → completer로 넘김
+            if self._is_complete(state.user_context):
+                state.is_complete = True
                 return state
 
             try:
@@ -122,6 +128,21 @@ class Interviewer(GPTClient):
         logger.info(f"user_context: {state.user_context.model_dump_json() if state.user_context else None}")
 
         return state
+
+    def _apply_candidates(self, candidates: dict, state: State) -> None:
+        """검색된 후보의 첫 번째 항목을 user_context의 origin/destination에 반영합니다."""
+        if not candidates or not state.user_context:
+            return
+
+        if candidates.get("origin_candidate"):
+            state.origin_candidate    = candidates["origin_candidate"]
+            state.user_context.origin = candidates["origin_candidate"][0]
+            logger.info(f"origin 반영: {state.user_context.origin}")
+
+        if candidates.get("destination_candidate") and hasattr(state.user_context, "destination"):
+            state.destination_candidate    = candidates["destination_candidate"]
+            state.user_context.destination = candidates["destination_candidate"][0]
+            logger.info(f"destination 반영: {state.user_context.destination}")
 
     def _has_location(self, loc: Optional[Location]) -> bool:
         """
@@ -164,42 +185,6 @@ class Interviewer(GPTClient):
 
         return ", ".join(missing) if missing else ""
 
-    def _is_same_location(self, a: Optional[Location], b: Optional[Location]) -> bool:
-        """두 Location이 같은 지점인지 좌표 기준으로 비교합니다."""
-        if a is None or b is None:
-            return False
-        if (a.lat is not None and b.lat is not None
-                and a.lon is not None and b.lon is not None):
-            return abs(a.lat - b.lat) < 1e-6 and abs(a.lon - b.lon) < 1e-6
-        return False
-
-    def _build_confirmation_message(self, state: State) -> str:
-        """경로 실행 전 사용자에게 보낼 확인 질문을 생성합니다."""
-        ctx     = state.user_context
-        current = state.current_location
-
-        if isinstance(ctx, (OnewayShortestPreference, OnewayPreference)):
-            origin    = ctx.origin
-            dest      = ctx.destination
-            dest_name = dest.place_name if dest and dest.place_name else "목적지"
-
-            if self._is_same_location(origin, current):
-                return f"현재 위치부터 {dest_name}까지가 맞나요?"
-            origin_name = origin.place_name if origin and origin.place_name else "현재 위치"
-            return f"{origin_name}부터 {dest_name}까지가 맞나요?"
-
-        if isinstance(ctx, CircularPreference):
-            origin    = ctx.origin
-            target_km = ctx.target_km or 3.0
-            km_str    = str(int(target_km)) if target_km == int(target_km) else str(target_km)
-
-            if self._is_same_location(origin, current):
-                return f"현재 위치에서 출발하는 {km_str}km 순환 산책이 맞나요?"
-            origin_name = origin.place_name if origin and origin.place_name else "현재 위치"
-            return f"{origin_name}에서 출발하는 {km_str}km 순환 산책이 맞나요?"
-
-        return "이 경로로 진행할까요?"
-
     async def _execute_tool_calls(self, tool_calls: list, state: State) -> dict:
         candidates = {}
 
@@ -223,7 +208,8 @@ class Interviewer(GPTClient):
             
             output = await self.place_tool.tool_map[name].ainvoke(args)
 
-            logger.info(f"위치를 검색합니다: keyword={args.get('query', name)}, target={target}, 결과수={len(output.documents) if isinstance(output, PlaceSearchResult) else 0}")
+            search_term = args.get("keyword") or args.get("category") or name
+            logger.info(f"위치를 검색합니다: keyword={search_term}, target={target}, 결과수={len(output.documents) if isinstance(output, PlaceSearchResult) else 0}")
             
             if isinstance(output, PlaceSearchResult) and output.documents:
                 candidates[f"{target}_candidate"] = [

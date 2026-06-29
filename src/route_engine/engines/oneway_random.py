@@ -1,6 +1,4 @@
 import networkx as nx
-import math
-import random
 from typing import Optional
 import logging
 
@@ -15,6 +13,18 @@ from src.schema.route_schema import OnewayRouteInput, Weights
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 logger = logging.getLogger(__name__)
+
+# 직선 거리 → 도로망 거리 추정 계수 (서울 도심 블록 구조 기준)
+_NETWORK_FACTOR = 1.4
+
+# ── beam search 설정값 ────────────────────────────────────────────────────────
+_BEAM_WIDTH = 8                # 동시에 유지할 후보 경로(빔) 개수
+_MAX_STEPS = 400              # 빔 확장 최대 반복 횟수 (무한 루프 방지용 상한)
+_RETURN_REVISIT_PENALTY = 5.0  # 도착 연결 시 기방문 노드 재사용 억제 배수
+
+# 거리 허용오차(m). |총거리 − target| 이 이 값 이내면 '거리 합격'으로 간주하고,
+# 그 안에서는 품질(custom_score 밀도)이 더 좋은 경로를 택함. (계층적 목적함수)
+_TOLERANCE_M = 0.1
 
 class OnewayRandomEngine:
     def __init__(
@@ -99,129 +109,157 @@ class OnewayRandomEngine:
     
     def find_path(self, start: int, end: int, target_km: float = 3.0) -> list[int]:
         """
-        경유 노드를 활용한 우회 편도 경로 노드 목록을 반환합니다.
-        여러 waypoint 후보로 실제 경로를 만들어보고, target_km과의 거리 오차가
-        작은 상위 후보 중 하나를 무작위로 선택합니다(랜덤 편도 경로 특성 유지).
-        """
-        target_m = target_km * 1000  # 목표 거리(미터)
+        결정론적 beam search 기반 우회 편도 경로 생성.
 
+        설계 목표:
+            ① target_km 근접  ② 왕복 가지 없음(단순 경로)  ③ 재현·설명 가능
+            (동일 출발·도착·target_km·가중치 → 항상 동일 경로 보장. 랜덤 미사용)
+
+        동작 개요:
+            1단계 — 출발점에서 바깥으로 빔(_BEAM_WIDTH개)을 결정론적으로 확장함.
+            2단계 — 각 후보를 도착점까지 연결한 뒤, target_km 오차가 가장 작은 경로를 택함.
+        """
+        target_m = target_km * 1000  # 목표 거리를 미터로 환산함
+
+        # custom_score 기준 최단경로 — 우회 실패/불가 시의 최종 대체 경로로도 사용함
         try:
-            shortest_path = nx.shortest_path(self.G, start, end, weight="custom_score")
-        except Exception:
-            logger.exception("최단 경로 생성에 실패했습니다.")
+            base_shortest = nx.shortest_path(self.G, start, end, weight="custom_score")
+        except nx.NetworkXNoPath:
+            logger.warning("출발-도착 간 경로가 존재하지 않습니다.")
             return []
 
-        # custom_score 기준 최단경로는 선호도가 반영되어 실제 최단거리와 다를 수 있으므로,
-        # "이미 목표 거리 이상인지" 판단은 실제 거리(length) 기준 최단경로로 한다.
+        # 실제 거리(length) 기준 최단경로가 이미 목표 이상이면 우회 불필요 → 그대로 반환함
         try:
             shortest_by_length = nx.shortest_path(self.G, start, end, weight="length")
-            min_dist_m         = self.utils.calc_distance(shortest_by_length)
-        except Exception:
-            min_dist_m = self.utils.calc_distance(shortest_path)
-
-        # 실제로 도달 가능한 최소 거리가 이미 목표 거리 이상이면 우회할 필요가 없음
+            min_dist_m = self.utils.calc_distance(shortest_by_length)
+        except nx.NetworkXNoPath:
+            min_dist_m = self.utils.calc_distance(base_shortest)
         if min_dist_m >= target_m:
-            logger.info("최단 경로가 이미 목표 거리 이상이므로 최단 경로를 반환합니다.")
-            return shortest_path
+            logger.info("최단 경로가 이미 목표 거리 이상이므로 우회 없이 반환합니다.")
+            return base_shortest
 
-        candidates = []  # (오차, 경로) 목록
-        for waypoint in self._select_waypoint_candidates(start, end, target_m):
-            path = self._build_route_via_waypoint(start, waypoint, end)
-            if path is None:
-                continue
-            diff = abs(self.utils.calc_distance(path) - target_m)
-            candidates.append((diff, path))
+        # 도착 노드 좌표 — 목적지까지 남은 거리 추정에 사용함
+        e_data = self.G.nodes[end]
+        e_lat  = e_data.get("lat", 0)  # 도착점 위도
+        e_lon  = e_data.get("lon", 0)  # 도착점 경도
 
-        if candidates:
-            return self._pick_from_top_candidates(candidates)
+        def _est_to_end(node):
+            """node에서 도착점까지의 추정 남은거리(직선 × 도로망 계수)를 반환함."""
+            d = self.G.nodes[node]
+            straight = PathUtils._haversine_m(d.get("lat", e_lat), d.get("lon", e_lon), e_lat, e_lon)
+            return straight * _NETWORK_FACTOR
 
-        logger.warning("우회 경로 생성에 실패했습니다. 최단 경로로 대체합니다.")
-        return shortest_path
+        def _objective(value, dist, cost):
+            """
+            정렬용 키 튜플 (거리 합격 우선 → 그 안에서 품질)을 반환함.
+              - over    : 허용오차(_TOLERANCE_M) 밖으로 벗어난 양(m). 0이면 '거리 합격'.
+              - density : m당 평균 custom_score(=cost/거리). 낮을수록 고품질(길이 편향 제거).
+            value=예상/최종 총거리(m), dist=품질평균 산정용 거리(m), cost=누적 custom_score.
+            """
+            over    = max(0.0, abs(value - target_m) - _TOLERANCE_M*target_m)
+            density = cost / max(dist, 1.0)
+            return (over, density)
 
-    def _pick_from_top_candidates(self, candidates: list[tuple[float, list[int]]], top_n: int = 3) -> list[int]:
-        """
-        목표 거리와의 오차가 작은 상위 top_n개 후보 중 하나를 무작위로 선택합니다.
-        오차가 큰 후보는 후보군 자체에서 배제하여, 무작위성을 유지하면서도
-        목표 거리에서 크게 벗어나는 경로는 선택되지 않도록 합니다.
-        """
-        candidates.sort(key=lambda c: c[0])
-        top = candidates[:top_n]
-        return random.choice(top)[1]
+        # 빔 1개의 구조: (누적_비용, 노드열, 누적_거리, 방문_노드_집합)
+        #   - 누적_비용: 지나온 엣지들의 custom_score 합 (낮을수록 선호되는 경로임)
+        #   - 방문_노드_집합: 노드 재방문 차단용 → 단순 경로 유지 → 왕복 가지 원천 차단
+        beams = [(0.0, [start], 0.0, {start})]
+        finished: list = []  # 도착에 닿았거나 연결 시점에 도달한 빔을 모으는 목록
 
-    def _select_waypoint_candidates(self, start: int, end: int, target_m: float, max_candidates: int = 5) -> list[int]:
-        """
-        출발-도착 직선에서 수직으로 offset된 지점들 주변의 waypoint 후보 목록을 반환합니다.
-        기존 방식(직선거리 비율 필터만)은 직선 근처 노드가 선택되어 우회 효과 약함.
-        """
-        p1 = self.G.nodes[start]
-        p2 = self.G.nodes[end]
+        # ── 1단계: 빔을 결정론적으로 확장함 ─────────────────────────────────────
+        for _ in range(_MAX_STEPS):
+            if not beams:
+                break
 
-        lon1, lat1 = p1.get("lon", 0), p1.get("lat", 0)
-        lon2, lat2 = p2.get("lon", 0), p2.get("lat", 0)
-        dx, dy     = lon2 - lon1, lat2 - lat1
-        dist_se    = math.sqrt(dx ** 2 + dy ** 2)
+            candidates: list = []  # 이번 스텝의 모든 확장 후보를 담는 목록
+            for cost, nodes, dist, visited in beams:
+                current = nodes[-1]
 
-        offset_deg = (target_m / 1000 * 0.35) / 111.0
+                # 도착 노드에 이미 닿았으면 완성 경로 → 후보로 보관함
+                if current == end:
+                    finished.append((cost, nodes, dist, visited))
+                    continue
 
-        # 좌/우 양쪽 offset 지점을 모두 후보 타겟으로 사용 (편향 없이 더 넓게 탐색)
-        targets = []
-        if dist_se > 1e-9:
-            px, py = -dy / dist_se, dx / dist_se  # 수직 단위벡터 (90도 회전)
-            for side in (1, -1):
-                targets.append((
-                    (lon1 + lon2) / 2 + px * side * offset_deg,
-                    (lat1 + lat2) / 2 + py * side * offset_deg,
-                ))
-        else:
-            for angle in (0.0, math.pi):
-                targets.append((
-                    lon1 + math.cos(angle) * offset_deg,
-                    lat1 + math.sin(angle) * offset_deg,
-                ))
+                # 현재 → 도착점 추정 남은거리
+                est_to_end = _est_to_end(current)
 
-        scored = []
-        for node, data in self.G.nodes(data=True):
-            if node in (start, end):
-                continue
-            nlon, nlat = data.get("lon", 0), data.get("lat", 0)
-            d1    = math.sqrt((nlon - lon1) ** 2 + (nlat - lat1) ** 2) * 111000
-            d2    = math.sqrt((nlon - lon2) ** 2 + (nlat - lat2) ** 2) * 111000
-            total = d1 + d2
-            # 직선거리 합은 실제 도로 거리와 차이가 날 수 있으므로 넉넉하게 필터링하고,
-            # 최종 후보 선택은 _build_route_via_waypoint로 만든 실제 경로 거리 기준으로 한다.
-            if not (target_m * 0.4 <= total <= target_m * 1.2):
-                continue
-            d_target = min(
-                math.sqrt((nlon - tlon) ** 2 + (nlat - tlat) ** 2)
-                for tlon, tlat in targets
+                # 종료 판정: (누적 + 남은거리추정) ≥ 목표 95% → 도착으로 연결할 시점으로 봄
+                #   - 누적이 목표 30% 넘긴 뒤부터만 검사 → 너무 이른 종료 방지
+                if dist > target_m * 0.3 and dist + est_to_end >= target_m * 0.95:
+                    finished.append((cost, nodes, dist, visited))
+                    continue
+
+                # 이웃을 node_id 오름차순으로 순회함 → 순서 고정(결정론의 핵심)
+                for n in sorted(self.G.neighbors(current)):
+                    if n in visited:
+                        continue  # 노드 재방문 금지 → 단순 경로 → 왕복 가지 차단
+
+                    edge = self.G.get_edge_data(current, n) or {}
+                    candidates.append((
+                        cost + edge.get("custom_score", 1.0),  # 누적 비용 갱신
+                        nodes + [n],                           # 노드열 확장
+                        dist + edge.get("length", 0),          # 누적 거리 갱신
+                        visited | {n},                         # 방문 집합 확장
+                    ))
+
+            if not candidates:
+                break
+
+            # 결정론적 상위 k 선별:
+            #   (거리 합격 우선 → 그 안에서 품질밀도) 오름차순. 동점 시 노드열 사전순(결정론)
+            #   예상총거리 = 누적거리 + 도착까지 추정거리 / 품질밀도는 누적거리 기준
+            candidates.sort(key=lambda b: _objective(b[2] + _est_to_end(b[1][-1]), b[2], b[0]) + (b[1],))
+            beams = candidates[:_BEAM_WIDTH]
+
+        # 후보가 하나도 없으면(상한 도달 등) 마지막 빔들을 후보로 사용함
+        pool = finished if finished else beams
+        if not pool:
+            logger.warning("beam search 후보가 비어 최단 경로로 대체합니다.")
+            return base_shortest
+
+        # ── 2단계: 각 후보를 도착점까지 연결하고 평가·선택함 ────────────────────
+        best_path = None  # 최종 선택될 경로
+        best_key  = None  # 비교용 정렬 키(작을수록 우수함)
+
+        for cost, nodes, dist, visited in pool:
+            if nodes[-1] == end:
+                full_path = nodes  # 이미 도착에 닿은 경로
+                total_m   = dist
+            else:
+                # 도착 연결: 현재 → 도착 최단경로. 기방문 노드 재사용에 패널티 → 중복 억제함
+                #   - 기본 인자 _visited로 현재 빔의 방문 집합을 묶음(루프 변수 늦은 바인딩 방지)
+                def _tail_weight(u, v, d, _visited=visited):
+                    penalty = _RETURN_REVISIT_PENALTY if (v in _visited and v != end) else 1.0
+                    return d.get("length", 1.0) * penalty
+                try:
+                    tail = nx.shortest_path(self.G, nodes[-1], end, weight=_tail_weight)
+                except nx.NetworkXNoPath:
+                    continue  # 도착 연결 불가 후보는 제외함
+
+                tail_len = sum(
+                    (self.G.get_edge_data(tail[i], tail[i + 1]) or {}).get("length", 0)
+                    for i in range(len(tail) - 1)
+                )
+                full_path = nodes + tail[1:]  # 바깥 경로 + 도착 연결 경로(중복 노드 제거함)
+                total_m   = dist + tail_len
+
+            # 전체 경로(도착 연결 포함)의 누적 custom_score → 품질밀도 산정에 사용함
+            full_cost = sum(
+                (self.G.get_edge_data(full_path[i], full_path[i + 1]) or {}).get("custom_score", 1.0)
+                for i in range(len(full_path) - 1)
             )
-            scored.append((node, d_target))
 
-        scored.sort(key=lambda x: x[1])
-        waypoints = [node for node, _ in scored[:max_candidates]]
+            # 평가 키(작을수록 우수): (거리 합격 우선 → 그 안에서 품질) + 노드열 사전순(결정론)
+            key = _objective(total_m, total_m, full_cost) + (tuple(full_path),)
+            if best_key is None or key < best_key:
+                best_key  = key
+                best_path = full_path
 
-        if not waypoints:
-            tlon, tlat = targets[0]
-            fallback = self.utils.find_nearest_node(tlat, tlon)
-            if fallback is not None:
-                waypoints = [fallback]
+        # 모든 후보가 도착 연결에 실패한 경우의 방어 코드
+        if best_path is None:
+            logger.warning("도착 연결 가능한 후보가 없어 최단 경로로 대체합니다.")
+            return base_shortest
 
-        return waypoints
-
-    def _build_route_via_waypoint(self, start: int, waypoint: int, end: int) -> Optional[list[int]]:
-        """
-        start -> waypoint -> end 경로를 생성합니다. 실패 시 None을 반환합니다.
-        """
-        try:
-            path1       = nx.shortest_path(self.G, start, waypoint, weight="custom_score")
-            path1_edges = set(zip(path1[:-1], path1[1:]))
-
-            # G 엣지를 직접 수정하지 않고 클로저로 페널티 적용 → 그래프 오염 방지
-            def penalized_weight(u, v, data):
-                base = data.get("custom_score", 1.0)
-                return base * 100.0 if (u, v) in path1_edges or (v, u) in path1_edges else base
-
-            path2 = nx.shortest_path(self.G, waypoint, end, weight=penalized_weight)
-            return path1[:-1] + path2
-        except Exception:
-            return None
+        logger.info("beam search 편도 경로 선택: 노드=%d개, 거리초과=%.0fm, 품질밀도=%.3f",
+                    len(best_path), best_key[0], best_key[1])
+        return best_path

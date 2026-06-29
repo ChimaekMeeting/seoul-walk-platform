@@ -1,4 +1,5 @@
 import json, logging
+from typing import Optional
 from langchain_core.output_parsers import StrOutputParser
 from src.schema.prewalk_schema import State, Location
 from src.infrastructure.external.client.gpt_client import GPTClient
@@ -15,6 +16,7 @@ class Extractor(GPTClient):
         super().__init__()
         self.mode_tool    = ModeTool()
         self.model        = self.llm.bind_tools(self.mode_tool.tools)
+        self.themes_llm   = self.llm.bind(temperature=0)  # 테마 추출은 결정론에 가깝게(재현성)
         self.prompt_utils = PromptUtils()
         self.str_parser   = StrOutputParser()
 
@@ -24,10 +26,7 @@ class Extractor(GPTClient):
         """
         input_variables = {
             "user_input":             state.user_prompt,
-            "current_context":        self.prompt_utils.format_for_prompt(state.user_context),
-            "current_location":       self.prompt_utils.format_for_prompt(state.current_location),
-            "origin_candidates":      self.prompt_utils.format_for_prompt(state.origin_candidate),
-            "destination_candidates": self.prompt_utils.format_for_prompt(state.destination_candidate),
+            "current_context":        self.prompt_utils.format_for_prompt(state.user_context)
         }
 
         # extractor 응답 생성
@@ -38,7 +37,7 @@ class Extractor(GPTClient):
                 llm             = self.model,
             )
         except Exception:
-            logger.exception("extractor_llm_error")
+            logger.exception("답변 생성 중 오류가 발생했습니다.")
             return state
 
         # 예외1. 산책 모드를 결정하지 못한 경우
@@ -54,34 +53,47 @@ class Extractor(GPTClient):
             logger.warning(f"LLM이 정의되지 않은 산책 모드를 사용합니다: {tool_name}")
             return state
 
+        # 예외2-1. 산책 의도가 아니라고 판단(select_none) → 추출 없이 반환
+        if tool_name == "select_none":
+            logger.info("산책 의도가 아니어서 추출을 건너뜁니다(select_none).")
+            return state
+
         # LLM이 추출한 산책 모드 외 정보
         args = tool_call["args"]
 
-        # 예외3. origin과 destination이 동일한 장소명인데 명시적 출발지 표현이 없는 경우
-        # (e.g., "용산역으로 가는 길 알려줘" → origin을 null로 보정해 현재 위치로 대체)
-        _EXPLICIT_ORIGIN_MARKERS = ("에서", "부터", "출발", "시작")
-        origin_arg = args.get("origin")
-        dest_arg   = args.get("destination")
-        if origin_arg and dest_arg:
-            origin_name = origin_arg.get("place_name") if isinstance(origin_arg, dict) else None
-            dest_name   = dest_arg.get("place_name")   if isinstance(dest_arg,   dict) else None
-            if origin_name and dest_name and origin_name == dest_name:
-                if not any(m in state.user_prompt for m in _EXPLICIT_ORIGIN_MARKERS):
-                    args["origin"] = None
-                    logger.warning(
-                        f"origin과 destination이 동일한 장소명({origin_name})이며 "
-                        f"명시적 출발지 표현이 없어 origin을 null로 보정합니다."
-                    )
-
-        # 예외4. 출발지가 없는 경우
-        if args.get("origin") is None:
+        # 예외3. 출발지가 없는 경우 (None이거나 place_name·좌표가 모두 빈 객체)
+        # LLM이 필수 파라미터를 채우려 빈 Location 객체를 넣는 경우도 미지정으로 처리한다.
+        origin_defaulted = self._is_blank_location(args.get("origin"))
+        
+        if origin_defaulted:
             args["origin"] = state.current_location.model_dump()
             logger.warning(f"출발지가 정해지지 않아, 현 위치를 출발지로 설정합니다: {args['origin']}")
 
-        pref               = self.mode_tool.tool_map[tool_name].invoke(args)
-        pref.purpose       = state.user_context.purpose if state.user_context else None
-        state.mode         = pref.mode
-        state.user_context = pref
+        # 편도 계열인데 목적지가 비어 있으면(LLM 오분류) 순환으로 보정한다.
+        # (예: "강남역에서 10km 뛸래" → 목적지 없음 → circular. select_oneway 호출 시 destination=None 크래시 방지)
+        if tool_name in ("select_oneway", "select_oneway_shortest") and self._is_blank_location(args.get("destination")):
+            logger.warning("목적지 없는 편도 추출 → 순환(circular)으로 보정합니다.")
+            tool_name = "select_circular"
+            args.pop("destination", None)
+            args.setdefault("target_km", 3.0)  # circular는 target_km 필수
+
+        old_context         = state.user_context
+        new_context         = self.mode_tool.tool_map[tool_name].invoke(args)
+        state.mode          = new_context.mode
+
+        # place_name이 바뀐 위치는 좌표를 비워 interviewer가 재검색하도록 유도
+        # 단, 현 위치로 기본 설정된 origin은 이미 유효 좌표를 가지므로 초기화하지 않는다.
+        if not origin_defaulted:
+            self._reset_coords_if_changed(
+                new_context.origin,
+                getattr(old_context, "origin", None)
+            )
+        self._reset_coords_if_changed(
+            getattr(new_context, "destination", None),
+            getattr(old_context, "destination", None)
+        )
+
+        state.user_context = new_context
         state.themes       = await self._extract_themes(state.user_prompt)
 
         # 로그
@@ -91,6 +103,29 @@ class Extractor(GPTClient):
         logger.info(f"themes: {state.themes}")
 
         return state
+
+    @staticmethod
+    def _is_blank_location(loc) -> bool:
+        """
+        origin이 미지정인지 판단합니다 (None이거나 place_name이 모두 비어 있음)
+        """
+        if loc is None:
+            return True
+        if isinstance(loc, dict):
+            return not loc.get("place_name")
+        return not getattr(loc, "place_name", None)
+
+    def _reset_coords_if_changed(self, new_loc: Optional[Location], old_loc: Optional[Location]) -> None:
+        """
+        place_name이 직전과 달라졌으면 좌표를 비워 interviewer의 재검색을 유도합니다.
+        """
+        if new_loc is None or old_loc is None:
+            return
+        # 양쪽 모두 place_name이 있고 서로 다를 때만 초기화 (현재 위치 기본값 오작동 방지)
+        if new_loc.place_name and old_loc.place_name and new_loc.place_name != old_loc.place_name:
+            new_loc.lat     = None
+            new_loc.lon     = None
+            new_loc.address = None
 
     async def _extract_themes(self, user_input: str) -> list[str]:
         """
@@ -105,6 +140,7 @@ class Extractor(GPTClient):
                 prompt_name     = "themes",
                 input_variables = {"user_input": user_input, "tag_keys": tag_keys},
                 parser          = self.str_parser,
+                llm             = self.themes_llm,   # temperature=0 (재현성)
             )
             tags = json.loads(res)
             return [t for t in tags if t in TAG_WEIGHT_MAP]

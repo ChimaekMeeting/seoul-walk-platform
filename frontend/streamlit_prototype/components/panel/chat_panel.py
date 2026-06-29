@@ -60,7 +60,9 @@ class ChatPanel:
             )
 
             if init_res.get("status") != "success":
-                st.error("세션 초기화에 실패했습니다. 다시 로그인해주세요.")
+                # [임시 진단] 실제 status/detail을 화면에 노출 — 원인 확인 후 원복
+                st.error(f"세션 초기화에 실패했습니다. (status={init_res.get('status')!r}, detail={init_res.get('detail')!r})")
+                st.json(init_res)
                 return
 
             st.session_state.thread_id    = init_res.get("thread_id")
@@ -103,25 +105,37 @@ class ChatPanel:
         st.session_state.state = state
 
         st.session_state.route_result = state.get("route_result")
+        # 챗봇 경로를 메인 지도/그래프가 함께 사용하도록 공용 세션 키에 반영
+        route_result = st.session_state.route_result
+        st.session_state.route_coordinates = route_result.get("coordinates") if route_result else None
+        st.session_state.route_distance    = route_result.get("total_km") if route_result else None
 
-    def _render_route_map(self, route_result: dict) -> None:
-        """
-        route_result의 coordinates를 Folium 지도에 폴리라인으로 렌더링합니다.
-        """
+    def _render_route_summary(self, route_result: dict) -> None:
+        """경로 요약(거리/소요시간)만 표시합니다. 지도는 메인 지도/그래프가 담당합니다."""
         coords = route_result.get("coordinates", [])
         if not coords:
             return
 
         st.divider()
-        st.success(f"✅ 경로 생성 완료! ({route_result.get('mode', '')})")
-        st.markdown("### 🗺️ 산책 경로")
-
+        st.success(f"✅ 경로 생성 완료! ({route_result.get('mode', '')}) — 지도와 그래프에서 확인하세요.")
         col1, col2 = st.columns(2)
         with col1:
             st.metric("총 거리", f"{route_result.get('total_km', 0):.2f} km")
         with col2:
             time_min = round(route_result.get("total_km", 0) / 4.0 * 60)
             st.metric("예상 소요 시간", f"{time_min} 분")
+
+    def _render_route_map(self, route_result: dict) -> None:
+        """
+        route_result의 coordinates를 Folium 지도에 폴리라인으로 렌더링합니다.
+        (독립 챗봇 페이지 render_page 전용 — 메인 화면에서는 _render_route_summary만 사용)
+        """
+        coords = route_result.get("coordinates", [])
+        if not coords:
+            return
+
+        self._render_route_summary(route_result)
+        st.markdown("### 🗺️ 산책 경로")
 
         m = folium.Map(location=coords[0], zoom_start=15, tiles="cartodbpositron")
 
@@ -170,7 +184,7 @@ class ChatPanel:
             st.rerun()
 
         if st.session_state.get("route_result"):
-            self._render_route_map(st.session_state.route_result)
+            self._render_route_summary(st.session_state.route_result)
 
         state = st.session_state.get("state", {})
         if state and state.get("is_complete") and st.session_state.get("route_result"):

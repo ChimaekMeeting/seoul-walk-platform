@@ -29,7 +29,7 @@ class PlaceTool:
         keyword: str,
         lat: float,
         lon: float,
-        target: Optional[Literal["origin", "destination"]] = None,
+        target: Optional[Literal["origin", "destination", "info"]] = None,
     ) -> Optional[PlaceSearchResult]:
         """
         특정 키워드를 기반으로 주소를 반환하는 함수입니다.
@@ -41,7 +41,7 @@ class PlaceTool:
         category: str,
         lat: float,
         lon: float,
-        target: Optional[Literal["origin", "destination"]] = None,
+        target: Optional[Literal["origin", "destination", "info"]] = None,
     ) -> Optional[PlaceSearchResult]:
         """
         특정 카테고리를 기반으로 주소를 반환하는 함수입니다.
