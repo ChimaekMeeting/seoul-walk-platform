@@ -9,6 +9,7 @@ from src.repository.user.user_preference_repository import UserPreferenceReposit
 from src.repository.user.user_repository import UserRepository
 from src.service.user.auth_service import AuthService
 from src.interfaces.schema.survey_schema import DistanceOption, SurveyRequest, SurveyResponse, SurveyStatus, SurveyStatusResponse
+from src.schema.route_schema import Weights
 
 
 TAG_WEIGHT_MAP: dict[str, dict[str, float]] = {
@@ -60,14 +61,9 @@ DISTANCE_MAP: dict[DistanceOption, float] = {
     DistanceOption.FAST:   5.0,
 }
 
-BASE_WEIGHTS: dict[str, float] = {
-    "safety":   0.5,
-    "nature":   0.5,
-    "slope":    0.5,
-    "running":  0.5,
-    "landmark": 0.5,
-    "child":    0.5,
-}
+# 설문 가중치 baseline은 route_schema.Weights 기본값을 단일 출처(SSOT)로 사용함.
+#   (안전/평지 0.5, 미관·활동·동반 0.0 → 안 고른 특성은 무편향)
+BASE_WEIGHTS: dict[str, float] = Weights().model_dump()
 
 # 온보딩 설문 UI에 노출할 태그 목록. TAG_WEIGHT_MAP의 부분집합.
 SURVEY_TAGS: list[str] = [
@@ -91,7 +87,8 @@ class SurveyService:
         """
         설문 결과를 가중치로 변환해 UserPreference에 저장합니다.
 
-        모든 가중치는 0.5에서 시작하며, 각 태그는 TAG_WEIGHT_MAP의 delta(±0.2)로 조정됩니다.
+        BASE_WEIGHTS(안전/평지 0.5, 미관·활동·동반 0.0)에서 시작하며,
+        각 태그는 TAG_WEIGHT_MAP의 delta(±0.2)로 조정됩니다.
         최종값은 [0.0, 1.0]으로 클램핑됩니다.
         """
 

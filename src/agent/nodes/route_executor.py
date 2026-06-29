@@ -17,6 +17,15 @@ MODE_TOOL_MAP: dict[WalkMode, str] = {
     WalkMode.ONEWAY_RANDOM:   "oneway_random_route",
 }
 
+# 테마·설문이 없을 때의 기본 가중치(baseline).
+# route_schema.Weights 기본값을 단일 출처(SSOT)로 사용함.
+#   (안전/평지 0.5, 미관·활동·동반 0.0 → 일반 경로 = 해당 특성 무편향)
+_BASELINE_WEIGHTS = Weights().model_dump()
+
+# 대화 테마(state.themes)를 가중치에 반영하는 강도. 설문 delta(±0.2) 대비 배수.
+# baseline이 0이 된 미관 특성을 테마가 충분히 끌어올리도록 강하게 적용함.
+_THEME_STRENGTH = 3.0
+
 class RouteExecutor(GPTClient):
     def __init__(self):
         super().__init__()
@@ -36,7 +45,7 @@ class RouteExecutor(GPTClient):
 
         args = {
             k: Coordinate(lat=v["lat"], lon=v["lon"]) if k in ("origin", "destination") else v
-            for k, v in state.user_context.model_dump(exclude={"mode", "purpose"}, exclude_none=True).items()
+            for k, v in state.user_context.model_dump(exclude={"mode"}, exclude_none=True).items()
         }
         args["access_token"]   = state.access_token or ""
         args["custom_weights"] = self._build_weights(state)
@@ -68,26 +77,30 @@ class RouteExecutor(GPTClient):
     def _build_weights(self, state: State) -> Weights:
         """
         UserPreference base weights에 state.themes의 delta를 합산해 최종 Weights를 반환합니다.
-        UserPreference가 없으면 모든 가중치 기본값 0.5를 사용합니다.
+        UserPreference가 없으면 _BASELINE_WEIGHTS를 사용합니다.
+        (안전/평지는 0.5, 미관·활동·동반 특성은 0.0 → 일반 경로는 해당 특성 무편향)
         """
         from src.service.user.survey_service import TAG_WEIGHT_MAP  # 순환 import 방지(지연 로드)
 
         preference = UserPreferenceRepository.get_by_user_id(state.user_id)
         if preference is None:
-            logger.debug("UserPreference가 없어, 기본 가중치(0.5)를 사용합니다.")
+            logger.debug("UserPreference가 없어, baseline 가중치를 사용합니다.")
 
+        # 특성별로: 설문값(있으면) 사용, 없으면 baseline 사용
         base = {
-            "safety":   (preference.weights_safety   if preference and preference.weights_safety   is not None else 0.5),
-            "nature":   (preference.weights_nature   if preference and preference.weights_nature   is not None else 0.5),
-            "slope":    (preference.weights_slope    if preference and preference.weights_slope    is not None else 0.5),
-            "running":  (preference.weights_running  if preference and preference.weights_running  is not None else 0.5),
-            "landmark": (preference.weights_landmark if preference and preference.weights_landmark is not None else 0.5),
-            "child":    (preference.weights_child    if preference and preference.weights_child    is not None else 0.5),
+            key: (
+                getattr(preference, f"weights_{key}")
+                if preference and getattr(preference, f"weights_{key}") is not None
+                else default
+            )
+            for key, default in _BASELINE_WEIGHTS.items()
         }
 
+        # 테마 delta를 _THEME_STRENGTH 배로 적용하고, clamp를 [0.0, 1.0](스키마 전 범위)로 넓힘
+        #   - 기존 (delta * 0.5 + clamp[0.1, 0.8])은 nature를 0.5→0.6 정도만 올려 효과가 미미했음
         for tag in state.themes:
             for key, delta in TAG_WEIGHT_MAP.get(tag, {}).items():
-                base[key] = max(0.1, min(0.8, base[key] + delta * 0.5))
+                base[key] = max(0.0, min(1.0, base[key] + delta * _THEME_STRENGTH))
 
         weights = Weights(**base)
         return weights
