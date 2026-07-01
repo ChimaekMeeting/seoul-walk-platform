@@ -1,0 +1,470 @@
+{
+  "meta": {
+    "description": "route_engine 알고리즘 성능 테스트용 시나리오 (서울시 전역 도보 그래프 노드에서 샘플링)",
+    "region": "Seoul",
+    "profiles": [
+      "default",
+      "nature",
+      "safe",
+      "landmark",
+      "child"
+    ],
+    "counts": {
+      "oneway": 25,
+      "circular": 25
+    },
+    "seed": 42
+  },
+  "scenarios": [
+    {
+      "id": "oneway_01",
+      "mode": "oneway",
+      "profile": "default",
+      "start_lat": 37.556997,
+      "start_lon": 127.173252,
+      "end_lat": 37.551644,
+      "end_lon": 127.139403,
+      "target_km": 4.3
+    },
+    {
+      "id": "oneway_02",
+      "mode": "oneway",
+      "profile": "nature",
+      "start_lat": 37.535812,
+      "start_lon": 127.051882,
+      "end_lat": 37.524692,
+      "end_lon": 127.054202,
+      "target_km": 1.8
+    },
+    {
+      "id": "oneway_03",
+      "mode": "oneway",
+      "profile": "safe",
+      "start_lat": 37.492705,
+      "start_lon": 126.894746,
+      "end_lat": 37.488117,
+      "end_lon": 126.917955,
+      "target_km": 3.0
+    },
+    {
+      "id": "oneway_04",
+      "mode": "oneway",
+      "profile": "landmark",
+      "start_lat": 37.480278,
+      "start_lon": 126.995863,
+      "end_lat": 37.49186,
+      "end_lon": 127.03166,
+      "target_km": 4.8
+    },
+    {
+      "id": "oneway_05",
+      "mode": "oneway",
+      "profile": "child",
+      "start_lat": 37.669923,
+      "start_lon": 127.054758,
+      "end_lat": 37.650641,
+      "end_lon": 127.044427,
+      "target_km": 3.3
+    },
+    {
+      "id": "oneway_06",
+      "mode": "oneway",
+      "profile": "default",
+      "start_lat": 37.494909,
+      "start_lon": 126.931962,
+      "end_lat": 37.510253,
+      "end_lon": 126.946293,
+      "target_km": 3.0
+    },
+    {
+      "id": "oneway_07",
+      "mode": "oneway",
+      "profile": "nature",
+      "start_lat": 37.522881,
+      "start_lon": 127.036203,
+      "end_lat": 37.50736,
+      "end_lon": 127.04513,
+      "target_km": 2.7
+    },
+    {
+      "id": "oneway_08",
+      "mode": "oneway",
+      "profile": "safe",
+      "start_lat": 37.57752,
+      "start_lon": 127.040713,
+      "end_lat": 37.577241,
+      "end_lon": 127.024975,
+      "target_km": 1.9
+    },
+    {
+      "id": "oneway_09",
+      "mode": "oneway",
+      "profile": "landmark",
+      "start_lat": 37.544914,
+      "start_lon": 126.939048,
+      "end_lat": 37.545414,
+      "end_lon": 126.957694,
+      "target_km": 2.3
+    },
+    {
+      "id": "oneway_10",
+      "mode": "oneway",
+      "profile": "child",
+      "start_lat": 37.510458,
+      "start_lon": 126.910511,
+      "end_lat": 37.524964,
+      "end_lon": 126.904074,
+      "target_km": 2.4
+    },
+    {
+      "id": "oneway_11",
+      "mode": "oneway",
+      "profile": "default",
+      "start_lat": 37.580275,
+      "start_lon": 127.035372,
+      "end_lat": 37.602123,
+      "end_lon": 127.041836,
+      "target_km": 3.5
+    },
+    {
+      "id": "oneway_12",
+      "mode": "oneway",
+      "profile": "nature",
+      "start_lat": 37.642556,
+      "start_lon": 127.075187,
+      "end_lat": 37.645985,
+      "end_lon": 127.04003,
+      "target_km": 4.4
+    },
+    {
+      "id": "oneway_13",
+      "mode": "oneway",
+      "profile": "safe",
+      "start_lat": 37.641542,
+      "start_lon": 127.087739,
+      "end_lat": 37.65364,
+      "end_lon": 127.077177,
+      "target_km": 2.3
+    },
+    {
+      "id": "oneway_14",
+      "mode": "oneway",
+      "profile": "landmark",
+      "start_lat": 37.48297,
+      "start_lon": 126.967603,
+      "end_lat": 37.484991,
+      "end_lon": 126.935769,
+      "target_km": 3.9
+    },
+    {
+      "id": "oneway_15",
+      "mode": "oneway",
+      "profile": "child",
+      "start_lat": 37.475066,
+      "start_lon": 126.892417,
+      "end_lat": 37.484461,
+      "end_lon": 126.924145,
+      "target_km": 4.2
+    },
+    {
+      "id": "oneway_16",
+      "mode": "oneway",
+      "profile": "default",
+      "start_lat": 37.513309,
+      "start_lon": 126.885258,
+      "end_lat": 37.540695,
+      "end_lon": 126.876398,
+      "target_km": 4.4
+    },
+    {
+      "id": "oneway_17",
+      "mode": "oneway",
+      "profile": "nature",
+      "start_lat": 37.624652,
+      "start_lon": 126.92748,
+      "end_lat": 37.639265,
+      "end_lon": 126.919688,
+      "target_km": 2.5
+    },
+    {
+      "id": "oneway_18",
+      "mode": "oneway",
+      "profile": "safe",
+      "start_lat": 37.612577,
+      "start_lon": 126.910185,
+      "end_lat": 37.601591,
+      "end_lon": 126.919034,
+      "target_km": 2.0
+    },
+    {
+      "id": "oneway_19",
+      "mode": "oneway",
+      "profile": "landmark",
+      "start_lat": 37.531586,
+      "start_lon": 126.866693,
+      "end_lat": 37.519742,
+      "end_lon": 126.884748,
+      "target_km": 2.9
+    },
+    {
+      "id": "oneway_20",
+      "mode": "oneway",
+      "profile": "child",
+      "start_lat": 37.602947,
+      "start_lon": 126.934841,
+      "end_lat": 37.618729,
+      "end_lon": 126.914476,
+      "target_km": 3.5
+    },
+    {
+      "id": "oneway_21",
+      "mode": "oneway",
+      "profile": "default",
+      "start_lat": 37.479545,
+      "start_lon": 126.949429,
+      "end_lat": 37.484375,
+      "end_lon": 126.938906,
+      "target_km": 1.5
+    },
+    {
+      "id": "oneway_22",
+      "mode": "oneway",
+      "profile": "nature",
+      "start_lat": 37.523384,
+      "start_lon": 126.902897,
+      "end_lat": 37.534251,
+      "end_lon": 126.911309,
+      "target_km": 2.0
+    },
+    {
+      "id": "oneway_23",
+      "mode": "oneway",
+      "profile": "safe",
+      "start_lat": 37.565458,
+      "start_lon": 127.037175,
+      "end_lat": 37.56683,
+      "end_lon": 127.01895,
+      "target_km": 2.3
+    },
+    {
+      "id": "oneway_24",
+      "mode": "oneway",
+      "profile": "landmark",
+      "start_lat": 37.495953,
+      "start_lon": 127.062703,
+      "end_lat": 37.504565,
+      "end_lon": 127.056975,
+      "target_km": 1.5
+    },
+    {
+      "id": "oneway_25",
+      "mode": "oneway",
+      "profile": "child",
+      "start_lat": 37.609245,
+      "start_lon": 127.041833,
+      "end_lat": 37.60282,
+      "end_lon": 127.032243,
+      "target_km": 1.5
+    },
+    {
+      "id": "circular_01",
+      "mode": "circular",
+      "profile": "default",
+      "start_lat": 37.451699,
+      "start_lon": 126.911126,
+      "target_km": 4.5
+    },
+    {
+      "id": "circular_02",
+      "mode": "circular",
+      "profile": "nature",
+      "start_lat": 37.550488,
+      "start_lon": 126.852862,
+      "target_km": 2.7
+    },
+    {
+      "id": "circular_03",
+      "mode": "circular",
+      "profile": "safe",
+      "start_lat": 37.533419,
+      "start_lon": 126.970549,
+      "target_km": 4.0
+    },
+    {
+      "id": "circular_04",
+      "mode": "circular",
+      "profile": "landmark",
+      "start_lat": 37.590093,
+      "start_lon": 127.013258,
+      "target_km": 4.8
+    },
+    {
+      "id": "circular_05",
+      "mode": "circular",
+      "profile": "child",
+      "start_lat": 37.478816,
+      "start_lon": 126.884013,
+      "target_km": 4.1
+    },
+    {
+      "id": "circular_06",
+      "mode": "circular",
+      "profile": "default",
+      "start_lat": 37.589676,
+      "start_lon": 126.963879,
+      "target_km": 2.5
+    },
+    {
+      "id": "circular_07",
+      "mode": "circular",
+      "profile": "nature",
+      "start_lat": 37.565338,
+      "start_lon": 126.827806,
+      "target_km": 4.9
+    },
+    {
+      "id": "circular_08",
+      "mode": "circular",
+      "profile": "safe",
+      "start_lat": 37.493684,
+      "start_lon": 126.916324,
+      "target_km": 4.3
+    },
+    {
+      "id": "circular_09",
+      "mode": "circular",
+      "profile": "landmark",
+      "start_lat": 37.586451,
+      "start_lon": 126.932496,
+      "target_km": 4.9
+    },
+    {
+      "id": "circular_10",
+      "mode": "circular",
+      "profile": "child",
+      "start_lat": 37.48678,
+      "start_lon": 127.03389,
+      "target_km": 3.7
+    },
+    {
+      "id": "circular_11",
+      "mode": "circular",
+      "profile": "default",
+      "start_lat": 37.493108,
+      "start_lon": 127.15257,
+      "target_km": 3.7
+    },
+    {
+      "id": "circular_12",
+      "mode": "circular",
+      "profile": "nature",
+      "start_lat": 37.523511,
+      "start_lon": 127.040042,
+      "target_km": 3.2
+    },
+    {
+      "id": "circular_13",
+      "mode": "circular",
+      "profile": "safe",
+      "start_lat": 37.556849,
+      "start_lon": 126.955354,
+      "target_km": 2.2
+    },
+    {
+      "id": "circular_14",
+      "mode": "circular",
+      "profile": "landmark",
+      "start_lat": 37.577034,
+      "start_lon": 126.816242,
+      "target_km": 2.3
+    },
+    {
+      "id": "circular_15",
+      "mode": "circular",
+      "profile": "child",
+      "start_lat": 37.543647,
+      "start_lon": 126.948215,
+      "target_km": 4.6
+    },
+    {
+      "id": "circular_16",
+      "mode": "circular",
+      "profile": "default",
+      "start_lat": 37.571397,
+      "start_lon": 127.032899,
+      "target_km": 4.4
+    },
+    {
+      "id": "circular_17",
+      "mode": "circular",
+      "profile": "nature",
+      "start_lat": 37.500824,
+      "start_lon": 127.13715,
+      "target_km": 4.3
+    },
+    {
+      "id": "circular_18",
+      "mode": "circular",
+      "profile": "safe",
+      "start_lat": 37.626065,
+      "start_lon": 126.924996,
+      "target_km": 3.6
+    },
+    {
+      "id": "circular_19",
+      "mode": "circular",
+      "profile": "landmark",
+      "start_lat": 37.579024,
+      "start_lon": 126.968913,
+      "target_km": 2.2
+    },
+    {
+      "id": "circular_20",
+      "mode": "circular",
+      "profile": "child",
+      "start_lat": 37.555082,
+      "start_lon": 126.811998,
+      "target_km": 2.0
+    },
+    {
+      "id": "circular_21",
+      "mode": "circular",
+      "profile": "default",
+      "start_lat": 37.606905,
+      "start_lon": 126.91007,
+      "target_km": 4.5
+    },
+    {
+      "id": "circular_22",
+      "mode": "circular",
+      "profile": "nature",
+      "start_lat": 37.550277,
+      "start_lon": 126.908264,
+      "target_km": 3.3
+    },
+    {
+      "id": "circular_23",
+      "mode": "circular",
+      "profile": "safe",
+      "start_lat": 37.453586,
+      "start_lon": 126.891038,
+      "target_km": 3.9
+    },
+    {
+      "id": "circular_24",
+      "mode": "circular",
+      "profile": "landmark",
+      "start_lat": 37.523178,
+      "start_lon": 126.835635,
+      "target_km": 4.1
+    },
+    {
+      "id": "circular_25",
+      "mode": "circular",
+      "profile": "child",
+      "start_lat": 37.516129,
+      "start_lon": 127.04917,
+      "target_km": 2.5
+    }
+  ]
+}

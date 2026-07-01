@@ -17,6 +17,7 @@ class ScoringProfile(str, Enum):
     FLAT     = "flat"
     RUNNING  = "running"
     LANDMARK = "landmark"
+    CHILD    = "child"
 
 
 class ProfileConfig(BaseModel):
@@ -51,6 +52,10 @@ PROFILES: dict[ScoringProfile, ProfileConfig] = {
     ),
     ScoringProfile.LANDMARK: ProfileConfig(
         weights=Weights(safety=0.5, nature=0.5, slope=0.5, landmark=0.8),
+        blocked_tags=["underground"],
+    ),
+    ScoringProfile.CHILD: ProfileConfig(
+        weights=Weights(safety=0.5, nature=0.5, slope=0.5, child=0.8),
         blocked_tags=["underground"],
     ),
 }
