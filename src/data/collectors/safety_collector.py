@@ -52,9 +52,6 @@ class SafetyCollector:
         return records
 
     def update_accident(self) -> None:
-        if SafetyRepository.is_type_populated("accident_zone"):
-            logger.info("accident_zone 이미 적재됨, 스킵")
-            return
         records = self.build_accident_records()
         if not records:
             logger.warning("수집된 accident_zone 데이터가 없습니다.")
