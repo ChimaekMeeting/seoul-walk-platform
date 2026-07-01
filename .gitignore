@@ -22,5 +22,4 @@ package-lock.json
 tests/
 .claude/
 .claude/
-benchmarks/fixtures/
 
