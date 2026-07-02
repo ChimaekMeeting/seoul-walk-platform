@@ -13,9 +13,9 @@ from src.interfaces.schema.walk_schema import (
 from src.repository.user.route_history_repository import RouteHistoryRepository
 from src.repository.user.user_repository import UserRepository
 from src.route_engine.engines import (
-    CircularRandomEngine,
+    CircularBeamEngine,
     OnewayDijkstraEngine,
-    OnewayRandomEngine,
+    OnewayBeamEngine,
 )
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import ScoringProfile
@@ -31,9 +31,9 @@ class RouteService:
         self.auth_service = auth_service
 
         self.base_engines: dict = {
-            WalkMode.CIRCULAR_RANDOM: CircularRandomEngine,
+            WalkMode.CIRCULAR_RANDOM: CircularBeamEngine,
             WalkMode.ONEWAY_SHORTEST: OnewayDijkstraEngine,
-            WalkMode.ONEWAY_RANDOM: OnewayRandomEngine,
+            WalkMode.ONEWAY_RANDOM: OnewayBeamEngine,
         }
 
     def get_route(

@@ -19,14 +19,12 @@ _NETWORK_FACTOR = 1.4
 
 # ── beam search 설정값 ────────────────────────────────────────────────────────
 _BEAM_WIDTH = 8                # 동시에 유지할 후보 경로(빔) 개수
-_MAX_STEPS = 400              # 빔 확장 최대 반복 횟수 (무한 루프 방지용 상한)
+_MAX_STEPS = 400               # 빔 확장 최대 반복 횟수 (무한 루프 방지용 상한)
 _RETURN_REVISIT_PENALTY = 5.0  # 도착 연결 시 기방문 노드 재사용 억제 배수
 
-# 거리 허용오차(m). |총거리 − target| 이 이 값 이내면 '거리 합격'으로 간주하고,
-# 그 안에서는 품질(custom_score 밀도)이 더 좋은 경로를 택함. (계층적 목적함수)
-_TOLERANCE_M = 0.1
+_TOLERANCE_RATIO = 0.1         # 허용 오차 범위 10%
 
-class OnewayRandomEngine:
+class OnewayBeamEngine:
     def __init__(
         self,
         inp: OnewayRouteInput,
@@ -109,15 +107,7 @@ class OnewayRandomEngine:
     
     def find_path(self, start: int, end: int, target_km: float = 3.0) -> list[int]:
         """
-        결정론적 beam search 기반 우회 편도 경로 생성.
-
-        설계 목표:
-            ① target_km 근접  ② 왕복 가지 없음(단순 경로)  ③ 재현·설명 가능
-            (동일 출발·도착·target_km·가중치 → 항상 동일 경로 보장. 랜덤 미사용)
-
-        동작 개요:
-            1단계 — 출발점에서 바깥으로 빔(_BEAM_WIDTH개)을 결정론적으로 확장함.
-            2단계 — 각 후보를 도착점까지 연결한 뒤, target_km 오차가 가장 작은 경로를 택함.
+        beam search를 기반으로 우회 편도 경로를 생성합니다.
         """
         target_m = target_km * 1000  # 목표 거리를 미터로 환산함
 
@@ -144,29 +134,26 @@ class OnewayRandomEngine:
         e_lon  = e_data.get("lon", 0)  # 도착점 경도
 
         def _est_to_end(node):
-            """node에서 도착점까지의 추정 남은거리(직선 × 도로망 계수)를 반환함."""
+            """
+            node에서 도착점까지의 예상 거리(직선 × 도로망 계수)를 반환
+            """
             d = self.G.nodes[node]
             straight = PathUtils._haversine_m(d.get("lat", e_lat), d.get("lon", e_lon), e_lat, e_lon)
             return straight * _NETWORK_FACTOR
 
         def _objective(value, dist, cost):
             """
-            정렬용 키 튜플 (거리 합격 우선 → 그 안에서 품질)을 반환함.
-              - over    : 허용오차(_TOLERANCE_M) 밖으로 벗어난 양(m). 0이면 '거리 합격'.
-              - density : m당 평균 custom_score(=cost/거리). 낮을수록 고품질(길이 편향 제거).
-            value=예상/최종 총거리(m), dist=품질평균 산정용 거리(m), cost=누적 custom_score.
+            정렬용 키 튜플 (거리 합격 우선 → 그 안에서 품질)을 반환
             """
-            over    = max(0.0, abs(value - target_m) - _TOLERANCE_M*target_m)
-            density = cost / max(dist, 1.0)
+            over    = max(0.0, abs(value - target_m) - _TOLERANCE_RATIO*target_m)  # |실제 오차| - 허용 오차
+            density = cost / max(dist, 1.0) # 품질
             return (over, density)
 
         # 빔 1개의 구조: (누적_비용, 노드열, 누적_거리, 방문_노드_집합)
-        #   - 누적_비용: 지나온 엣지들의 custom_score 합 (낮을수록 선호되는 경로임)
-        #   - 방문_노드_집합: 노드 재방문 차단용 → 단순 경로 유지 → 왕복 가지 원천 차단
         beams = [(0.0, [start], 0.0, {start})]
         finished: list = []  # 도착에 닿았거나 연결 시점에 도달한 빔을 모으는 목록
 
-        # ── 1단계: 빔을 결정론적으로 확장함 ─────────────────────────────────────
+        # 1단계: 출발지 -> 중간 지점
         for _ in range(_MAX_STEPS):
             if not beams:
                 break
@@ -183,8 +170,8 @@ class OnewayRandomEngine:
                 # 현재 → 도착점 추정 남은거리
                 est_to_end = _est_to_end(current)
 
-                # 종료 판정: (누적 + 남은거리추정) ≥ 목표 95% → 도착으로 연결할 시점으로 봄
-                #   - 누적이 목표 30% 넘긴 뒤부터만 검사 → 너무 이른 종료 방지
+                # 종료 판정: 누적거리 + 도착점까지의 예상 거리 ≥ 목표의 95% -> 도착점으로 나아가야 할 시점으로 간주
+                # 누적 거리가 목표의 30%를 넘긴 뒤부터만 검사 → 너무 이른 종료 방지
                 if dist > target_m * 0.3 and dist + est_to_end >= target_m * 0.95:
                     finished.append((cost, nodes, dist, visited))
                     continue
@@ -197,17 +184,18 @@ class OnewayRandomEngine:
                     edge = self.G.get_edge_data(current, n) or {}
                     candidates.append((
                         cost + edge.get("custom_score", 1.0),  # 누적 비용 갱신
-                        nodes + [n],                           # 노드열 확장
+                        nodes + [n],                           # 노드열 갱신
                         dist + edge.get("length", 0),          # 누적 거리 갱신
-                        visited | {n},                         # 방문 집합 확장
+                        visited | {n},                         # 방문 집합 갱신
                     ))
 
             if not candidates:
                 break
 
-            # 결정론적 상위 k 선별:
-            #   (거리 합격 우선 → 그 안에서 품질밀도) 오름차순. 동점 시 노드열 사전순(결정론)
-            #   예상총거리 = 누적거리 + 도착까지 추정거리 / 품질밀도는 누적거리 기준
+            # 결정론적 상위 k 선별
+            # _est_return(현재 노드) -> 출발지까지의 예상 복귀 거리 
+            # _objective(실제 이동 거리 + 출발점까지의 예상 복귀 거리, 실제 이동 거리, 누적 비용) ->  (|실제 오차| - 허용 오차, 품질)
+            # b = (누적 비용, 노드열, 누적 거리, 방문 집합)
             candidates.sort(key=lambda b: _objective(b[2] + _est_to_end(b[1][-1]), b[2], b[0]) + (b[1],))
             beams = candidates[:_BEAM_WIDTH]
 
@@ -217,7 +205,7 @@ class OnewayRandomEngine:
             logger.warning("beam search 후보가 비어 최단 경로로 대체합니다.")
             return base_shortest
 
-        # ── 2단계: 각 후보를 도착점까지 연결하고 평가·선택함 ────────────────────
+        # 2단계: 중간 지점 -> 목적지
         best_path = None  # 최종 선택될 경로
         best_key  = None  # 비교용 정렬 키(작을수록 우수함)
 
@@ -249,7 +237,7 @@ class OnewayRandomEngine:
                 for i in range(len(full_path) - 1)
             )
 
-            # 평가 키(작을수록 우수): (거리 합격 우선 → 그 안에서 품질) + 노드열 사전순(결정론)
+            # 평가 키(작을수록 우수): (|실제 오차| - 허용 요차, 품질) + 노드열 사전순(결정론)
             key = _objective(total_m, total_m, full_cost) + (tuple(full_path),)
             if best_key is None or key < best_key:
                 best_key  = key
