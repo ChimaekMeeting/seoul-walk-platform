@@ -14,10 +14,14 @@ from src.route_engine.scoring.scoring_engine import calculate_custom_score
 
 logger = logging.getLogger(__name__)
 
-_BEAM_WIDTH = 8   # 동시에 유지할 후보 경로 개수
-_MAX_STEPS = 400  # 빔 확장 최대 반복 횟수
+_MAX_STEPS = 400      # 라벨 확장 최대 반복 횟수 (무한 루프 방지용 상한)
+_LABEL_CAP = 4        # 노드 1개당 유지할 파레토 라벨 최대 개수
+_FRONTIER_CAP = 64    # 스텝당 확장 프런티어 라벨 최대 개수 (결정론적 상한)
+_POOL_CAP = 16        # 도착 후보 풀 최대 개수
+_UPPER_RATIO = 1.1    # 자원(거리) 상한 = 목표 × 1.1 (이 값을 넘는 라벨은 폐기)
 
-class OnewayBeamEngine:
+
+class OnewayRcspEngine:
     def __init__(
         self,
         inp: OnewayRouteInput,
@@ -38,7 +42,7 @@ class OnewayBeamEngine:
         """
         우회 편도 경로를 생성합니다.
         """
-        logger.info(f"랜덤 편도 경로 생성 엔진을 시작합니다: target_km={self.inp.target_km}, scoring_mode={self.scoring_mode}, weights={self.weights}")
+        logger.info(f"랜덤 편도 RCSP 경로 생성 엔진을 시작합니다: target_km={self.inp.target_km}, scoring_mode={self.scoring_mode}, weights={self.weights}")
 
         # 엣지별 custom_score 기록 (in-place)
         calculate_custom_score(self.G, {
@@ -100,33 +104,33 @@ class OnewayBeamEngine:
 
     def find_path(self, start: int, end: int, target_km: float = 3.0) -> list[int]:
         """
-        beam search 기반 우회 편도 경로를 생성합니다.
+        RCSP 기반 우회 편도 경로를 생성합니다.
         """
         target_m = target_km * 1000  # 목표 거리를 미터로 환산함
 
-        # custom_score 기준 최단경로 — 우회 실패/불가 시의 최종 대체 경로로도 사용함
+        # custom_score 기준 최단경로 — 후보 미발견/불가 시의 최종 대체 경로로도 사용함
         try:
             base_shortest = nx.shortest_path(self.G, start, end, weight="custom_score")
         except nx.NetworkXNoPath:
             logger.warning("출발-도착 간 경로가 존재하지 않습니다.")
             return []
 
-        # 1단계: 출발지 → 중간지점
-        finished, beams = self._find_start_to_waypoint(start, end, target_m)
+        # 1단계: 출발지 → 도착 후보 (라벨 전파)
+        labels = self._find_start_to_waypoint(start, end, target_m)
 
-        # 1.5단계: 후보 풀 구성
-        pool = self._build_pool(finished, beams)
+        # 1.5단계: 도착 후보 풀 구성
+        pool = self._build_pool(labels)
         if not pool:
-            logger.warning("beam search 후보가 비어 최단 경로로 대체합니다.")
+            logger.warning("RCSP 도착 후보가 비어 최단 경로로 대체합니다.")
             return base_shortest
 
-        # 2단계: 중간지점 → 도착지 + 가장 좋은 완성 경로 1개 채택
+        # 2단계: 중간지점 → 도착지 (도착 연결 후 가장 좋은 완성 경로 1개 선택)
         best_path, best_key = None, None
         for cost, nodes, dist, visited in pool:
             closed = self._find_waypoint_to_end(nodes, visited, end)
             if closed is None:
-                continue  # 도착 연결 불가 후보는 제외함
-            key = self.utils.route_key(closed, target_m)  # (|실제 오차| - 허용 오차, 누적 비용 / 거리, 노드열)
+                continue  # 도착 연결 불가 후보는 제외
+            key = self.utils.route_key(closed, target_m)
             if best_key is None or key < best_key:
                 best_key, best_path = key, closed
 
@@ -135,68 +139,83 @@ class OnewayBeamEngine:
             logger.warning("도착 연결 가능한 후보가 없어 최단 경로로 대체합니다.")
             return base_shortest
 
-        logger.info("beam search 편도 경로 선택: 노드=%d개, 거리초과=%.0fm, 품질밀도=%.3f",
+        logger.info("RCSP 편도 경로 선택: 노드=%d개, 거리초과=%.0fm, 품질밀도=%.3f",
                     len(best_path), best_key[0], best_key[1])
         return best_path
+    
+    def _prune_labels(self, labels: list) -> list:
+        """
+        확장 라벨들을 노드별 파레토 최적만 남기고 상위 N개만을 추출합니다.
+        """
+        by_node: dict = {}
+        for lb in labels:
+            by_node.setdefault(lb[2][-1], []).append(lb)
 
-    def _find_start_to_waypoint(self, start: int, end: int, target_m: float) -> tuple:
+        kept: list = []
+        for _, ls in by_node.items():
+            ls.sort(key=lambda lb: (lb[0], lb[1], lb[2]))  # (비용,거리,경로) 결정론적 정렬
+            pareto: list = []
+            for lb in ls:
+                # 이미 (비용,거리) 모두 우수한 라벨이 있으면 지배당함 → 제외
+                if any(o[0] <= lb[0] and o[1] <= lb[1] for o in pareto):
+                    continue
+                pareto.append(lb)
+            kept.extend(pareto[:_LABEL_CAP])
+
+        kept.sort(key=lambda lb: (lb[0], lb[1], lb[2]))
+        return kept[:_FRONTIER_CAP]
+
+    def _find_start_to_waypoint(self, start: int, end: int, target_m: float) -> list:
         """
         1단계: 출발지 → 중간지점 경로를 생성합니다.
         """
-        beams = [(0.0, [start], 0.0, {start})]
-        finished: list = []  # 도착에 닿았거나 연결 시점에 도달한 빔을 모으는 목록
+        upper = target_m * _UPPER_RATIO  # 자원(거리) 상한
+        frontier = [(0.0, 0.0, (start,))]  # 초기 라벨
+        arrived: list = []
 
         for _ in range(_MAX_STEPS):
-            if not beams:
+            if not frontier:
                 break
 
-            candidates: list = []  # 이번 스텝의 모든 확장 후보를 담는 목록
-            for cost, nodes, dist, visited in beams:
-                current = nodes[-1]
+            candidates: list = []
+            for cost, dist, path in frontier:
+                u = path[-1]
 
-                # 도착 노드에 이미 닿았으면 완성 경로 → 후보로 보관함
-                if current == end:
-                    finished.append((cost, nodes, dist, visited))
-                    continue
+                # 도착지에 닿았으면 도착 후보로 확정 (누적거리가 목표의 30% 이상일 때만)
+                if u == end and dist > target_m * 0.3:
+                    arrived.append((cost, dist, path))
+                    continue  # 도착 라벨은 확장 중단
 
-                est_to_end = self.utils.est_network_dist(current, end)
+                # 이웃을 node_id 오름차순으로 순회 → 결정론적 전파
+                for v in sorted(self.G.neighbors(u)):
+                    if v in path:
+                        continue  # 단순 경로 유지(재방문 금지)
+                    edge = self.G.get_edge_data(u, v) or {}
+                    nd   = dist + edge.get("length", 0)
+                    if nd > upper:
+                        continue  # 자원(거리) 상한 초과 → 폐기
+                    nc = cost + edge.get("custom_score", 1.0)
+                    candidates.append((nc, nd, path + (v,)))
 
-                # 종료 판정: 누적거리 + 도착점까지의 예상 거리 ≥ 목표의 95% → 도착점으로 나아갈 시점
-                # 누적 거리가 목표의 30%를 넘긴 뒤부터만 검사 → 너무 이른 종료 방지
-                if dist > target_m * 0.3 and dist + est_to_end >= target_m * 0.95:
-                    finished.append((cost, nodes, dist, visited))
-                    continue
+            frontier = self._prune_labels(candidates)  # 파레토 + 상한 가지치기
 
-                # 이웃을 node_id 오름차순으로 순회함 → 순서 고정(결정론의 핵심)
-                for n in sorted(self.G.neighbors(current)):
-                    if n in visited:
-                        continue  # 노드 재방문 금지 → 단순 경로 → 왕복 가지 차단
+        return arrived
 
-                    edge = self.G.get_edge_data(current, n) or {}
-                    candidates.append((
-                        cost + edge.get("custom_score", 1.0),  # 누적 비용 갱신
-                        nodes + [n],                           # 노드열 갱신
-                        dist + edge.get("length", 0),          # 누적 거리 갱신
-                        visited | {n},                         # 방문 집합 갱신
-                    ))
-
-            if not candidates:
+    def _build_pool(self, labels: list) -> list:
+        """
+        1.5단계: 반환 후보 풀을 구성합니다.
+        """
+        labels.sort(key=lambda lb: (lb[0], lb[1], lb[2]))  # 결정론적 순서
+        pool: list = []
+        seen: set = set()
+        for cost, dist, path in labels:
+            if path in seen:
+                continue  # 동일 경로 중복 제거
+            seen.add(path)
+            pool.append((cost, list(path), dist, set(path)))  # beam과 동일한 형식
+            if len(pool) >= _POOL_CAP:
                 break
-
-            # 결정론적 상위 k 선별
-            # objective(누적거리 + 예상 남은거리, 누적거리, 누적비용) → (|실제 오차| - 허용 오차, 품질)
-            # b = (누적 비용, 노드열, 누적 거리, 방문 집합)
-            candidates.sort(key=lambda b: self.utils.objective(
-                b[2] + self.utils.est_network_dist(b[1][-1], end), b[2], b[0], target_m) + (b[1],))
-            beams = candidates[:_BEAM_WIDTH]
-
-        return finished, beams
-
-    def _build_pool(self, finished: list, beams: list) -> list:
-        """
-        1.5단계: 후보 풀을 구성합니다.
-        """
-        return finished if finished else beams
+        return pool
 
     def _find_waypoint_to_end(self, nodes: list[int], visited: set, end: int):
         """

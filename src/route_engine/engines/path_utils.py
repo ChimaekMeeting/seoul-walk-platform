@@ -6,6 +6,10 @@ import networkx as nx
 _R1_M: float = 30.0   # ROUT-NODE 1차 탐색 반경 (m)
 _R2_M: float = 300.0  # ROUT-NODE 2차 탐색 반경 (m)
 
+_NETWORK_FACTOR: float = 1.4          # 직선 거리 → 도로망 거리 추정 계수 (서울 도심 블록 구조 기준)
+_TOLERANCE_RATIO: float = 0.1         # 허용 오차 범위 10%
+_RETURN_REVISIT_PENALTY: float = 5.0  # 연결 경로가 기방문 노드를 재사용할 때의 거리 가중 배수
+
 
 class PathUtils:
     def __init__(self, G: nx.Graph):
@@ -13,7 +17,9 @@ class PathUtils:
 
     @staticmethod
     def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """두 좌표 사이의 Haversine 거리(미터)를 반환합니다."""
+        """
+        두 좌표 사이의 Haversine 거리(미터)를 반환합니다.
+        """
         R  = 6_371_000.0
         p1 = math.radians(lat1)
         p2 = math.radians(lat2)
@@ -71,7 +77,9 @@ class PathUtils:
         return node
 
     def extract_coordinates(self, node_list: list) -> list:
-        """노드 ID 리스트 → [[lat, lon], ...] 변환"""
+        """
+        노드 ID 리스트 → [[lat, lon], ...] 변환
+        """
         result = []
         for n in node_list:
             if n not in self.G.nodes:
@@ -132,3 +140,69 @@ class PathUtils:
             (self.G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("length", 0)
             for i in range(len(nodes) - 1)
         )  # 인접 노드 쌍의 length 합산
+
+    # ── 경로 엔진 공통 평가 도구 (beam / grasp 공유) ─────────────────────────────
+    def est_network_dist(self, node: int, target: int) -> float:
+        """
+        node에서 target 노드까지의 추정 도로망 거리(직선 × 도로망 계수)를 반환합니다.
+        순환의 복귀거리·편도의 남은거리 추정에 공통으로 사용합니다.
+        """
+        t = self.G.nodes[target]
+        t_lat, t_lon = t.get("lat", 0), t.get("lon", 0)
+        d = self.G.nodes[node]
+        straight = self._haversine_m(d.get("lat", t_lat), d.get("lon", t_lon), t_lat, t_lon)
+        return straight * _NETWORK_FACTOR
+
+    def objective(self, value: float, dist: float, cost: float, target_m: float) -> tuple:
+        """
+        정렬용 키 튜플 (거리 합격 우선 → 그 안에서 품질)을 반환합니다.
+        """
+        over    = max(0.0, abs(value - target_m) - _TOLERANCE_RATIO * target_m)  # |실제 오차| - 허용 오차
+        density = cost / max(dist, 1.0)  # 누적 비용 / 거리
+        return (over, density)
+
+    def metrics(self, path: list[int]) -> tuple:
+        """
+        경로의 (총 이동 거리 m, 누적 custom_score)를 반환합니다.
+        """
+        total_m = sum(
+            (self.G.get_edge_data(path[i], path[i + 1]) or {}).get("length", 0)
+            for i in range(len(path) - 1)
+        )
+        full_cost = sum(
+            (self.G.get_edge_data(path[i], path[i + 1]) or {}).get("custom_score", 1.0)
+            for i in range(len(path) - 1)
+        )
+        return total_m, full_cost  # 누적 거리, 누적 비용
+
+    def route_key(self, path: list[int], target_m: float) -> tuple:
+        """
+        완성 경로의 평가 키와 노드열을 반환합니다.
+        """
+        total_m, full_cost = self.metrics(path)
+        return self.objective(total_m, total_m, full_cost, target_m) + (tuple(path),)
+
+    def connect_to(
+        self,
+        nodes: list[int],
+        visited: set,
+        target: int,
+        revisit_penalty: float = _RETURN_REVISIT_PENALTY,
+    ):
+        """
+        경로 끝(nodes[-1]) → target 최단 연결(기방문 노드 재사용 시 패널티 → 중복 억제).
+        순환의 복귀 연결(target=출발지)·편도의 도착 연결(target=도착지)에 공통 사용합니다.
+        반환: 완성된 경로, 연결 불가 시 None.
+        """
+        if nodes[-1] == target:
+            return nodes
+
+        def _weight(u, v, d, _visited=visited):
+            penalty = revisit_penalty if (v in _visited and v != target) else 1.0
+            return d.get("length", 1.0) * penalty
+
+        try:
+            tail = nx.shortest_path(self.G, nodes[-1], target, weight=_weight)
+        except nx.NetworkXNoPath:
+            return None
+        return nodes + tail[1:]  # 바깥 경로 + 연결 경로(중복 노드 제거)
