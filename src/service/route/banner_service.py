@@ -59,7 +59,7 @@ class BannerService:
     # ── 날씨 헬퍼 메서드 ───────────────────────────────────────
 
     def _is_hot(self, weather: dict) -> bool:
-        temp_str = weather.get("기온", "")
+        temp_str = weather.get("temperature", "")  # 기온
         match = re.search(r"[-+]?\d+(\.\d+)?", temp_str)
         if match:
             try:
@@ -69,8 +69,8 @@ class BannerService:
         return False
 
     def _is_humid(self, weather: dict) -> bool:
-        status   = weather.get("강수형태", "")
-        keywords = ["흐림", "구름", "습", "비"]
+        status   = weather.get("precipitation_type", "")  # 강수형태
+        keywords = ["비", "눈", "빗방울"]                    # 강수형태 값 (한글)
         return any(k in status for k in keywords)
 
     # ── 메인 메서드 ────────────────────────────────────────────
