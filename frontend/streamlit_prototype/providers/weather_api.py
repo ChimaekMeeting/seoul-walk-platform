@@ -54,10 +54,10 @@ class WeatherEnvProvider(EnvProvider):
         weather = raw.get("weather_info") or {}
         air     = raw.get("air_info") or {}
 
-        weather_status = weather.get("강수형태", "맑음")
-        weather_msg    = weather.get("기온", "")
-        air_status     = _khai_to_grade(air.get("통합대기환경지수", "")) or _pm10_to_grade(air.get("미세먼지", ""))
-        air_msg        = air.get("미세먼지", "")
+        weather_status = weather.get("precipitation_type") or "맑음"  # 강수형태 (한글 값)
+        weather_msg    = weather.get("temperature", "")     # 기온
+        air_status     = _khai_to_grade(air.get("air_quality_index", "")) or _pm10_to_grade(air.get("pm10", ""))  # 통합대기환경지수 / 미세먼지
+        air_msg        = air.get("pm10", "")                # 미세먼지
 
         return EnvData(
             weather_status=weather_status,

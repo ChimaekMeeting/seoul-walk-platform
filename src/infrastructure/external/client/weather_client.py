@@ -41,13 +41,22 @@ class WeatherClient:
             "ny": ny
         }
 
-        PTY_map = { 0: "없음", 1: "비", 2: "비/눈", 3: "눈", 5: "빗방울", 6: "빗방울눈날림", 7: "눈날림" }
+        # PTY(강수형태) 코드 → 상태값 매핑
+        PTY_map = {
+            0: "없음",
+            1: "비",
+            2: "비/눈",
+            3: "눈",
+            5: "빗방울",
+            6: "빗방울눈날림",
+            7: "눈날림",
+        }
         rename_map = {
-            "PTY": ("강수형태", ""),
-            "REH": ("습도", "%"),
-            "RN1": ("1시간 강수량", "mm"),
-            "T1H": ("기온", "℃"),
-            "WSD": ("풍속", "m/s")
+            "PTY": ("precipitation_type", ""),  # 강수형태
+            "REH": ("humidity", "%"),           # 습도
+            "RN1": ("precipitation_1h", "mm"),  # 1시간 강수량
+            "T1H": ("temperature", "℃"),        # 기온
+            "WSD": ("wind_speed", "m/s"),       # 풍속
         }
 
         async with httpx.AsyncClient(timeout=10) as client:
@@ -92,13 +101,13 @@ class WeatherClient:
         }
 
         rename_map = {
-            "KhaiValue": ("통합대기환경지수", ""),
-            "so2Value":  ("이산화황", "ppm"),
-            "coValue":   ("일산화탄소", "ppm"),
-            "pm10Value": ("미세먼지", "㎍/㎥"),
-            "pm25Value": ("초미세먼지", "㎍/㎥"),
-            "no2Value":  ("이산화질소", "ppm"),
-            "o3Value":   ("오존", "ppm")
+            "KhaiValue": ("air_quality_index", ""),  # 통합대기환경지수
+            "so2Value":  ("so2", "ppm"),             # 이산화황
+            "coValue":   ("co", "ppm"),              # 일산화탄소
+            "pm10Value": ("pm10", "㎍/㎥"),           # 미세먼지
+            "pm25Value": ("pm25", "㎍/㎥"),           # 초미세먼지
+            "no2Value":  ("no2", "ppm"),             # 이산화질소
+            "o3Value":   ("o3", "ppm"),              # 오존
         }
 
         async with httpx.AsyncClient() as client:
