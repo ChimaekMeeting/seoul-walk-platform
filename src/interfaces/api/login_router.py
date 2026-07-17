@@ -47,7 +47,7 @@ async def kakao_callback(
         samesite="lax",
         max_age=14 * 24 * 60 * 60
     )
-    return LoginResponse(status=Status.SUCCESS, token_type="Bearer", nickname=nickname)
+    return LoginResponse(status=Status.SUCCESS, token_type="Bearer", nickname=nickname, access_token=access_token, refresh_token=refresh_token)
 
 @router.post("/kakao/logout", response_model=AuthResponse)
 async def kakao_logout(
