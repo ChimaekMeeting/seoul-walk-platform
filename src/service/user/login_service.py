@@ -93,7 +93,7 @@ class KakaoLoginService:
         
     async def login(self, code: str):
         """
-        로그인을 진행합니다.
+        인가 코드로 로그인합니다 (웹/Streamlit OAuth 리다이렉트 흐름).
         """
         kakao_access_token = await self.get_access_token(code)
         provider_id, nickname = await self.get_user_info(kakao_access_token)
@@ -103,6 +103,20 @@ class KakaoLoginService:
 
         user = await self.user_service.save(Provider.KAKAO, provider_id, jwt_refresh_token, nickname)
         
+        return jwt_access_token, jwt_refresh_token, nickname
+
+    async def login_with_access_token(self, kakao_access_token: str):
+        """
+        카카오 액세스 토큰으로 로그인합니다 (RN 앱 흐름).
+        @react-native-seoul/kakao-login SDK가 토큰을 직접 발급하므로 인가 코드 교환 단계를 건너뜁니다.
+        """
+        provider_id, nickname = await self.get_user_info(kakao_access_token)
+
+        jwt_access_token = self.auth_service.get_access_token(Provider.KAKAO, provider_id)
+        jwt_refresh_token = self.auth_service.get_refresh_token(Provider.KAKAO, provider_id)
+
+        await self.user_service.save(Provider.KAKAO, provider_id, jwt_refresh_token, nickname)
+
         return jwt_access_token, jwt_refresh_token, nickname
 
 
