@@ -9,3 +9,6 @@ class LoginResponse(UserResponse):
     token_type: str = "Bearer"
     access_token: str
     refresh_token: str
+
+class MobileLoginRequest(BaseModel):
+    access_token: str
