@@ -35,7 +35,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
+        "*",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -57,4 +57,4 @@ def read_root():
     return {"message": "산책 경로 추천 서비스입니다."}
 
 if __name__ == "__main__":
-    uvicorn.run("src.main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=True)
