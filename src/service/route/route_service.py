@@ -120,7 +120,7 @@ class RouteService:
             try:
                 user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
                 if user is not None:
-                    RouteHistoryRepository.save(
+                    history = RouteHistoryRepository.save(
                         user_id=user.id,
                         mode=mode,
                         origin_lat=origin.lat,
@@ -130,6 +130,7 @@ class RouteService:
                         destination_lat=destination.lat if destination else None,
                         destination_lon=destination.lon if destination else None,
                     )
+                    result.id = history.id
             except Exception:
                 logger.exception("walk route history save failed: mode=%s", mode)
 

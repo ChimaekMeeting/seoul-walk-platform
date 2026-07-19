@@ -136,3 +136,6 @@ class WalkRouteResponse(BaseModel):
     mode: WalkMode
     coordinates: list[list[float]]
     total_km: float = 0.0
+    # RouteHistory로 자동 저장된 경우에만 채워짐(즐겨찾기 등 PATCH /api/user/routes/{id}/favorite 호출에 사용).
+    # 저장에 실패했거나 애초에 저장 대상이 아닌 응답(에러 상태 등)에서는 None.
+    id: Optional[int] = None
