@@ -5,6 +5,8 @@ src/interfaces/api/user_router.py
 현재 온보딩 설문 제출(POST /api/user/survey)을 제공합니다.
 """
 
+from typing import Optional
+
 from fastapi import APIRouter, Cookie, Depends, HTTPException
 import logging
 
@@ -62,11 +64,13 @@ def submit_survey(
 def get_route_histories(
     limit: int = 20,
     offset: int = 0,
+    is_favorite: Optional[bool] = None,
     access_token: str = Cookie(None),
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     로그인한 사용자의 추천 경로 기록을 조회합니다.
+    is_favorite을 지정하면 즐겨찾기 여부로 필터링합니다(예: true → 즐겨찾기만).
     """
     try:
         status, provider, provider_id = auth_service.check_access_token(access_token)
@@ -80,7 +84,7 @@ def get_route_histories(
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
         histories = RouteHistoryRepository.find_by_user_id(
-            user.id, limit=limit, offset=offset
+            user.id, limit=limit, offset=offset, is_favorite=is_favorite
         )
         return RouteHistoryResponse(
             histories=[RouteHistoryItem.model_validate(h) for h in histories],

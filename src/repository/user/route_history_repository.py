@@ -35,12 +35,18 @@ class RouteHistoryRepository:
             return history
 
     @staticmethod
-    def find_by_user_id(user_id: int, limit: int = 20, offset: int = 0) -> list[RouteHistory]:
+    def find_by_user_id(
+        user_id: int,
+        limit: int = 20,
+        offset: int = 0,
+        is_favorite: Optional[bool] = None,
+    ) -> list[RouteHistory]:
         with get_postgresql_db() as db:
+            query = select(RouteHistory).where(RouteHistory.user_id == user_id)
+            if is_favorite is not None:
+                query = query.where(RouteHistory.is_favorite == is_favorite)
             query = (
-                select(RouteHistory)
-                .where(RouteHistory.user_id == user_id)
-                .order_by(RouteHistory.created_at.desc())
+                query.order_by(RouteHistory.created_at.desc())
                 .limit(limit)
                 .offset(offset)
             )
