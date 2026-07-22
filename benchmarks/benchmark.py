@@ -38,11 +38,15 @@ import multiprocessing
 import queue
 import time
 
+import networkx as nx
 import pandas as pd
 
-from benchmarks.config import BENCH_DIR
+from benchmarks.config import BENCH_DIR, ROUTE_EDGES_PARQUET, ROUTE_NODES_PARQUET
+from benchmarks.solvers.alns_solver import AlnsSolver
 from benchmarks.solvers.base_solver import BasePathSolver
+from benchmarks.solvers.beam_solver import BeamSolver
 from benchmarks.solvers.dummy_solver import DummySolver
+from benchmarks.solvers.grasp_solver import GraspSolver
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +62,11 @@ DEFAULT_TIMEOUT_SEC = 30.0
 KILL_GRACE_SEC = 2.0  # terminate(SIGTERM) 후 kill(SIGKILL)로 넘어가기 전 대기 시간
 QUEUE_FLUSH_GRACE_SEC = 5.0  # 자식 프로세스 종료 후 큐에 결과가 도착할 때까지 대기 시간
 
-# 벤치마크 대상 알고리즘 등록 지점. 실제 알고리즘 연결 시 여기에 항목만 추가하면 된다.
-# 예: "rcsp": RcspSolver()
+# 벤치마크 대상 알고리즘 등록 지점.
 SOLVER_REGISTRY: dict[str, BasePathSolver] = {
+    "grasp": GraspSolver(),
+    "beam": BeamSolver(),
+    "alns": AlnsSolver(),
     "dummy-a": DummySolver(name="DummySolver-A", fake_delay_sec=0.05),
     "dummy-b": DummySolver(name="DummySolver-B", fake_delay_sec=0.1),
 }
@@ -334,7 +340,58 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=DEFAULT_TIMEOUT_SEC,
         help=f"solver별 제한시간(초). 초과 시 해당 solver만 실패 처리 (기본값: {DEFAULT_TIMEOUT_SEC})",
     )
+    parser.add_argument(
+        "--target-km",
+        type=float,
+        default=3.0,
+        help="순환 경로 목표 거리(km) (기본값: 3.0)",
+    )
+    parser.add_argument(
+        "--time-budget",
+        type=float,
+        default=None,
+        help="사용자 체감 허용시간(초). 지정 시 within_time_budget 컬럼이 채워짐",
+    )
+    parser.add_argument(
+        "--start-node",
+        type=int,
+        default=None,
+        help="시작 노드 ID. 미지정 시 그래프에서 자동 선택",
+    )
     return parser.parse_args(argv)
+
+
+def _load_default_graph() -> nx.Graph | None:
+    """benchmarks/fixtures의 실제 서울 도보 그래프를 로드한다.
+
+    fixture가 아직 빌드되지 않았으면(benchmarks/build_fixtures.py 미실행) None을 반환해
+    dummy 알고리즘만으로도 하네스를 계속 사용할 수 있게 한다.
+    """
+    if not ROUTE_NODES_PARQUET.exists() or not ROUTE_EDGES_PARQUET.exists():
+        logger.warning(
+            "그래프 fixture(%s, %s)가 없습니다. 'python -m benchmarks.build_fixtures'로 먼저 생성하세요. "
+            "그래프 없이 진행합니다(dummy 알고리즘만 유효).",
+            ROUTE_NODES_PARQUET, ROUTE_EDGES_PARQUET,
+        )
+        return None
+
+    nodes_df = pd.read_parquet(ROUTE_NODES_PARQUET)
+    edges_df = pd.read_parquet(ROUTE_EDGES_PARQUET)
+
+    graph = nx.Graph()
+    for row in nodes_df.itertuples():
+        graph.add_node(row.node_id, lat=row.lat, lon=row.lon)
+    for row in edges_df.itertuples():
+        graph.add_edge(
+            row.u, row.v,
+            length=row.length,
+            safety_score=getattr(row, "safety_score", 0.5) or 0.5,
+            nature_score=getattr(row, "nature_score", 0.5) or 0.5,
+            landmark_score=getattr(row, "landmark_score", 0.0) or 0.0,
+            child_score=getattr(row, "child_score", 0.0) or 0.0,
+            slope_score=0.5,
+        )
+    return graph
 
 
 def main():
@@ -346,10 +403,20 @@ def main():
             print(f"  - {key}")
         return
 
-    # ── 인터페이스 검증용 예시 입력 (실제 알고리즘 연결 전 더미 데이터) ──
-    graph = None
-    start_node, target_node = "A", "B"
-    params = {}
+    graph = _load_default_graph()
+
+    if args.start_node is not None:
+        start_node = args.start_node
+    elif graph is not None:
+        largest_cc = max(nx.connected_components(graph), key=len)
+        start_node = sorted(largest_cc)[0]
+    else:
+        start_node = "A"  # dummy 알고리즘용 폴백
+
+    target_node = start_node  # 순환 경로는 출발지로 복귀하므로 start와 동일
+    params = {"target_km": args.target_km}
+    if args.time_budget is not None:
+        params["time_budget_sec"] = args.time_budget
 
     solvers = resolve_solvers(args.algo)
 
