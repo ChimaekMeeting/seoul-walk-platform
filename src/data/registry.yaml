@@ -154,7 +154,7 @@ datasets:
     update_type: static
     note: 주요 공원 중 러닝에 적합한 공원을 running_score에 반영합니다.
   bike_road:
-    approved: true
+    approved: false
     source_type: csv
     file: 전국자전거도로표준데이터.csv
     raw_table: csv_raw
@@ -162,12 +162,11 @@ datasets:
     collector: RunningCourseCollector
     layer: running_layer
     geometry: LINESTRING
-    score_column: running_score
-    score_effect: bonus
-    profiles:
-    - running
+    score_column: undecided
+    score_effect: none
+    profiles: []
     update_type: static
-    note: 자전거도로 데이터를 러닝 가능 경로 후보로 반영합니다.
+    note: 자전거도로는 러닝길 확정 데이터가 아닙니다. 서울 필터, 보행자 겸용 여부, 도보 네트워크/하천/공원 overlap 검증 후 active mobility 또는 riverside-linear-route 후보로 제한 검토합니다.
   river_geojson:
     approved: true
     source_type: geojson
