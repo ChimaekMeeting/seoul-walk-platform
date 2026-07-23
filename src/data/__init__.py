@@ -1,9 +1,4 @@
-"""
-Data layer public exports.
-
-Collector imports are intentionally lazy so lightweight modules such as
-src.data.intake can run without importing DB/GIS dependencies first.
-"""
+"""Data layer collector exports."""
 
 from importlib import import_module
 from typing import Any

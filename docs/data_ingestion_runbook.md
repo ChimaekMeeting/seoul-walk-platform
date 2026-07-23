@@ -81,9 +81,9 @@ poetry run python -m src.data.data_collector
 | `SeoulWaterCollector` | - | - |
 | `LandmarkCollector` | landmark_layer | landmark_score |
 
-### 4-2. approved=true이지만 현재 비활성인 데이터
+### 4-2. 현재 비활성인 데이터
 
-`src/data/registry.yaml`에는 `approved: true`로 등록되어 있지만, `data_collector.py`에서 호출이 주석 처리되어 있어 위 명령을 실행해도 반영되지 않는 collector입니다.
+`data_collector.py`에서 호출이 주석 처리되어 있어 위 명령을 실행해도 반영되지 않는 collector입니다.
 
 ```python
 # src/data/data_collector.py
@@ -99,18 +99,18 @@ poetry run python -m src.data.data_collector
 | `RunningCourseCollector` | running_layer | running_score | 서울시 주요 공원현황.csv, 전국자전거도로표준데이터.csv, 서울시 하천.geojson |
 | `SlopeCalculator` | - | slope_score | (raw 파일과 직접 연결된 근거 없음) |
 
-이 PR에서는 위 주석을 해제하지 않습니다. 활성화 여부는 팀 확인 후 별도로 진행합니다. 자세한 연결 상태는 `docs/score_data_catalog.md`를 참고하세요.
+현재 V1에서는 위 주석을 해제하지 않습니다. 활성화 여부는 팀 확인 후 별도로 진행합니다. 자세한 연결 상태는 `docs/data_score_mapping.md`를 참고하세요.
 
-### 4-3. draft/undecided 상태라 반영하지 않는 데이터
+### 4-3. V1에서 보류한 데이터
 
-`src/data/registry.yaml`에서 `approved: false`인 dataset은 raw 파일이 `src/data/raw`에 있어도 위 3단계 명령으로 적재되지 않습니다.
+다음 데이터는 `source_collector.py`를 통해 raw로 적재될 수 있지만, V1의 layer/score 생성에는 연결하지 않습니다.
 
-| 파일 | registry dataset_key | 상태 |
+| 파일 | query key | 상태 |
 |---|---|---|
-| 전국가로수길정보표준데이터.csv | `street_tree` | draft — `nature_score` 후보, collector 미구현. 본 적재 흐름에 포함되지 않음 |
-| 서울 둘레길.csv | `seoul_trail` | draft — layer/score/collector 모두 `undecided`. CSV에는 좌표 컬럼이 없고, `RunningCourseCollector`는 `_TRAIL_COORDS` 하드코딩 좌표로 trail geometry를 생성 중 |
+| 전국가로수길정보표준데이터.csv | `type=street_tree` | 보류 — `nature_score` 후보지만 collector 미구현 |
+| 서울 둘레길.csv | `type=seoul_trail` | 보류 — CSV에는 좌표 컬럼이 없고, `RunningCourseCollector`는 `_TRAIL_COORDS` 하드코딩 좌표로 geometry 생성 중 |
 
-이 두 파일은 `src/data/intake/inspect_dataset.py` / `draft_dataset.py`로 검수 기록만 남길 수 있고, `approved: true`로 전환되기 전까지는 `source_collector`/`data_collector` 어디에도 포함되지 않습니다. 전체 연결 상태 표는 `docs/score_data_catalog.md`를 참고하세요.
+전체 V1 사용 범위는 `analysis/data-governance/README.md`를 참고하세요.
 
 ## AI 응답 제한 방향
 
@@ -239,4 +239,4 @@ CSVSource().fetch_and_store('type', 'new_tag')
 "
 ```
 
-> 새 데이터를 layer/score/profile에 반영하려면 collector 연결까지 추가해야 합니다. 자세한 작업 범위는 `docs/data_pipeline_expansion_plan.md`를 참고합니다.
+> 새 데이터를 layer/score/profile에 반영하려면 V1 사용 목적을 먼저 정하고 source, collector, repository 연결을 함께 구현해야 합니다.

@@ -40,4 +40,4 @@ poetry run python scripts/stage_raw_data.py
 poetry run python -m src.data.source_collector
 poetry run python -m src.data.data_collector
 ```
-- 자세한 순서는 `docs/data_ingestion.md`를 참고합니다.
+- 자세한 순서는 `docs/data_ingestion_runbook.md`를 참고합니다.
