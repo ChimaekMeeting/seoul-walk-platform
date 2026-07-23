@@ -47,7 +47,9 @@ def save(self) -> None:
 - `--scope legacy-all`은 기존 전체 Collector를 명시적으로 실행합니다.
 - 신규 Collector는 승인 후 `collect_v1()`에 추가합니다.
 - 현재 V1은 도보 네트워크, 공원 Polygon, 서울 경계, 수계를 실행합니다.
-- 공원 Polygon과 교차하는 WalkEdge는 `nature_score=1.0`, 나머지는 `0.0`으로 갱신합니다.
+- 공원 Polygon은 `nature_layer`에 보존하고, 각 WalkEdge 길이 중 Polygon 내부 비율을 `park_overlap_ratio`에 저장합니다.
+- 도보망 원본 `raw_is_park_green`은 그대로 유지하며, `ParkPolygonCollector`는 `nature_score`를 갱신하지 않습니다.
+- `raw_is_park_green`과 `park_overlap_ratio`를 `nature_score`로 결합하는 정책은 별도로 확정합니다.
 
 ## 6. 로컬 원본 데이터 준비
 - 다운로드 폴더에 받은 CSV/XLSX 원본은 `scripts/stage_raw_data.py`로 `src/data/raw`에 복사합니다.

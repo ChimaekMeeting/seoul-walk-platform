@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 class ParkPolygonCollector:
     """
     서울시 생활권계획 공원 Polygon을 NatureLayer에 저장하고,
-    Polygon과 교차하는 기존 WalkEdge의 nature_score를 갱신합니다.
+    기존 WalkEdge의 공원 내부 길이 비율을 갱신합니다.
+
+    원본 도보망의 raw_is_park_green과 점수 정책의 nature_score는 수정하지 않습니다.
     """
 
     RAW_PATH = Path("src/data/raw/서울시 생활권계획 시설(공원) 공간정보.shp")
@@ -78,8 +80,11 @@ class ParkPolygonCollector:
         logger.info("nature_layer 공원 Polygon %d개 교체 완료", len(records))
 
     def update_edge(self) -> None:
-        updated = NatureRepository.update_edge_scores_from_polygons(self.GREEN_TYPE)
-        logger.info("공원 Polygon 기준 nature_score 갱신 완료: %d개 WalkEdge", updated)
+        updated = NatureRepository.update_edge_park_overlap_ratios(self.GREEN_TYPE)
+        logger.info(
+            "공원 Polygon 내부 길이 비율 갱신 완료: %d개 WalkEdge 교차",
+            updated,
+        )
 
     def save(self) -> None:
         self.update_node()

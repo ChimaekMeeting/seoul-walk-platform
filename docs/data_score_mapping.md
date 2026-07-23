@@ -6,12 +6,15 @@
 feat/209 재현 결과는 과거 전체 파이프라인 기록으로 보존합니다. 현재 V1 실행 범위와 명령은
 `docs/data_ingestion_runbook.md`를 기준으로 하며, `legacy-all`을 명시하지 않으면 보류 Score를 계산하지 않습니다.
 
+공원 Polygon 매핑 방식의 비교 결과와 결정 근거는
+`analysis/raw/park_walkedge_mapping_validation.ipynb`에 보존합니다.
+
 ## 1. raw 데이터 연결 상태 표
 
 | dataset/file | source_type | source_collector | data_collector | raw_table | layer | score | V1 판단 | status | note |
 |---|---|---|---|---|---|---|---|---|---|
 | 서울시 자치구별 도보 네트워크 공간정보.csv | csv | △ `CSVSource.load_walk_network()`가 직접 읽음(TAGS 미경유) | `BaseNetworkCollector` | none | walk_nodes / walk_edges | 없음 | 사용 | **활성** | 경로 탐색 기반 네트워크, score 컬럼 없음 |
-| 서울시 생활권계획 시설(공원) 공간정보 Shapefile | shp | 직접 읽음 | `ParkPolygonCollector` | none | nature_layer | nature_score | 사용 | **V1 활성** | Polygon 교차 Edge=1, 그 외=0 |
+| 서울시 생활권계획 시설(공원) 공간정보 Shapefile | shp | 직접 읽음 | `ParkPolygonCollector` | none | nature_layer | `park_overlap_ratio` | 사용 | **V1 활성** | Edge 길이 중 Polygon 내부 비율을 저장. `nature_score`는 갱신하지 않음 |
 | 전국어린이보호구역표준데이터.csv | csv | ✅ `CSVSource.TAGS["protection_zone"]` | `ChildCollector` | csv_raw | child_layer | child_score | 미결정 | `legacy-all` 전용 | |
 | 전국스마트가로등표준데이터.csv | csv | ✅ `CSVSource.TAGS["streetlight"]` | `SafetyCollector` | csv_raw | safety_layer | safety_score | 미결정 | `legacy-all` 전용 | |
 | 서울시CCTV정보.xlsx | xlsx | ✅ `CSVSource.TAGS["cctv"]` | `SafetyCollector` | csv_raw | safety_layer | safety_score | 미결정 | `legacy-all` 전용 | |
@@ -30,7 +33,7 @@ feat/209 재현 결과는 과거 전체 파이프라인 기록으로 보존합�
 |---|---|---|---|
 | `safety_score` | 전국스마트가로등표준데이터.csv, 서울시CCTV정보.xlsx | ✅ raw 파일 | V1 기본 실행에서 보류, `legacy-all` 전용 |
 | `child_score` | 전국어린이보호구역표준데이터.csv + 어린이놀이시설(공공데이터 API) | ✅ raw 파일 + API | V1 기본 실행에서 보류, `legacy-all` 전용 |
-| `nature_score` | 서울시 생활권계획 시설(공원) Polygon | ✅ Shapefile | V1은 Polygon과 교차하는 Edge=1, 그 외=0. 기존 OSM `NatureCollector`는 `legacy-all` 전용 |
+| `nature_score` | 도보망 원본 `raw_is_park_green` + 서울시 공원 Polygon `park_overlap_ratio` | ✅ CSV + Shapefile | 두 근거는 별도 보존하며 V1 결합 정책은 아직 미정. `ParkPolygonCollector`는 `nature_score`를 갱신하지 않음. 기존 OSM `NatureCollector`는 `legacy-all` 전용 |
 | `running_score` | 서울시 주요 공원현황.csv, 전국자전거도로표준데이터.csv, 서울시 하천.geojson, 하드코딩된 둘레길/등산로 좌표 | ✅ raw 파일(일부) | `RunningCourseCollector` **자체가 비활성**이라 raw 파일이 있어도 현재는 반영되지 않음 |
 | `landmark_score` | TourAPI 관광지/문화시설 | ❌ raw 파일 아님(공공 API) | `LandmarkCollector` 활성, raw 파일과 무관 |
 | `slope_score` | (별도 경사 계산, `SlopeCalculator`) | - | `data_collector.py` 39-40행에서 주석 처리되어 **비활성**. 이 문서가 다루는 raw 파일과 직접 연결된 근거 없음 |
@@ -54,7 +57,7 @@ poetry run python -m src.data.data_collector --scope v1 --network-mode rebuild
 주의: `poetry run python -m src.main`은 FastAPI 서버를 실행하고 종료되지 않으므로,
 QA 재현용 테이블 생성 명령으로는 위의 `init_db()` 원샷 명령을 사용합니다.
 
-- 위 명령으로 실제 반영되는 score는 공원 Polygon 기반 `nature_score`입니다.
+- 위 명령은 공원 Polygon 기반 `park_overlap_ratio`까지 계산합니다. `nature_score`는 별도 점수 정책이 확정되기 전까지 계산하지 않습니다.
 - `safety_score`, `child_score`, `landmark_score`, `running_score`, `slope_score`는 V1 기본 실행에서 계산하지 않습니다.
 - OSM/Kakao/Public/보조 CSV 전체 재현은 `--scope legacy-all`을 명시해야 합니다.
 
@@ -66,7 +69,7 @@ feat/209 브랜치에서 과거 전체 파이프라인을 재현하며 확인한
 |---|---|
 | `source_collector` | OSM/Kakao/Public/CSV·XLSX raw 적재 완료 |
 | `walk_nodes` / `walk_edges` | 적재 완료. 재실행 시 "이미 적재됨, 스킵" |
-| `nature_score` | `279,016`건 업데이트 확인 |
+| `nature_score` | 과거 전체 파이프라인에서 `279,016`건 업데이트 확인. 현재 V1에서는 갱신하지 않음 |
 | `safety_score` | `279,016`건 업데이트 확인 |
 | `child_score` | `279,016`건 업데이트 확인 |
 | `landmark_score` | `279,016`건 업데이트 확인 |

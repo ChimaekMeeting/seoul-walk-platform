@@ -90,6 +90,12 @@ class WalkEdge(Base):
         Float,
         server_default="0.0"
     )
+    park_overlap_ratio: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        server_default="0.0",
+        comment="Edge 길이 중 서울시 공원 Polygon 내부에 포함되는 비율(0.0~1.0)",
+    )
     slope_score: Mapped[float] = mapped_column(
         Float,
         server_default="0.0"

@@ -70,27 +70,63 @@ class NatureRepository:
             )
 
     @staticmethod
-    def update_edge_scores_from_polygons(green_type: str) -> int:
+    def update_edge_park_overlap_ratios(green_type: str) -> int:
         """
-        지정 Polygon과 교차하는 WalkEdge의 nature_score를 1.0, 나머지를 0.0으로 갱신합니다.
+        WalkEdge 길이 중 지정 공원 Polygon 내부에 포함되는 비율을 저장합니다.
+
+        겹치는 공원 Polygon은 Edge별로 합친 뒤 길이를 계산하므로 중복 면적을
+        두 번 더하지 않습니다. raw_is_park_green과 nature_score는 수정하지 않습니다.
         """
-        statement = text(
+        reset_statement = text(
             """
+            UPDATE walk_edges
+            SET park_overlap_ratio = 0.0
+            """
+        )
+        overlap_statement = text(
+            """
+            WITH overlap_by_edge AS (
+                SELECT
+                    edge.link_id,
+                    LEAST(
+                        1.0,
+                        COALESCE(
+                            ST_Length(
+                                ST_Transform(
+                                    ST_UnaryUnion(
+                                        ST_Collect(
+                                            ST_Intersection(edge.geom, nature.geom)
+                                        )
+                                    ),
+                                    5179
+                                )
+                            )
+                            / NULLIF(
+                                ST_Length(ST_Transform(edge.geom, 5179)),
+                                0.0
+                            ),
+                            0.0
+                        )
+                    ) AS overlap_ratio
+                FROM walk_edges AS edge
+                JOIN nature_layer AS nature
+                  ON nature.green_type = :green_type
+                 AND edge.geom && nature.geom
+                 AND ST_Intersects(edge.geom, nature.geom)
+                GROUP BY edge.link_id, edge.geom
+            )
             UPDATE walk_edges AS edge
-            SET nature_score = CASE
-                WHEN EXISTS (
-                    SELECT 1
-                    FROM nature_layer AS nature
-                    WHERE nature.green_type = :green_type
-                      AND ST_Intersects(edge.geom, nature.geom)
-                )
-                THEN 1.0
-                ELSE 0.0
-            END
+            SET park_overlap_ratio = overlap.overlap_ratio
+            FROM overlap_by_edge AS overlap
+            WHERE edge.link_id = overlap.link_id
             """
         )
         with engine.begin() as connection:
-            result = connection.execute(statement, {"green_type": green_type})
+            connection.execute(reset_statement)
+            result = connection.execute(
+                overlap_statement,
+                {"green_type": green_type},
+            )
         return result.rowcount
 
     @staticmethod
@@ -98,7 +134,7 @@ class NatureRepository:
         """
         기존 OSM 녹지의 H3 셀(resolution 9)별 폴리곤 개수를 반환합니다.
 
-        V1 공원 Polygon은 별도 ST_Intersects 경로를 사용하므로 이 집계에서 제외합니다.
+        V1 공원 Polygon은 별도 길이 중첩 비율 계산 경로를 사용하므로 이 집계에서 제외합니다.
         폴리곤의 중심점(centroid)을 기준으로 H3 셀을 계산합니다.
         """
         lat_expr, lon_expr = RepositoryUtils.geom_centroid_lat_lon(NatureLayer.geom)

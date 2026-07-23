@@ -105,7 +105,7 @@ poetry run python -m src.data.data_collector --scope v1 --network-mode rebuild
 | collector | 결과 | score |
 |---|---|---|
 | `BaseNetworkCollector` | walk_nodes / walk_edges | 없음 |
-| `ParkPolygonCollector` | nature_layer | nature_score (Polygon 교차=1, 그 외=0) |
+| `ParkPolygonCollector` | nature_layer + walk_edges.park_overlap_ratio | 없음 (`nature_score` 미갱신) |
 | `SeoulBoundaryCollector` | seoul_administrative_boundary | 없음 |
 | `SeoulWaterCollector` | seoul_water_polygons | 없음 |
 
