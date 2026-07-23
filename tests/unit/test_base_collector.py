@@ -90,6 +90,20 @@ def test_build_node_records_uses_node_rows_and_derives_missing_endpoints():
     assert records[2]["geom"].data == "POINT(126.1 37.1)"
 
 
+def test_walk_node_column_accepts_all_defined_node_types():
+    from src.entity.network.walk_node import WalkNode
+
+    defined_node_types = {
+        *BaseNetworkCollector.NODE_TYPE_MAP.values(),
+        "unknown",
+        "derived_endpoint",
+    }
+    assert all(
+        len(node_type) <= WalkNode.__table__.c.node_type.type.length
+        for node_type in defined_node_types
+    )
+
+
 def test_build_edge_records_parses_access_code_and_flags():
     collector = BaseNetworkCollector(_network_dataframe())
 

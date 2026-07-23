@@ -15,7 +15,7 @@ class WalkNode(Base):
         primary_key=True
     )
     node_type: Mapped[str] = mapped_column(
-        String(20),
+        String(32),
         nullable=True
     )
     raw_node_type_code: Mapped[int | None] = mapped_column(
