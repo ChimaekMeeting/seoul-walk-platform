@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Optional
 from pydantic import BaseModel
 
 class Status(str, Enum):
@@ -9,3 +10,4 @@ class Status(str, Enum):
 
 class AuthResponse(BaseModel):
     status: Status
+    access_token: Optional[str] = None

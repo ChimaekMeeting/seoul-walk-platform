@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, Cookie, Response
+from fastapi import APIRouter, Depends, Response
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from src.interfaces.dependencies import get_auth_service
 from src.service.user.auth_service import AuthService
@@ -9,26 +10,30 @@ router = APIRouter(
     tags=["Auth"]
 )
 
+optional_bearer = HTTPBearer(auto_error=False)
+
 @router.get("/check/access_token", response_model=AuthResponse)
 def check_access_token(
-    access_token: str = Cookie(None),
+    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
     service: AuthService = Depends(get_auth_service)
 ):
     """
-    쿠키의 access_token 유효성을 검사합니다.
+    Authorization 헤더의 Bearer access_token 유효성을 검사합니다.
     """
+    access_token = credentials.credentials if credentials else None
     status, _, _ = service.check_access_token(access_token)
     return AuthResponse(status=status)
 
 @router.get("/check/refresh_token", response_model=AuthResponse)
 async def check_refresh_token(
     response: Response,
-    refresh_token: str = Cookie(None),
+    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
     service: AuthService = Depends(get_auth_service)
 ):
     """
-    refresh_token으로 access_token을 재발급하고 쿠키에 저장합니다.
+    Authorization 헤더의 Bearer refresh_token으로 access_token을 재발급하고 쿠키에 저장합니다.
     """
+    refresh_token = credentials.credentials if credentials else None
     status, access_token, _ = await service.check_refresh_token(refresh_token)
 
     # 재발급 성공 시에만 새 access_token을 쿠키에 저장합니다.
@@ -42,4 +47,5 @@ async def check_refresh_token(
             max_age=3600   # 1시간
         )
 
-    return AuthResponse(status=status)
+    # 쿠키를 사용할 수 없는 RN 앱을 위해 body에도 access_token을 포함합니다.
+    return AuthResponse(status=status, access_token=access_token if status == Status.SUCCESS else None)
