@@ -86,6 +86,7 @@ for _mod in [
     "src.repository.layer.safety_repository",
     "src.repository.network.edge_repository",
     "src.repository.network.graph_repository",
+    "src.repository.network.network_write_repository",
     "src.repository.network.node_repository",
     # Route engine (repository 의존)
     "src.route_engine.engines.oneway.running",

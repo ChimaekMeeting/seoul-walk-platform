@@ -3,7 +3,7 @@ from typing import List
 
 import pandas as pd
 from shapely.wkt import loads as wkt_loads
-from sqlalchemy import func, select, insert, update
+from sqlalchemy import func, select, insert
 
 from src.database.postgresql import get_postgresql_db
 from src.entity.layer.landmark_layer import LandmarkLayer
@@ -38,37 +38,6 @@ class LandmarkRepository:
             if not new_records:
                 return
             db.execute(insert(LandmarkLayer), new_records)
-            db.commit()
-
-    @staticmethod
-    def get_walk_node_id_by_name(name: str) -> int | None:
-        """
-        랜드마크 이름으로 연결된 walk_node_id를 반환합니다.
-
-        Args:
-            name : 조회할 랜드마크 이름.
-
-        Returns:
-            int | None: 연결된 walk_node_id. 없으면 None.
-        """
-        with get_postgresql_db() as db:
-            return db.execute(
-                select(LandmarkLayer.walk_node_id).where(LandmarkLayer.name == name)
-            ).scalar_one_or_none()
-
-    @staticmethod
-    def update_walk_node_ids(name_to_node_id: dict[str, int]):
-        """
-        랜드마크 이름을 키로 walk_node_id를 일괄 업데이트합니다.
-
-        Args:
-            name_to_node_id : {랜드마크명: walk_node_id} 형태의 딕셔너리.
-        """
-        with get_postgresql_db() as db:
-            for name, node_id in name_to_node_id.items():
-                db.execute(
-                    update(LandmarkLayer).where(LandmarkLayer.name == name).values(walk_node_id=node_id)
-                )
             db.commit()
 
     @staticmethod

@@ -2,7 +2,6 @@ from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import BigInteger, String
-from typing import Optional
 
 
 class LandmarkLayer(Base):
@@ -23,8 +22,4 @@ class LandmarkLayer(Base):
     geom = mapped_column(
         Geometry("POINT", srid=4326),
         nullable=False
-    )
-    walk_node_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger,
-        nullable=True
     )

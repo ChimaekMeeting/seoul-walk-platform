@@ -29,7 +29,8 @@ interpreted_tunnel_type
 
 도보 네트워크의 NODE 행.
 
-주 용도는 횡단보도/육교 같은 지점형 보행 구조를 담는 것이다.
+주 용도는 교차점과 횡단보도/육교 같은 지점형 보행 맥락을 담는 것이다.
+경로 통행·차단 판단은 NODE 전체 삭제가 아니라 `walk_edges`의 속성을 기준으로 한다.
 
 | column | meaning |
 |---|---|
@@ -47,8 +48,8 @@ interpreted_tunnel_type
 판정:
 
 ```text
-횡단보도/육교는 LINK보다 NODE가 정답.
-NODE 속성은 신뢰하고 메인으로 사용.
+횡단보도/육교의 NODE와 LINK 원본 속성은 모두 보존한다.
+NODE 값은 지점 맥락과 검증에 사용하고, 실제 경로 선택은 LINK/EDGE 값을 사용한다.
 ```
 
 ### walk_edges
@@ -176,8 +177,8 @@ edge_poi_density
 | trail | 서울시 둘레길 선형 위치정보 | 산책/공식 코스 후보 |
 | culture_trail | 서울시 문화길 선형 위치정보 | 산책/문화 테마 후보 |
 | bike_road | 전국자전거도로표준데이터 | active mobility 후보, 러닝 확정 아님 |
-| crosswalk_line | 서울시 대로변 횡단보도 위치정보 | NODE 검증 보조 |
-| overpass_line | 서울시 육교 공간정보 | NODE 검증 보조 |
+| crosswalk_line | 서울시 대로변 횡단보도 위치정보 | NODE·EDGE 검증 보조 |
+| overpass_line | 서울시 육교 공간정보 | NODE·EDGE 검증 보조 |
 | road_tunnel_raw | 전국도로터널정보표준데이터 | 도로터널 보도 검증 후보 |
 
 자동차전용도로는 이 테이블에 넣지 않는다. 현재 CSV는 좌표계가 확정되지 않았고, 자동차전용도로는 본질적으로 점 POI가 아니라 회피/차단용 선형 barrier 성격이다.
@@ -211,8 +212,8 @@ park_near_50m = 넓은 공원 접근/인접 후보
 | RAW 데이터 | geometry | DB 처리 | 최종 역할 |
 |---|---:|---|---|
 | 서울시 자치구별 도보 네트워크 공간정보 | NODE + LINK | `walk_nodes`, `walk_edges` | 기본 길망 |
-| 서울시 대로변 횡단보도 위치정보 | LineString | `external_line_layers` | 횡단보도 NODE 검증 보조 |
-| 서울시 육교 공간정보 | LineString | `external_line_layers` | 육교 NODE 검증 보조 |
+| 서울시 대로변 횡단보도 위치정보 | LineString | `external_line_layers` | 횡단보도 NODE·EDGE 검증 보조 |
+| 서울시 육교 공간정보 | LineString | `external_line_layers` | 육교 NODE·EDGE 검증 보조 |
 | 국토교통부 전국도로터널정보표준데이터 | LineString from endpoints | `external_line_layers` | 도로터널 보도 검증 후보 |
 | 서울시 생활권계획 시설(공원) 공간정보 SHP 세트 | Polygon | `external_polygons` | 공원/녹지 검증 주 근거 |
 | 서울시 지하철역 연계 지하도 공간정보 | LineString | `external_line_layers` | 건물내/실내 연결 검증 및 보강 |
@@ -285,7 +286,7 @@ interpreted_tunnel_type
 ## 5. 우선순위
 
 1. `walk_nodes`, `walk_edges` 확정
-2. NODE 기준 횡단보도/육교 확정
+2. NODE·LINK 원본 횡단보도/육교를 모두 보존하고, 라우팅은 EDGE 기준으로 확정
 3. 공원 polygon 기준 `park_inside`, `park_near_20m`, `park_near_50m` 생성
 4. 지하도 RAW로 `raw_is_building_inside` 해석 보강
 5. 화장실/엘리베이터/리프트/버스정류소를 `external_poi`로 edge nearest 매핑

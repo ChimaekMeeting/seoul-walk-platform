@@ -37,8 +37,6 @@ class LandmarkCollector:
             return
         LandmarkRepository.save_all(records)
         logger.info("landmark_layer %d개 저장 완료", len(records))
-        name_to_node_id = CollectorUtils.register_nodes(records, node_type="landmark")
-        LandmarkRepository.update_walk_node_ids(name_to_node_id)
 
     def update_edge(self) -> None:
         EdgeRepository.ensure_score_column("landmark_score")

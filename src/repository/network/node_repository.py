@@ -6,18 +6,6 @@ from typing import List
 
 class NodeRepository:
     @staticmethod
-    def get_max_node_id() -> int:
-        """
-        walk_nodes 테이블에서 현재 최대 node_id를 반환합니다.
-
-        Returns:
-            int: 최대 node_id 값. 테이블이 비어 있으면 0을 반환합니다.
-        """
-        with get_postgresql_db() as db:
-            result = db.execute(select(func.max(WalkNode.node_id))).scalar()
-            return result or 0
-
-    @staticmethod
     def save_all(nodes: List[dict]):
         """
         노드 데이터를 walk_nodes에 벌크 저장합니다. 이미 같은 node_id가 있으면 스킵합니다.

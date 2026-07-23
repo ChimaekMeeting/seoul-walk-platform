@@ -61,11 +61,32 @@ poetry run python -m src.data.source_collector
 
 ## 4. 서비스용 도메인 데이터 적재
 
+개발 중 기존 네트워크를 지우지 않고 NODE·LINK를 갱신하려면 `upsert`를 사용합니다.
+
 ```bash
-poetry run python -m src.data.data_collector
+poetry run python -m src.data.data_collector --network-mode upsert
+```
+
+V1 기준 확정 후 기존 네트워크를 제거하고 최신 원본 전체로 교체하려면 `rebuild`를 사용합니다.
+
+```bash
+poetry run python -m src.data.data_collector --network-mode rebuild
 ```
 
 이 단계에서 raw 데이터를 기반으로 안전, 어린이 시설, 랜드마크, 자연, 도보 네트워크 등 서비스에서 직접 쓰는 레이어와 네트워크 데이터를 구성합니다.
+
+### 4-0. 네트워크 적재 모드
+
+| 모드 | 기존 NODE·LINK | 원본에서 사라진 ID | 기존 score | 사용 시점 |
+|---|---|---|---|---|
+| `upsert` | 동일 ID 갱신, 신규 ID 추가 | 유지 | 기존 값 보존 후 아래 collector가 다시 계산 | 개발 중 필드·매핑 검증 |
+| `rebuild` | 전체 삭제 후 재생성 | 제거 | 초기화 후 아래 collector가 다시 계산 | V1 기준 확정 후 최종 검증 |
+
+`rebuild`는 Docker volume이나 raw 테이블을 삭제하지 않습니다. `walk_edges`를 먼저 삭제하고 `walk_nodes`를 삭제한 뒤, 반대 순서로 최신 원본을 적재합니다.
+
+두 모드 모두 실행 전에 `init_db()`로 새 엔티티 컬럼이 DB에 반영되어 있어야 합니다. `rebuild` 실행이 중간에 실패하면 네트워크 삭제와 삽입 전체가 하나의 트랜잭션으로 롤백됩니다.
+
+두 모드 모두 네트워크 적재가 끝난 뒤 현재 활성화된 Layer collector와 score 계산을 이어서 실행합니다.
 
 ### 4-1. 위 명령으로 실제 반영되는 데이터
 

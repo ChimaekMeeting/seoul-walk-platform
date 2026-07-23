@@ -5,6 +5,7 @@ Raw 레이어 대시보드 구현을 위한 분석 산출물을 관리합니다.
 ## Files
 
 - `raw_layer_mapping.ipynb`: 현재 실제 layer에 쓰이는 raw 데이터 중심 매핑 및 시각화 노트북
+- V1 `WalkNode`·`WalkEdge` 적재 계약은 `docs/data/walk_network_contract.md`에서 관리
 - `walk_network_external_overlap_validation.ipynb`: 도보 네트워크의 횡단보도, 육교, 터널, 공원/녹지 속성이 외부 RAW 데이터와 공간적으로 일치하는지 검증하는 노트북
 
 ## Scope
