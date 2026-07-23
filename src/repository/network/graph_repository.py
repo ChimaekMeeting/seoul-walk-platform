@@ -12,6 +12,55 @@ logger = logging.getLogger(__name__)
 
 
 class GraphRepository:
+    EDGE_TAG_FIELDS = (
+        ("raw_is_tunnel", "tunnel"),
+        ("raw_is_bridge", "bridge"),
+        ("raw_is_overpass", "overpass"),
+        ("raw_is_crosswalk", "crosswalk"),
+        ("raw_is_elevated", "elevated"),
+        ("raw_is_subway_network", "subway_network"),
+        ("raw_is_park_green", "park_green"),
+        ("raw_is_building_inside", "building_inside"),
+    )
+
+    @classmethod
+    def _edge_attributes(cls, row) -> dict | None:
+        """
+        WalkEdge 조회 결과를 NetworkX edge 속성으로 변환합니다.
+
+        보행 불가 LINK는 원본 DB에는 보존하되 라우팅 그래프에는 넣지 않습니다.
+        `underground`처럼 원본에서 확정할 수 없는 의미는 임의로 만들지 않습니다.
+        """
+        if not row.is_walkable:
+            return None
+
+        tags = [
+            tag
+            for field_name, tag in cls.EDGE_TAG_FIELDS
+            if bool(getattr(row, field_name))
+        ]
+
+        attributes = {
+            "link_id": row.link_id,
+            "length": row.length_m,
+            "raw_link_type_code": row.raw_link_type_code,
+            "is_walkable": row.is_walkable,
+            "safety_score": row.safety_score,
+            "nature_score": row.nature_score,
+            "slope_score": row.slope_score,
+            "running_score": row.running_score,
+            "landmark_score": row.landmark_score,
+            "child_score": row.child_score,
+            "tags": tags,
+        }
+        attributes.update(
+            {
+                field_name: bool(getattr(row, field_name))
+                for field_name, _ in cls.EDGE_TAG_FIELDS
+            }
+        )
+        return attributes
+
     @staticmethod
     def load_graph() -> nx.Graph:
         from src.route_engine.engines.path_utils import PathUtils
@@ -21,8 +70,8 @@ class GraphRepository:
         Returns:
             G: Graph
                 - node 속성: node_type, is_underground, is_overpass, x(lon), y(lat)
-                - edge 속성: link_id, length, road_type, path_type,
-                             safety_score, nature_score, slope_score
+                - edge 속성: link_id, length, raw_link_type_code, is_walkable,
+                             원본 LINK 플래그, tags, 각 score
         """
         G = nx.Graph()
 
@@ -54,27 +103,33 @@ class GraphRepository:
                     WalkEdge.start_node,
                     WalkEdge.end_node,
                     WalkEdge.length_m,
+                    WalkEdge.raw_link_type_code,
+                    WalkEdge.is_walkable,
+                    WalkEdge.raw_is_tunnel,
+                    WalkEdge.raw_is_bridge,
+                    WalkEdge.raw_is_overpass,
+                    WalkEdge.raw_is_crosswalk,
+                    WalkEdge.raw_is_elevated,
+                    WalkEdge.raw_is_subway_network,
+                    WalkEdge.raw_is_park_green,
+                    WalkEdge.raw_is_building_inside,
                     WalkEdge.safety_score,
                     WalkEdge.nature_score,
                     WalkEdge.slope_score,
                     WalkEdge.running_score,
                     WalkEdge.landmark_score,
                     WalkEdge.child_score,
-                )
+                ).where(WalkEdge.is_walkable.is_(True))
             ).fetchall()
 
             for row in edge_rows:
+                attributes = GraphRepository._edge_attributes(row)
+                if attributes is None:
+                    continue
                 G.add_edge(
                     row.start_node,
                     row.end_node,
-                    link_id=row.link_id,
-                    length=row.length_m,
-                    safety_score=row.safety_score,
-                    nature_score=row.nature_score,
-                    slope_score=row.slope_score,
-                    running_score=row.running_score,
-                    landmark_score=row.landmark_score,
-                    child_score=row.child_score,
+                    **attributes,
                 )
 
         logger.info(f"그래프 로드 완료: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
@@ -134,27 +189,36 @@ class GraphRepository:
                     WalkEdge.start_node,
                     WalkEdge.end_node,
                     WalkEdge.length_m,
+                    WalkEdge.raw_link_type_code,
+                    WalkEdge.is_walkable,
+                    WalkEdge.raw_is_tunnel,
+                    WalkEdge.raw_is_bridge,
+                    WalkEdge.raw_is_overpass,
+                    WalkEdge.raw_is_crosswalk,
+                    WalkEdge.raw_is_elevated,
+                    WalkEdge.raw_is_subway_network,
+                    WalkEdge.raw_is_park_green,
+                    WalkEdge.raw_is_building_inside,
                     WalkEdge.safety_score,
                     WalkEdge.nature_score,
                     WalkEdge.slope_score,
                     WalkEdge.running_score,
                     WalkEdge.landmark_score,
                     WalkEdge.child_score,
-                ).where(ST_DWithin(WalkEdge.geom.cast(Geography), origin_geog, radius_m))
+                ).where(
+                    ST_DWithin(WalkEdge.geom.cast(Geography), origin_geog, radius_m),
+                    WalkEdge.is_walkable.is_(True),
+                )
             ).fetchall()
 
             for row in edge_rows:
+                attributes = GraphRepository._edge_attributes(row)
+                if attributes is None:
+                    continue
                 G.add_edge(
                     row.start_node,
                     row.end_node,
-                    link_id=row.link_id,
-                    length=row.length_m,
-                    safety_score=row.safety_score,
-                    nature_score=row.nature_score,
-                    slope_score=row.slope_score,
-                    running_score=row.running_score,
-                    landmark_score=row.landmark_score,
-                    child_score=row.child_score,
+                    **attributes,
                 )
 
         logger.info(f"반경 {radius_m}m 그래프 로드: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
