@@ -47,11 +47,19 @@ DB 연결에서 `127.0.0.1:5434 connection refused`가 발생하면 DB 컨테이
 
 ## 3. Raw 데이터 적재
 
+현재 V1 원본인 도보 네트워크 CSV와 공원 Shapefile은 각 Collector가 로컬 파일을 직접 읽습니다. 기본 V1 범위에서는 OSM·Kakao·공공 API·보조 CSV를 raw 테이블에 자동 적재하지 않습니다.
+
 ```bash
-poetry run python -m src.data.source_collector
+poetry run python -m src.data.source_collector --scope v1
 ```
 
-이 단계에서 `OSMSource`, `KakaoSource`, `PublicSource`, `CSVSource`가 raw 테이블을 채웁니다. 다운로드한 CSV/XLSX 파일은 `CSVSource`가 읽습니다.
+기존 전체 RAW 수집은 아래처럼 명시한 경우에만 실행합니다.
+
+```bash
+poetry run python -m src.data.source_collector --scope legacy-all
+```
+
+`legacy-all`에서는 `OSMSource`, `KakaoSource`, `PublicSource`, `CSVSource`가 raw 테이블을 채웁니다. 다운로드한 CSV/XLSX 파일은 `CSVSource`가 읽습니다.
 
 공공데이터 API 주의사항:
 
@@ -64,67 +72,51 @@ poetry run python -m src.data.source_collector
 개발 중 기존 네트워크를 지우지 않고 NODE·LINK를 갱신하려면 `upsert`를 사용합니다.
 
 ```bash
-poetry run python -m src.data.data_collector --network-mode upsert
+poetry run python -m src.data.data_collector --scope v1 --network-mode upsert
 ```
 
 V1 기준 확정 후 기존 네트워크를 제거하고 최신 원본 전체로 교체하려면 `rebuild`를 사용합니다.
 
 ```bash
-poetry run python -m src.data.data_collector --network-mode rebuild
+poetry run python -m src.data.data_collector --scope v1 --network-mode rebuild
 ```
 
-이 단계에서 raw 데이터를 기반으로 안전, 어린이 시설, 랜드마크, 자연, 도보 네트워크 등 서비스에서 직접 쓰는 레이어와 네트워크 데이터를 구성합니다.
+기본 `v1` 범위는 도보 네트워크와 좌표 검증용 서울 경계·수계만 구성합니다. 기존 안전·어린이·랜드마크·자연·러닝 Layer와 score는 자동 실행하지 않습니다.
+
+기존 전체 파이프라인은 `--scope legacy-all`을 명시한 경우에만 실행합니다.
 
 ### 4-0. 네트워크 적재 모드
 
 | 모드 | 기존 NODE·LINK | 원본에서 사라진 ID | 기존 score | 사용 시점 |
 |---|---|---|---|---|
-| `upsert` | 동일 ID 갱신, 신규 ID 추가 | 유지 | 기존 값 보존 후 아래 collector가 다시 계산 | 개발 중 필드·매핑 검증 |
-| `rebuild` | 전체 삭제 후 재생성 | 제거 | 초기화 후 아래 collector가 다시 계산 | V1 기준 확정 후 최종 검증 |
+| `upsert` | 동일 ID 갱신, 신규 ID 추가 | 유지 | 기존 값 보존 | 개발 중 필드·매핑 검증 |
+| `rebuild` | 전체 삭제 후 재생성 | 제거 | 0으로 초기화, 선택한 scope의 후속 Collector만 실행 | V1 기준 확정 후 최종 검증 |
 
 `rebuild`는 Docker volume이나 raw 테이블을 삭제하지 않습니다. `walk_edges`를 먼저 삭제하고 `walk_nodes`를 삭제한 뒤, 반대 순서로 최신 원본을 적재합니다.
 
 두 모드 모두 실행 전에 `init_db()`로 새 엔티티 컬럼이 DB에 반영되어 있어야 합니다. `rebuild` 실행이 중간에 실패하면 네트워크 삭제와 삽입 전체가 하나의 트랜잭션으로 롤백됩니다.
 
-두 모드 모두 네트워크 적재가 끝난 뒤 현재 활성화된 Layer collector와 score 계산을 이어서 실행합니다.
+두 모드 모두 네트워크 적재가 끝난 뒤 선택한 scope의 후속 Collector만 실행합니다.
 
 ### 4-1. 위 명령으로 실제 반영되는 데이터
 
-`data_collector.py`에서 현재 주석 없이 호출되는 collector만 실제로 DB에 반영됩니다.
+기본 `--scope v1`로 실제 실행되는 Collector입니다.
 
-| collector | layer | score |
+| collector | 결과 | score |
 |---|---|---|
 | `BaseNetworkCollector` | walk_nodes / walk_edges | 없음 |
-| `NatureCollector` | nature_layer | nature_score (OSM 녹지 기반) |
-| `SafetyCollector` | safety_layer | safety_score |
-| `ChildCollector` | child_layer | child_score |
-| `SeoulBoundaryCollector` | - | - |
-| `SeoulWaterCollector` | - | - |
-| `LandmarkCollector` | landmark_layer | landmark_score |
+| `SeoulBoundaryCollector` | seoul_administrative_boundary | 없음 |
+| `SeoulWaterCollector` | seoul_water_polygons | 없음 |
 
-### 4-2. 현재 비활성인 데이터
+공원 Polygon Collector는 구현 후 이 목록에 추가합니다.
 
-`data_collector.py`에서 호출이 주석 처리되어 있어 위 명령을 실행해도 반영되지 않는 collector입니다.
+### 4-2. `legacy-all`에서만 실행되는 데이터
 
-```python
-# src/data/data_collector.py
-# print("--- 경사로 적재 ---")
-# SlopeCalculator().save()
-...
-# print("--- 러닝 데이터 적재 ---")
-# RunningCourseCollector().save()
-```
-
-| collector | layer | score | 관련 raw 파일 |
-|---|---|---|---|
-| `RunningCourseCollector` | running_layer | running_score | 서울시 주요 공원현황.csv, 전국자전거도로표준데이터.csv, 서울시 하천.geojson |
-| `SlopeCalculator` | - | slope_score | (raw 파일과 직접 연결된 근거 없음) |
-
-현재 V1에서는 위 주석을 해제하지 않습니다. 활성화 여부는 팀 확인 후 별도로 진행합니다. 자세한 연결 상태는 `docs/data_score_mapping.md`를 참고하세요.
+`NatureCollector`, `SafetyCollector`, `ChildCollector`, `LandmarkCollector`, 사고 다발지역 갱신, 실외운동기구 갱신은 기본 V1 실행에서 제외됩니다. 필요하면 V1 승인 후 `collect_v1()`에 개별 추가합니다.
 
 ### 4-3. V1에서 보류한 데이터
 
-다음 데이터는 `source_collector.py`를 통해 raw로 적재될 수 있지만, V1의 layer/score 생성에는 연결하지 않습니다.
+다음 데이터는 `source_collector.py --scope legacy-all`로 raw 적재될 수 있지만, V1의 layer/score 생성에는 연결하지 않습니다.
 
 | 파일 | query key | 상태 |
 |---|---|---|

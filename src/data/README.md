@@ -29,9 +29,10 @@ def save(self) -> None:
 ### 도보 네트워크 저장 모드
 
 - `BaseNetworkCollector.upsert()`: 기존 score를 보존하면서 NODE·LINK 원본 기반 필드를 추가·갱신합니다. 원본에서 사라진 ID는 삭제하지 않습니다.
-- `BaseNetworkCollector.rebuild()`: `walk_edges`, `walk_nodes`를 최신 원본 전체로 교체합니다. score가 초기화되므로 활성 Layer collector를 이어서 실행해야 합니다.
+- `BaseNetworkCollector.rebuild()`: `walk_edges`, `walk_nodes`를 최신 원본 전체로 교체합니다. score가 초기화되므로 선택한 scope의 후속 Collector만 이어서 실행합니다.
 - 실제 SQL과 트랜잭션은 `NetworkWriteRepository`가 담당합니다.
-- `data_collector.py`는 어느 모드든 네트워크 적재 후 활성 Layer와 score 단계를 이어서 실행합니다.
+- `data_collector.py`의 기본 `v1` 범위는 네트워크와 좌표 검증용 서울 경계·수계만 실행합니다.
+- 기존 전체 Layer·score 파이프라인은 `--scope legacy-all`을 명시한 경우에만 실행합니다.
 
 ## 3. 파일 명명 규칙
 - collectors 내 파일명은 {기능}_collector.py로 통일합니다.
@@ -40,14 +41,18 @@ def save(self) -> None:
 ## 4. 주석 작성 규칙
 - """\n~~~\n""" 형식에 맞게 작성합니다.
 
-## 5. 꿀팁
-- 작성한 collector를 data_collector.py에서 호출하면 `python -m src.data.data_collector` 한 줄의 명령어로 모든 데이터를 적재할 수 있습니다.
+## 5. 실행 범위
+
+- `--scope v1`은 승인된 V1 데이터만 실행하며 기본값입니다.
+- `--scope legacy-all`은 기존 전체 Collector를 명시적으로 실행합니다.
+- 신규 Collector는 승인 후 `collect_v1()`에 추가합니다.
 
 ## 6. 로컬 원본 데이터 준비
 - 다운로드 폴더에 받은 CSV/XLSX 원본은 `scripts/stage_raw_data.py`로 `src/data/raw`에 복사합니다.
 ```
 poetry run python scripts/stage_raw_data.py
-poetry run python -m src.data.source_collector
-poetry run python -m src.data.data_collector
+poetry run python -m src.data.source_collector --scope v1
+poetry run python -m src.data.data_collector --scope v1 --network-mode upsert
 ```
+- 현재 V1 원본은 로컬 파일을 각 Collector가 직접 읽으므로 `source_collector --scope v1`은 외부 RAW를 적재하지 않습니다.
 - 자세한 순서는 `docs/data_ingestion_runbook.md`를 참고합니다.
