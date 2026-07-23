@@ -10,6 +10,7 @@ from src.data import (
     ChildCollector,
     SeoulBoundaryCollector,
     SeoulWaterCollector,
+    ParkPolygonCollector,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,10 +49,13 @@ def collect_v1(network_mode: str) -> None:
     """
     V1에서 승인된 필수 데이터만 적재합니다.
 
-    공원 Polygon은 Collector 구현 후 이 목록에 추가합니다. 서울 경계와 수계는
-    score 원본이 아니라 API 좌표 유효성 검증에 필요한 서비스 인프라입니다.
+    서울 경계와 수계는 score 원본이 아니라 API 좌표 유효성 검증에 필요한
+    서비스 인프라입니다.
     """
     collect_network(network_mode)
+
+    logger.info("--- 서울시 공원 Polygon 적재·WalkEdge 매핑 ---")
+    ParkPolygonCollector().save()
 
     logger.info("--- 서울 행정구역 경계 적재 ---")
     SeoulBoundaryCollector().save()

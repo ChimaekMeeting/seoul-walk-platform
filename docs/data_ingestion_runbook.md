@@ -105,10 +105,9 @@ poetry run python -m src.data.data_collector --scope v1 --network-mode rebuild
 | collector | 결과 | score |
 |---|---|---|
 | `BaseNetworkCollector` | walk_nodes / walk_edges | 없음 |
+| `ParkPolygonCollector` | nature_layer | nature_score (Polygon 교차=1, 그 외=0) |
 | `SeoulBoundaryCollector` | seoul_administrative_boundary | 없음 |
 | `SeoulWaterCollector` | seoul_water_polygons | 없음 |
-
-공원 Polygon Collector는 구현 후 이 목록에 추가합니다.
 
 ### 4-2. `legacy-all`에서만 실행되는 데이터
 

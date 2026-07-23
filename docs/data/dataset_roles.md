@@ -194,7 +194,7 @@ POI를 목적지와 연결해야 하면 POI 자체를 WalkNode로 만들지 않�
 | 5 | 서울시 대로변 횡단보도 위치정보.csv | LINK 플래그와 20m 일치율은 낮지만 NODE 플래그는 양방향 약 99.6% 이상 일치. LINK 자동 보강 근거로 사용하지 않음 | NODE 플래그 검증 | `unwired` | 검증 완료 자료로 보존, 서비스 DB 미적재 | `서비스 미사용` | 없음 | E1, E2, T | 미적재 |
 | 6 | 서울시 육교 공간정보.csv | LINK 플래그와 일치율은 낮지만 NODE 플래그는 기존 NODE 기준 99.88%, RAW 기준 96.17% 일치 | NODE 플래그 검증 | `unwired` | 검증 완료 자료로 보존, 서비스 DB 미적재 | `서비스 미사용` | 없음 | E1, E2, T | 미적재 |
 | 7 | 국토교통부_전국도로터널정보표준데이터_20251231.csv | 서울 터널 254개, 보도폭이 있는 후보 97개. 기존 터널 LINK 검증은 가능하지만 자동 보강은 보류 | 터널 검증·산책 쾌적도 보조 | `unwired` | 보행 불가 판정에는 쓰지 않는다. 기존 WalkEdge의 `raw_is_tunnel`을 주 입력으로 사용하고, 외부 원본은 보도폭 등 보조 속성에 제한적으로 사용 | `제한 사용` | 없음 | E1, E2, T | 미적재 |
-| 8 | 서울시 생활권계획 시설(공원) 공간정보 Shapefile | 4개 sidecar가 함께 있고 1,888개 Polygon/MultiPolygon이 정상 판독됨. 서울 bbox 100% | 공원 Polygon·자연 Score 후보 | `unwired` | 공원 영역과 겹치는 WalkEdge를 판정하는 자연 Layer 입력으로 사용 | `승인` | 없음 | E2, T | 미적재 |
+| 8 | 서울시 생활권계획 시설(공원) 공간정보 Shapefile | 4개 sidecar가 함께 있고 1,888개 Polygon/MultiPolygon이 정상 판독됨. 서울 bbox 100% | 공원 Polygon·자연 Score 후보 | `wired` | 공원 영역과 겹치는 WalkEdge를 판정하는 자연 Layer 입력으로 사용 | `승인` | `ParkPolygonCollector → nature_layer → nature_score` | E2, T, C | 미확인 |
 | 9 | 서울시 주요 공원현황.csv | 132개 대표점. 공원 내부 판정은 대표점보다 공원 polygon을 우선해야 함 | 공원 보조 Point | `partial` | 공원 명칭·속성 참고용 | `미결정` | `CSV raw` 등록, 러닝 전체 collector 비활성 | E1, E2 | 미확인 |
 | 10 | 전국도시공원정보표준데이터.csv | 서울 bbox 내 3,871개 대표점. 50m 내 일반 도보망 근접률 44.23%, 녹지 LINK 근접률은 0.72%로 polygon 대체 불가 | 공원 보조 Point | `unwired` | 공간 판정에는 사용하지 않고 참고 | `미결정` | 없음 | E1, E2, T | 미적재 |
 | 11 | 서울시 공원 및 사유지수목 위치정보 (좌표계_ WGS1984).csv | 2,203개 Point proxy. 공원·녹지 edge의 주 검증 근거로는 약함 | 수목·녹지 참고 Point | `unwired` | 자연 Score 주 입력으로 사용 보류 | `미결정` | 없음 | E1, E2 | 미적재 |
@@ -217,9 +217,9 @@ POI를 목적지와 연결해야 하면 POI 자체를 WalkNode로 만들지 않�
 
 | 구분 | 상태 | 데이터셋 수 |
 |---|---|---:|
-| 코드 | `wired` | 4 |
+| 코드 | `wired` | 5 |
 | 코드 | `partial` | 7 |
-| 코드 | `unwired` | 14 |
+| 코드 | `unwired` | 13 |
 | 채원 승인 | `승인` | 2 |
 | 채원 승인 | `제한 사용` | 1 |
 | 채원 승인 | `서비스 미사용` | 2 |

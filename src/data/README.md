@@ -46,6 +46,8 @@ def save(self) -> None:
 - `--scope v1`은 승인된 V1 데이터만 실행하며 기본값입니다.
 - `--scope legacy-all`은 기존 전체 Collector를 명시적으로 실행합니다.
 - 신규 Collector는 승인 후 `collect_v1()`에 추가합니다.
+- 현재 V1은 도보 네트워크, 공원 Polygon, 서울 경계, 수계를 실행합니다.
+- 공원 Polygon과 교차하는 WalkEdge는 `nature_score=1.0`, 나머지는 `0.0`으로 갱신합니다.
 
 ## 6. 로컬 원본 데이터 준비
 - 다운로드 폴더에 받은 CSV/XLSX 원본은 `scripts/stage_raw_data.py`로 `src/data/raw`에 복사합니다.

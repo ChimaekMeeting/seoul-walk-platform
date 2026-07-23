@@ -14,6 +14,7 @@ _EXPORTS = {
     "ChildCollector": "src.data.collectors.child_collector",
     "SeoulBoundaryCollector": "src.data.collectors.boundary_collector",
     "SeoulWaterCollector": "src.data.collectors.water_collector",
+    "ParkPolygonCollector": "src.data.collectors.park_polygon_collector",
 }
 
 __all__ = list(_EXPORTS)

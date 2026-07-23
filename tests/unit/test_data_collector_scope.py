@@ -29,6 +29,7 @@ def test_v1_runs_only_network_boundary_and_water(monkeypatch):
         "ChildCollector",
         "SeoulBoundaryCollector",
         "SeoulWaterCollector",
+        "ParkPolygonCollector",
         "LandmarkCollector",
         "RunningCourseCollector",
     )
@@ -43,6 +44,7 @@ def test_v1_runs_only_network_boundary_and_water(monkeypatch):
 
     assert calls == [
         "BaseNetworkCollector.upsert",
+        "ParkPolygonCollector.save",
         "SeoulBoundaryCollector.save",
         "SeoulWaterCollector.save",
     ]
@@ -57,6 +59,7 @@ def test_legacy_all_keeps_existing_collectors(monkeypatch):
         "ChildCollector",
         "SeoulBoundaryCollector",
         "SeoulWaterCollector",
+        "ParkPolygonCollector",
         "LandmarkCollector",
         "RunningCourseCollector",
     )
