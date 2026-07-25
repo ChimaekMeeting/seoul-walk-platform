@@ -47,6 +47,8 @@ from benchmarks.solvers.base_solver import BasePathSolver
 from benchmarks.solvers.beam_solver import BeamSolver
 from benchmarks.solvers.dummy_solver import DummySolver
 from benchmarks.solvers.grasp_solver import GraspSolver
+from benchmarks.solvers.plateau_solver import PlateauSolver
+from benchmarks.solvers.rcsp_solver import CircularRcspSolver, OnewayRcspSolver
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,9 @@ SOLVER_REGISTRY: dict[str, BasePathSolver] = {
     "grasp": GraspSolver(),
     "beam": BeamSolver(),
     "alns": AlnsSolver(),
+    "rcsp-circular": CircularRcspSolver(),
+    "rcsp-oneway": OnewayRcspSolver(),
+    "plateau": PlateauSolver(),
     "dummy-a": DummySolver(name="DummySolver-A", fake_delay_sec=0.05),
     "dummy-b": DummySolver(name="DummySolver-B", fake_delay_sec=0.1),
 }
@@ -358,6 +363,12 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=None,
         help="시작 노드 ID. 미지정 시 그래프에서 자동 선택",
     )
+    parser.add_argument(
+        "--end-node",
+        type=int,
+        default=None,
+        help="도착 노드 ID. 미지정 시 start-node와 동일(순환 경로 기본값)",
+    )
     return parser.parse_args(argv)
 
 
@@ -413,7 +424,7 @@ def main():
     else:
         start_node = "A"  # dummy 알고리즘용 폴백
 
-    target_node = start_node  # 순환 경로는 출발지로 복귀하므로 start와 동일
+    target_node = args.end_node if args.end_node is not None else start_node  # 편도는 --end-node로 별도 지정
     params = {"target_km": args.target_km}
     if args.time_budget is not None:
         params["time_budget_sec"] = args.time_budget
