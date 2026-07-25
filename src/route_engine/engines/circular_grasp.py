@@ -19,6 +19,9 @@ _GRASP_ITERS = 24  # GRASP 반복 횟수(= 서로 다른 초기 해를 만드는
 _RCL_SIZE = 8      # RCL 크기: 랜덤 선택 전 상위 몇 개로 좁힐지 (beam 폭과 무관한 튜닝값)
 _MAX_STEPS = 400   # 구성 단계 최대 확장 횟수 (무한 루프 방지용 상한)
 _SEED = 42         # 난수 시드 고정 → 동일 입력이면 100% 동일 경로(재현성)
+# PathUtils._TOLERANCE_RATIO(10%)의 2배. 결과가 이 이상 벗어나면 pool 전체가 부실했다고
+# 보고 다른 seed로 재시도한다 (그 미만이면 정상 범위로 보고 재시도하지 않음).
+_RETRY_OVER_RATIO = 0.1
 
 
 class CircularGraspEngine:
@@ -102,12 +105,45 @@ class CircularGraspEngine:
         GRASP + VNS 기반 순환 경로를 생성합니다.
         """
         target_m = target_km * 1000  # 목표 거리를 미터 단위로 환산함
-        rng = random.Random(self.seed)  # 엔진 전용 난수 인스턴스 → 재현성 보장
 
-        # 1단계 + 1.5단계: 출발지 -> 반환점 경로 생성 + 후보(pool) 구성
+        best_path, best_key = self._construct_best(start_node, target_m, self.seed)
+
+        # 모든 후보가 복귀에 실패한 경우의 방어 코드
+        if best_path is None:
+            logger.warning("GRASP 후보가 비어 출발 노드만 반환합니다.")
+            return [start_node]
+
+        # 안전망: seed 하나의 난수열이 우연히 편향되면(예: 출발 구간이 계속 짧게
+        # 끊겨서) pool 24개 전체가 부실하게 나올 수 있다 — 이 경우 VND(국소 탐색)만
+        # 으로는 부족분을 못 메운다. 결과가 허용오차를 한참(2배 이상) 벗어났을 때만
+        # 다른 seed로 통째로 한 번 더 구성해보고 더 나은 쪽을 채택한다. seed=42처럼
+        # 이미 잘 나오는 경우는 이 조건에 안 걸려서 전혀 영향이 없다.
+        total_m, cost = self.utils.metrics(best_path)
+        over, _ = self.utils.objective(total_m, total_m, cost, target_m)
+        if over > _RETRY_OVER_RATIO * target_m:  # 허용오차의 2배 이상 벗어난 경우만
+            retry_path, retry_key = self._construct_best(start_node, target_m, self.seed + 1)
+            if retry_path is not None and retry_key < best_key:
+                logger.info("GRASP 1차 결과가 허용오차를 크게 벗어나 재시도 seed로 대체합니다.")
+                best_path, best_key = retry_path, retry_key
+
+        # 4단계: 가지치기(prune_dead_ends)가 구간을 잘라내며 접합면에 새 잔가시를
+        # 만들 수 있어(경계 양쪽 노드가 우연히 같아지는 경우), 더 줄지 않을 때까지
+        # 가지치기 ↔ 잔가시 제거를 번갈아 반복해 최종 경로를 마무리한다.
+        best_path = self._finalize_path(best_path, target_m)
+
+        logger.info("GRASP 순환 경로 선택: 노드=%d개, 거리초과=%.0fm, 품질밀도=%.3f",
+                    len(best_path), best_key[0], best_key[1])
+        return best_path
+
+    def _construct_best(self, start_node: int, target_m: float, seed: int) -> tuple:
+        """
+        1~3단계: 지정된 seed로 pool을 구성하고, 반환 연결 + VND 개선까지 마친 뒤
+        가장 좋은 완성 경로 1개를 (path, key)로 반환한다. 후보가 전혀 없으면
+        (None, None).
+        """
+        rng = random.Random(seed)
         pool = self._build_pool(start_node, target_m, rng)
 
-        # 2·3단계: 반환점 -> 출발지 경로 이어 생성 + 가장 좋은 완성 경로 1개 채택
         best_path, best_key = None, None
         for cost, nodes, dist, visited in pool:
             closed = self._find_waypoint_to_start(nodes, visited, start_node)  # 2단계: 반환점 -> 출발지
@@ -117,15 +153,24 @@ class CircularGraspEngine:
             key = self.utils.route_key(improved, target_m)
             if best_key is None or key < best_key:
                 best_key, best_path = key, improved
+        return best_path, best_key
 
-        # 모든 후보가 복귀에 실패한 경우의 방어 코드
-        if best_path is None:
-            logger.warning("GRASP 후보가 비어 출발 노드만 반환합니다.")
-            return [start_node]
+    def _finalize_path(self, path: list[int], target_m: float) -> list[int]:
+        """
+        prune_dead_ends와 VND 개선(_improve)을 번갈아 반복해 더 이상 변화가 없을
+        때까지 경로를 정리한다.
 
-        logger.info("GRASP 순환 경로 선택: 노드=%d개, 거리초과=%.0fm, 품질밀도=%.3f",
-                    len(best_path), best_key[0], best_key[1])
-        return best_path
+        _improve()(잔가시 제거 + 노드 제거 + 우회 삽입 전체)를 다시 돌리는 이유:
+        prune_dead_ends가 만든 새 잔가시를 _neighbor_collapse_spike로 제거하는 것에
+        그치지 않고, 그렇게 줄어든 거리를 _neighbor_insert가 다른 길 우회로 보충할
+        기회까지 함께 줘야 하기 때문이다.
+        """
+        while True:
+            pruned = self.utils.prune_dead_ends(path)
+            improved = self._improve(pruned, target_m)
+            if improved == path:
+                return improved
+            path = improved
 
     def _find_start_to_waypoint(self, start_node: int, target_m: float, rng: random.Random) -> tuple:
         """
@@ -194,9 +239,12 @@ class CircularGraspEngine:
     
     def _improve(self, path: list[int], target_m: float) -> list[int]:
         """
-        3단계: 노드 제거 + 추가를 통해 경로를 개선합니다.
+        3단계: 잔가시 제거 + 노드 제거 + 추가를 통해 경로를 개선합니다.
         """
-        neighborhoods = [self._neighbor_remove, self._neighbor_insert]
+        neighborhoods = [
+            self._neighbor_collapse_spike, self._neighbor_remove,
+            self._neighbor_insert, self._neighbor_detour,
+        ]
         l = 0
         while l < len(neighborhoods):
             improved = neighborhoods[l](path, target_m)
@@ -206,6 +254,34 @@ class CircularGraspEngine:
             else:
                 l += 1        # 개선 없으면 다음 이웃으로 전환
         return path
+
+    def _neighbor_collapse_spike(self, path: list[int], target_m: float):
+        """
+        'A→B→A'처럼 갔다가 바로 되돌아오는 잔가시 구간(B)을 무조건 제거합니다.
+
+        _neighbor_remove는 a==b(잔가시)인 경우를 명시적으로 건너뛴다 — "a와 b를
+        직접 연결"이 a==b일 때는 의미가 없기 때문이다. 그래서 잔가시는 그 함수로는
+        절대 제거되지 않고, prune_dead_ends(400m 미만만 정리)도 안 걸리는 왕복 구간은
+        최종 경로에 그대로 남는다. 이 이웃이 그 빈틈을 메운다.
+
+        다른 이웃 함수(_neighbor_remove/_neighbor_insert)와 달리 route_key 개선 여부로
+        거르지 않고 발견 즉시 제거한다 — 잔가시는 "같은 길을 되짚어가는" 것 자체가
+        거리 정확도와 무관하게 나쁜 모양이라고 보기 때문이다(순수 거리 기준으로만
+        판정하면, 잔가시를 없앤 만큼 목표거리에서 멀어져 항상 기각된다).
+
+        대신 제거로 줄어든 거리는 그 자리에서 한 번에 메우지 않는다. _improve()의 VND
+        루프가 개선이 있을 때마다 처음 이웃(이 함수)부터 다시 도는 구조라, 이 함수가
+        빈 자리를 만들면 다음 루프에서 _neighbor_insert가(한 번에 노드 하나씩, 여러
+        번 반복) 되짚어가기가 아닌 진짜 다른 길로 우회 삽입해 거리를 다시 채운다.
+        """
+        for i in range(1, len(path) - 1):
+            if path[i - 1] != path[i + 1]:
+                continue
+            candidate = path[:i] + path[i + 2:]
+            if len(candidate) < 2:
+                continue
+            return candidate
+        return None  # 잔가시가 없으면 None 반환
 
     def _neighbor_remove(self, path: list[int], target_m: float):
         """
@@ -237,4 +313,42 @@ class CircularGraspEngine:
                 key = self.utils.route_key(candidate, target_m)
                 if key < best_key:
                     best_key, best_path = key, candidate
+        return best_path  # 개선되지 않았으면 None 반환
+
+    def _neighbor_detour(self, path: list[int], target_m: float):
+        """
+        인접한 두 경로 노드(a, b) 사이를, 아직 경로에 없는 새 노드 2개(x1, x2)를
+        거치는 3홉 우회로 — a→x1→x2→b — 로 대체합니다.
+
+        _neighbor_insert는 a와 b의 '공통 이웃' 1개만 끼워넣을 수 있어서, 공통 이웃이
+        없는 지점(예: circular_23처럼 막다른 구간 근처)에서는 우회 자체를 못 찾는다.
+        이 이웃은 한 단계 더 나가서, a에서 출발해 완전히 새로운 길 2개를 거쳐 b로
+        돌아오는 경로를 찾아 우회 가능 지점을 넓힌다. (되짚어가는 게 아니라 매번
+        새 노드만 거치므로 잔가시/왕복겹침을 새로 만들지 않는다.)
+
+        최후의 수단으로만 동작한다: 현재 경로가 이미 목표거리 허용 오차(±10%) 이내면
+        아무것도 하지 않고 바로 None을 반환한다. 허용 오차 안에 든 경로까지 이 이동으로
+        건드리면, VND가 "허용 오차 안에서는 다 똑같이 좋다"는 판정 기준(objective의
+        over=0) 때문에 오차 안에서 정밀도를 계속 갉아먹으며 표류할 수 있다 — 이미
+        멀쩡한 시나리오까지 탐색 궤적이 흔들리는 부작용을 막기 위한 가드다.
+        """
+        total_m, cost = self.utils.metrics(path)
+        over, _ = self.utils.objective(total_m, total_m, cost, target_m)
+        if over <= 0.0:
+            return None  # 이미 허용 오차 이내면 손대지 않음
+
+        in_path = set(path)
+        best_path, best_key = None, self.utils.route_key(path, target_m)
+        for i in range(len(path) - 1):
+            a, b = path[i], path[i + 1]
+            for x1 in sorted(self.G.neighbors(a)):
+                if x1 in in_path:
+                    continue
+                for x2 in sorted(self.G.neighbors(x1)):
+                    if x2 in in_path or x2 == a or not self.G.has_edge(x2, b):
+                        continue
+                    candidate = path[:i + 1] + [x1, x2] + path[i + 1:]
+                    key = self.utils.route_key(candidate, target_m)
+                    if key < best_key:
+                        best_key, best_path = key, candidate
         return best_path  # 개선되지 않았으면 None 반환
