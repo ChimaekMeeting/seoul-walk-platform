@@ -6,7 +6,7 @@ users 테이블과 1:1 관계이며, 설문 미완료 시 경로 추천은 기�
 """
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.entity.base import Base
@@ -42,5 +42,6 @@ class UserPreference(Base):
     weights_running: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     weights_landmark: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     weights_child: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    selected_tags: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="user_preference")
