@@ -42,11 +42,11 @@ import networkx as nx
 import pandas as pd
 
 from benchmarks.config import BENCH_DIR, ROUTE_EDGES_PARQUET, ROUTE_NODES_PARQUET
-from benchmarks.solvers.alns_solver import AlnsSolver
+from benchmarks.solvers.alns_solver import CircularAlnsSolver, OnewayAlnsSolver
 from benchmarks.solvers.base_solver import BasePathSolver
-from benchmarks.solvers.beam_solver import BeamSolver
+from benchmarks.solvers.beam_solver import CircularBeamSolver, OnewayBeamSolver
 from benchmarks.solvers.dummy_solver import DummySolver
-from benchmarks.solvers.grasp_solver import GraspSolver
+from benchmarks.solvers.grasp_solver import CircularGraspSolver, OnewayGraspSolver
 from benchmarks.solvers.plateau_solver import PlateauSolver
 from benchmarks.solvers.rcsp_solver import CircularRcspSolver, OnewayRcspSolver
 
@@ -66,9 +66,12 @@ QUEUE_FLUSH_GRACE_SEC = 5.0  # 자식 프로세스 종료 후 큐에 결과가 �
 
 # 벤치마크 대상 알고리즘 등록 지점.
 SOLVER_REGISTRY: dict[str, BasePathSolver] = {
-    "grasp": GraspSolver(),
-    "beam": BeamSolver(),
-    "alns": AlnsSolver(),
+    "grasp-circular": CircularGraspSolver(),    
+    "grasp-oneway": OnewayGraspSolver(),
+    "beam-circular": CircularBeamSolver(),
+    "beam-oneway" : OnewayBeamSolver(),
+    "alns-circular": CircularAlnsSolver(),
+    "alns-oneway": OnewayAlnsSolver(),
     "rcsp-circular": CircularRcspSolver(),
     "rcsp-oneway": OnewayRcspSolver(),
     "plateau": PlateauSolver(),
