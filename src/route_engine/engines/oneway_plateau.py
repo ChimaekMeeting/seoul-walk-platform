@@ -143,54 +143,61 @@ class OnewayPlateauEngine:
         G_bwd = self.G.reverse(copy=False) if self.G.is_directed() else self.G
         bwd_cost, bwd_path = nx.single_source_dijkstra(G_bwd, end, weight="custom_score")
 
-        # 3단계: 두 트리의 실제 거리(m) 누적 — 비용 오름차순 순회로 O(N) 계산
-        fwd_len = self._cumulative_len(self.G, fwd_cost, fwd_path, start)
-        bwd_len = self._cumulative_len(G_bwd,   bwd_cost, bwd_path, end)
-
-        # 4단계: 베이스 최단경로의 엣지 집합 — "plateau"(중복 구간) 판별 기준
+        # 3단계: 베이스 최단경로의 엣지 집합 — "plateau"(중복 구간) 판별 기준
         base_edges = {
             frozenset((base_path[i], base_path[i + 1]))
             for i in range(len(base_path) - 1)
         }
 
-        # 5단계: 두 트리에 모두 존재하는 노드를 via-node 후보로 평가
-        best_path, best_key = None, None
+        # 4단계: 두 트리의 실제 거리(m)와 베이스 경로 중복거리(m)를 같은 순회에서 함께 누적 — O(N)
+        fwd_len, fwd_overlap = self._cumulative_len_and_overlap(self.G, fwd_cost, fwd_path, start, base_edges)
+        bwd_len, bwd_overlap = self._cumulative_len_and_overlap(G_bwd,   bwd_cost, bwd_path, end,   base_edges)
+
+        # 5단계: 두 트리에 모두 존재하는 노드를 via-node 후보로 평가 (경로 조립 없이 누적값만 비교)
+        best_v, best_key = None, None
         for v in set(fwd_path) & set(bwd_path):
-            candidate  = self._build_candidate(fwd_path[v], bwd_path[v])
             total_len  = fwd_len[v] + bwd_len[v]
             total_cost = fwd_cost[v] + bwd_cost[v]
             if total_len <= 0:
                 continue  # 출발=도착=v인 퇴화 케이스 제외
 
             over, density = self.utils.objective(total_len, total_len, total_cost, target_m)
-            overlap_ratio  = self._overlap_ratio(candidate, base_edges, total_len)
+            overlap_ratio  = (fwd_overlap[v] + bwd_overlap[v]) / max(total_len, 1.0)
 
             # (거리 목표 충족 우선 → plateau 중복 적은 순 → 품질밀도) 결정론적 정렬 키
             key = (over, overlap_ratio, density)
             if best_key is None or key < best_key:
-                best_key, best_path = key, candidate
+                best_key, best_v = key, v
 
-        if best_path is None:
+        if best_v is None:
             logger.warning("Plateau 후보가 비어 최단 경로로 대체합니다.")
             return base_path
+
+        # 최종 선택된 1개 노드에 대해서만 실제 경로를 조립함
+        best_path = self._build_candidate(fwd_path[best_v], bwd_path[best_v])
 
         logger.info("Plateau 편도 경로 선택: 노드=%d개, 거리초과=%.0fm, 중복비율=%.3f, 품질밀도=%.3f",
                     len(best_path), best_key[0], best_key[1], best_key[2])
         return best_path
 
-    def _cumulative_len(self, G: nx.Graph, cost: dict, path: dict, source: int) -> dict:
+    def _cumulative_len_and_overlap(
+        self, G: nx.Graph, cost: dict, path: dict, source: int, base_edges: set
+    ) -> tuple[dict, dict]:
         """
-        Dijkstra 트리(cost/path)를 비용 오름차순으로 순회하며 실제 거리(m) 누적값을 계산합니다.
+        Dijkstra 트리(cost/path)를 비용 오름차순으로 순회하며 실제 거리(m) 누적값과
+        베이스 최단경로(base_edges)와 겹치는 구간의 누적 거리(m)를 함께 계산합니다.
         예측 노드가 항상 먼저 처리되도록 비용 오름차순 순서를 이용함(음수 없는 트리의 성질).
         """
-        length = {source: 0.0}
+        length, overlap = {source: 0.0}, {source: 0.0}
         for v in sorted(cost, key=cost.get):
             if v == source:
                 continue
             pred = path[v][-2]
             edge = G.get_edge_data(pred, v) or {}
-            length[v] = length[pred] + edge.get("length", 0)
-        return length
+            edge_len = edge.get("length", 0)
+            length[v] = length[pred] + edge_len
+            overlap[v] = overlap[pred] + (edge_len if frozenset((pred, v)) in base_edges else 0.0)
+        return length, overlap
 
     def _build_candidate(self, fwd: list[int], bwd: list[int]) -> list[int]:
         """
@@ -199,14 +206,3 @@ class OnewayPlateauEngine:
         """
         tail = list(reversed(bwd))
         return fwd + tail[1:]
-
-    def _overlap_ratio(self, candidate: list[int], base_edges: set, total_len: float) -> float:
-        """
-        candidate 경로 중 베이스 최단경로(base_edges)와 겹치는 구간의 거리 비율("plateau" 비율)을 반환합니다.
-        """
-        overlap_m = sum(
-            (self.G.get_edge_data(candidate[i], candidate[i + 1]) or {}).get("length", 0)
-            for i in range(len(candidate) - 1)
-            if frozenset((candidate[i], candidate[i + 1])) in base_edges
-        )
-        return overlap_m / max(total_len, 1.0)
