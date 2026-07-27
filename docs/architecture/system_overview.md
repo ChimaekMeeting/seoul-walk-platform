@@ -32,7 +32,7 @@ ROUDI 백엔드는 다음 작업을 담당합니다.
 
 | 입력 종류 | 대표 입력 | 처음 받는 영역 |
 |---|---|---|
-| HTTP 요청 | 쿠키, JSON body, query/path parameter | `src/interfaces/api/` |
+| HTTP 요청 | cookie, Authorization Bearer header, JSON body, query/path parameter | `src/interfaces/api/` |
 | 환경변수 | PostgreSQL, Valkey, Kakao, 공공데이터, OpenAI, JWT, LangSmith 설정 | `src/config/settings.py`, 각 infrastructure client |
 | 관계형 데이터 | 사용자, 선호도, 채팅 세션, 경로 기록, 배너, RAW, Layer, NODE·LINK | `src/repository/` |
 | 캐시 데이터 | refresh token, 직렬화된 챗봇 `State` | `src/infrastructure/cache/` |
@@ -239,7 +239,7 @@ DB 적재 후 실행 중인 서버의 Graph는 자동으로 갱신되지 않습�
 | 변경 대상 | 함께 확인할 영역 |
 |---|---|
 | HTTP 요청·응답 필드 | Router, `src/interfaces/schema/`, 서비스, API 통합 테스트, 호출자 계약 |
-| JWT payload·cookie·만료 | Auth/Login Service, Valkey key, 모든 인증 사용 API |
+| JWT payload·전달 위치·만료 | Auth/Login Service, Valkey key, 모든 인증 사용 API |
 | `State` 필드 | PrewalkOrchestrator, Node, Tool, Valkey 직렬화, `ChatResponse` |
 | `WalkMode` | API schema, ModeTool, RouteTool, RouteService engine map, 엔진 응답, 경로 기록 |
 | `Weights`·태그 | survey baseline, `TAG_WEIGHT_MAP`, RouteExecutor, profile, scoring formula, DB preference |

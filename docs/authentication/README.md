@@ -24,8 +24,8 @@
 | `GET /api/login/kakao` | 없음 |
 | `GET /api/login/kakao/callback` | Kakao 인가 `code` query |
 | `POST /api/login/kakao/mobile-login` | body의 Kakao `access_token` |
-| `GET /api/auth/check/access_token` | `access_token` cookie |
-| `GET /api/auth/check/refresh_token` | `refresh_token` cookie |
+| `GET /api/auth/check/access_token` | `Authorization: Bearer {access_token}` |
+| `GET /api/auth/check/refresh_token` | `Authorization: Bearer {refresh_token}` |
 | `POST /api/login/kakao/logout` | access·refresh cookie |
 
 환경 입력:
@@ -45,7 +45,7 @@
 | 웹 callback | `LoginResponse`, access·refresh cookie |
 | 모바일 로그인 | `LoginResponse` body |
 | access 확인 | `AuthResponse.status` |
-| refresh 확인 | 새 access cookie와 `AuthResponse.status` |
+| refresh 확인 | 새 access cookie와 body의 `AuthResponse.access_token` |
 | logout | Valkey refresh key 삭제, 두 cookie 삭제 |
 
 저장 결과:
@@ -84,6 +84,7 @@ auth_router
 | refresh endpoint | access | false | false | lax | 3,600초 |
 
 모바일 로그인은 cookie를 설정하지 않고 token을 body로만 반환한다.
+access·refresh 확인 endpoint는 cookie가 아니라 선택적 Bearer header를 입력으로 받는다. refresh 성공 시 RN 호출자를 위해 새 access token을 응답 body에도 포함한다.
 
 ## 5. 의존하는 영역
 
@@ -108,7 +109,7 @@ auth_router
 | JWT payload·secret·algorithm | 모든 `check_access_token` 호출자, 기존 token |
 | access·refresh 만료 | cookie Max-Age, Valkey TTL, 복구 안내 |
 | `AuthService` 반환 tuple | user·survey·route·prewalk service와 테스트 mock |
-| cookie 속성 | 웹 callback, refresh, logout, 웹 호출자 |
+| token 전달 위치 | auth Bearer header, 로그인 body, 웹 callback·refresh cookie, logout cookie |
 | `LoginResponse` token 필드 | 웹·모바일 호출자와 응답 schema |
 | Valkey key | 로그인·refresh·logout, 기존 로그인 세션 |
 | Kakao 사용자 schema | 신규 사용자 저장과 nickname fallback |
@@ -118,9 +119,9 @@ auth_router
 
 | 실패 | 현재 결과 | 복구 |
 |---|---|---|
-| access 없음·만료 | `access_expired_token` | refresh 또는 재로그인 |
+| access Bearer 없음·만료 | `access_expired_token` | refresh 또는 재로그인 |
 | access 서명·형식 오류 | `invalid_token` | token 폐기 후 재로그인 |
-| refresh 없음·만료 | `refresh_expired_token` | 재로그인 |
+| refresh Bearer 없음·만료 | `refresh_expired_token` | 재로그인 |
 | refresh와 Valkey 불일치 | `invalid_token` | 재로그인 |
 | Kakao code 교환 실패 | `ValueError`가 Router 밖으로 전파 | 새 code로 callback 재시작 |
 | Kakao 사용자 정보 실패 | `ValueError`가 Router 밖으로 전파 | Kakao token·동의 항목 확인 |
@@ -131,14 +132,14 @@ logout은 token으로 사용자를 식별하지 못해도 cookie를 삭제하고
 
 ## 9. 검증 방법
 
-실행 순서와 2026-07-27 격리 검증 결과는 [Kakao 인증 Workflow](../architecture/workflows/kakao_authentication.md)에서 관리한다.
+실행 순서와 검증 상태는 [Kakao 인증 Workflow](../architecture/workflows/kakao_authentication.md)에서 관리한다. 2026-07-27 `origin/dev` merge로 auth 확인 endpoint가 cookie 입력에서 Bearer header 입력으로 변경된 뒤에는 아직 실행 검증하지 않았다.
 
 최소 확인 항목:
 
 1. 인가 URL의 host·client ID·redirect URI
-2. access 정상·만료·손상 상태
-3. refresh JWT와 Valkey 값의 일치·불일치
-4. refresh 후 access cookie 속성
+2. access Bearer 정상·누락·만료·손상 상태
+3. refresh Bearer JWT와 Valkey 값의 일치·불일치
+4. refresh 후 body access token과 access cookie 속성
 5. Valkey TTL과 재로그인 시 token 교체
 6. logout의 key·cookie 삭제와 refresh 재사용 실패
 7. 신규·기존 사용자의 PostgreSQL 행 변화

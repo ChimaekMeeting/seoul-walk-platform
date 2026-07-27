@@ -3,7 +3,7 @@
 > 상태: Current  
 > 기준일: 2026-07-27  
 > 관련 코드: `src/interfaces/api/login_router.py`, `src/interfaces/api/auth_router.py`, `src/service/user/login_service.py`, `src/service/user/auth_service.py`  
-> 검증 상태: 코드 추적 완료·내부 인증 격리 통합 확인·Kakao 로그인 미확인
+> 검증 상태: Bearer 전환 코드 추적 완료·전환 후 실행 미확인·Kakao 로그인 미확인
 
 ## 1. 목적과 시작 조건
 
@@ -14,8 +14,8 @@ Kakao 사용자를 ROUDI 사용자로 연결하고 access/refresh JWT를 발급�
 | `GET /api/login/kakao` | 없음 | Kakao 인가 URL |
 | `GET /api/login/kakao/callback` | 인가 `code` | 사용자·JWT·cookie |
 | `POST /api/login/kakao/mobile-login` | Kakao access token | 사용자·JWT body |
-| `GET /api/auth/check/access_token` | access cookie | 유효 상태 |
-| `GET /api/auth/check/refresh_token` | refresh cookie | 새 access cookie |
+| `GET /api/auth/check/access_token` | access Bearer header | 유효 상태 |
+| `GET /api/auth/check/refresh_token` | refresh Bearer header | 새 access token body·cookie |
 | `POST /api/login/kakao/logout` | 두 cookie | refresh 폐기·cookie 삭제 |
 
 ## 2. 참여 코드
@@ -38,8 +38,8 @@ Kakao 사용자를 ROUDI 사용자로 연결하고 access/refresh JWT를 발급�
 → 신규 사용자이면 PostgreSQL users 저장
 → 웹은 body와 cookie, 모바일은 body로 JWT 반환
 
-refresh cookie → JWT 검증 → Valkey 값과 일치 확인
-→ 새 access JWT 발급 → access cookie 설정
+refresh Bearer header → JWT 검증 → Valkey 값과 일치 확인
+→ 새 access JWT 발급 → 응답 body와 access cookie 설정
 
 logout → 유효한 access 또는 refresh에서 사용자 식별
 → Valkey refresh token 삭제 → 두 cookie 삭제
@@ -50,7 +50,8 @@ logout → 유효한 access 또는 refresh에서 사용자 식별
 - PostgreSQL 사용자는 최초 로그인 때만 추가되며 logout 때 삭제되지 않는다.
 - 같은 사용자가 다시 로그인하면 Valkey refresh token만 새 값으로 교체된다.
 - 웹 callback은 access cookie를 `HttpOnly=True`, refresh cookie를 `HttpOnly=False`로 설정한다.
-- refresh endpoint가 다시 설정하는 access cookie는 현재 `HttpOnly=False`다.
+- auth 확인 endpoint는 cookie가 아니라 선택적 `Authorization: Bearer` header를 입력으로 받는다.
+- refresh endpoint가 새 access token을 body에 포함하고 `HttpOnly=False` access cookie도 설정한다.
 - 웹·모바일 로그인 응답 body에도 access/refresh token이 모두 포함된다.
 - logout은 token이 없거나 유효하지 않아 사용자를 식별하지 못해도 HTTP 200 / `success`를 반환하고 cookie를 삭제한다.
 
@@ -58,9 +59,9 @@ logout → 유효한 access 또는 refresh에서 사용자 식별
 
 | 조건 | 현재 결과 | 복구 |
 |---|---|---|
-| access cookie 없음·만료 | HTTP 200 / `access_expired_token` | refresh 또는 재로그인 |
-| access JWT 손상 | HTTP 200 / `invalid_token` | cookie 폐기 후 재로그인 |
-| refresh cookie 없음·만료 | `refresh_expired_token` | 재로그인 |
+| access Bearer 없음·만료 | HTTP 200 / `access_expired_token` | refresh 또는 재로그인 |
+| access JWT 손상 | HTTP 200 / `invalid_token` | token 폐기 후 재로그인 |
+| refresh Bearer 없음·만료 | `refresh_expired_token` | 재로그인 |
 | refresh JWT가 Valkey에 없거나 불일치 | `invalid_token` | 재로그인 |
 | Kakao code 교환·사용자 조회 실패 | `ValueError`가 router 밖으로 전파 | code·redirect URI·동의 항목 확인 |
 | PostgreSQL·Valkey 장애 | 로그인·갱신 실패 | 저장소 복구 후 처음부터 재시도 |
@@ -69,17 +70,14 @@ Kakao code는 재사용하지 않는다. logout 후 기존 refresh JWT는 Valkey
 
 ## 6. 검증 결과
 
-2026-07-27 기존 개발 저장소와 분리된 `roudi-workflow` PostgreSQL과 `roudi-harness-valkey`에서 확인했다. 비밀값과 token 문자열은 출력하지 않았다.
+2026-07-27 이전 cookie 입력 계약에서는 격리 PostgreSQL·Valkey로 내부 인증을 확인했다. 이후 `origin/dev`의 `a4bcb2f`가 auth 확인 endpoint 입력을 Bearer header로 바꾸고 refresh 응답 body에 access token을 추가했다. merge 후 현재 HTTP 계약은 코드로 대조했지만 실행 검증하지 않았다.
 
-| 검증 | 결과 |
-|---|---|
-| Kakao 인가 URL | HTTP 200, Kakao authorize host와 필수 query 확인 |
-| 유효 access | HTTP 200 / `success` |
-| cookie 없음·손상 access | `access_expired_token` / `invalid_token` |
-| 저장된 refresh | `success`, 새 access cookie와 3600초 Max-Age 확인 |
-| 저장되지 않은 refresh | `invalid_token` |
-| Valkey TTL | 1,209,600초 |
-| logout | HTTP 200, 두 cookie 삭제, Valkey key 삭제 |
-| logout 후 refresh 재사용 | `invalid_token` |
+재검증할 항목:
 
-실제 Kakao 계정의 code 교환과 사용자 조회는 실행하지 않았다. 기존 `tests/unit/test_auth_service.py`는 현재 `(Provider, provider_id)`·3개 반환값·비동기 refresh 계약을 반영하지 않아 21개 중 18개가 실패한다. 따라서 현재 자동 테스트는 인증 완료 기준으로 사용할 수 없다.
+- access Bearer 정상·누락·손상
+- refresh Bearer와 Valkey 저장값의 일치·불일치
+- refresh 응답 body와 access cookie
+- logout 후 refresh 재사용
+- 실제 Kakao code 교환과 사용자 조회
+
+기존 `tests/unit/test_auth_service.py`는 현재 `(Provider, provider_id)`·3개 반환값·비동기 refresh 계약을 반영하지 않아 이전 실행에서 21개 중 18개가 실패했다. Bearer 전환 후 자동 테스트는 이번 작업에서 실행하지 않았다.
