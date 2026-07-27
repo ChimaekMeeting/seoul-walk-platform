@@ -4,7 +4,6 @@ import math
 from geoalchemy2.elements import WKTElement
 
 from src.repository.network.edge_repository import EdgeRepository
-from src.repository.network.node_repository import NodeRepository
 
 logger = logging.getLogger(__name__)
 
@@ -14,31 +13,6 @@ class CollectorUtils:
     @staticmethod
     def make_point(lat: float, lon: float) -> WKTElement:
         return WKTElement(f"POINT({lon} {lat})", srid=4326)
-
-    @staticmethod
-    def register_nodes(
-        records: list[dict],
-        node_type: str,
-        name_key: str = "name",
-    ) -> dict[str, int]:
-        """
-        records를 walk_nodes에 등록하고 {name: node_id} 매핑을 반환합니다.
-        각 record에는 'geom' 키가 있어야 합니다.
-        """
-        base_id = NodeRepository.get_max_node_id()
-        nodes = [
-            {
-                "node_id":        base_id + i + 1,
-                "node_type":      node_type,
-                "is_underground": False,
-                "is_overpass":    False,
-                "geom":           rec["geom"],
-            }
-            for i, rec in enumerate(records)
-        ]
-        NodeRepository.save_all(nodes)
-        logger.debug("walk_nodes에 %s 노드 %d개 등록 (base_id=%d)", node_type, len(nodes), base_id)
-        return {rec[name_key]: base_id + i + 1 for i, rec in enumerate(records)}
 
     @staticmethod
     def update_edge_scores(score_column: str, h3_counts: dict[str, int]) -> None:

@@ -1,7 +1,7 @@
 from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import BigInteger, Boolean, String
+from sqlalchemy import BigInteger, Boolean, SmallInteger, String
 
 
 class WalkNode(Base):
@@ -15,8 +15,20 @@ class WalkNode(Base):
         primary_key=True
     )
     node_type: Mapped[str] = mapped_column(
-        String(20),
+        String(32),
         nullable=True
+    )
+    raw_node_type_code: Mapped[int | None] = mapped_column(
+        SmallInteger,
+        nullable=True,
+    )
+    raw_is_crosswalk: Mapped[bool | None] = mapped_column(
+        Boolean,
+        nullable=True,
+    )
+    raw_is_overpass: Mapped[bool | None] = mapped_column(
+        Boolean,
+        nullable=True,
     )
     is_underground: Mapped[bool] = mapped_column(
         Boolean,

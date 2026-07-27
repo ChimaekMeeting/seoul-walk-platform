@@ -7,7 +7,7 @@ from typing import Optional
 
 class NatureLayer(Base):
     """
-    OSM 녹지 폴리곤(숲, 공원, 초지 등) 정보를 관리하는 엔티티입니다.
+    OSM 녹지와 승인된 공원 Polygon 등 자연 영역 정보를 관리합니다.
     """
     __tablename__ = "nature_layer"
 
@@ -28,6 +28,18 @@ class NatureLayer(Base):
     green_weight: Mapped[Optional[int]] = mapped_column(
         Integer,
         nullable=True
+    )
+    source_name: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    source_id: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    name: Mapped[Optional[str]] = mapped_column(
+        String(200),
+        nullable=True,
     )
     geom = mapped_column(
         Geometry("GEOMETRY", srid=4326),
