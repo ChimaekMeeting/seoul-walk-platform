@@ -1,10 +1,10 @@
-# 데이터-score 연결표
+# 데이터와 Score 연결표
 
 `src/data/raw`에 있는 원본 파일이 실제로 어떤 score/layer/collector와 연결되어 있는지,
 그리고 QA가 로컬에서 같은 결과를 재현하려면 어떤 명령을 실행해야 하는지를 정리한 문서입니다.
 
 feat/209 재현 결과는 과거 전체 파이프라인 기록으로 보존합니다. 현재 V1 실행 범위와 명령은
-`docs/data_ingestion_runbook.md`를 기준으로 하며, `legacy-all`을 명시하지 않으면 보류 Score를 계산하지 않습니다.
+`docs/operations/data_ingestion.md`를 기준으로 하며, `legacy-all`을 명시하지 않으면 보류 Score를 계산하지 않습니다.
 
 공원 Polygon 매핑 방식의 비교 결과와 결정 근거는
 `analysis/raw/park_walkedge_mapping_validation.ipynb`에 보존합니다.

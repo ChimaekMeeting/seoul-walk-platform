@@ -81,7 +81,7 @@ V1 기준 확정 후 기존 네트워크를 제거하고 최신 원본 전체로
 poetry run python -m src.data.data_collector --scope v1 --network-mode rebuild
 ```
 
-기본 `v1` 범위는 도보 네트워크와 좌표 검증용 서울 경계·수계만 구성합니다. 기존 안전·어린이·랜드마크·자연·러닝 Layer와 score는 자동 실행하지 않습니다.
+기본 `v1` 범위는 도보 네트워크, 공원 Polygon 중첩 근거와 좌표 검증용 서울 경계·수계를 구성합니다. 공원 Polygon은 `park_overlap_ratio`만 갱신하며, 기존 안전·어린이·랜드마크·자연·러닝 score는 자동 실행하지 않습니다.
 
 기존 전체 파이프라인은 `--scope legacy-all`을 명시한 경우에만 실행합니다.
 
