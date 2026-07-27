@@ -62,3 +62,4 @@ class SurveyStatusResponse(BaseModel):
     weights_running: Optional[float] = None
     weights_landmark: Optional[float] = None
     weights_child: Optional[float] = None
+    selected_tags: Optional[List[str]] = None

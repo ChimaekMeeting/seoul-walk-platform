@@ -115,6 +115,7 @@ class SurveyService:
             weights_running=weights.get("running"),
             weights_landmark=weights.get("landmark"),
             weights_child=weights.get("child"),
+            selected_tags=request.tags if request.tags else None,
         )
 
         return SurveyResponse(
@@ -151,4 +152,5 @@ class SurveyService:
             weights_running=preference.weights_running,
             weights_landmark=preference.weights_landmark,
             weights_child=preference.weights_child,
+            selected_tags=preference.selected_tags,
         )

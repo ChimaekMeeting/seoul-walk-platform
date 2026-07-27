@@ -8,6 +8,7 @@ src/interfaces/api/user_router.py
 from typing import Optional
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import logging
 
 from src.interfaces.dependencies import get_survey_service, get_auth_service, get_user_service
@@ -24,6 +25,16 @@ from src.service.user.auth_service import AuthService
 from src.interfaces.schema.auth_schema import Status
 
 logger = logging.getLogger(__name__)
+
+optional_bearer = HTTPBearer(auto_error=False)
+
+
+def _resolve_token(
+    credentials: HTTPAuthorizationCredentials | None,
+    cookie_token: str | None,
+) -> str | None:
+    return (credentials.credentials if credentials else None) or cookie_token
+
 
 router = APIRouter(prefix="/api/user", tags=["user"])
 
@@ -54,10 +65,11 @@ def update_me(
 @router.post("/survey", response_model=SurveyResponse)
 def submit_survey(
     request: SurveyRequest,
-    access_token: str = Cookie(None),
+    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
+    cookie_token: str = Cookie(None, alias="access_token"),
     service: SurveyService = Depends(get_survey_service),
 ):
-    return service.submit(access_token, request)
+    return service.submit(_resolve_token(credentials, cookie_token), request)
 
 
 @router.get("/routes", response_model=RouteHistoryResponse)
@@ -163,8 +175,9 @@ def get_route_history(
 
 @router.get("/survey", response_model=SurveyStatusResponse)
 def get_survey_status(
-    access_token: str = Cookie(None),
+    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
+    cookie_token: str = Cookie(None, alias="access_token"),
     service: SurveyService = Depends(get_survey_service),
 ):
     """설문 완료 여부를 반환합니다."""
-    return service.get_status(access_token)
+    return service.get_status(_resolve_token(credentials, cookie_token))
