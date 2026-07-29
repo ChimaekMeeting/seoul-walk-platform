@@ -1,9 +1,9 @@
 # 챗봇 Agent 하네스
 
 > 상태: Current  
-> 기준일: 2026-07-27  
+> 기준일: 2026-07-29  
 > 관련 코드: `src/agent/`, `src/service/chat/prewalk_service.py`, `src/schema/prewalk_schema.py`  
-> 검증 상태: 현재 코드 대조 감사 완료·격리 통합 확인
+> 검증 상태: 현재 코드 대조 감사 완료·격리 통합 확인 (2026-07-29 챗봇 정리 작업 반영)
 
 ## 1. 책임
 
@@ -27,12 +27,11 @@ HTTP 입력:
 | `user_id` | Orchestrator init | 소유권 확인, `RouteExecutor` |
 | `current_location` | Orchestrator init | `Extractor`, `Interviewer` |
 | `access_token` | intent Orchestrator | `RouteExecutor` → `RouteService` |
-| `weather_data` | Orchestrator init | API 응답·Valkey 저장 |
 | `user_prompt` | intent Orchestrator | `Extractor`, `Interviewer` |
 | `mode` | `Extractor` | `RouteExecutor` |
 | `user_context` | `Extractor` | `Interviewer`, `RouteExecutor` |
-| `origin_candidate` | `Interviewer` | 다음 `Extractor`·`Interviewer` |
-| `destination_candidate` | `Interviewer` | 다음 `Extractor`·`Interviewer` |
+| `origin_candidate` | `Interviewer` | 다음 `Interviewer`(첫 번째 후보 자동 확정용) |
+| `destination_candidate` | `Interviewer` | 다음 `Interviewer`(첫 번째 후보 자동 확정용) |
 | `themes` | `Extractor` | `RouteExecutor` 가중치 |
 | `awaiting_confirmation` | `Interviewer`·Orchestrator | 다음 intent 분기 |
 | `is_complete` | `Interviewer`·Orchestrator | Graph 분기·완료 상태 |
@@ -83,7 +82,7 @@ src/prompt/                                      # LLM Prompt
 
 | Node | 입력 | 출력·State 변경 | 외부 호출 |
 |---|---|---|---|
-| `WeatherChecker.run` | `lat`, `lon` | `(EnvironmentInfo, init_message)` | 기상청·에어코리아·OpenAI |
+| `WeatherChecker.run` | `lat`, `lon` | `init_message`(문자열) | 기상청·에어코리아·OpenAI |
 | `Extractor.run` | `State` | `mode`, `user_context`, `themes` | OpenAI, `ModeTool` |
 | `Interviewer.run` | `State` | 후보 위치, 보완된 context, `response`, 확인 상태 | OpenAI, `PlaceTool` |
 | `RouteExecutor.run` | `State` | `route_result` | 사용자 설문, `RouteTool` |
@@ -121,17 +120,15 @@ Git 이력 기준으로 조건부 Edge는 `0ed8073b`에서 추가됐다. `e42c36
 | 소유 Node | Tool | 입력 → 출력 |
 |---|---|---|
 | `Extractor` | `ModeTool` 3종 | 위치·거리 → 모드별 Preference |
-| `Interviewer` | `PlaceTool` 3종 | 좌표·keyword·category → Kakao 장소 결과 |
+| `Interviewer` | `PlaceTool` 2종 | keyword·category → Kakao 장소 결과 |
 | `RouteExecutor` | `RouteTool` 3종 | 좌표·거리·JWT·Weights → `WalkRouteResponse` |
 
 | Node | 현재 사용하는 Prompt |
 |---|---|
 | `WeatherChecker` | `weather_checker.yaml` |
 | `Extractor` | `extraction.yaml`, `themes.yaml` |
-| `Interviewer` | `interview.yaml`, `location_formatter.yaml` |
-| `RouteExecutor` | 없음 (`route_result.yaml` 호출은 주석 처리) |
-
-`complete.yaml`은 현재 호출 코드가 없다.
+| `Interviewer` | `interview.yaml`(도구 바인딩 1차 호출 + 검색 결과 반영용 2차 재호출, 2차는 도구 미바인딩) |
+| `RouteExecutor` | 없음 |
 
 ## 5. 의존하는 영역
 
