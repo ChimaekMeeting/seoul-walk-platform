@@ -99,19 +99,22 @@ class Interviewer(GPTClient):
                 return state
 
             try:
+                # 검색으로 확정된 origin/destination을 반영해 interview.yaml을 다시 호출한다.
+                # llm= 대신 parser=만 넘겨 tool 미바인딩 모델을 사용 — 재검색을 원천 차단한다.
                 response = await super().get_response(
-                    prompt_name="location_formatter",
+                    prompt_name="interview",
                     input_variables={
-                        "tool_calls":       self.prompt_utils.format_for_prompt(candidates),
-                        "user_input":       state.user_prompt,
+                        "current_context":  self.prompt_utils.format_for_prompt(state.user_context),
                         "current_location": self.prompt_utils.format_for_prompt(state.current_location),
+                        "missing_info":     self._get_missing_info(state.user_context),
+                        "user_input":       state.user_prompt,
                     },
                     parser=self.str_parser,
                 )
             except Exception:
-                logger.exception("interviewer_location_formatter_llm_error")
+                logger.exception("interviewer_interview_followup_llm_error")
                 response = _FALLBACK_RESPONSE
-            logger.info("location_formatter.yaml이 호출되었습니다.")
+            logger.info("interview.yaml이 검색 결과 반영을 위해 재호출되었습니다.")
         else:
             response = raw_response.content
 
@@ -153,11 +156,11 @@ class Interviewer(GPTClient):
             return "출발지, 목적지(편도인 경우), 목표 거리, 경로 유형"
 
         missing = []
-        if pref.origin is None or pref.origin.place_name is None:
-            missing.append("출발지 장소명")
+        if not self._has_location(pref.origin):
+            missing.append("출발지 장소명 또는 좌표")
         if isinstance(pref, (OnewayPreference, OnewayShortestPreference)):
-            if pref.destination is None or pref.destination.place_name is None:
-                missing.append("목적지 장소명")
+            if not self._has_location(pref.destination):
+                missing.append("목적지 장소명 또는 좌표")
         if isinstance(pref, (CircularPreference, OnewayPreference)):
             if pref.target_km is None:
                 missing.append("목표 거리")

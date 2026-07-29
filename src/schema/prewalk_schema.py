@@ -1,11 +1,5 @@
-
-
-
-
-
 from pydantic import BaseModel, Field
 from typing import Optional, Union, List
-from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
 from src.interfaces.schema.walk_schema import WalkMode, WalkRouteResponse
 
 
@@ -21,7 +15,6 @@ class Location(BaseModel):
 
 class BasePreference(BaseModel):
     origin: Optional[Location] = None
-    purpose: Optional[str]     = None
 
 
 class CircularPreference(BasePreference):
@@ -65,7 +58,6 @@ class State(BaseModel):
     origin_candidate: Optional[List[Location]] = None
     destination_candidate: Optional[List[Location]] = None
 
-    weather_data: Optional[EnvironmentInfo] = None
     route_result: Optional[WalkRouteResponse] = None
     is_complete: bool = False
     awaiting_confirmation: bool = False

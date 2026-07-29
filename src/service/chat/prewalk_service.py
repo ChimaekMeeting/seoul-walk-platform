@@ -103,13 +103,8 @@ class PrewalkOrchestrator:
             logger.exception("prewalk_init_session_save_error | user_id=%s", user.id)
             return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
 
-        # 날씨 확인 — 실패 시 기본 인사 메시지로 대체
-        try:
-            env_info, init_message = await self.weather_checker.run(lat, lon)
-        except Exception:
-            logger.exception("prewalk_init_weather_error | lat=%s | lon=%s", lat, lon)
-            env_info     = None
-            init_message = "안녕하세요! 오늘 어디로 산책을 떠나볼까요?"
+        # 날씨 기반 초기 메시지
+        init_message = await self.weather_checker.run(lat, lon)
 
         # 현재 위치 확인 — 실패 시 좌표만으로 Location 구성
         try:
@@ -127,7 +122,6 @@ class PrewalkOrchestrator:
         initial_state = State(
             user_id          = user.id,
             current_location = location,
-            weather_data     = env_info,
             response         = init_message,
         )
 
