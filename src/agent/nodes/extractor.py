@@ -1,6 +1,6 @@
 import json, logging
 from langchain_core.output_parsers import StrOutputParser
-from src.schema.prewalk_schema import State, Location
+from src.schema.prewalk_schema import State
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.utils.chatbot_utils import PromptUtils
 from src.agent.tools.mode_tools import ModeTool
@@ -25,9 +25,7 @@ class Extractor(GPTClient):
         input_variables = {
             "user_input":             state.user_prompt,
             "current_context":        self.prompt_utils.format_for_prompt(state.user_context),
-            "current_location":       self.prompt_utils.format_for_prompt(state.current_location),
-            "origin_candidates":      self.prompt_utils.format_for_prompt(state.origin_candidate),
-            "destination_candidates": self.prompt_utils.format_for_prompt(state.destination_candidate),
+            "current_location":       self.prompt_utils.format_for_prompt(state.current_location)
         }
 
         # extractor 응답 생성
@@ -79,7 +77,6 @@ class Extractor(GPTClient):
             logger.warning(f"출발지가 정해지지 않아, 현 위치를 출발지로 설정합니다: {args['origin']}")
 
         pref               = self.mode_tool.tool_map[tool_name].invoke(args)
-        pref.purpose       = state.user_context.purpose if state.user_context else None
         state.mode         = pref.mode
         state.user_context = pref
         state.themes       = await self._extract_themes(state.user_prompt)
