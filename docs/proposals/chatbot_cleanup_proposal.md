@@ -22,7 +22,7 @@
 
 제외:
 
-- 하드코딩된 문자열 분리 — [Node 분리 제안](../proposals/chatbot_node_proposal.md)에서 별도로 다룬다
+- 하드코딩된 문자열 분리 — [하드코딩 문구 처리 방안 제안](../proposals/chatbot_hardcoding_proposal.md)에서 별도로 다룬다
 - `frontend/**`
 - 이 문서만으로 승인되지 않은 코드 변경
 
