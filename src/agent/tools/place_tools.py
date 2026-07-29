@@ -3,26 +3,17 @@ from typing import Literal, Optional
 from langchain_core.tools import StructuredTool
 
 from src.infrastructure.external.client.kakao_client import KakaoClient
-from src.infrastructure.external.schema.place_schema import PlaceInfo, PlaceSearchResult
+from src.infrastructure.external.schema.place_schema import PlaceSearchResult
 
 
 class PlaceTool:
     def __init__(self):
         self._client = KakaoClient()
         self.tools = [
-            StructuredTool.from_function(coroutine=self.get_address_from_coords),
             StructuredTool.from_function(coroutine=self.get_address_from_keyword),
             StructuredTool.from_function(coroutine=self.get_address_from_category),
         ]
         self.tool_map = {t.name: t for t in self.tools}
-
-    async def get_address_from_coords(
-        self, lat: float = 37.634496, lon: float = 126.832852
-    ) -> PlaceInfo:
-        """
-        경위도 좌표를 주소로 변환하는 함수입니다.
-        """
-        return await self._client.get_address_from_coords(lat, lon)
 
     async def get_address_from_keyword(
         self,
