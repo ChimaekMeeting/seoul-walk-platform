@@ -4,7 +4,6 @@ from langchain_core.output_parsers import StrOutputParser
 
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.infrastructure.external.client.weather_client import WeatherClient
-from src.infrastructure.external.schema.weather_schema import EnvironmentInfo
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +14,7 @@ class WeatherChecker(GPTClient):
         self.weather_client = weather_client
         self.str_parser = StrOutputParser()
 
-    async def run(self, lat: float, lon: float) -> tuple[EnvironmentInfo, str]:
+    async def run(self, lat: float, lon: float) -> str:
         """
         날씨·대기질 조회 후 LLM으로 친절한 첫 인사 메시지를 생성하여 반환합니다.
         """
@@ -44,4 +43,4 @@ class WeatherChecker(GPTClient):
             logger.exception("weather_checker_llm_error | lat=%s | lon=%s", lat, lon)
             res = "안녕하세요! 오늘 어디로 산책을 떠나볼까요?"
 
-        return EnvironmentInfo(weather=weather_info or {}, air=air_info or {}), res
+        return res
