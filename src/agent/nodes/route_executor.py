@@ -1,11 +1,8 @@
 import logging
-from langchain_core.output_parsers import StrOutputParser
 
 from src.schema.prewalk_schema import State
 from src.interfaces.schema.walk_schema import WalkMode, Coordinate
 from src.agent.tools.route_tools import RouteTool
-from src.infrastructure.external.client.gpt_client import GPTClient
-from src.agent.utils.chatbot_utils import PromptUtils
 from src.schema.route_schema import Weights
 from src.repository.user.user_preference_repository import UserPreferenceRepository
 
@@ -26,12 +23,9 @@ _BASELINE_WEIGHTS = Weights().model_dump()
 # baseline이 0이 된 미관 특성을 테마가 충분히 끌어올리도록 강하게 적용함.
 _THEME_STRENGTH = 3.0
 
-class RouteExecutor(GPTClient):
+class RouteExecutor:
     def __init__(self):
-        super().__init__()
-        self.route_tool   = RouteTool()
-        self.prompt_utils = PromptUtils()
-        self.str_parser   = StrOutputParser()
+        self.route_tool = RouteTool()
 
     async def run(self, state: State) -> State:
         """
@@ -60,17 +54,6 @@ class RouteExecutor(GPTClient):
             # 예외2. 경로 생성에 실패한 경우
             logger.exception("경로 생성에 실패했습니다.")
             return state
-
-        # 추후 complete.yaml을 사용할지, route_result.yaml을 사용할지, 둘 다 사용할지 판단. 우선은 주석 처리
-        # state.response = await super().get_response(
-        #     prompt_name     = "route_result",
-        #     input_variables = {
-        #         "route_result":     self.prompt_utils.format_for_prompt(state.route_result),
-        #         "user_context":     self.prompt_utils.format_for_prompt(state.user_context),
-        #         "current_location": self.prompt_utils.format_for_prompt(state.current_location),
-        #     },
-        #     parser = self.str_parser,
-        # )
 
         return state
 
