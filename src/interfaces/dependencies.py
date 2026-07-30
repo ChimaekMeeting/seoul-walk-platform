@@ -1,5 +1,7 @@
+import logging
 from typing import Optional
 
+from src.config.settings import settings
 from src.service import (
     KakaoLoginService,
     UserService,
@@ -22,7 +24,12 @@ from src.infrastructure.external.client import (
     MarathonClient,
     WeatherClient
 )
+from src.repository.network.graph_artifact_repository import (
+    GraphArtifactRepository,
+)
 from src.repository.network.graph_repository import GraphRepository
+
+logger = logging.getLogger(__name__)
 
 # 싱글톤 패턴
 auth_service        = AuthService()
@@ -39,9 +46,24 @@ route_service: Optional[RouteService] = None
 prewalk_orchestrator: Optional[PrewalkOrchestrator] = None
 
 # lifespan에서 호출
+def load_runtime_graph():
+    if settings.WALK_GRAPH_SOURCE == "artifact":
+        logger.info(
+            "배포용 Graph artifact를 로드합니다: %s",
+            settings.WALK_GRAPH_ARTIFACT_PATH,
+        )
+        return GraphArtifactRepository.load(
+            settings.WALK_GRAPH_ARTIFACT_PATH,
+            expected_data_version=settings.WALK_GRAPH_DATA_VERSION,
+            expected_source_commit=settings.WALK_GRAPH_EXPECTED_COMMIT or None,
+        )
+    logger.info("PostgreSQL에서 도보 Graph를 생성합니다.")
+    return GraphRepository.load_graph()
+
+
 def init_route_service():
     global G, route_service, prewalk_orchestrator
-    G             = GraphRepository.load_graph()
+    G             = load_runtime_graph()
     route_service = RouteService(G=G, auth_service=auth_service)
     prewalk_orchestrator = PrewalkOrchestrator(
         weather_checker        = WeatherChecker(weather_client=weather_client),

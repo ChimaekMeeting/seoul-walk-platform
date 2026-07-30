@@ -1,4 +1,6 @@
 import os
+from typing import Literal
+
 from pydantic_settings import BaseSettings
 
 
@@ -9,6 +11,12 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "seoul_walk"
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5434
+
+    # Walk Graph
+    WALK_GRAPH_SOURCE: Literal["database", "artifact"] = "database"
+    WALK_GRAPH_ARTIFACT_PATH: str = "artifacts/walk_graph_v1.pkl"
+    WALK_GRAPH_DATA_VERSION: str = "v1-2026-07-30"
+    WALK_GRAPH_EXPECTED_COMMIT: str = ""
 
     # Valkey
     VALKEY_URI: str = "redis://localhost:6379"
