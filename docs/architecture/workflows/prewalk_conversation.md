@@ -1,9 +1,9 @@
 # 챗봇 경로 추천 Workflow
 
 > 상태: Current  
-> 기준일: 2026-07-27  
+> 기준일: 2026-07-30
 > 관련 코드: `src/interfaces/api/prewalk_router.py`, `src/service/chat/prewalk_service.py`, `src/agent/`, `src/schema/prewalk_schema.py`  
-> 검증 상태: 코드 추적 완료·OpenAI/Kakao/DB/Valkey/경로 통합 확인
+> 검증 상태: 프로필 전달 단위 테스트 완료·기존 OpenAI/Kakao/DB/Valkey/경로 통합 확인
 
 ## 1. 목적과 시작 조건
 
@@ -39,7 +39,8 @@ intent: JWT 확인 → Valkey State 조회 → State.user_id 소유권 확인
 → Extractor → Interviewer
 → 정보 부족: 질문 후 State 저장
 → 정보 충분: awaiting_confirmation=true로 확인 질문 후 저장
-→ 긍정 응답: RouteExecutor 직접 실행 → RouteService → RouteHistory
+→ 긍정 응답: RouteExecutor가 테마·명시값으로 profile 선택
+→ 설문 가중치와 테마 delta 결합 → RouteService → 주변 POI·RouteHistory
 → 최종 State 저장·반환
 ```
 
@@ -52,6 +53,11 @@ intent: JWT 확인 → Valkey State 조회 → State.user_id 소유권 확인
 - State는 현재 위치, 날씨, 모드별 preference, 후보 위치, 테마, 확인 상태와 경로 결과를 가진다.
 - intent 처리 때 State에 access JWT를 넣으며 현재 API 응답과 Valkey JSON에도 포함된다.
 - 경로 성공 시 `RouteService`가 `route_histories`를 저장하고 State의 `route_result.id`에 연결한다.
+- 이동 편의 테마(`유모차`, `계단이 불편한`)는 내부 `accessible`, 편의 테마
+  (`활기찬`, `힙한`)는 `convenient` 프로필로 전달된다. 사용자에게는
+  `accessible`을 `이동이 편한 길`로 안내하며, State에 명시한 profile이 있으면
+  그 값을 우선한다.
+- 성공 경로에는 50m 안의 도보망 연결 POI가 `nearby_pois`로 포함된다.
 - 현재 구현은 대화·경로 완료 후에도 PostgreSQL `ChatSession.current_state`를 `START`에서 변경하지 않는다.
 
 ## 5. 실패·복구

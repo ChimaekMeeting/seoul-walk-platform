@@ -13,7 +13,6 @@ ScoringEngine(calculate_custom_score) 단위 테스트
 """
 
 import math
-import pytest
 import networkx as nx
 
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
@@ -42,6 +41,12 @@ DEFAULT_EDGE = {
     "running_score": 0.5,
     "landmark_score": 0.8,
     "child_score": 0.5,
+    "park_overlap_ratio": 0.0,
+    "convenience_score": 0.0,
+    "is_vehicle_caution": False,
+    "toilet_count": 0,
+    "transit_count": 0,
+    "accessibility_poi_count": 0,
     "tags": [],
 }
 
@@ -151,7 +156,7 @@ class TestClamping:
 class TestWeightEffect:
     def test_slope_w가_높을수록_경사_엣지_점수가_높다(self):
         """slope_w 증가 → 경사 페널티 증가 → custom_score 증가."""
-        high_slope_edge = {**DEFAULT_EDGE, "slope_score": 0.9}
+        high_slope_edge = {**DEFAULT_EDGE, "slope_score": 0.1}
 
         G_low = make_graph(high_slope_edge)
         G_high = make_graph(high_slope_edge)
@@ -223,6 +228,95 @@ class TestWeightEffect:
         calculate_custom_score(G2, profile)
 
         assert score_of(G2) < score_of(G1)
+
+    def test_공원_중첩이_높을수록_nature_profile에서_선호한다(self):
+        outside = make_graph(
+            {**DEFAULT_EDGE, "nature_score": 0.0, "park_overlap_ratio": 0.0}
+        )
+        inside = make_graph(
+            {**DEFAULT_EDGE, "nature_score": 0.0, "park_overlap_ratio": 1.0}
+        )
+        profile = {
+            **DEFAULT_PROFILE,
+            "weights": {"nature": 1.0},
+        }
+
+        calculate_custom_score(outside, profile)
+        calculate_custom_score(inside, profile)
+
+        assert score_of(inside) < score_of(outside)
+
+    def test_상권이나_편의_POI가_있으면_convenience_profile에서_선호한다(self):
+        no_convenience = make_graph(DEFAULT_EDGE)
+        has_convenience = make_graph(
+            {
+                **DEFAULT_EDGE,
+                "convenience_score": 0.8,
+                "toilet_count": 1,
+            }
+        )
+        profile = {
+            **DEFAULT_PROFILE,
+            "weights": {"convenience": 1.0},
+        }
+
+        calculate_custom_score(no_convenience, profile)
+        calculate_custom_score(has_convenience, profile)
+
+        assert score_of(has_convenience) < score_of(no_convenience)
+
+    def test_접근성_POI가_있으면_accessibility_profile에서_선호한다(self):
+        no_accessibility = make_graph(DEFAULT_EDGE)
+        has_accessibility = make_graph(
+            {**DEFAULT_EDGE, "accessibility_poi_count": 1}
+        )
+        profile = {
+            **DEFAULT_PROFILE,
+            "weights": {"accessibility": 1.0},
+        }
+
+        calculate_custom_score(no_accessibility, profile)
+        calculate_custom_score(has_accessibility, profile)
+
+        assert score_of(has_accessibility) < score_of(no_accessibility)
+
+    def test_차량주의_Edge는_child_weight가_높을수록_회피한다(self):
+        normal = make_graph(DEFAULT_EDGE)
+        caution = make_graph(
+            {**DEFAULT_EDGE, "is_vehicle_caution": True}
+        )
+        profile = {
+            **DEFAULT_PROFILE,
+            "weights": {"child": 0.8},
+        }
+
+        calculate_custom_score(normal, profile)
+        calculate_custom_score(caution, profile)
+
+        assert score_of(caution) > score_of(normal)
+
+    def test_child_score_자체는_더_이상_안전_가점이_아니다(self):
+        low = make_graph({**DEFAULT_EDGE, "child_score": 0.0})
+        high = make_graph({**DEFAULT_EDGE, "child_score": 1.0})
+        profile = {
+            **DEFAULT_PROFILE,
+            "weights": {"child": 1.0},
+        }
+
+        calculate_custom_score(low, profile)
+        calculate_custom_score(high, profile)
+
+        assert score_of(low) == score_of(high)
+
+    def test_터널은_차단하지_않고_쾌적도만_감점한다(self):
+        normal = make_graph(DEFAULT_EDGE)
+        tunnel = make_graph({**DEFAULT_EDGE, "tags": ["tunnel"]})
+
+        calculate_custom_score(normal, DEFAULT_PROFILE)
+        calculate_custom_score(tunnel, DEFAULT_PROFILE)
+
+        assert math.isfinite(score_of(tunnel))
+        assert score_of(tunnel) > score_of(normal)
 
 
 # ── 멀티 엣지 그래프 ─────────────────────────────────────────────────────────

@@ -20,7 +20,10 @@ def load_route_graph(request: dict[str, Any]) -> nx.Graph:
         nx.Graph: route_engine 표준 node/edge attribute를 가진 그래프
             node 속성: lon, lat, node_type, is_underground, is_overpass
             edge 속성: link_id, length, safety_score, nature_score, slope_score,
-                       running_score, landmark_score, child_score
+                       running_score, landmark_score, child_score,
+                       park_overlap_ratio, convenience_score,
+                       is_school_zone, is_vehicle_caution,
+                       toilet_count, transit_count, accessibility_poi_count
 
     금지:
         custom_score 계산, profile 선택, route algorithm 호출 금지

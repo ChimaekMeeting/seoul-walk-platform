@@ -17,11 +17,45 @@ class ParkPolygonCollector:
     """
 
     RAW_PATH = Path("src/data/raw/서울시 생활권계획 시설(공원) 공간정보.shp")
+    BOUNDARY_PATH = Path("src/data/raw/행정구역 법정동 경계.shp")
     GREEN_TYPE = "seoul_park_polygon"
     SOURCE_NAME = "seoul_living_area_plan_park"
 
-    def __init__(self, raw_path: str | Path | None = None):
+    def __init__(
+        self,
+        raw_path: str | Path | None = None,
+        boundary_path: str | Path | None = None,
+    ):
         self.raw_path = Path(raw_path) if raw_path is not None else self.RAW_PATH
+        self.boundary_path = (
+            Path(boundary_path)
+            if boundary_path is not None
+            else self.BOUNDARY_PATH
+        )
+
+    def _load_seoul_boundary(self, crs) -> object:
+        if not self.boundary_path.exists():
+            raise FileNotFoundError(
+                f"행정구역 법정동 경계 Shapefile을 찾을 수 없습니다: "
+                f"{self.boundary_path}"
+            )
+        boundary = gpd.read_file(self.boundary_path, encoding="cp949")
+        if boundary.crs is None:
+            raise ValueError("행정구역 경계 Shapefile의 좌표계 정보가 없습니다.")
+        if "COL_ADM_SE" not in boundary.columns:
+            raise ValueError("행정구역 경계에 COL_ADM_SE 자치구 코드가 없습니다.")
+        boundary = boundary[
+            boundary["COL_ADM_SE"].astype(str).str.startswith("11")
+            & boundary.geometry.geom_type.isin(["Polygon", "MultiPolygon"])
+        ].copy()
+        boundary.geometry = boundary.geometry.make_valid()
+        boundary = boundary[
+            boundary.geometry.geom_type.isin(["Polygon", "MultiPolygon"])
+            & ~boundary.geometry.is_empty
+        ]
+        if boundary.empty:
+            raise ValueError("서울 행정구역 Polygon geometry가 없습니다.")
+        return boundary.to_crs(crs).geometry.unary_union
 
     def build_records(self) -> gpd.GeoDataFrame:
         if not self.raw_path.exists():
@@ -48,6 +82,15 @@ class ParkPolygonCollector:
         ].copy()
         if gdf.empty:
             raise ValueError("유효한 공원 Polygon geometry가 없습니다.")
+
+        seoul_boundary = self._load_seoul_boundary(gdf.crs)
+        gdf.geometry = gdf.geometry.intersection(seoul_boundary)
+        gdf = gdf[
+            gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])
+            & ~gdf.geometry.is_empty
+        ].copy()
+        if gdf.empty:
+            raise ValueError("서울 경계와 교차하는 공원 Polygon이 없습니다.")
 
         gdf = gdf.to_crs("EPSG:4326")
         gdf["osm_raw_id"] = None

@@ -1,9 +1,9 @@
 # 챗봇 Agent 하네스
 
 > 상태: Current  
-> 기준일: 2026-07-29  
+> 기준일: 2026-07-30
 > 관련 코드: `src/agent/`, `src/service/chat/prewalk_service.py`, `src/schema/prewalk_schema.py`  
-> 검증 상태: 현재 코드 대조 감사 완료·격리 통합 확인 (2026-07-29 챗봇 정리 작업 반영)
+> 검증 상태: 현재 코드 대조·프로필 전달 단위 테스트 완료·기존 격리 통합 확인
 
 ## 1. 책임
 
@@ -33,6 +33,7 @@ HTTP 입력:
 | `origin_candidate` | `Interviewer` | 다음 `Interviewer`(첫 번째 후보 자동 확정용) |
 | `destination_candidate` | `Interviewer` | 다음 `Interviewer`(첫 번째 후보 자동 확정용) |
 | `themes` | `Extractor` | `RouteExecutor` 가중치 |
+| `profile` | API State 또는 `RouteExecutor` | 명시값 우선, 없으면 테마에서 결정 |
 | `awaiting_confirmation` | `Interviewer`·Orchestrator | 다음 intent 분기 |
 | `is_complete` | `Interviewer`·Orchestrator | Graph 분기·완료 상태 |
 | `response` | 각 대화 Node·Orchestrator | `ChatResponse.state` |
@@ -40,12 +41,19 @@ HTTP 입력:
 
 `user_context`는 모드에 따라 `CircularPreference`, `OnewayPreference`, `OnewayShortestPreference` 중 하나다.
 
+명시 `profile`이 없으면 `유모차`·`계단이 불편한` 테마는 내부 `accessible`,
+`활기찬`·`힙한` 테마는 `convenient`를 선택한다. 접근성 테마가 편의 테마보다
+우선한다. 사용자에게는 `accessible`을 `이동이 편한 길`로 안내하며 완전한 무장애
+경로를 뜻하지 않는다. 저장된 설문값은 선택 프로필을 교체하지 않고 공통 baseline과의
+차이만 더한다.
+
 ## 3. 출력
 
 - API 출력: `ChatResponse(status, thread_id, state)`
 - PostgreSQL: init마다 `ChatSession(user_id, thread_id, START)` 추가
 - Valkey: `chat_state:{thread_id}`에 전체 State JSON 저장, TTL 3,600초
 - 경로 성공: `RouteService`가 `RouteHistory`를 저장하고 `route_result.id` 반환
+- 경로 성공: 경로 50m 안의 도보망 연결 POI를 `route_result.nearby_pois`로 반환
 - LLM 출력: 초기 인사, 모드·거리·위치·테마 추출, 누락 질문
 
 현재 intent State에는 access JWT가 포함되며 API 응답과 Valkey JSON 양쪽으로 전달된다. `ChatSession.current_state`는 경로 완료 후에도 `START`로 남는다.
@@ -85,7 +93,7 @@ src/prompt/                                      # LLM Prompt
 | `WeatherChecker.run` | `lat`, `lon` | `init_message`(문자열) | 기상청·에어코리아·OpenAI |
 | `Extractor.run` | `State` | `mode`, `user_context`, `themes` | OpenAI, `ModeTool` |
 | `Interviewer.run` | `State` | 후보 위치, 보완된 context, `response`, 확인 상태 | OpenAI, `PlaceTool` |
-| `RouteExecutor.run` | `State` | `route_result` | 사용자 설문, `RouteTool` |
+| `RouteExecutor.run` | `State` | `profile`, `route_result` | 사용자 설문, `RouteTool` |
 
 모든 대화 Node는 전달받은 State 객체를 변경해 반환한다. Node별 별도 입출력 schema는 없다.
 
@@ -121,7 +129,7 @@ Git 이력 기준으로 조건부 Edge는 `0ed8073b`에서 추가됐다. `e42c36
 |---|---|---|
 | `Extractor` | `ModeTool` 3종 | 위치·거리 → 모드별 Preference |
 | `Interviewer` | `PlaceTool` 2종 | keyword·category → Kakao 장소 결과 |
-| `RouteExecutor` | `RouteTool` 3종 | 좌표·거리·JWT·Weights → `WalkRouteResponse` |
+| `RouteExecutor` | `RouteTool` 3종 | 좌표·거리·JWT·Profile·Weights → `WalkRouteResponse` |
 
 | Node | 현재 사용하는 Prompt |
 |---|---|

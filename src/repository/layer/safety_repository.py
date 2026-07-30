@@ -3,7 +3,7 @@ from typing import List
 
 import pandas as pd
 from shapely.wkt import loads as wkt_loads
-from sqlalchemy import func, select, insert
+from sqlalchemy import delete, func, insert, select
 
 from src.database.postgresql import get_postgresql_db
 from src.entity.layer.safety_layer import SafetyLayer
@@ -41,6 +41,19 @@ class SafetyRepository:
             if not new_records:
                 return
             db.execute(insert(SafetyLayer), new_records)
+            db.commit()
+
+    @staticmethod
+    def replace_types(records: List[dict], safety_types: set[str]) -> None:
+        """지정한 안전 유형만 현재 수집 결과로 원자적으로 교체합니다."""
+        with get_postgresql_db() as db:
+            db.execute(
+                delete(SafetyLayer).where(
+                    SafetyLayer.safety_type.in_(safety_types)
+                )
+            )
+            if records:
+                db.execute(insert(SafetyLayer), records)
             db.commit()
 
     @staticmethod

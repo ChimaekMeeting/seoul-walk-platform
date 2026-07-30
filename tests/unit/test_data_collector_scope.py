@@ -15,7 +15,9 @@ def collector_factory(name: str, calls: list[str]):
     instance = MagicMock()
     instance.upsert.side_effect = lambda: calls.append(f"{name}.upsert")
     instance.rebuild.side_effect = lambda: calls.append(f"{name}.rebuild")
-    instance.save.side_effect = lambda: calls.append(f"{name}.save")
+    instance.save.side_effect = lambda *args, **kwargs: calls.append(
+        f"{name}.save"
+    )
     instance.update_accident.side_effect = lambda: calls.append(
         f"{name}.update_accident"
     )
@@ -25,13 +27,16 @@ def collector_factory(name: str, calls: list[str]):
     return MagicMock(return_value=instance)
 
 
-def test_v1_runs_only_network_boundary_and_water(monkeypatch):
+def test_v1_runs_approved_network_layers_pois_and_scores(monkeypatch):
     calls: list[str] = []
     collector_names = (
         "BaseNetworkCollector",
         "NatureCollector",
         "SafetyCollector",
         "ChildCollector",
+        "CommercialCollector",
+        "EdgeFeatureCollector",
+        "RoutePoiCollector",
         "SeoulBoundaryCollector",
         "SeoulWaterCollector",
         "ParkPolygonCollector",
@@ -49,8 +54,13 @@ def test_v1_runs_only_network_boundary_and_water(monkeypatch):
 
     assert calls == [
         "BaseNetworkCollector.upsert",
-        "ParkPolygonCollector.save",
         "SeoulBoundaryCollector.save",
+        "ParkPolygonCollector.save",
+        "SafetyCollector.save",
+        "ChildCollector.save",
+        "EdgeFeatureCollector.save",
+        "RoutePoiCollector.save",
+        "CommercialCollector.save",
         "SeoulWaterCollector.save",
     ]
 
@@ -62,6 +72,9 @@ def test_legacy_all_keeps_existing_collectors(monkeypatch):
         "NatureCollector",
         "SafetyCollector",
         "ChildCollector",
+        "CommercialCollector",
+        "EdgeFeatureCollector",
+        "RoutePoiCollector",
         "SeoulBoundaryCollector",
         "SeoulWaterCollector",
         "ParkPolygonCollector",
@@ -90,17 +103,28 @@ def test_legacy_all_keeps_existing_collectors(monkeypatch):
     ]
 
 
-def test_v1_source_scope_does_not_collect_external_raw(monkeypatch):
-    for source_name in ("OSMSource", "KakaoSource", "PublicSource", "CSVSource"):
-        source = MagicMock()
-        monkeypatch.setattr(source_collector, source_name, source)
+def test_v1_source_scope_collects_only_approved_local_tabular_raw(monkeypatch):
+    for source_name in ("OSMSource", "KakaoSource", "PublicSource"):
+        monkeypatch.setattr(source_collector, source_name, MagicMock())
+    csv_source = MagicMock()
+    monkeypatch.setattr(source_collector, "CSVSource", csv_source)
 
     source_collector.collect(scope="v1")
 
     source_collector.OSMSource.assert_not_called()
     source_collector.KakaoSource.assert_not_called()
     source_collector.PublicSource.assert_not_called()
-    source_collector.CSVSource.assert_not_called()
+    csv_source.assert_called_once_with()
+    csv_source.return_value.store_v1.assert_called_once_with(refresh=False)
+
+
+def test_v1_source_scope_can_refresh_local_raw(monkeypatch):
+    csv_source = MagicMock()
+    monkeypatch.setattr(source_collector, "CSVSource", csv_source)
+
+    source_collector.collect(scope="v1", refresh_local=True)
+
+    csv_source.return_value.store_v1.assert_called_once_with(refresh=True)
 
 
 @pytest.mark.parametrize(

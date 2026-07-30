@@ -2,16 +2,9 @@ import importlib
 import sys
 from unittest.mock import MagicMock
 
+import geopandas as gpd
 import pytest
-
-
-for prefix in ("geopandas", "shapely", "pyproj"):
-    for module_name in list(sys.modules):
-        if module_name == prefix or module_name.startswith(f"{prefix}."):
-            sys.modules.pop(module_name, None)
-
-gpd = importlib.import_module("geopandas")
-Polygon = importlib.import_module("shapely.geometry").Polygon
+from shapely.geometry import Polygon
 
 sys.modules.pop("src.repository.layer.nature_repository", None)
 nature_repository_module = importlib.import_module(
@@ -54,11 +47,30 @@ def write_park_shapefile(path, *, crs="EPSG:5174"):
     gdf.to_file(path, encoding="cp949")
 
 
+def write_boundary_shapefile(path, *, crs="EPSG:5174"):
+    boundary = Polygon(
+        [
+            (197_900, 449_900),
+            (198_250, 449_900),
+            (198_250, 450_250),
+            (197_900, 450_250),
+        ]
+    )
+    gdf = gpd.GeoDataFrame(
+        {"COL_ADM_SE": ["11110"]},
+        geometry=[boundary],
+        crs=crs,
+    )
+    gdf.to_file(path, encoding="cp949")
+
+
 def test_build_records_preserves_source_and_repairs_geometry(tmp_path):
     raw_path = tmp_path / "parks.shp"
+    boundary_path = tmp_path / "boundary.shp"
     write_park_shapefile(raw_path)
+    write_boundary_shapefile(boundary_path)
 
-    records = ParkPolygonCollector(raw_path).build_records()
+    records = ParkPolygonCollector(raw_path, boundary_path).build_records()
 
     assert len(records) == 2
     assert records.crs.to_epsg() == 4326
@@ -71,14 +83,17 @@ def test_build_records_preserves_source_and_repairs_geometry(tmp_path):
 
 def test_build_records_rejects_missing_crs(tmp_path):
     raw_path = tmp_path / "parks_without_crs.shp"
+    boundary_path = tmp_path / "boundary.shp"
     write_park_shapefile(raw_path, crs=None)
+    write_boundary_shapefile(boundary_path)
 
     with pytest.raises(ValueError, match="좌표계"):
-        ParkPolygonCollector(raw_path).build_records()
+        ParkPolygonCollector(raw_path, boundary_path).build_records()
 
 
 def test_build_records_rejects_missing_required_columns(tmp_path):
     raw_path = tmp_path / "parks_without_label.shp"
+    boundary_path = tmp_path / "boundary.shp"
     gdf = gpd.GeoDataFrame(
         {"ID": ["park-1"]},
         geometry=[
@@ -94,9 +109,25 @@ def test_build_records_rejects_missing_required_columns(tmp_path):
         crs="EPSG:5174",
     )
     gdf.to_file(raw_path, encoding="cp949")
+    write_boundary_shapefile(boundary_path)
 
     with pytest.raises(ValueError, match="LABEL"):
-        ParkPolygonCollector(raw_path).build_records()
+        ParkPolygonCollector(raw_path, boundary_path).build_records()
+
+
+def test_build_records_clips_geometry_to_seoul_boundary(tmp_path):
+    raw_path = tmp_path / "parks.shp"
+    boundary_path = tmp_path / "boundary.shp"
+    write_park_shapefile(raw_path)
+    write_boundary_shapefile(boundary_path)
+
+    records = ParkPolygonCollector(raw_path, boundary_path).build_records()
+    projected = records.to_crs("EPSG:5174")
+
+    first = projected.loc[projected.source_id == "park-1", "geom"].iloc[0]
+    second = projected.loc[projected.source_id == "park-2", "geom"].iloc[0]
+    assert first.area == pytest.approx(10_000, rel=0.01)
+    assert second.area == pytest.approx(2_500, rel=0.05)
 
 
 def test_walk_edge_has_park_overlap_ratio_column():

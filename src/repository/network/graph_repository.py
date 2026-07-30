@@ -6,6 +6,7 @@ from sqlalchemy import select
 from src.database.postgresql import get_postgresql_db
 from src.entity.network.walk_edge import WalkEdge
 from src.entity.network.walk_node import WalkNode
+from src.repository.layer.route_poi_repository import RoutePoiRepository
 
 import logging
 logger = logging.getLogger(__name__)
@@ -24,7 +25,11 @@ class GraphRepository:
     )
 
     @classmethod
-    def _edge_attributes(cls, row) -> dict | None:
+    def _edge_attributes(
+        cls,
+        row,
+        poi_counts: dict[str, int] | None = None,
+    ) -> dict | None:
         """
         WalkEdge 조회 결과를 NetworkX edge 속성으로 변환합니다.
 
@@ -51,8 +56,17 @@ class GraphRepository:
             "running_score": row.running_score,
             "landmark_score": row.landmark_score,
             "child_score": row.child_score,
+            "park_overlap_ratio": row.park_overlap_ratio,
+            "convenience_score": row.convenience_score,
+            "is_school_zone": bool(row.is_school_zone),
+            "is_vehicle_caution": bool(row.is_vehicle_caution),
+            "toilet_count": 0,
+            "transit_count": 0,
+            "accessibility_poi_count": 0,
             "tags": tags,
         }
+        if poi_counts:
+            attributes.update(poi_counts)
         attributes.update(
             {
                 field_name: bool(getattr(row, field_name))
@@ -74,6 +88,7 @@ class GraphRepository:
                              원본 LINK 플래그, tags, 각 score
         """
         G = nx.Graph()
+        poi_counts_by_edge = RoutePoiRepository.get_connected_counts_by_edge()
 
         with get_postgresql_db() as db:
             node_rows = db.execute(
@@ -119,11 +134,18 @@ class GraphRepository:
                     WalkEdge.running_score,
                     WalkEdge.landmark_score,
                     WalkEdge.child_score,
+                    WalkEdge.park_overlap_ratio,
+                    WalkEdge.convenience_score,
+                    WalkEdge.is_school_zone,
+                    WalkEdge.is_vehicle_caution,
                 ).where(WalkEdge.is_walkable.is_(True))
             ).fetchall()
 
             for row in edge_rows:
-                attributes = GraphRepository._edge_attributes(row)
+                attributes = GraphRepository._edge_attributes(
+                    row,
+                    poi_counts_by_edge.get(row.link_id),
+                )
                 if attributes is None:
                     continue
                 G.add_edge(
@@ -159,6 +181,7 @@ class GraphRepository:
             nx.Graph: 반경 내 노드/엣지로 구성된 NetworkX 그래프.
         """
         G = nx.Graph()
+        poi_counts_by_edge = RoutePoiRepository.get_connected_counts_by_edge()
         origin_geog = ST_SetSRID(ST_MakePoint(lon, lat), 4326).cast(Geography)
 
         with get_postgresql_db() as db:
@@ -205,6 +228,10 @@ class GraphRepository:
                     WalkEdge.running_score,
                     WalkEdge.landmark_score,
                     WalkEdge.child_score,
+                    WalkEdge.park_overlap_ratio,
+                    WalkEdge.convenience_score,
+                    WalkEdge.is_school_zone,
+                    WalkEdge.is_vehicle_caution,
                 ).where(
                     ST_DWithin(WalkEdge.geom.cast(Geography), origin_geog, radius_m),
                     WalkEdge.is_walkable.is_(True),
@@ -212,7 +239,10 @@ class GraphRepository:
             ).fetchall()
 
             for row in edge_rows:
-                attributes = GraphRepository._edge_attributes(row)
+                attributes = GraphRepository._edge_attributes(
+                    row,
+                    poi_counts_by_edge.get(row.link_id),
+                )
                 if attributes is None:
                     continue
                 G.add_edge(

@@ -8,6 +8,9 @@ from src.data import (
     LandmarkCollector,
     RunningCourseCollector,
     ChildCollector,
+    CommercialCollector,
+    EdgeFeatureCollector,
+    RoutePoiCollector,
     SeoulBoundaryCollector,
     SeoulWaterCollector,
     ParkPolygonCollector,
@@ -54,18 +57,33 @@ def collect_v1(network_mode: str) -> None:
     """
     collect_network(network_mode)
 
+    logger.info("--- 서울 행정구역 경계 적재 ---")
+    SeoulBoundaryCollector().save()
+
     logger.info("--- 서울시 공원 Polygon 적재·WalkEdge 매핑 ---")
     ParkPolygonCollector().save()
 
-    logger.info("--- 서울 행정구역 경계 적재 ---")
-    SeoulBoundaryCollector().save()
+    logger.info("--- CCTV·스마트가로등 안전 Layer·Score 적재 ---")
+    SafetyCollector().save()
+
+    logger.info("--- 어린이보호구역 Layer·차량 주의 Edge 적재 ---")
+    ChildCollector().save(include_play_facility=False)
+
+    logger.info("--- 외부 선형 Edge 검증 후보 Layer 적재 ---")
+    EdgeFeatureCollector().save()
+
+    logger.info("--- 편의·교통·접근성 POI 적재·도보망 연결 ---")
+    RoutePoiCollector().save()
+
+    logger.info("--- 상권 H3 편의 Score 적재 ---")
+    CommercialCollector().save()
 
     logger.info("--- 서울 수계 폴리곤 적재 ---")
     SeoulWaterCollector().save()
 
     logger.info(
         "V1 보류 Collector는 실행하지 않습니다: "
-        "nature, safety, child, landmark, running"
+        "OSM nature, landmark, running, slope"
     )
 
 

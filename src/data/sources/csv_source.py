@@ -1,6 +1,7 @@
 import logging
 
 import pandas as pd
+from shapely import wkt
 
 from src.data.utils.geocode_utils import Geocoder
 from src.repository.raw.csv_raw_repository import CsvRawRepository
@@ -56,14 +57,37 @@ class CSVSource:
         ("type", "toilet"),
         ("type", "bus_stop"),
         ("type", "commercial"),
+        ("type", "pedestrian_priority"),
+        ("type", "tunnel"),
+        ("type", "subway_lift"),
+        ("type", "subway_elevator"),
     ]
+    V1_VALUES: tuple[str, ...] = (
+        "protection_zone",
+        "streetlight",
+        "cctv",
+        "running_park",
+        "street_tree",
+        "toilet",
+        "bus_stop",
+        "commercial",
+        "pedestrian_priority",
+        "tunnel",
+        "subway_lift",
+        "subway_elevator",
+    )
 
     def __init__(self, raw_dir: str = "src/data/raw"):
         self.raw_dir = raw_dir
 
-    def fetch_and_store(self, key: str, value: str) -> None:
+    def fetch_and_store(
+        self,
+        key: str,
+        value: str,
+        refresh: bool = False,
+    ) -> None:
         query_key = f"{key}={value}"
-        if CsvRawRepository.exists(query_key):
+        if CsvRawRepository.exists(query_key) and not refresh:
             logger.debug("%s 이미 적재됨, 스킵", query_key)
             return
 
@@ -83,7 +107,7 @@ class CSVSource:
         logger.debug("%s 전처리 후 %d행", value, len(df))
 
         # 저장
-        CsvRawRepository.save(df, query_key)
+        CsvRawRepository.save(df, query_key, replace=refresh)
         logger.info("%s 적재 완료: %d행", value, len(df))
 
     def store(self) -> None:
@@ -92,6 +116,11 @@ class CSVSource:
         """
         for key, value in self.TAGS:
             self.fetch_and_store(key, value)
+
+    def store_v1(self, refresh: bool = False) -> None:
+        """승인된 로컬 CSV·XLSX만 V1 RAW 테이블에 저장합니다."""
+        for value in self.V1_VALUES:
+            self.fetch_and_store("type", value, refresh=refresh)
 
     def get(self, key: str, value: str):
         """
@@ -139,6 +168,10 @@ class CSVSource:
             rename_map[end_lon_col] = "end_lon"
         df = df.rename(columns=rename_map)
 
+        if end_lat_col:
+            df = df.dropna(subset=["end_lat", "end_lon"])
+            df = df[~df[["end_lat", "end_lon"]].isin(["", "null"]).any(axis=1)]
+
         return df.reset_index(drop=True)
 
     def _read_csv(self, filename: str) -> pd.DataFrame:
@@ -158,6 +191,10 @@ class CSVSource:
         path = f"{self.raw_dir}/{filename}"
         return pd.read_excel(path, engine="openpyxl", **kwargs)
 
+    def load_toilet_details(self) -> pd.DataFrame:
+        """좌표가 없는 화장실 상세 원본을 POI 속성 결합용으로 읽습니다."""
+        return self._read_csv("공중화장실정보_서울특별시.csv")
+
     def _fetch_all(self, value: str):
         """
         value에 따라 로드 메서드를 디스패치합니다.
@@ -174,6 +211,10 @@ class CSVSource:
             "toilet":      self._load_toilet,
             "bus_stop":    self._load_bus_stop,
             "commercial":  self._load_commercial,
+            "pedestrian_priority": self._load_pedestrian_priority,
+            "tunnel": self._load_tunnel,
+            "subway_lift": self._load_subway_lift,
+            "subway_elevator": self._load_subway_elevator,
         }
         if value not in dispatch:
             raise NotImplementedError(f"'{value}' 데이터셋 미구현")
@@ -381,3 +422,59 @@ class CSVSource:
             "가로수길종료위도",
             "가로수길종료경도",
         )
+
+    def _load_pedestrian_priority(self):
+        df = self._read_csv("전국보행자우선도로표준데이터.csv")
+        return (
+            df,
+            "보행자우선도로시작점위도",
+            "보행자우선도로시작점경도",
+            "보행자우선도로명",
+            None,
+            "시도명",
+            "보행자우선도로종료점위도",
+            "보행자우선도로종료점경도",
+        )
+
+    def _load_tunnel(self):
+        df = self._read_csv(
+            "국토교통부_전국도로터널정보표준데이터_20251231.csv"
+        )
+        return (
+            df,
+            "터널시작점위도",
+            "터널시작점경도",
+            "터널명",
+            "소재지지번주소",
+            "시도명",
+            "터널종료점위도",
+            "터널종료점경도",
+        )
+
+    @staticmethod
+    def _extract_node_wkt_coordinates(df: pd.DataFrame) -> pd.DataFrame:
+        result = df.copy()
+
+        def parse_point(value):
+            try:
+                geometry = wkt.loads(str(value))
+            except (TypeError, ValueError):
+                return None, None
+            if geometry.geom_type != "Point":
+                return None, None
+            return geometry.y, geometry.x
+
+        coordinates = result["노드 WKT"].apply(parse_point)
+        result["_lat"] = coordinates.str[0]
+        result["_lon"] = coordinates.str[1]
+        return result
+
+    def _load_subway_lift(self):
+        df = self._read_csv("서울시 지하철 출입구 리프트 위치정보.csv")
+        df = self._extract_node_wkt_coordinates(df)
+        return df, "_lat", "_lon", "지하철역명", None, None, None, None
+
+    def _load_subway_elevator(self):
+        df = self._read_csv("서울시 지하철역 엘리베이터 위치정보.csv")
+        df = self._extract_node_wkt_coordinates(df)
+        return df, "_lat", "_lon", "지하철역명", None, None, None, None

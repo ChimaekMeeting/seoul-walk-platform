@@ -29,6 +29,10 @@ def make_edge_row(**overrides):
         "running_score": 0.4,
         "landmark_score": 0.3,
         "child_score": 0.2,
+        "park_overlap_ratio": 0.4,
+        "convenience_score": 0.5,
+        "is_school_zone": False,
+        "is_vehicle_caution": False,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -64,6 +68,28 @@ def test_edge_attributes_keep_scores():
     assert attributes["running_score"] == 0.4
     assert attributes["landmark_score"] == 0.3
     assert attributes["child_score"] == 0.2
+    assert attributes["park_overlap_ratio"] == 0.4
+    assert attributes["convenience_score"] == 0.5
+    assert attributes["is_school_zone"] is False
+    assert attributes["is_vehicle_caution"] is False
+    assert attributes["toilet_count"] == 0
+    assert attributes["transit_count"] == 0
+    assert attributes["accessibility_poi_count"] == 0
+
+
+def test_edge_attributes_attach_connected_poi_counts():
+    attributes = GraphRepository._edge_attributes(
+        make_edge_row(),
+        {
+            "toilet_count": 2,
+            "transit_count": 3,
+            "accessibility_poi_count": 1,
+        },
+    )
+
+    assert attributes["toilet_count"] == 2
+    assert attributes["transit_count"] == 3
+    assert attributes["accessibility_poi_count"] == 1
 
 
 def test_edge_attributes_exclude_non_walkable_link():

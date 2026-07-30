@@ -1,5 +1,4 @@
-from enum import Enum
-from typing import Literal, Optional, Union
+from typing import Optional
 from pydantic import BaseModel, Field
 
 class CircularRouteInput(BaseModel):
@@ -22,4 +21,21 @@ class Weights(BaseModel):
     slope:    float = Field(0.5, ge=0.0, le=1.0, description="경사 회피 가중치 (slope_score)")
     running:  float = Field(0.0, ge=0.0, le=1.0, description="러닝 코스 선호 가중치 (running_score)")
     landmark: float = Field(0.0, ge=0.0, le=1.0, description="랜드마크 선호 가중치 (landmark_score)")
-    child:    float = Field(0.0, ge=0.0, le=1.0, description="어린이 보호구역 가중치 (child_score)")
+    child:    float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="어린이보호구역 차량 주의 회피 가중치",
+    )
+    convenience: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="상권·화장실·대중교통 편의 선호 가중치",
+    )
+    accessibility: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="리프트·엘리베이터 인접 경로 선호 가중치",
+    )

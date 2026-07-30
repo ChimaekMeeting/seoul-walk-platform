@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.schema.route_schema import Weights
 
@@ -18,11 +18,13 @@ class ScoringProfile(str, Enum):
     RUNNING  = "running"
     LANDMARK = "landmark"
     CHILD    = "child"
+    CONVENIENT = "convenient"
+    ACCESSIBLE = "accessible"
 
 
 class ProfileConfig(BaseModel):
     weights:      Weights
-    blocked_tags: list[str] = []
+    blocked_tags: list[str] = Field(default_factory=list)
     # scoring_engine.calculate_custom_score가 받는 "general" | "running" 계산 분기.
     # running 프로필만 running_score/역방향 slope 공식을 쓰는 "running" 분기를 사용합니다.
     scoring_mode: str = "general"
@@ -30,33 +32,53 @@ class ProfileConfig(BaseModel):
 
 PROFILES: dict[ScoringProfile, ProfileConfig] = {
     ScoringProfile.DEFAULT: ProfileConfig(
-        weights=Weights(safety=0.5, nature=0.5, slope=0.5),
-        blocked_tags=["underground"],
+        weights=Weights(
+            safety=0.5,
+            nature=0.5,
+            slope=0.5,
+            convenience=0.2,
+        ),
     ),
     ScoringProfile.NATURE: ProfileConfig(
         weights=Weights(safety=0.5, nature=0.8, slope=0.5),
-        blocked_tags=["underground"],
     ),
     ScoringProfile.SAFE: ProfileConfig(
         weights=Weights(safety=0.8, nature=0.5, slope=0.5),
-        blocked_tags=["underground"],
     ),
     ScoringProfile.FLAT: ProfileConfig(
         weights=Weights(safety=0.5, nature=0.5, slope=0.8),
-        blocked_tags=["underground"],
     ),
     ScoringProfile.RUNNING: ProfileConfig(
         weights=Weights(safety=0.5, nature=0.5, slope=0.5, running=0.8),
-        blocked_tags=["underground"],
         scoring_mode="running",
     ),
     ScoringProfile.LANDMARK: ProfileConfig(
         weights=Weights(safety=0.5, nature=0.5, slope=0.5, landmark=0.8),
-        blocked_tags=["underground"],
     ),
     ScoringProfile.CHILD: ProfileConfig(
-        weights=Weights(safety=0.5, nature=0.5, slope=0.5, child=0.8),
-        blocked_tags=["underground"],
+        weights=Weights(
+            safety=0.6,
+            nature=0.5,
+            slope=0.5,
+            child=0.8,
+            convenience=0.3,
+        ),
+    ),
+    ScoringProfile.CONVENIENT: ProfileConfig(
+        weights=Weights(
+            safety=0.5,
+            nature=0.4,
+            slope=0.5,
+            convenience=0.8,
+        ),
+    ),
+    ScoringProfile.ACCESSIBLE: ProfileConfig(
+        weights=Weights(
+            safety=0.5,
+            nature=0.4,
+            slope=0.7,
+            accessibility=0.8,
+        ),
     ),
 }
 

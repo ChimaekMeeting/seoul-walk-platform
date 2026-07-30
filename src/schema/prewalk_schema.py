@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Union, List
 from src.interfaces.schema.walk_schema import WalkMode, WalkRouteResponse
+from src.route_engine.profiles import ScoringProfile
 
 
 class Location(BaseModel):
@@ -63,4 +64,5 @@ class State(BaseModel):
     awaiting_confirmation: bool = False
     user_prompt: str  = ""
     response:    str  = ""
-    themes: List[str] = []
+    themes: List[str] = Field(default_factory=list)
+    profile: Optional[ScoringProfile] = None

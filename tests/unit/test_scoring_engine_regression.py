@@ -10,11 +10,10 @@ scoring_engine.calculate_custom_score의 "현재 동작"을 고정하는 회귀 
   - child/landmark/running 가중치는 현재 모드(3개)에서 사용되지 않지만 scoring_engine은
     여전히 해당 score들을 계산하므로, 가중치를 인라인으로 구성해 방향 회귀를 고정한다.
 
-주의:
-  - slope_score는 general 모드와 running 모드에서 반대 방향으로 작동한다
-    (평탄할수록: general은 cost 감소 / running은 cost 증가).
-    이는 버그가 아니라 "현재 동작"이며, 옳다고 단정하지 않는다.
-    정책이 확정되기 전까지 이 비대칭을 고정하기 위한 테스트이므로 임의로 수정하지 않는다.
+정책:
+  - slope_score는 경사도가 아니라 평탄도다. 1.0에 가까울수록 평지다.
+  - 모든 모드에서 평탄도가 높을수록 cost가 낮아진다.
+  - child_score 자체는 가점으로 사용하지 않고 is_vehicle_caution을 감점한다.
 """
 
 import networkx as nx
@@ -33,6 +32,7 @@ BASE_EDGE = {
     "running_score": 0.3,
     "landmark_score": 0.0,
     "child_score": 0.0,
+    "is_vehicle_caution": False,
     "tags": [],
 }
 
@@ -102,18 +102,18 @@ class TestDefaultProfileDirection:
         assert score_of(G_high) < score_of(G_base)
 
 
-# ── 2. child profile: child_score가 높으면 cost가 낮다 ──────────────────────
+# ── 2. child profile: 차량 주의 Edge의 cost가 높다 ─────────────────────────
 
 
 class TestChildProfileDirection:
-    def test_child_score가_높으면_custom_score가_낮다(self):
+    def test_vehicle_caution이면_custom_score가_높다(self):
         G_base = make_graph(BASE_EDGE)
-        G_high = make_graph({**BASE_EDGE, "child_score": 0.9})
+        G_high = make_graph({**BASE_EDGE, "is_vehicle_caution": True})
 
         calculate_custom_score(G_base, CHILD_PROFILE)
         calculate_custom_score(G_high, CHILD_PROFILE)
 
-        assert score_of(G_high) < score_of(G_base)
+        assert score_of(G_high) > score_of(G_base)
 
 
 # ── 3. landmark profile: landmark_score가 높으면 cost가 낮다 ────────────────
@@ -130,7 +130,7 @@ class TestLandmarkProfileDirection:
         assert score_of(G_high) < score_of(G_base)
 
 
-# ── 4/5. running profile: running_score는 낮추고, slope_score는 높인다 ─────
+# ── 4/5. running profile: running_score와 평탄도는 cost를 낮춘다 ───────────
 
 
 class TestRunningProfileDirection:
@@ -143,23 +143,14 @@ class TestRunningProfileDirection:
 
         assert score_of(G_high) < score_of(G_base)
 
-    def test_running_모드에서_slope_score가_높으면_custom_score가_높다(self):
-        """
-        현재 동작 고정용이며 정책 확정 전까지 임의 수정하지 않는다.
-
-        general 모드와 달리 running 모드는 slope_factor = 1 + slope*slope_w를
-        분자에 곱하므로, 같은 slope_score(평탄함)가 높을수록 오히려 cost가
-        증가한다. 이게 의도(러닝은 경사 변화를 선호)인지 버그인지는 별도로
-        팀 확인이 필요하며, 이 테스트는 그 확인 전까지 현재 수식의 동작을
-        그대로 고정해서 리팩토링 시 회귀를 잡기 위한 것이다.
-        """
+    def test_running_모드에서도_slope_score가_높으면_custom_score가_낮다(self):
         G_base = make_graph(BASE_EDGE)
         G_high = make_graph({**BASE_EDGE, "slope_score": 0.9})
 
         calculate_custom_score(G_base, RUNNING_PROFILE)
         calculate_custom_score(G_high, RUNNING_PROFILE)
 
-        assert score_of(G_high) > score_of(G_base)
+        assert score_of(G_high) < score_of(G_base)
 
 
 # ── 6. blocked_tags: 포함된 edge는 inf ──────────────────────────────────────
@@ -167,9 +158,13 @@ class TestRunningProfileDirection:
 
 class TestBlockedTagsDirection:
     def test_blocked_tag를_가진_edge는_custom_score가_inf다(self):
-        edge = {**BASE_EDGE, "tags": ["underground"]}
+        edge = {**BASE_EDGE, "tags": ["tunnel"]}
         G = make_graph(edge)
+        profile = {
+            **DEFAULT_PROFILE,
+            "blocked_tags": ["tunnel"],
+        }
 
-        calculate_custom_score(G, DEFAULT_PROFILE)
+        calculate_custom_score(G, profile)
 
         assert score_of(G) == float("inf")

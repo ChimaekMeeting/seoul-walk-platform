@@ -72,7 +72,10 @@ class SafetyCollector:
         if not records:
             logger.warning("수집된 accident_zone 데이터가 없습니다.")
             return
-        SafetyRepository.save_all(records)
+        SafetyRepository.replace_types(
+            records,
+            safety_types={"streetlight", "cctv"},
+        )
         self.update_edge()
         logger.info("accident_zone 적재 완료: %d건", len(records))
 

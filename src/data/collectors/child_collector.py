@@ -18,7 +18,7 @@ class ChildCollector:
         self.csv = CSVSource()
         self.public = PublicSource()
 
-    def build_records(self) -> list[dict]:
+    def build_records(self, include_play_facility: bool = True) -> list[dict]:
         records = []
 
         # 어린이보호구역 (csv_raw → child_layer)
@@ -39,36 +39,44 @@ class ChildCollector:
             protection_count += 1
 
         # 어린이놀이시설 (public_raw → child_layer)
-        gdf = self.public.get("type", "play_facility")
         play_count = 0
-        for _, row in gdf.iterrows():
-            records.append({
-                "csv_raw_id":    None,
-                "public_raw_id": row.get("public_raw_id"),
-                "category":      "어린이놀이시설",
-                "geom":          CollectorUtils.make_point(row["geom"].y, row["geom"].x),
-            })
-            play_count += 1
+        if include_play_facility:
+            play_gdf = self.public.get("type", "play_facility")
+            for _, row in play_gdf.iterrows():
+                records.append({
+                    "csv_raw_id":    None,
+                    "public_raw_id": row.get("public_raw_id"),
+                    "category":      "어린이놀이시설",
+                    "geom":          CollectorUtils.make_point(row["geom"].y, row["geom"].x),
+                })
+                play_count += 1
 
         logger.debug(
             "어린이보호구역 RAW %d개를 위치 %d개로 집계, 어린이놀이시설 %d개 빌드",
-            len(gdf),
+            len(protection_gdf),
             protection_count,
             play_count,
         )
         return records
 
-    def update_node(self) -> None:
-        records = self.build_records()
+    def update_node(self, include_play_facility: bool = True) -> None:
+        records = self.build_records(include_play_facility=include_play_facility)
         logger.info("child_layer %d개 저장 시작", len(records))
-        ChildRepository.save_all(records)
+        categories = {"어린이보호구역"}
+        if include_play_facility:
+            categories.add("어린이놀이시설")
+        ChildRepository.replace_categories(records, categories=categories)
 
     def update_edge(self) -> None:
         EdgeRepository.ensure_score_column("child_score")
         CollectorUtils.update_edge_scores("child_score", ChildRepository.get_child_h3_counts())
+        updated = ChildRepository.update_nearest_school_zone_edges(
+            max_distance_m=50.0
+        )
+        logger.info("어린이보호구역 최근접 차량 주의 Edge %d개 표시", updated)
 
-    def save(self) -> None:
-        self.update_node()
+    def save(self, include_play_facility: bool = True) -> None:
+        self.update_node(include_play_facility=include_play_facility)
         self.update_edge()
 
 

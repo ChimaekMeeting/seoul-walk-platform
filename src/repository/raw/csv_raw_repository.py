@@ -17,7 +17,11 @@ class CsvRawRepository:
             ).scalar()
 
     @staticmethod
-    def save(df: pd.DataFrame, query_key: str) -> None:
+    def save(
+        df: pd.DataFrame,
+        query_key: str,
+        replace: bool = False,
+    ) -> None:
         use_linestring = "end_lat" in df.columns
         # lat/lon/end 좌표는 geom으로 저장하므로 properties에서 제외
         exclude = {"lat", "lon", "end_lat", "end_lon"} if use_linestring else {"lat", "lon"}
@@ -53,6 +57,10 @@ class CsvRawRepository:
             ))
 
         with get_postgresql_db() as db:
+            if replace:
+                db.execute(
+                    delete(CsvRaw).where(CsvRaw.query_key == query_key)
+                )
             db.add_all(records)
             db.commit()
 
