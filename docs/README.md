@@ -58,7 +58,9 @@ docs/                              // 프로젝트 문서
 │   ├── data_rebuild.md            // V1 전체 재구축·검증·복구
 │   └── testing.md                 // 테스트 작성 구조
 ├── proposals/                     // 아직 구현하지 않은 변경 제안
-│   └── chatbot_upgrade_proposal.md // 챗봇 업그레이드 결정·작업 단위
+│   ├── chatbot_upgrade_proposal.md // 챗봇 업그레이드 결정·작업 단위
+│   ├── chatbot_cleanup_proposal.md // 챗봇 불필요한 항목 제거 발견 목록
+│   └── chatbot_hardcoding_proposal.md // 챗봇 하드코딩 문구 처리 방안
 ├── templates/                     // 공통 문서 형식
 │   ├── domain_contract.md         // 영역별 계약 템플릿
 │   └── work_unit.md               // 업무 배정자가 사용하는 범위·인계 양식
@@ -89,6 +91,8 @@ docs/                              // 프로젝트 문서
 - [전체 Workflow 지도](architecture/system_workflows.md)
 - [문서 작성 규칙](documentation_guide.md)
 - [챗봇 Agent 업그레이드 제안](proposals/chatbot_upgrade_proposal.md)
+- [챗봇 Agent 불필요한 항목 제거 제안](proposals/chatbot_cleanup_proposal.md)
+- [챗봇 Agent 하드코딩 문구 처리 방안 제안](proposals/chatbot_hardcoding_proposal.md)
 
 ## 전체 하네스 문서화 순서
 
