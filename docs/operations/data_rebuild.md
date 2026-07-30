@@ -121,7 +121,40 @@ SELECT
 
 관측 건수는 [V1 데이터 적재 Workflow](../architecture/workflows/v1_data_ingestion.md)를 참고하되 고정 상수로 사용하지 않는다.
 
-## 6. 실패·복구
+## 6. 배포용 도보 Graph 빌드
+
+DB 재구축과 공통 검증이 끝난 뒤 배포팀에 전달할 Graph를 만든다. 최종 artifact는 커밋된 코드에서만 생성한다.
+
+```bash
+./.venv/Scripts/python.exe -m scripts.build_walk_graph
+```
+
+로컬 구현 중 시험 빌드만 다음 옵션을 허용한다. 이 결과는 배포 로더가 거부하므로 전달하지 않는다.
+
+```bash
+./.venv/Scripts/python.exe -m scripts.build_walk_graph --allow-dirty
+```
+
+출력:
+
+```text
+artifacts/walk_graph_v1.pkl
+artifacts/walk_graph_v1.manifest.json
+artifacts/walk_graph_v1.sha256
+```
+
+빌더는 DB의 최종 서비스 Graph를 저장한 뒤 다시 로드하여 노드·엣지 수와 SHA-256을 검증한다. 세 파일을 함께 압축해 Drive로 전달하며 Git에는 커밋하지 않는다.
+
+배포팀은 세 파일을 `artifacts/`에 배치하고 다음 환경변수를 설정한다.
+
+```text
+WALK_GRAPH_SOURCE=artifact
+WALK_GRAPH_ARTIFACT_PATH=artifacts/walk_graph_v1.pkl
+WALK_GRAPH_DATA_VERSION=v1-2026-07-30
+WALK_GRAPH_EXPECTED_COMMIT={manifest의 source_commit, 선택}
+```
+
+## 7. 실패·복구
 
 | 실패 | 복구 시작점 |
 |---|---|
@@ -129,13 +162,15 @@ SELECT
 | NODE·LINK transaction | rollback 확인 후 `rebuild` |
 | 후속 Layer·Score | 실패 Collector 재실행 |
 | POI 공간 쿼리 장기 실행 | DB 쿼리 취소, geography 인덱스 생성 후 POI 재실행 |
+| Graph artifact 검증 실패 | 세 파일의 버전·SHA-256 확인 후 같은 커밋에서 재빌드 |
 | DB 성공·서버 실패 | DB 유지, 서버 시작 오류 수정 후 재시작 |
 | 새 데이터 전체 폐기 | 확인된 백업으로 복원 |
 
-## 7. 완료 기준
+## 8. 완료 기준
 
 - 대상과 백업 정책이 확인됐다.
 - 모든 V1 Collector가 완료됐다.
 - DB 참조 무결성과 건수를 확인했다.
 - Graph 재로딩과 대표 경로가 성공했다.
+- 배포 artifact 세 파일을 같은 커밋에서 생성·검증했다.
 - 실행 결과를 Workflow에 기록했다.

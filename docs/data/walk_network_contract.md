@@ -45,7 +45,7 @@ Point를 WalkNode로 만들거나, 유효하지 않은 Line을 임의로 복원�
 
 ## 5. Graph 생성
 
-`GraphRepository.load_graph()`는 다음 순서로 서비스 Graph를 만든다.
+개발 모드의 `GraphRepository.load_graph()`는 다음 순서로 서비스 Graph를 만든다.
 
 ```text
 보행 가능한 NODE·LINK 조회
@@ -53,6 +53,16 @@ Point를 WalkNode로 만들거나, 유효하지 않은 Line을 임의로 복원�
 → 최대 연결 컴포넌트 선택
 → 막다른 노드 제거
 ```
+
+배포용 Graph는 이 최종 결과를 `GraphArtifactRepository`로 직렬화한다.
+
+```text
+walk_graph_v1.pkl
++ walk_graph_v1.manifest.json
++ walk_graph_v1.sha256
+```
+
+`WALK_GRAPH_SOURCE=artifact`이면 서버는 DB에서 NODE·LINK를 다시 조립하지 않고 artifact의 데이터 버전, 선택적 생성 커밋, schema, Python·NetworkX 버전, 노드·엣지 수와 SHA-256을 검증한 뒤 로드한다. 미커밋 코드에서 만든 artifact와 변조된 파일은 배포 모드에서 거부한다.
 
 DB 변경 후 실행 중 Graph는 자동 갱신되지 않으므로 서버를 재시작한다.
 
@@ -69,6 +79,8 @@ DB 변경 후 실행 중 Graph는 자동 갱신되지 않으므로 서버를 재
 - 보행 불가 LINK 제외
 - 연결 POI의 `nearest_edge_id` 무결성
 - DB Graph에서 대표 경로 생성 성공
+- artifact 저장 후 재로드한 Graph의 노드·엣지 수 일치
+- manifest와 checksum의 SHA-256 일치
 
 ## 8. 완료 기준
 
