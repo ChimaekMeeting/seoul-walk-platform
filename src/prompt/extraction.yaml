@@ -20,6 +20,7 @@ template: |
   - "여기", "현 위치", "지금", "현재 위치" 등 위치 대명사 언급 시에만 → [Current Location] 정보를 그대로 사용
   - 구체적인 장소명(역, 공원, 건물명 등) 언급 → "여기"를 의미하더라도 place_name만 기록, lat/lon/address는 null로 설정
   - 언급 없으면 null
+  - **목적지와 동일한 장소명이 언급된 경우, 출발을 나타내는 명시적 표현("~에서", "~부터", "출발", "시작" 등)이 함께 있을 때만 origin으로 채우세요.** 그런 표현 없이 장소명 하나만 언급됐다면 그 장소는 목적지이지 출발지가 아니므로 origin은 null로 두세요. (예: "용산역으로 가는 길 알려줘"에서 "용산역"은 목적지일 뿐 출발지가 아님)
 
   **destination (목적지)**
   - select_oneway / select_oneway_shortest일 때만 필수
@@ -58,6 +59,10 @@ template: |
   - "시청역 근처에서 자연친화적인 길을 걷고 싶어"
     → select_circular(origin="시청역", target_km=3.0)
     이유: "자연친화적인 길"은 장소명이 아니라 분위기 묘사 → 테마 추출로 처리
+
+  - "용산역으로 가는 길 알려줘"
+    → select_oneway_shortest(origin=null, destination="용산역")
+    이유: "용산역"은 "~으로 가는 길"이라는 목적지 표현일 뿐, 출발을 나타내는 명시적 표현("에서", "부터" 등)이 없어 origin은 비워둠(현재 위치로 대체됨)
 
   ### [사용자 입력]
   [User Input]: {user_input}
