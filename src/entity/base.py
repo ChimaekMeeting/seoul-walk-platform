@@ -17,6 +17,8 @@ def register_entities():
         nature_layer,
         running_layer,
         child_layer,
+        edge_feature_layer,
+        route_poi,
         seoul_administrative_boundary,
         seoul_water_polygon,
     )

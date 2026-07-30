@@ -4,9 +4,9 @@ from typing import List
 import pandas as pd
 from geoalchemy2 import Geography
 from shapely.wkt import loads as wkt_loads
-from sqlalchemy import cast, func, insert, select
+from sqlalchemy import cast, delete, func, insert, select, text
 
-from src.database.postgresql import get_postgresql_db
+from src.database.postgresql import engine, get_postgresql_db
 from src.entity.layer.child_layer import ChildLayer
 from src.repository.utils import RepositoryUtils
 
@@ -45,6 +45,22 @@ class ChildRepository:
             db.commit()
 
     @staticmethod
+    def replace_categories(
+        records: List[dict],
+        categories: set[str],
+    ) -> None:
+        """지정한 어린이 데이터 유형만 현재 수집 결과로 교체합니다."""
+        with get_postgresql_db() as db:
+            db.execute(
+                delete(ChildLayer).where(
+                    ChildLayer.category.in_(categories)
+                )
+            )
+            if records:
+                db.execute(insert(ChildLayer), records)
+            db.commit()
+
+    @staticmethod
     def get_child_h3_counts() -> dict[str, int]:
         """
         H3 셀(resolution 9)별 어린이 시설 개수를 반환합니다.
@@ -57,6 +73,63 @@ class ChildRepository:
             ).fetchall()
         cells = (RepositoryUtils.lat_lon_to_h3(row.lat, row.lon) for row in rows)
         return dict(Counter(cells))
+
+    @staticmethod
+    def update_nearest_school_zone_edges(max_distance_m: float = 50.0) -> int:
+        """
+        어린이보호구역 Point마다 50m 안의 최근접 보행 Edge 하나를 차량 주의
+        후보로 표시합니다.
+
+        Point 중심만으로 보호구역 전체 도로 범위를 확정할 수 없으므로 이 필드는
+        자동 차단이 아니라 주의·감점 입력으로만 사용합니다.
+        """
+        reset = text(
+            """
+            UPDATE walk_edges
+            SET is_school_zone = false,
+                is_vehicle_caution = false
+            """
+        )
+        update = text(
+            """
+            WITH nearest_edges AS (
+                SELECT DISTINCT ON (child.id)
+                    child.id AS child_id,
+                    edge.link_id
+                FROM child_layer AS child
+                JOIN walk_edges AS edge
+                  ON edge.is_walkable = true
+                 AND ST_DWithin(
+                        child.geom::geography,
+                        edge.geom::geography,
+                        :max_distance_m
+                     )
+                WHERE child.category = '어린이보호구역'
+                ORDER BY
+                    child.id,
+                    ST_Distance(
+                        child.geom::geography,
+                        edge.geom::geography
+                    ),
+                    edge.link_id
+            )
+            UPDATE walk_edges AS edge
+            SET is_school_zone = true,
+                is_vehicle_caution = true
+            FROM (
+                SELECT DISTINCT link_id
+                FROM nearest_edges
+            ) AS matched
+            WHERE edge.link_id = matched.link_id
+            """
+        )
+        with engine.begin() as connection:
+            connection.execute(reset)
+            result = connection.execute(
+                update,
+                {"max_distance_m": max_distance_m},
+            )
+        return result.rowcount
 
     @staticmethod
     def get_child_places_near(lat: float, lon: float, radius_m: float) -> list[dict]:

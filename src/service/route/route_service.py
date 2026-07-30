@@ -6,12 +6,14 @@ import networkx as nx
 from src.interfaces.schema.auth_schema import Status
 from src.interfaces.schema.walk_schema import (
     Coordinate,
+    RoutePoiItem,
     WalkMode,
     WalkRouteResponse,
     WalkRouteStatus,
 )
 from src.repository.user.route_history_repository import RouteHistoryRepository
 from src.repository.user.user_repository import UserRepository
+from src.repository.layer.route_poi_repository import RoutePoiRepository
 from src.route_engine.engines import (
     CircularBeamEngine,
     OnewayDijkstraEngine,
@@ -117,6 +119,16 @@ class RouteService:
         logger.info("walk route result: mode=%s status=%s total_km=%s", mode, result.status.value, result.total_km)
 
         if result.status == WalkRouteStatus.SUCCESS:
+            try:
+                result.nearby_pois = [
+                    RoutePoiItem.model_validate(poi)
+                    for poi in RoutePoiRepository.find_near_route(
+                        result.coordinates
+                    )
+                ]
+            except Exception:
+                logger.exception("route POI lookup failed: mode=%s", mode)
+
             try:
                 user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
                 if user is not None:

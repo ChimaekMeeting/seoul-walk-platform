@@ -112,6 +112,24 @@ class WalkEdge(Base):
         Float,
         server_default="0.0"
     )
+    convenience_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        server_default="0.0",
+        comment="상권 등 편의 데이터의 H3 기반 제한 점수(0.0~1.0)",
+    )
+    is_school_zone: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default="false",
+        comment="어린이보호구역 Point의 최근접 50m Edge 후보",
+    )
+    is_vehicle_caution: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default="false",
+        comment="차량 주의가 필요한 어린이보호구역 인접 Edge",
+    )
     geom = mapped_column(
         Geometry("LINESTRING", srid=4326),
         nullable=False

@@ -1,26 +1,36 @@
 import geopandas as gpd
-from sqlalchemy import text
+from sqlalchemy import delete, text
 
-from src.database.postgresql import get_postgresql_db, engine
+from src.database.postgresql import engine
+from src.entity.layer.seoul_administrative_boundary import (
+    SeoulAdministrativeBoundary,
+)
 
 
 class BoundaryRepository:
     @staticmethod
-    def save_geodataframe(gdf: gpd.GeoDataFrame) -> None:
+    def replace_geodataframe(gdf: gpd.GeoDataFrame) -> None:
+        """
+        서울 자치구 경계를 원본 스냅샷 전체로 교체합니다.
+
+        삭제와 삽입을 같은 트랜잭션에서 실행하여 중간 실패 시 기존 경계를
+        보존합니다.
+        """
         if gdf.empty:
-            return
-        with get_postgresql_db() as db:
-            rows = db.execute(text(
-                "SELECT ST_Y(ST_Centroid(geom)) as lat, ST_X(ST_Centroid(geom)) as lon "
-                "FROM seoul_administrative_boundary"
-            )).fetchall()
-        existing = {(round(float(r.lat), 6), round(float(r.lon), 6)) for r in rows}
-        centroids = gdf.geometry.centroid
-        mask = [(round(c.y, 6), round(c.x, 6)) not in existing for c in centroids]
-        gdf = gdf[mask]
-        if gdf.empty:
-            return
-        gdf.to_postgis("seoul_administrative_boundary", engine, if_exists="append", index=False)
+            raise ValueError("서울 자치구 경계 원본이 비어 있습니다.")
+
+        with engine.begin() as connection:
+            connection.execute(delete(SeoulAdministrativeBoundary))
+            gdf.to_postgis(
+                "seoul_administrative_boundary",
+                connection,
+                if_exists="append",
+                index=False,
+            )
+            connection.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_seoul_boundary_geom "
+                "ON seoul_administrative_boundary USING GIST(geom)"
+            ))
 
     @staticmethod
     def create_spatial_index() -> None:

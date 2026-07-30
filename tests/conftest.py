@@ -42,13 +42,9 @@ for _mod in [
     "langchain_community",
     "langgraph",
     "langgraph.graph",
-    "geopandas",
     "osmnx",
     "rasterio",
     "rasterio.transform",
-    "pyproj",
-    "shapely",
-    "shapely.geometry",
     "bs4",
 ]:
     _auto_mock(_mod)
@@ -66,11 +62,9 @@ for _mod in [
     "src.infrastructure.external.client.weather_client",
     "src.infrastructure.external.client.marathon_client",
     # AI Agent (langgraph 의존)
-    "src.agent.nodes",
     "src.agent.nodes.extractor",
     "src.agent.nodes.interviewer",
     "src.agent.nodes.weather_checker",
-    "src.agent.nodes.route_executor",
     # Chat service (langgraph 의존)
     "src.service.chat.prewalk_service",
     # Repository (geoalchemy2/h3 의존)

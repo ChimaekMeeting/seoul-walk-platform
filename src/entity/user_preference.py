@@ -20,7 +20,7 @@ class UserPreference(Base):
     사용자 경로 선호도를 관리하는 엔티티입니다.
 
     온보딩 설문의 키워드 태그 선택 결과가 각 weights 컬럼에 저장됩니다.
-    null인 가중치는 경로 생성 시 기본값(0.5)으로 대체됩니다.
+    null인 가중치는 경로 생성 시 해당 프로필의 기본값으로 대체됩니다.
     """
     __tablename__ = "user_preferences"
 
@@ -42,6 +42,8 @@ class UserPreference(Base):
     weights_running: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     weights_landmark: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     weights_child: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    weights_convenience: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    weights_accessibility: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     selected_tags: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="user_preference")

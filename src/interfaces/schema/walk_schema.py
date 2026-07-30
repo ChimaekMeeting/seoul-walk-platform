@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from enum import Enum
 
 from src.interfaces.validators.coord_validator import (
@@ -131,6 +131,15 @@ class WalkRouteRequest(BaseModel):
         return self
 
 
+class RoutePoiItem(BaseModel):
+    category: str
+    name: Optional[str] = None
+    address: Optional[str] = None
+    lat: float
+    lon: float
+    distance_to_route_m: float
+
+
 class WalkRouteResponse(BaseModel):
     status: WalkRouteStatus
     mode: WalkMode
@@ -139,3 +148,4 @@ class WalkRouteResponse(BaseModel):
     # RouteHistory로 자동 저장된 경우에만 채워짐(즐겨찾기 등 PATCH /api/user/routes/{id}/favorite 호출에 사용).
     # 저장에 실패했거나 애초에 저장 대상이 아닌 응답(에러 상태 등)에서는 None.
     id: Optional[int] = None
+    nearby_pois: list[RoutePoiItem] = Field(default_factory=list)

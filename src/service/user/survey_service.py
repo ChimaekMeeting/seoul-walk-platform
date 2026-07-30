@@ -38,15 +38,15 @@ TAG_WEIGHT_MAP: dict[str, dict[str, float]] = {
     "야경이 예쁜":   {"landmark": +0.2, "safety":  +0.1},  # 야간 안전 확보된 명소
 
     # 동반자 중심 복합 필터
-    "어린이":       {"child":    +0.2, "slope":  +0.1},  # 평지 선호 포함
-    "반려동물":     {"nature":   +0.1, "child":  +0.1},
-    "유모차":       {"child":    +0.1, "slope":    +0.3, "safety": +0.1},
-    "휠체어":       {"slope":    +0.3, "safety": +0.1},   # 계단 및 경사 절대 회피
+    "어린이":       {"child": +0.2, "slope": +0.1},
+    "반려동물":     {"nature": +0.1},
+    "유모차":       {"child": +0.1, "slope": +0.3, "safety": +0.1, "accessibility": +0.3},
+    "계단이 불편한": {"slope": +0.3, "safety": +0.1, "accessibility": +0.4},
 
     # 감성 / 분위기 (Mood)
-    "활기찬":        {"landmark": +0.2, "safety":  +0.1},  # 유동인구가 많고 활력 있는 길
+    "활기찬":        {"landmark": +0.2, "safety": +0.1, "convenience": +0.2},
     "사색하기 좋은":  {"landmark": -0.2, "slope":   +0.1},  # 조용하고 평탄하여 걷기 좋은 길
-    "힙한":          {"landmark": +0.25},  # 트렌디한 상권이나 팝업스토어 주변
+    "힙한":          {"landmark": +0.25, "convenience": +0.25},
 
     # 색상 / 시각적 이미지 (Visual Color)
     "노랑":          {"nature":   +0.15, "landmark": +0.1}, # 따뜻함, 은행나무, 봄꽃, 조명
@@ -72,7 +72,7 @@ SURVEY_TAGS: list[str] = [
     "숨 안 차는", "뛰고 싶은", "운동",
     "볼거리 많은", "야경이 예쁜", "힙한",
     "조용한", "활기찬",
-    "어린이", "반려동물",
+    "어린이", "반려동물", "유모차", "계단이 불편한",
 ]
 
 class SurveyService:
@@ -115,6 +115,8 @@ class SurveyService:
             weights_running=weights.get("running"),
             weights_landmark=weights.get("landmark"),
             weights_child=weights.get("child"),
+            weights_convenience=weights.get("convenience"),
+            weights_accessibility=weights.get("accessibility"),
             selected_tags=request.tags if request.tags else None,
         )
 
@@ -127,6 +129,8 @@ class SurveyService:
             weights_running=preference.weights_running,
             weights_landmark=preference.weights_landmark,
             weights_child=preference.weights_child,
+            weights_convenience=preference.weights_convenience,
+            weights_accessibility=preference.weights_accessibility,
         )
     
     def get_status(self, access_token: str | None) -> SurveyStatusResponse:
@@ -152,5 +156,7 @@ class SurveyService:
             weights_running=preference.weights_running,
             weights_landmark=preference.weights_landmark,
             weights_child=preference.weights_child,
+            weights_convenience=preference.weights_convenience,
+            weights_accessibility=preference.weights_accessibility,
             selected_tags=preference.selected_tags,
         )

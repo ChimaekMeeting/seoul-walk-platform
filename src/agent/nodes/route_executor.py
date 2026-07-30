@@ -5,6 +5,7 @@ from src.interfaces.schema.walk_schema import WalkMode, Coordinate
 from src.agent.tools.route_tools import RouteTool
 from src.schema.route_schema import Weights
 from src.repository.user.user_preference_repository import UserPreferenceRepository
+from src.route_engine.profiles import ScoringProfile, get_profile
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,9 @@ _BASELINE_WEIGHTS = Weights().model_dump()
 # 대화 테마(state.themes)를 가중치에 반영하는 강도. 설문 delta(±0.2) 대비 배수.
 # baseline이 0이 된 미관 특성을 테마가 충분히 끌어올리도록 강하게 적용함.
 _THEME_STRENGTH = 3.0
+
+_ACCESSIBLE_THEMES = {"유모차", "계단이 불편한"}
+_CONVENIENT_THEMES = {"활기찬", "힙한"}
 
 class RouteExecutor:
     def __init__(self):
@@ -42,7 +46,10 @@ class RouteExecutor:
             for k, v in state.user_context.model_dump(exclude={"mode"}, exclude_none=True).items()
         }
         args["access_token"]   = state.access_token or ""
-        args["custom_weights"] = self._build_weights(state)
+        profile = self._select_profile(state)
+        state.profile = profile
+        args["profile"] = profile
+        args["custom_weights"] = self._build_weights(state, profile)
 
         logger.info(f"mode: {state.mode}")
         logger.info(f"custom_weights: {args['custom_weights']}")
@@ -57,7 +64,23 @@ class RouteExecutor:
 
         return state
 
-    def _build_weights(self, state: State) -> Weights:
+    @staticmethod
+    def _select_profile(state: State) -> ScoringProfile:
+        """명시 프로필을 우선하고, 없으면 대화 테마에서 결정합니다."""
+        if state.profile is not None:
+            return state.profile
+        themes = set(state.themes)
+        if themes & _ACCESSIBLE_THEMES:
+            return ScoringProfile.ACCESSIBLE
+        if themes & _CONVENIENT_THEMES:
+            return ScoringProfile.CONVENIENT
+        return ScoringProfile.DEFAULT
+
+    def _build_weights(
+        self,
+        state: State,
+        profile: ScoringProfile = ScoringProfile.DEFAULT,
+    ) -> Weights:
         """
         UserPreference base weights에 state.themes의 delta를 합산해 최종 Weights를 반환합니다.
         UserPreference가 없으면 _BASELINE_WEIGHTS를 사용합니다.
@@ -69,15 +92,17 @@ class RouteExecutor:
         if preference is None:
             logger.debug("UserPreference가 없어, baseline 가중치를 사용합니다.")
 
-        # 특성별로: 설문값(있으면) 사용, 없으면 baseline 사용
-        base = {
-            key: (
-                getattr(preference, f"weights_{key}")
-                if preference and getattr(preference, f"weights_{key}") is not None
-                else default
+        # 선택 프로필을 기준으로, 저장된 설문값은 전역 baseline과의 차이만 반영합니다.
+        # 따라서 사용자 개인화가 convenient/accessible 프로필 자체를 덮어쓰지 않습니다.
+        base = get_profile(profile).weights.model_dump()
+        for key, default in _BASELINE_WEIGHTS.items():
+            stored = (
+                getattr(preference, f"weights_{key}", None)
+                if preference is not None
+                else None
             )
-            for key, default in _BASELINE_WEIGHTS.items()
-        }
+            if stored is not None:
+                base[key] = max(0.0, min(1.0, base[key] + stored - default))
 
         # 테마 delta를 _THEME_STRENGTH 배로 적용하고, clamp를 [0.0, 1.0](스키마 전 범위)로 넓힘
         #   - 기존 (delta * 0.5 + clamp[0.1, 0.8])은 nature를 0.5→0.6 정도만 올려 효과가 미미했음

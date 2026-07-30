@@ -1,7 +1,5 @@
 import logging
 
-import pandas as pd
-
 from src.data.sources.csv_source import CSVSource
 from src.data.utils import CollectorUtils
 from src.repository.network.edge_repository import EdgeRepository
@@ -17,26 +15,44 @@ class SafetyCollector:
 
     def build_streetlight_records(self) -> list:
         gdf = self.csv.get("type", "streetlight")
+        if gdf.empty:
+            return []
+
+        location_keys = gdf["geom"].map(lambda geom: (geom.y, geom.x))
+        location_gdf = gdf.loc[~location_keys.duplicated()]
         records = []
-        for _, row in gdf.iterrows():
+        for _, row in location_gdf.iterrows():
             records.append({
                 "csv_raw_id":  row.get("csv_raw_id"),
                 "safety_type": "streetlight",
                 "geom":        CollectorUtils.make_point(row["geom"].y, row["geom"].x),
             })
-        logger.debug("streetlight %d개 빌드", len(records))
+        logger.debug(
+            "streetlight 원본 %d개를 위치 %d개로 집계",
+            len(gdf),
+            len(records),
+        )
         return records
 
     def build_cctv_records(self) -> list:
         gdf = self.csv.get("type", "cctv")
+        if gdf.empty:
+            return []
+
+        location_keys = gdf["geom"].map(lambda geom: (geom.y, geom.x))
+        location_gdf = gdf.loc[~location_keys.duplicated()]
         records = []
-        for _, row in gdf.iterrows():
+        for _, row in location_gdf.iterrows():
             records.append({
                 "csv_raw_id":  row.get("csv_raw_id"),
                 "safety_type": "cctv",
                 "geom":        CollectorUtils.make_point(row["geom"].y, row["geom"].x),
             })
-        logger.debug("cctv %d개 빌드", len(records))
+        logger.debug(
+            "cctv 원본 %d개를 위치 %d개로 집계",
+            len(gdf),
+            len(records),
+        )
         return records
     
     def build_accident_records(self) -> list:
@@ -56,7 +72,10 @@ class SafetyCollector:
         if not records:
             logger.warning("수집된 accident_zone 데이터가 없습니다.")
             return
-        SafetyRepository.save_all(records)
+        SafetyRepository.replace_types(
+            records,
+            safety_types={"streetlight", "cctv"},
+        )
         self.update_edge()
         logger.info("accident_zone 적재 완료: %d건", len(records))
 
