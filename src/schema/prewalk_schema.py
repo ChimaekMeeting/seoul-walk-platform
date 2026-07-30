@@ -42,6 +42,13 @@ class OnewayShortestPreference(BasePreference):
     destination: Optional[Location] = None
 
 
+class ConfirmationResult(BaseModel):
+    """
+    확인 질문에 대한 사용자 응답의 긍정/부정 분류 결과입니다.
+    """
+    is_positive: bool = Field(description="사용자 응답이 확인 질문에 긍정(진행)인지 여부")
+
+
 class State(BaseModel):
     """
     대화 상태 관련 정보입니다.

@@ -14,6 +14,7 @@ from src.agent.nodes import (
     WeatherChecker,
     Extractor,
     Interviewer,
+    ConfirmationClassifier,
     RouteExecutor
 )
 from src.infrastructure.external.client import (
@@ -43,12 +44,13 @@ def init_route_service():
     G             = GraphRepository.load_graph()
     route_service = RouteService(G=G, auth_service=auth_service)
     prewalk_orchestrator = PrewalkOrchestrator(
-        weather_checker = WeatherChecker(weather_client=weather_client),
-        kakao_client    = kakao_client,
-        auth_service    = auth_service,
-        extractor       = Extractor(),
-        interviewer     = Interviewer(),
-        route_executor  = RouteExecutor(),
+        weather_checker        = WeatherChecker(weather_client=weather_client),
+        kakao_client            = kakao_client,
+        auth_service            = auth_service,
+        extractor               = Extractor(),
+        interviewer             = Interviewer(),
+        confirmation_classifier = ConfirmationClassifier(),
+        route_executor          = RouteExecutor(),
     )
 
 # 날씨
