@@ -23,6 +23,10 @@ package-lock.json
 tests/
 .claude/
 
+# 로컬 Poetry 환경 설정과 경로 API 테스트 결과는 버전 관리하지 않습니다.
+/poetry.toml
+/route_test*.json
+
 # 도보 네트워크 원본 파일은 제외하되, 코드 정의·출처 메타데이터는 버전 관리합니다.
 !src/data/raw/
 src/data/raw/*
