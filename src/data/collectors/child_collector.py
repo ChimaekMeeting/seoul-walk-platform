@@ -23,8 +23,13 @@ class ChildCollector:
 
         # 어린이보호구역 (csv_raw → child_layer)
         gdf = self.csv.get("type", "protection_zone")
+        if not gdf.empty:
+            location_keys = gdf["geom"].map(lambda geom: (geom.y, geom.x))
+            protection_gdf = gdf.loc[~location_keys.duplicated()]
+        else:
+            protection_gdf = gdf
         protection_count = 0
-        for _, row in gdf.iterrows():
+        for _, row in protection_gdf.iterrows():
             records.append({
                 "csv_raw_id":    row.get("csv_raw_id"),
                 "public_raw_id": None,
@@ -45,7 +50,12 @@ class ChildCollector:
             })
             play_count += 1
 
-        logger.debug("어린이보호구역 %d개, 어린이놀이시설 %d개 빌드", protection_count, play_count)
+        logger.debug(
+            "어린이보호구역 RAW %d개를 위치 %d개로 집계, 어린이놀이시설 %d개 빌드",
+            len(gdf),
+            protection_count,
+            play_count,
+        )
         return records
 
     def update_node(self) -> None:

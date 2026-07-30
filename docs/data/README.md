@@ -19,7 +19,7 @@
 → WalkEdge.park_overlap_ratio
 ```
 
-`raw_is_park_green`과 `park_overlap_ratio`는 별도 근거로 보존하며 `nature_score` 결합 정책은 아직 확정하지 않았습니다.
+`raw_is_park_green`과 `park_overlap_ratio`는 별도 근거로 보존합니다. `park_overlap_ratio`를 NetworkX Edge에 전달해 자연 비용 계산에 사용하기로 계약했지만 현재 알고리즘 연결은 구현되지 않았습니다.
 
 ## 재적재 확인 결과
 
@@ -45,3 +45,4 @@ RAW 코드표와 원본 정의는 `src/data/raw/metadata/`, 실험 근거는 `an
 - 원본 보유와 V1 서비스 사용을 구분합니다.
 - 새 속성은 원본 → DB → GraphRepository → NetworkX → 알고리즘까지 검증합니다.
 - 기본 실행 범위는 `--scope v1`이며 과거 전체 파이프라인은 `--scope legacy-all`입니다.
+- 25개 원본의 최종 역할·상태와 알고리즘 입력 계약은 [데이터 역할과 상태](dataset_roles.md)의 11.6을 단일 기준으로 사용합니다.

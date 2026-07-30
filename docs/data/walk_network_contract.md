@@ -12,9 +12,9 @@ V1의 기준 그래프는 `서울시 자치구별 도보 네트워크 공간정�
 - 실제 경로 통행·차단 판단은 구간인 `walk_edges`의 속성과 태그를 사용한다.
 - 다른 RAW 파일은 기준 그래프를 새로 만드는 자료가 아니라 속성 검증·보강 또는 스코어 산정 후보이다.
 
-## 2. 현재 코드의 손실 지점
+## 2. 원본 손실 방지와 현재 구현
 
-현재 `BaseNetworkCollector`는 LINK 행만 읽는다.
+`BaseNetworkCollector`는 NODE와 LINK 행을 분리해 읽는다. NODE 원본을 우선 적재하고, LINK가 참조하지만 NODE 행에 없는 끝점만 `derived_endpoint`로 보완한다.
 
 현재 원본의 기준 건수는 다음과 같다.
 
@@ -27,24 +27,16 @@ V1의 기준 그래프는 `서울시 자치구별 도보 네트워크 공간정�
 | LINK에는 있지만 NODE 행에는 없는 노드 ID | 2,175 |
 | NODE 행에는 있지만 LINK가 참조하지 않는 노드 ID | 4 |
 
-```text
-LINK WKT의 시작점·끝점
-→ walk_nodes 생성
+현재 구현은 다음 값을 보존한다.
 
-LINK ID·시작노드·종료노드·길이·WKT
-→ walk_edges 생성
-```
+- NODE의 원본 WKT, 유형 코드, 육교·횡단보도 플래그
+- LINK의 유형 코드, 통행 주체 boolean, 형태 플래그와 WKT
+- 보행 불가 LINK의 DB 원본과 `is_walkable=false`
+- 원본 플래그에서 생성한 NetworkX Edge `tags`
 
-이 과정에서 다음 값이 유실된다.
+시군구·읍면동과 수집일자는 현재 라우팅 Entity에 저장하지 않는다. 추적성이 필요하면 별도 provenance 계약으로 추가한다.
 
-- NODE 행의 `노드 WKT`
-- `노드 유형 코드`
-- NODE의 `육교`, `횡단보도`
-- `링크 유형 코드`
-- LINK의 `고가도로`, `지하철네트워크`, `교량`, `터널`, `육교`, `횡단보도`, `공원,녹지`, `건물내`
-- 시군구·읍면동과 수집일자
-
-또한 `walk_edges`에 통행 속성이나 태그가 없고, `GraphRepository`도 이를 NetworkX edge에 전달하지 않는다. 따라서 `blocked_tags`가 기대하는 `tags`가 실제 그래프에 존재하지 않는다.
+`GraphRepository`는 `tunnel`, `bridge`, `overpass`, `crosswalk`, `elevated`, `subway_network`, `park_green`, `building_inside` 태그를 생성한다. 다만 현재 모든 프로필이 차단하는 `underground` 태그는 생성하지 않으므로, 프로필과 실제 태그의 의미를 맞추는 후속 수정이 필요하다. 또한 `park_overlap_ratio`는 DB에 저장되지만 아직 NetworkX Edge에 전달되지 않는다.
 
 ## 3. V1 적재 원칙
 
@@ -198,9 +190,10 @@ WalkEdge 명시적 속성
 |---|---|---|
 | `edge_attribute_candidate` | 통행 가능 여부나 edge 태그 검증·보강 | 자동차전용도로, 횡단보도, 육교, 터널, 지하도 |
 | `score_source` | Layer를 거쳐 WalkEdge score 생성 | 가로등, CCTV, 공원, 가로수, 둘레길 |
-| `deferred_or_reference` | V1 사용 여부 미확정 또는 조사 전용 | 화장실, 버스정류소, 상권 등 |
+| `poi_or_metadata_source` | WalkNode·WalkEdge 연결 시설 또는 설명 속성 | 화장실, 버스정류소, 엘리베이터, 리프트, 주요 공원 |
+| `deferred_or_reference` | 품질 문제로 보류 또는 조사 전용 | 유효 Line이 없는 둘레길·문화길, 중구 한정 수목 |
 
-각 파일은 다음 항목이 모두 결정되어야 적재 승인 상태가 된다.
+각 파일은 다음 항목이 모두 결정되어야 적재 승인 상태가 된다. 25개 원본의 확정값은 [`dataset_roles.md`](dataset_roles.md)의 `11.6 최종 서비스 역할과 상태 확정`을 단일 기준으로 사용한다.
 
 1. V1 사용 여부
 2. 역할 범주
