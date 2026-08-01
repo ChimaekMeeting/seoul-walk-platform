@@ -1,0 +1,41 @@
+.git
+.gitignore
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+.venv
+.env
+.env.*
+
+# Dev/test/docs not needed in image
+tests/
+docs/
+scripts/
+analysis/
+benchmarks/
+frontend/
+/cache/
+
+# Local tooling
+.ruff_cache
+.pytest_cache
+*.ipynb
+
+# Poetry / build artifacts
+poetry.lock
+pyproject.toml
+dist/
+build/
+
+# Raw data files for data pipeline only (116 MB) — not needed at runtime
+src/data/raw/*
+!src/data/raw/metadata/
+!src/data/raw/metadata/**
+
+# Local toolchain / data not needed in image
+Y/
+*.dump
+restore_log.txt
+
+# artifacts/ is intentionally NOT excluded — pkl + manifest + sha256 must be in image

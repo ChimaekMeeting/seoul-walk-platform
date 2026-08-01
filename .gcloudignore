@@ -1,0 +1,62 @@
+# .gcloudignore — controls what gcloud uploads as Cloud Build source
+#
+# IMPORTANT: When this file exists, gcloud uses IT instead of .gitignore.
+# .gitignore excludes all artifacts/walk_graph_* files, so this file
+# must explicitly include them by NOT listing them here.
+#
+# Upload target: ~67 MB (artifacts/ 64 MB + src/ code ~3 MB + config files)
+
+# Version control
+.git
+.gitignore
+
+# Python runtime artefacts
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+
+# Local environment
+.venv
+venv
+.env
+.env.*
+
+# Raw data for data pipeline only — 116 MB, not needed for build
+src/data/raw/*
+!src/data/raw/metadata/
+!src/data/raw/metadata/**
+
+# Dev, test, docs — not needed for image build
+tests/
+docs/
+scripts/
+analysis/
+benchmarks/
+frontend/
+/cache/
+outputs/
+
+# Local tooling
+.ruff_cache
+.pytest_cache
+*.ipynb
+.ipynb_checkpoints
+.idea/
+node_modules/
+
+# Local-only files
+.DS_Store
+Thumbs.db
+check_consistency.py
+agent_architecture_plan.html
+route_test*.json
+/poetry.toml
+.claude/
+
+# Local toolchain / data not needed for build
+Y/
+*.dump
+restore_log.txt
+
+# artifacts/ walk_graph_v1.pkl + .manifest.json + .sha256 are intentionally NOT excluded

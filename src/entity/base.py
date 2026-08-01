@@ -1,6 +1,10 @@
+import logging
+
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import declarative_base
 from src.database.postgresql import engine
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -27,8 +31,21 @@ def register_entities():
 
 def init_table():
     """
-    테이블이 없으면 생성하고, 있으면 entity 정의와 컬럼을 동기화합니다.
+    DB_AUTO_MIGRATE 설정에 따라 스키마를 동기화합니다.
+
+    full   (기본): CREATE TABLE + ADD COLUMN + DROP COLUMN
+    create (프로덕션 권장): CREATE TABLE + ADD COLUMN 만 허용 — DROP 차단
+    off    : 스키마 변경 없음, init_table 전체 스킵
     """
+    from src.config.settings import settings
+    mode = settings.DB_AUTO_MIGRATE
+
+    logger.info("[init_db] 마이그레이션 모드: %s", mode)
+
+    if mode == "off":
+        logger.info("[init_db] 스키마 변경 스킵 (DB_AUTO_MIGRATE=off)")
+        return
+
     inspector = inspect(engine)
 
     with engine.begin() as conn:
@@ -52,16 +69,19 @@ def init_table():
                         )
                     )
 
-            for col_name in existing:
-                if col_name not in defined:
-                    conn.execute(
-                        text(f'ALTER TABLE "{table.name}" DROP COLUMN "{col_name}"')
-                    )
+            # DROP은 full 모드에서만 실행 — create/off 모드에서는 차단
+            if mode == "full":
+                for col_name in existing:
+                    if col_name not in defined:
+                        conn.execute(
+                            text(f'ALTER TABLE "{table.name}" DROP COLUMN "{col_name}"')
+                        )
 
 
 def init_db():
     """
     테이블 생성을 위한 초기화 함수입니다.
+    BannerRepository.seed()는 마이그레이션 모드와 무관하게 항상 실행됩니다.
     """
     register_entities()
     init_table()

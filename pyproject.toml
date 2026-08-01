@@ -7,18 +7,16 @@ authors = ["Seoul Walk Team"]
 
 [tool.poetry.dependencies]
 python = "^3.11"
-# --- UI & Map ---
-streamlit = "^1.40.0"
-pydeck = "^0.9.0"
-folium = "^0.17.0"
-streamlit-folium = "^0.21.0"
-extra-streamlit-components = "^0.1.71"
 
-# --- Data & Geometry ---
+# --- Graph (직접 의존성으로 승격, 버전 핀 고정) ---
+# artifact manifest python_version=3.12.13, networkx_version=3.6
+# 로더가 major.minor를 검증하므로 3.6.x 고정 필수
+networkx = "3.6"
+
+# --- Data & Geometry (API 런타임 필수) ---
 pandas = "^2.2.0"
 geopandas = "^0.14.0"
 shapely = "^2.0.0"
-osmnx = "^1.9.1"
 h3 = "^4.0.0"
 
 # --- API & Backend Core ---
@@ -45,9 +43,27 @@ langchain-core = "^0.3.0"
 langchain-community = "^0.3.0"
 langchain-openai = "^0.2.0"
 beautifulsoup4 = "^4.14.3"
-streamlit-modal = "^0.1.2"
 langgraph = ">=0.2.0,<1.0.0"
+
+# --- UI (Streamlit 프로토타입 전용 — API 이미지에서 제외) ---
+[tool.poetry.group.ui]
+optional = true
+
+[tool.poetry.group.ui.dependencies]
+streamlit = "^1.40.0"
+pydeck = "^0.9.0"
+folium = "^0.17.0"
+streamlit-folium = "^0.21.0"
+extra-streamlit-components = "^0.1.71"
+streamlit-modal = "^0.1.2"
 matplotlib = "^3.11.0"
+
+# --- Data Pipeline (그래프 빌드·수집 전용 — API 이미지에서 제외) ---
+[tool.poetry.group.data]
+optional = true
+
+[tool.poetry.group.data.dependencies]
+osmnx = "^1.9.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
