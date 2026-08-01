@@ -1,0 +1,82 @@
+# Cloud Build pipeline for seoul-walk-api
+#
+# Trigger 또는 --substitutions 플래그에서 채워야 할 값:
+#   _AR_REGION  : Artifact Registry 리전       (확정: asia-northeast3)
+#   _AR_REPO    : Artifact Registry 저장소 이름 (확정: seoul-walk)
+#   _RUN_REGION : Cloud Run 리전               (확정: asia-northeast3)
+#   _SERVICE    : Cloud Run 서비스 이름         (확정: seoul-walk-api)
+#   _TAG        : 이미지 태그 (기본값: latest, 수동 실행 시 커밋 해시 권장)
+#
+# Built-in: $PROJECT_ID
+#
+# Secret Manager에 미리 생성 필요:
+#   postgres-password, valkey-uri, openai-api-key, kakao-api-key,
+#   mapbox-api-key, weather-api-key, air-korea-api-key,
+#   public-data-api-key, access-secret-key, refresh-secret-key
+
+substitutions:
+  _AR_REGION: asia-northeast3
+  _AR_REPO: seoul-walk
+  _RUN_REGION: asia-northeast3
+  _SERVICE: seoul-walk-api
+  _TAG: latest
+
+steps:
+  # ── 1. Build ──────────────────────────────────────────────────────────────
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - -f
+      - Dockerfile.api
+      - -t
+      - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:${_TAG}
+      - -t
+      - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:latest
+      - .
+
+  # ── 2. Push (both tags) ───────────────────────────────────────────────────
+  - name: gcr.io/cloud-builders/docker
+    id: push-sha
+    waitFor: [build]
+    args:
+      - push
+      - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:${_TAG}
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-latest
+    waitFor: [build]
+    args:
+      - push
+      - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:latest
+
+  # ── 3. Deploy to Cloud Run ────────────────────────────────────────────────
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy
+    waitFor: [push-sha]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:${_TAG}
+      - --region=${_RUN_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      - --memory=2Gi
+      - --cpu=1
+      - --cpu-boost
+      - --min-instances=0
+      - --max-instances=3
+      - --timeout=300
+      # ── Non-sensitive env vars (Supabase + app config 확정값) ──
+      - --set-env-vars=POSTGRES_HOST=aws-1-ap-northeast-2.pooler.supabase.com,POSTGRES_PORT=5432,POSTGRES_USER=postgres.cbtqbecddiepzrzrcnou,POSTGRES_DB=postgres,POSTGRES_SSL_MODE=require,DB_POOL_SIZE=2,DB_MAX_OVERFLOW=3,WALK_GRAPH_SOURCE=artifact,WALK_GRAPH_DATA_VERSION=v1-2026-07-30,WALK_GRAPH_EXPECTED_COMMIT=55d30b0cdef16b2bfdd04723fbac39e397bd5f58,DB_AUTO_MIGRATE=create,LANGCHAIN_TRACING_V2=false
+      # ── Secrets from Secret Manager ──
+      - --set-secrets=POSTGRES_PASSWORD=postgres-password:latest,VALKEY_URI=valkey-uri:latest,OPENAI_API_KEY=openai-api-key:latest,KAKAO_API_KEY=kakao-api-key:latest,MAPBOX_API_KEY=mapbox-api-key:latest,WEATHER_API_KEY=weather-api-key:latest,AIR_KOREA_API_KEY=air-korea-api-key:latest,PUBLIC_DATA_API_KEY=public-data-api-key:latest,ACCESS_SECRET_KEY=access-secret-key:latest,REFRESH_SECRET_KEY=refresh-secret-key:latest
+
+images:
+  - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:${_TAG}
+  - ${_AR_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY

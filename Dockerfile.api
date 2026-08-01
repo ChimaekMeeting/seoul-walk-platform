@@ -1,0 +1,30 @@
+# linux/amd64 고정: fiona 1.10.x manylinux wheel이 amd64 전용, Cloud Run도 amd64
+FROM --platform=linux/amd64 python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    WALK_GRAPH_ARTIFACT_PATH=/app/artifacts/walk_graph_v1.pkl
+
+WORKDIR /app
+
+# Deps layer (cached unless requirements.txt changes)
+# apt 없음: shapely 2.x는 GEOS를 wheel에 번들, fiona 1.10.x는 GDAL을 wheel에 번들
+# fiona는 libexpat.so.1 부재로 직접 import 불가하나 API 런타임 경로에서 호출되지 않아 무관
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
+
+# Graph artifact (large; separate layer so src changes don't re-copy 64 MB pkl)
+COPY artifacts/ artifacts/
+
+# Application source
+COPY src/ src/
+
+RUN useradd --create-home --uid 1000 appuser \
+ && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+
+# Shell form so $PORT expands; exec hands PID 1 to uvicorn for clean signal handling
+CMD exec uvicorn src.main:app --host 0.0.0.0 --port "${PORT:-8000}" --workers 1
