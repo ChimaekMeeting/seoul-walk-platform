@@ -1,11 +1,4 @@
-"""
-benchmarks/solvers/astar_solver.py
-
-src/route_engine/engines/oneway_astar.py (A*)를 BasePathSolver 규격으로 감싸는 어댑터.
-Dijkstra 대비 속도/정확도 검증용 — 아직 route_service에 연결 전이라
-engines/__init__.py에는 export하지 않고 여기서만 직접 import한다.
-"""
-
+from benchmarks.solvers._oneway_engine_common import base_shortest_path_overlap_ratio
 from benchmarks.solvers.base_solver import BasePathSolver
 from src.route_engine.engines.oneway_astar import OnewayAstarEngine
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
@@ -42,4 +35,5 @@ class OnewayAstarSolver(BasePathSolver):
             raise ValueError("경로 생성 실패: 유효한 편도 경로를 찾지 못했습니다 (NO_PATH)")
 
         _, cost = engine.utils.metrics(nodes)
-        return {"paths": [nodes], "cost": cost, "overlap_ratio": 0.0}
+        overlap_ratio = base_shortest_path_overlap_ratio(engine, nodes, start_node, target_node)
+        return {"paths": [nodes], "cost": cost, "overlap_ratio": overlap_ratio}
