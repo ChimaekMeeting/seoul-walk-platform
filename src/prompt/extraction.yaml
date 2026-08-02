@@ -14,6 +14,10 @@ template: |
 
   **select_oneway_shortest** — 목적지까지 최단 경로 (거리 무관, 빠른 이동)
 
+  **select_gps_art** — 미리 준비된 도형 템플릿을 따라 순환하는 산책 (GPS 아트)
+  - 사용자가 "강아지" 모양으로 걷고 싶다고 할 때만 선택 (현재 지원 도형은 "강아지"뿐)
+  - "강아지" 외의 모양(고양이, 하트 등)을 요청하면 이 도구를 선택하지 말고, 목적지·거리 언급 여부에 따라 select_circular/select_oneway 등 다른 도구로 처리
+
   ### [필드 추출 규칙]
 
   **origin (출발지)**
@@ -34,6 +38,11 @@ template: |
   - "운동", "러닝" 등 언급 시 5.0 이상으로 추론
   - 언급 없으면 기본값 3.0
   - select_oneway_shortest에는 불필요 (전달하지 않음)
+
+  **shape (도형 이름)**
+  - select_gps_art일 때만 필수
+  - 현재는 "강아지" 고정값만 사용(다른 값을 만들어내지 말 것)
+  - 좌표는 LLM이 생성하지 않고 shape 이름으로 미리 준비된 템플릿을 조회해서 사용
 
   ### [참조 데이터]
   [Current Location]: {current_location}
@@ -63,6 +72,10 @@ template: |
   - "용산역으로 가는 길 알려줘"
     → select_oneway_shortest(origin=null, destination="용산역")
     이유: "용산역"은 "~으로 가는 길"이라는 목적지 표현일 뿐, 출발을 나타내는 명시적 표현("에서", "부터" 등)이 없어 origin은 비워둠(현재 위치로 대체됨)
+
+  - "강아지 모양으로 2km 산책하고 싶어"
+    → select_gps_art(shape="강아지", target_km=2.0)
+    이유: 지원되는 도형("강아지") 언급 → GPS 아트 경로, 좌표는 템플릿에서 조회하므로 생성하지 않음
 
   ### [사용자 입력]
   [User Input]: {user_input}

@@ -46,6 +46,7 @@ class WalkMode(str, Enum):
     CIRCULAR_RANDOM = "circular_random"
     ONEWAY_SHORTEST = "oneway_shortest"
     ONEWAY_RANDOM = "oneway_random"
+    GPS_ART = "gps_art"
 
 
 class WalkRouteStatus(str, Enum):

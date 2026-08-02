@@ -76,6 +76,11 @@ class Extractor(GPTClient):
             args["origin"] = state.current_location.model_dump()
             logger.warning(f"출발지가 정해지지 않아, 현 위치를 출발지로 설정합니다: {args['origin']}")
 
+        # 예외5. GPS Art 모드인데 목표 거리가 없는 경우
+        if tool_name == "select_gps_art" and not args.get("target_km"):
+            args["target_km"] = 3.0
+            logger.warning("GPS Art 모드의 목표 거리가 정해지지 않아, 기본값 3.0km로 설정합니다.")
+
         pref               = self.mode_tool.tool_map[tool_name].invoke(args)
         state.mode         = pref.mode
         state.user_context = pref
