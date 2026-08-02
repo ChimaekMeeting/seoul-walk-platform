@@ -36,6 +36,7 @@
 
 - [챗봇 Agent 하네스](agent_harness.md): 파일·State·Node·Edge·Tool 계약
 - [챗봇 경로 추천 Workflow](../architecture/workflows/prewalk_conversation.md): API 실행·실패·검증 결과
+- [챗봇 Prewalk 대화 테스트 시나리오](test_scenarios.md): `scripts/test_prewalk_conversation.py`가 다뤄야 하는 시나리오와 실행 결과
 
 ## 미래 제안
 
