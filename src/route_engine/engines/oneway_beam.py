@@ -111,6 +111,11 @@ class OnewayBeamEngine:
             logger.warning("출발-도착 간 경로가 존재하지 않습니다.")
             return []
 
+        base_edges = {
+            frozenset((base_shortest[i], base_shortest[i + 1]))
+            for i in range(len(base_shortest) - 1)
+        }  # 우회도 계산 기준 — 베이스 최단경로와 겹치는 구간 판별용
+
         # 1단계: 출발지 → 중간지점
         finished, beams = self._find_start_to_waypoint(start, end, target_m)
 
@@ -126,7 +131,9 @@ class OnewayBeamEngine:
             closed = self._find_waypoint_to_end(nodes, visited, end)
             if closed is None:
                 continue  # 도착 연결 불가 후보는 제외함
-            key = self.utils.route_key(closed, target_m)  # (|실제 오차| - 허용 오차, 누적 비용 / 거리, 노드열)
+            over, density, path_tuple = self.utils.route_key(closed, target_m)
+            overlap = self._overlap_ratio(closed, base_edges)
+            key = (over, overlap, density, path_tuple)  # 거리 합격 → 우회도 → 품질밀도 순으로 비교
             if best_key is None or key < best_key:
                 best_key, best_path = key, closed
 
@@ -135,9 +142,28 @@ class OnewayBeamEngine:
             logger.warning("도착 연결 가능한 후보가 없어 최단 경로로 대체합니다.")
             return base_shortest
 
-        logger.info("beam search 편도 경로 선택: 노드=%d개, 거리초과=%.0fm, 품질밀도=%.3f",
-                    len(best_path), best_key[0], best_key[1])
+        logger.info("beam search 편도 경로 선택: 노드=%d개, 거리초과=%.0fm, 우회도=%.3f, 품질밀도=%.3f",
+                    len(best_path), best_key[0], best_key[1], best_key[2])
         return best_path
+
+    def _overlap_ratio(self, path: list[int], base_edges: set) -> float:
+        """
+        path가 base_edges(베이스 최단경로 구간)와 겹치는 거리 비율을 반환합니다.
+        낮을수록 베이스 경로와 다른 길로 우회했다는 뜻입니다.
+        """
+        total_m = sum(
+            (self.G.get_edge_data(path[i], path[i + 1]) or {}).get("length", 0)
+            for i in range(len(path) - 1)
+        )
+        if total_m <= 0:
+            return 0.0
+        overlap_m = sum(
+            (self.G.get_edge_data(path[i], path[i + 1]) or {}).get("length", 0)
+            for i in range(len(path) - 1)
+            if frozenset((path[i], path[i + 1])) in base_edges
+        )
+        return round(overlap_m / total_m, 4)
+
 
     def _find_start_to_waypoint(self, start: int, end: int, target_m: float) -> tuple:
         """

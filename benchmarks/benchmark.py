@@ -49,6 +49,8 @@ from benchmarks.solvers.dummy_solver import DummySolver
 from benchmarks.solvers.grasp_solver import CircularGraspSolver, OnewayGraspSolver
 from benchmarks.solvers.plateau_solver import PlateauSolver
 from benchmarks.solvers.rcsp_solver import CircularRcspSolver, OnewayRcspSolver
+from benchmarks.solvers.astar_solver import OnewayAstarSolver
+from benchmarks.solvers.dijkstra_solver import OnewayDijkstraSolver
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +77,8 @@ SOLVER_REGISTRY: dict[str, BasePathSolver] = {
     "rcsp-circular": CircularRcspSolver(),
     "rcsp-oneway": OnewayRcspSolver(),
     "plateau": PlateauSolver(),
+    "astar-oneway": OnewayAstarSolver(),
+    "dijkstra-oneway" : OnewayDijkstraSolver(),
     "dummy-a": DummySolver(name="DummySolver-A", fake_delay_sec=0.05),
     "dummy-b": DummySolver(name="DummySolver-B", fake_delay_sec=0.1),
 }
