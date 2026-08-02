@@ -5,6 +5,7 @@ src/route_engine/engines/dijkstra.py (OnewayDijkstraEngine)를 BasePathSolver �
 감싸는 어댑터. A*(astar_solver.py)와 같은 입력으로 나란히 비교하기 위한 baseline.
 """
 
+from benchmarks.solvers._oneway_engine_common import base_shortest_path_overlap_ratio
 from benchmarks.solvers.base_solver import BasePathSolver
 from src.route_engine.engines.dijkstra import OnewayDijkstraEngine
 from src.route_engine.scoring.scoring_engine import calculate_custom_score
@@ -40,4 +41,5 @@ class OnewayDijkstraSolver(BasePathSolver):
             raise ValueError("경로 생성 실패: 유효한 편도 경로를 찾지 못했습니다 (NO_PATH)")
 
         _, cost = engine.utils.metrics(nodes)
-        return {"paths": [nodes], "cost": cost, "overlap_ratio": 0.0}
+        overlap_ratio = base_shortest_path_overlap_ratio(engine, nodes, start_node, target_node)
+        return {"paths": [nodes], "cost": cost, "overlap_ratio": overlap_ratio}
