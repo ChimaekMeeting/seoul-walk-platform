@@ -69,18 +69,18 @@ def main():
         평균우회도=("overlap_ratio", "mean"),
         평균자기중복=("edge_overlap_ratio", "mean"),
     ).round(3)
-    print(summary.to_string())
 
+    print(summary.to_string())
+    
     TARGET_AGNOSTIC_ALGOS = {"A*(oneway)", "Dijkstra(oneway)"}  # target_km을 안 쓰는 순수 최단경로 solver
     hit = TARGET_AGNOSTIC_ALGOS & set(summary.index)
     if hit:
         print(
             f"\n[참고] {', '.join(sorted(hit))}는 target_km을 고려하지 않고 순수 최단경로만 구합니다. "
             "위 표의 평균거리편차km은 이 알고리즘들에겐 '목표 거리 달성도'가 아니라 출발-도착 간 "
-            "자연 최단거리와 target_km의 우연한 차이일 뿐이므로, detour 계열 solver와 나란히 비교하지 마세요."
+            "자연 최단거리와 target_km의 우연한 차이일 뿐이므로, 우회 계열 solver와 나란히 비교하지 마세요."
         )
 
-    print(summary.to_string())
 
 
 if __name__ == "__main__":

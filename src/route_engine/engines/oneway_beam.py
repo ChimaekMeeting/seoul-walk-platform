@@ -117,7 +117,7 @@ class OnewayBeamEngine:
         }  # 우회도 계산 기준 — 베이스 최단경로와 겹치는 구간 판별용
 
         # 1단계: 출발지 → 중간지점
-        finished, beams = self._find_start_to_waypoint(start, end, target_m)
+        finished, beams = self._find_start_to_waypoint(start, end, target_m, base_edges)
 
         # 1.5단계: 후보 풀 구성
         pool = self._build_pool(finished, beams)
@@ -146,6 +146,7 @@ class OnewayBeamEngine:
                     len(best_path), best_key[0], best_key[1], best_key[2])
         return best_path
 
+
     def _overlap_ratio(self, path: list[int], base_edges: set) -> float:
         """
         path가 base_edges(베이스 최단경로 구간)와 겹치는 거리 비율을 반환합니다.
@@ -165,10 +166,17 @@ class OnewayBeamEngine:
         return round(overlap_m / total_m, 4)
 
 
-    def _find_start_to_waypoint(self, start: int, end: int, target_m: float) -> tuple:
+    def _find_start_to_waypoint(self, start: int, end: int, target_m: float, base_edges: set) -> tuple:
         """
         1단계: 출발지 → 중간지점 경로를 생성합니다.
         """
+        def _rank_key(b):
+            # 거리 합격(over) → 우회도(overlap) → 품질(density) 순으로 비교
+            over, density = self.utils.objective(
+                b[2] + self.utils.est_network_dist(b[1][-1], end), b[2], b[0], target_m)
+            overlap = self._overlap_ratio(b[1], base_edges)
+            return (over, overlap, density, b[1])
+
         beams = [(0.0, [start], 0.0, {start})]
         finished: list = []  # 도착에 닿았거나 연결 시점에 도달한 빔을 모으는 목록
 
@@ -209,14 +217,11 @@ class OnewayBeamEngine:
             if not candidates:
                 break
 
-            # 결정론적 상위 k 선별
-            # objective(누적거리 + 예상 남은거리, 누적거리, 누적비용) → (|실제 오차| - 허용 오차, 품질)
-            # b = (누적 비용, 노드열, 누적 거리, 방문 집합)
-            candidates.sort(key=lambda b: self.utils.objective(
-                b[2] + self.utils.est_network_dist(b[1][-1], end), b[2], b[0], target_m) + (b[1],))
+            candidates.sort(key=_rank_key)
             beams = candidates[:_BEAM_WIDTH]
 
         return finished, beams
+
 
     def _build_pool(self, finished: list, beams: list) -> list:
         """
