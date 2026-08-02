@@ -115,8 +115,10 @@ class OnewayRcspEngine:
             logger.warning("출발-도착 간 경로가 존재하지 않습니다.")
             return []
 
+        min_ratio = self._min_cost_per_m()  # end 방향 유도용 비용 하한 비율
+
         # 1단계: 출발지 → 도착 후보 (라벨 전파)
-        labels = self._find_start_to_waypoint(start, end, target_m)
+        labels = self._find_start_to_waypoint(start, end, target_m, min_ratio)
 
         # 1.5단계: 도착 후보 풀 구성
         pool = self._build_pool(labels)
@@ -143,9 +145,10 @@ class OnewayRcspEngine:
                     len(best_path), best_key[0], best_key[1])
         return best_path
     
-    def _prune_labels(self, labels: list) -> list:
+    def _prune_labels(self, labels: list, end: int, min_ratio: float) -> list:
         """
-        확장 라벨들을 노드별 파레토 최적만 남기고 상위 N개만을 추출합니다.
+        확장 라벨들을 노드별 파레토 최적만 남기고, end까지 남은 비용 추정치(방향 유도 하한)를
+        반영한 전역 상위 N개만을 추출합니다.
         """
         by_node: dict = {}
         for lb in labels:
@@ -162,29 +165,53 @@ class OnewayRcspEngine:
                 pareto.append(lb)
             kept.extend(pareto[:_LABEL_CAP])
 
-        kept.sort(key=lambda lb: (lb[0], lb[1], lb[2]))
+        # 전역 상위 선별: 누적비용 + end까지 남은 비용 추정치 기준
+        # → "싸다"만이 아니라 "end 방향으로 가고 있다"까지 반영해 방향 없는 소진을 방지
+        kept.sort(key=lambda lb: (
+            lb[0] + self.utils.est_network_dist(lb[2][-1], end) * min_ratio,
+            lb[1], lb[2],
+        ))
         return kept[:_FRONTIER_CAP]
 
-    def _find_start_to_waypoint(self, start: int, end: int, target_m: float) -> list:
+
+    def _find_start_to_waypoint(self, start: int, end: int, target_m: float, min_ratio: float) -> list:
         """
         1단계: 출발지 → 중간지점 경로를 생성합니다.
         """
         upper = target_m * _UPPER_RATIO  # 자원(거리) 상한
-        frontier = [(0.0, 0.0, (start,))]  # 초기 라벨
+        frontier = [(0.0, 0.0, (start,))]
         arrived: list = []
 
-        for _ in range(_MAX_STEPS):
+        # --- 임시 진단 카운터 (확인 끝나면 제거) ---
+        early_arrivals = 0   # end에 닿았지만 dist가 30% 미만이라 소실된 라벨 수
+        proper_arrivals = 0  # end에 닿고 dist가 30% 이상이라 arrived에 정상 등록된 라벨 수
+        progress_log = []    # (step, 프론티어 중 end까지 최소 추정거리)
+        # -------------------------------------------
+
+        for step in range(_MAX_STEPS):
             if not frontier:
+                logger.warning("[RCSP 진단] step=%d에서 frontier 고갈로 중단", step)
                 break
+
+            if step % 20 == 0:
+                min_remain = min(
+                    (self.utils.est_network_dist(path[-1], end) for _, _, path in frontier),
+                    default=None,
+                )
+                progress_log.append((step, len(frontier), min_remain))
 
             candidates: list = []
             for cost, dist, path in frontier:
                 u = path[-1]
 
                 # 도착지에 닿았으면 도착 후보로 확정 (누적거리가 목표의 30% 이상일 때만)
-                if u == end and dist > target_m * 0.3:
-                    arrived.append((cost, dist, path))
-                    continue  # 도착 라벨은 확장 중단
+                if u == end:
+                    if dist > target_m * 0.3:
+                        arrived.append((cost, dist, path))
+                        proper_arrivals += 1
+                        continue  # 도착 라벨은 확장 중단
+                    else:
+                        early_arrivals += 1  # 진단용 카운트만 — 기존처럼 계속 확장함
 
                 # 이웃을 node_id 오름차순으로 순회 → 결정론적 전파
                 for v in sorted(self.G.neighbors(u)):
@@ -197,9 +224,15 @@ class OnewayRcspEngine:
                     nc = cost + edge.get("custom_score", 1.0)
                     candidates.append((nc, nd, path + (v,)))
 
-            frontier = self._prune_labels(candidates)  # 파레토 + 상한 가지치기
+            frontier = self._prune_labels(candidates, end, min_ratio)  # 파레토 + 상한 가지치기
 
+        logger.warning(
+            "[RCSP 진단] 조기도착(소실)=%d건, 정상도착=%d건, 최종 arrived=%d개",
+            early_arrivals, proper_arrivals, len(arrived),
+        )
+        logger.warning("[RCSP 진단] step별 (프론티어 크기, end까지 최소 추정거리m): %s", progress_log)
         return arrived
+
 
     def _build_pool(self, labels: list) -> list:
         """
@@ -222,3 +255,13 @@ class OnewayRcspEngine:
         2단계: 한 후보의 중간지점 → 도착지 경로를 생성합니다.
         """
         return self.utils.connect_to(nodes, visited, end)
+
+    def _min_cost_per_m(self) -> float:
+        """
+        그래프 전체에서 (custom_score / length)의 최솟값.
+        직선거리(m) × 이 값은 end 방향 유도용 비용 하한 추정치로 사용됩니다.
+        """
+        return min(
+            (data.get("custom_score", 1.0) / max(data.get("length", 1.0) or 1.0, 1e-6))
+            for _, _, data in self.G.edges(data=True)
+        )
