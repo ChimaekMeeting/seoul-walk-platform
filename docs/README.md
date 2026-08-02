@@ -46,7 +46,8 @@ docs/                              // 프로젝트 문서
 │   └── README.md                  // JWT·cookie·Valkey 계약
 ├── chatbot/                       // 챗봇 영역
 │   ├── README.md                  // 현재 구성요소와 실행 흐름
-│   └── agent_harness.md           // State·Node·Edge·Tool 계약
+│   ├── agent_harness.md           // State·Node·Edge·Tool 계약
+│   └── test_scenarios.md          // 수동 테스트 스크립트 시나리오와 실행 결과
 ├── data/                          // 데이터 영역
 │   ├── README.md                  // V1 범위와 상세 문서 안내
 │   ├── data_score_mapping.md      // 원본·Layer·Score 연결
@@ -77,6 +78,7 @@ docs/                              // 프로젝트 문서
 - [데이터](data/README.md)
 - [챗봇](chatbot/README.md)
 - [챗봇 Agent 하네스](chatbot/agent_harness.md)
+- [챗봇 Prewalk 대화 테스트 시나리오](chatbot/test_scenarios.md)
 - [경로 생성 엔진](route_engine/README.md)
 
 실행·복구 작업:
