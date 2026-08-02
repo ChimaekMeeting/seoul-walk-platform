@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Union, List
 from src.interfaces.schema.walk_schema import WalkMode, WalkRouteResponse
 from src.route_engine.profiles import ScoringProfile
@@ -12,6 +12,17 @@ class Location(BaseModel):
     lon: Optional[float] = Field(None, description="경도(Longitude)")
     address: Optional[str] = Field(None, description="지번 주소 또는 도로명 주소")
     place_name: Optional[str] = Field(None, description="장소 명칭")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_bare_string(cls, value):
+        """
+        LLM이 Location 대신 장소명 문자열만 넘기는 경우, place_name으로 감싸 받아들인다.
+        (예: origin="홍대" -> Location(place_name="홍대"))
+        """
+        if isinstance(value, str):
+            return {"place_name": value}
+        return value
 
 
 class BasePreference(BaseModel):
