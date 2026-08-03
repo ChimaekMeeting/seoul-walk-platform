@@ -1,6 +1,6 @@
 from benchmarks.solvers._oneway_engine_common import base_shortest_path_overlap_ratio
 from benchmarks.solvers.base_solver import BasePathSolver
-from src.route_engine.engines.oneway_astar import OnewayAstarEngine
+from src.route_engine.engines.oneway_bi_astar import OnewayBidirectionalAstarEngine
 from src.route_engine.scoring.scoring_engine import compute_custom_score_lookup
 from src.schema.route_schema import OnewayRouteInput
 import time
@@ -8,8 +8,8 @@ import time
 _DEFAULT_TARGET_KM = 3.0
 
 
-class OnewayAstarSolver(BasePathSolver):
-    def __init__(self, name: str = "A*(oneway)"):
+class OnewayBidirectionalAstarSolver(BasePathSolver):
+    def __init__(self, name: str = "Bidirectional A*(oneway)"):
         super().__init__(name)
 
     def solve(self, graph, start_node, target_node, params: dict) -> dict:
@@ -19,7 +19,7 @@ class OnewayAstarSolver(BasePathSolver):
         )
 
         t0 = time.perf_counter()
-        engine = OnewayAstarEngine(
+        engine = OnewayBidirectionalAstarEngine(
             inp=inp,
             G=graph,
             custom_weights=params.get("custom_weights"),
@@ -38,7 +38,7 @@ class OnewayAstarSolver(BasePathSolver):
 
         nodes = engine.find_path(start_node, target_node)
         t3 = time.perf_counter()
-        print(f"[A* 진단] G.assign={t1-t0:.3f}s, custom_score+min_ratio={t2-t1:.3f}s, find_path={t3-t2:.3f}s")
+        print(f"[Bi-A* 진단] G.assign={t1-t0:.3f}s, custom_score+min_ratio={t2-t1:.3f}s, find_path={t3-t2:.3f}s")
 
         if not nodes or len(nodes) < 2:
             raise ValueError("경로 생성 실패: 유효한 편도 경로를 찾지 못했습니다 (NO_PATH)")

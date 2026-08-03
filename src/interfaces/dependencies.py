@@ -28,6 +28,7 @@ from src.repository.network.graph_artifact_repository import (
     GraphArtifactRepository,
 )
 from src.repository.network.graph_repository import GraphRepository
+from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ def load_runtime_graph():
 def init_route_service():
     global G, route_service, prewalk_orchestrator
     G             = load_runtime_graph()
+    precompute_scoring_features(G)
     route_service = RouteService(G=G, auth_service=auth_service)
     prewalk_orchestrator = PrewalkOrchestrator(
         weather_checker        = WeatherChecker(weather_client=weather_client),

@@ -1,6 +1,7 @@
 import math
 
 import networkx as nx
+import numpy as np
 
 
 COMFORT_TAG_PENALTIES = {
@@ -10,128 +11,176 @@ COMFORT_TAG_PENALTIES = {
     "building_inside": 1.08,
 }
 
-
-def _clamp_score(value, default: float = 0.0) -> float:
-    if value is None:
-        return default
-    return max(0.0, min(1.0, float(value)))
+_FEATURE_CACHE_KEY = "_scoring_feature_cache"
 
 
-def _bounded_count_score(count, saturation_count: int) -> float:
-    """POI 개수를 0~1로 제한하며 saturation_count에서 상한에 도달시킵니다."""
-    safe_count = max(0, int(count or 0))
-    return min(
-        1.0,
-        math.log1p(safe_count) / math.log1p(saturation_count),
-    )
+def _clamp_score_arr(arr: np.ndarray) -> np.ndarray:
+    return np.clip(np.nan_to_num(arr, nan=0.0), 0.0, 1.0)
 
 
-def calculate_custom_score(graph: nx.Graph, profile: dict) -> nx.Graph:
+def _bounded_count_score_arr(count_arr: np.ndarray, saturation_count: int) -> np.ndarray:
+    safe = np.maximum(0, count_arr.astype(np.int64))
+    return np.minimum(1.0, np.log1p(safe) / math.log1p(saturation_count))
+
+
+def _build_feature_cache(graph: nx.Graph) -> dict:
+    edges = list(graph.edges(data=True))
+    n = len(edges)
+
+    edge_keys = [(u, v) for u, v, _ in edges]
+    length_raw = np.empty(n, dtype=np.float64)
+    safety_raw = np.empty(n, dtype=np.float64)
+    nature_raw = np.empty(n, dtype=np.float64)
+    park_raw = np.empty(n, dtype=np.float64)
+    slope_raw = np.empty(n, dtype=np.float64)
+    landmark_raw = np.empty(n, dtype=np.float64)
+    running_raw = np.empty(n, dtype=np.float64)
+    convenience_raw = np.empty(n, dtype=np.float64)
+    toilet_count = np.empty(n, dtype=np.int64)
+    transit_count = np.empty(n, dtype=np.int64)
+    accessibility_count = np.empty(n, dtype=np.int64)
+    is_vehicle_caution = np.empty(n, dtype=bool)
+    comfort_penalty = np.ones(n, dtype=np.float64)
+    tags_list: list[list[str]] = []
+
+    for i, (_, _, data) in enumerate(edges):
+        length_raw[i] = max(1.0, float(data.get("length", 1.0) or 1.0))
+        safety_raw[i] = data.get("safety_score") or 0.0
+        nature_raw[i] = data.get("nature_score") or 0.0
+        park_raw[i] = data.get("park_overlap_ratio") or 0.0
+        slope_raw[i] = data.get("slope_score") or 0.0
+        landmark_raw[i] = data.get("landmark_score") or 0.0
+        running_raw[i] = data.get("running_score") or 0.0
+        convenience_raw[i] = data.get("convenience_score") or 0.0
+        toilet_count[i] = int(data.get("toilet_count", 0) or 0)
+        transit_count[i] = int(data.get("transit_count", 0) or 0)
+        accessibility_count[i] = int(data.get("accessibility_poi_count", 0) or 0)
+        is_vehicle_caution[i] = bool(data.get("is_vehicle_caution", False))
+
+        tags = data.get("tags", []) or []
+        tags_list.append(tags)
+        for tag, penalty in COMFORT_TAG_PENALTIES.items():
+            if tag in tags:
+                comfort_penalty[i] = max(comfort_penalty[i], penalty)
+
+    convenience_poi = _bounded_count_score_arr(toilet_count + transit_count, saturation_count=3)
+
+    return {
+        "edge_keys": edge_keys,
+        "length": length_raw,
+        "safety": _clamp_score_arr(safety_raw),
+        "nature": np.maximum(_clamp_score_arr(nature_raw), _clamp_score_arr(park_raw)),
+        "slope": _clamp_score_arr(slope_raw),
+        "landmark": _clamp_score_arr(landmark_raw),
+        "running": _clamp_score_arr(running_raw),
+        "convenience": np.maximum(_clamp_score_arr(convenience_raw), convenience_poi),
+        "accessibility": _bounded_count_score_arr(accessibility_count, saturation_count=2),
+        "is_vehicle_caution": is_vehicle_caution,
+        "comfort_penalty": comfort_penalty,
+        "tags_list": tags_list,
+    }
+
+
+def precompute_scoring_features(graph: nx.Graph) -> None:
+    graph.graph[_FEATURE_CACHE_KEY] = _build_feature_cache(graph)
+
+
+def _get_feature_cache(graph: nx.Graph) -> dict:
+    cache = graph.graph.get(_FEATURE_CACHE_KEY)
+    if cache is None or len(cache["edge_keys"]) != graph.number_of_edges():
+        cache = _build_feature_cache(graph)
+        graph.graph[_FEATURE_CACHE_KEY] = cache
+    return cache
+
+
+def _compute_scores_array(graph: nx.Graph, profile: dict) -> tuple[list[tuple], np.ndarray, dict]:
     """
-    graph 각 edge의 feature와 profile 가중치를 곱해 custom_score를 계산하여 부여합니다.
-
-    양의 근거는 (1 + score × weight) 가점으로 사용하여 데이터가 없는
-    지역(score=0)을 감점하지 않습니다. 경사·차량 주의·불쾌 구간은
-    분자에 페널티로 반영합니다.
-
-    주의:
-        Dijkstra는 음수 비용에 취약하므로 custom_score는 최소 1.0으로 보정합니다.
-        blocked_tags가 포함된 edge는 inf로 설정하여 탐색에서 제외합니다.
-
-    Args:
-        graph   : feature들이 바인딩된 NetworkX 그래프
-        profile : {
-            "mode"         : "general" | "running"  (기본값: "general")
-            "weights"      : Weights 객체 또는 dict
-            "blocked_tags" : [str, ...]
-        }
-
-    Returns:
-        custom_score 속성이 추가된 graph
+    calculate_custom_score / compute_custom_score_lookup가 공유하는 계산 코어.
+    그래프에 아무것도 쓰지 않고 (edge_keys, custom_score 배열, feature cache)만 반환한다.
     """
     mode         = profile.get("mode", "general")
     weights      = profile.get("weights", {})
     blocked_tags = profile.get("blocked_tags", [])
 
-    # Weights Pydantic 객체와 dict 모두 수용
     def _w(key: str, default: float = 0.0) -> float:
         if isinstance(weights, dict):
             return weights.get(key, default)
         return getattr(weights, key, default)
 
-    safety_w   = _w("safety",   1.0)
-    nature_w   = _w("nature",   1.0)
-    slope_w    = _w("slope",    1.0)
-    landmark_w = _w("landmark", 0.0)
-    child_w    = _w("child",    0.0)
-    running_w  = _w("running",  0.0)
-    convenience_w = _w("convenience", 0.0)
+    safety_w        = _w("safety",   1.0)
+    nature_w        = _w("nature",   1.0)
+    slope_w         = _w("slope",    1.0)
+    landmark_w      = _w("landmark", 0.0)
+    child_w         = _w("child",    0.0)
+    running_w       = _w("running",  0.0)
+    convenience_w   = _w("convenience", 0.0)
     accessibility_w = _w("accessibility", 0.0)
 
-    for u, v, data in graph.edges(data=True):
-        if blocked_tags and any(tag in data.get("tags", []) for tag in blocked_tags):
-            graph[u][v]["custom_score"] = float("inf")
-            continue
+    cache = _get_feature_cache(graph)
 
-        length = max(1.0, float(data.get("length", 1.0) or 1.0))
-        safety = _clamp_score(data.get("safety_score"))
-        nature = max(
-            _clamp_score(data.get("nature_score")),
-            _clamp_score(data.get("park_overlap_ratio")),
-        )
-        slope = _clamp_score(data.get("slope_score"))
-        landmark = _clamp_score(data.get("landmark_score"))
-        running = _clamp_score(data.get("running_score"))
+    bonus = (
+        (1.0 + cache["safety"] * safety_w)
+        * (1.0 + cache["nature"] * nature_w)
+        * (1.0 + cache["landmark"] * landmark_w)
+        * (1.0 + cache["convenience"] * convenience_w)
+        * (1.0 + cache["accessibility"] * accessibility_w)
+    )
+    slope_penalty = 1.0 + (1.0 - cache["slope"]) * slope_w
+    caution_penalty = np.where(cache["is_vehicle_caution"], 1.0 + child_w, 1.0)
+    comfort_penalty = cache["comfort_penalty"]
 
-        convenience_poi = _bounded_count_score(
-            int(data.get("toilet_count", 0) or 0)
-            + int(data.get("transit_count", 0) or 0),
-            saturation_count=3,
-        )
-        convenience = max(
-            _clamp_score(data.get("convenience_score")),
-            convenience_poi,
-        )
-        accessibility = _bounded_count_score(
-            data.get("accessibility_poi_count", 0),
-            saturation_count=2,
-        )
+    if mode == "running":
+        bonus = bonus * (1.0 + cache["running"] * running_w)
+        bonus = bonus * (1.0 + np.log1p(cache["length"] / 50.0))
 
-        bonus = (
-            (1.0 + safety * safety_w)
-            * (1.0 + nature * nature_w)
-            * (1.0 + landmark * landmark_w)
-            * (1.0 + convenience * convenience_w)
-            * (1.0 + accessibility * accessibility_w)
+    calculated = (
+        cache["length"] * slope_penalty * caution_penalty * comfort_penalty
+    ) / np.maximum(bonus, 1e-6)
+    custom_score = np.maximum(1.0, calculated)
+
+    if blocked_tags:
+        blocked_mask = np.array(
+            [any(tag in tags for tag in blocked_tags) for tags in cache["tags_list"]],
+            dtype=bool,
         )
-        # slope_score는 경사도가 아니라 평탄도입니다.
-        # 1.0은 평지, 0.0은 MAX_SLOPE_PCT 이상의 급경사를 뜻합니다.
-        slope_penalty = 1.0 + (1.0 - slope) * slope_w
-        caution_penalty = (
-            1.0 + child_w
-            if data.get("is_vehicle_caution", False)
-            else 1.0
-        )
-        comfort_penalty = max(
-            (
-                penalty
-                for tag, penalty in COMFORT_TAG_PENALTIES.items()
-                if tag in data.get("tags", [])
-            ),
-            default=1.0,
-        )
+        custom_score = np.where(blocked_mask, np.inf, custom_score)
 
-        if mode == "running":
-            bonus *= 1.0 + running * running_w
-            bonus *= 1.0 + math.log1p(length / 50.0)
+    return cache["edge_keys"], custom_score, cache
 
-        calculated = (
-            length
-            * slope_penalty
-            * caution_penalty
-            * comfort_penalty
-        ) / max(bonus, 1e-6)
 
-        graph[u][v]["custom_score"] = max(1.0, calculated)
-
+def calculate_custom_score(graph: nx.Graph, profile: dict) -> nx.Graph:
+    """
+    기존 동작 유지 — beam/grasp/alns/rcsp/plateau 등 그래프 mutation에 의존하는
+    엔진들을 위해 그대로 남겨둔다. A*/Dijkstra/Bi-A*는 이제 이 함수 대신
+    compute_custom_score_lookup을 쓴다.
+    """
+    edge_keys, custom_score, _ = _compute_scores_array(graph, profile)
+    graph.graph["_last_custom_score_array"] = custom_score
+    for (u, v), score in zip(edge_keys, custom_score.tolist()):
+        graph[u][v]["custom_score"] = score
     return graph
+
+
+def compute_custom_score_lookup(graph: nx.Graph, profile: dict) -> dict:
+    """
+    calculate_custom_score와 동일한 계산이지만 그래프에 쓰지 않는다.
+    G.copy() 없이(원본을 전혀 건드리지 않고) 매 요청 다른 가중치로 반복 계산할 때 사용.
+
+    반환:
+        {"weight": callable(u, v, data) -> float,  # nx.astar_path/shortest_path의 weight= 인자로 그대로 사용
+         "lookup": {(u, v): score, ...},           # 경로 비용 직접 합산용
+         "min_ratio": float}                       # A* admissibility 하한 비율
+    """
+    edge_keys, custom_score, cache = _compute_scores_array(graph, profile)
+
+    lookup: dict[tuple, float] = {}
+    for (u, v), score in zip(edge_keys, custom_score.tolist()):
+        lookup[(u, v)] = score
+        lookup[(v, u)] = score  # 무방향 그래프이므로 양방향 조회 등록
+
+    min_ratio = float(np.min(custom_score / np.maximum(cache["length"], 1e-6)))
+
+    def _weight(u, v, d, _lookup=lookup):
+        return _lookup.get((u, v), 1.0)
+
+    return {"weight": _weight, "lookup": lookup, "min_ratio": min_ratio}
