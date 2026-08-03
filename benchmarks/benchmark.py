@@ -6,8 +6,12 @@ BasePathSolver를 상속받은 알고리즘(Strategy)들을 SOLVER_REGISTRY에 �
 CLI에서 --algo로 원하는 것만 골라 실행한다 (전체를 매번 순차 실행하지 않음).
 동일한 입력(graph, start_node, target_node, params)으로 실행하고, 결과를 표로 출력 및
 CSV로 저장한다. 이 프로젝트의 실제 목적("적당한 시간 내에 사용자가 원하는 순환 경로가
-나오는가")에 맞춰, solver의 자기 신고(cost/overlap_ratio)를 그대로 믿지 않고 하네스가
-paths/graph에서 독립적으로 재계산한 품질 지표를 함께 기록한다:
+나오는가")에 맞춰, solver의 자기 신고(cost)를 그대로 믿지 않고 하네스가 paths/graph에서
+독립적으로 재계산한 품질 지표를 함께 기록한다. 단 overlap_ratio는 예외로, solver가
+공용 헬퍼(_oneway_engine_common.base_shortest_path_overlap_ratio)로 직접 계산해
+보고한 값을 그대로 신뢰한다 
+
+모든 oneway solver가 같은 헬퍼를 쓰므로 solver 간 비교 일관성은 유지됨:
 
   - within_time_budget : params['time_budget_sec'](사용자 체감 허용시간) 이내에 끝났는지.
                           timeout_sec(하드 킬 기준)과는 별개로, "기술적으로는 성공했지만
@@ -49,6 +53,8 @@ from benchmarks.solvers.dummy_solver import DummySolver
 from benchmarks.solvers.grasp_solver import CircularGraspSolver, OnewayGraspSolver
 from benchmarks.solvers.plateau_solver import PlateauSolver
 from benchmarks.solvers.rcsp_solver import CircularRcspSolver, OnewayRcspSolver
+from benchmarks.solvers.astar_solver import OnewayAstarSolver
+from benchmarks.solvers.dijkstra_solver import OnewayDijkstraSolver
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +81,8 @@ SOLVER_REGISTRY: dict[str, BasePathSolver] = {
     "rcsp-circular": CircularRcspSolver(),
     "rcsp-oneway": OnewayRcspSolver(),
     "plateau": PlateauSolver(),
+    "astar-oneway": OnewayAstarSolver(),
+    "dijkstra-oneway" : OnewayDijkstraSolver(),
     "dummy-a": DummySolver(name="DummySolver-A", fake_delay_sec=0.05),
     "dummy-b": DummySolver(name="DummySolver-B", fake_delay_sec=0.1),
 }
