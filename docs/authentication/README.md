@@ -1,7 +1,7 @@
 # 인증·Kakao 로그인 계약
 
 > 상태: Current  
-> 기준일: 2026-07-27  
+> 기준일: 2026-08-03  
 > 관련 코드: `src/interfaces/api/auth_router.py`, `src/interfaces/api/login_router.py`, `src/service/user/auth_service.py`, `src/service/user/login_service.py`
 
 ## 1. 책임
@@ -32,6 +32,8 @@
 
 - `KAKAO_API_KEY`, `KAKAO_REDIRECT_URI`
 - `ACCESS_SECRET_KEY`, `REFRESH_SECRET_KEY`
+- `ACCESS_TOKEN_EXPIRE_MINUTES` (기본값 60, 단위: 분) — access token 만료 시간 조절
+- `REFRESH_TOKEN_EXPIRE_DAYS` (기본값 14, 단위: 일) — refresh token 만료 시간 조절
 - PostgreSQL 연결
 - Valkey 연결
 
@@ -51,9 +53,9 @@
 저장 결과:
 
 - PostgreSQL `users`: 최초 로그인 사용자 저장
-- Valkey `refresh_token:{provider}:{provider_id}`: refresh JWT, TTL 1,209,600초
-- access JWT 만료: 60분
-- refresh JWT 만료: 14일
+- Valkey `refresh_token:{provider}:{provider_id}`: refresh JWT, TTL은 `REFRESH_TOKEN_EXPIRE_DAYS × 86,400`초 (기본 1,209,600초 = 14일)
+- access JWT 만료: `ACCESS_TOKEN_EXPIRE_MINUTES`분 (기본값 60분)
+- refresh JWT 만료: `REFRESH_TOKEN_EXPIRE_DAYS`일 (기본값 14일)
 
 웹·모바일 `LoginResponse` body에는 현재 access·refresh token이 모두 포함된다.
 
@@ -107,6 +109,8 @@ access·refresh 확인 endpoint는 cookie가 아니라 선택적 Bearer header�
 | 변경 | 함께 확인할 대상 |
 |---|---|
 | JWT payload·secret·algorithm | 모든 `check_access_token` 호출자, 기존 token |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` 변경 | cookie Max-Age(3,600초 하드코딩)와 불일치 발생 가능 — cookie 설정도 함께 수정 필요 |
+| `REFRESH_TOKEN_EXPIRE_DAYS` 변경 | Valkey TTL, cookie Max-Age(1,209,600초 하드코딩)와 불일치 발생 가능 — cookie 설정도 함께 수정 필요 |
 | access·refresh 만료 | cookie Max-Age, Valkey TTL, 복구 안내 |
 | `AuthService` 반환 tuple | user·survey·route·prewalk service와 테스트 mock |
 | token 전달 위치 | auth Bearer header, 로그인 body, 웹 callback·refresh cookie, logout cookie |
