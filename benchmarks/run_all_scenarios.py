@@ -8,10 +8,13 @@ import pandas as pd
 from benchmarks.config import ROUTE_ENGINE_DATASET
 from benchmarks.benchmark import _load_default_graph, run_benchmark, SOLVER_REGISTRY
 from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.engines.oneway_astar import precompute_landmarks
 
-ONEWAY_ALGOS   = ["beam-oneway", "grasp-oneway", "alns-oneway", "rcsp-oneway", "plateau", "astar-oneway", "dijkstra-oneway"]
-CIRCULAR_ALGOS = ["beam-circular", "grasp-circular", "alns-circular", "rcsp-circular"]
+# ONEWAY_ALGOS   = ["beam-oneway", "grasp-oneway", "alns-oneway", "rcsp-oneway", "plateau", "astar-oneway", "dijkstra-oneway"]
+# CIRCULAR_ALGOS = ["beam-circular", "grasp-circular", "alns-circular", "rcsp-circular"]
 
+ONEWAY_ALGOS   = ["astar-oneway", "dijkstra-oneway"]
+CIRCULAR_ALGOS = []
 
 def main():
     print("그래프 로딩 중...", flush=True)
@@ -19,6 +22,10 @@ def main():
     graph = _load_default_graph()
     print(f"그래프 로딩 완료: {time.perf_counter() - t0:.1f}초, 노드 {graph.number_of_nodes()}개, 엣지 {graph.number_of_edges()}개", flush=True)
 
+    print("랜드마크 전처리 중...", flush=True)
+    t_lm = time.perf_counter()
+    precompute_landmarks(graph)
+    print(f"랜드마크 전처리 완료: {time.perf_counter() - t_lm:.1f}초", flush=True)
     utils = PathUtils(graph)
 
     with open(ROUTE_ENGINE_DATASET, encoding="utf-8") as f:

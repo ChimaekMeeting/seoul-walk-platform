@@ -190,7 +190,6 @@ class OnewayRcspEngine:
 
         for step in range(_MAX_STEPS):
             if not frontier:
-                logger.warning("[RCSP 진단] step=%d에서 frontier 고갈로 중단", step)
                 break
 
             if step % 20 == 0:
@@ -226,11 +225,6 @@ class OnewayRcspEngine:
 
             frontier = self._prune_labels(candidates, end, min_ratio)  # 파레토 + 상한 가지치기
 
-        logger.warning(
-            "[RCSP 진단] 조기도착(소실)=%d건, 정상도착=%d건, 최종 arrived=%d개",
-            early_arrivals, proper_arrivals, len(arrived),
-        )
-        logger.warning("[RCSP 진단] step별 (프론티어 크기, end까지 최소 추정거리m): %s", progress_log)
         return arrived
 
 
