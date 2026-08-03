@@ -55,6 +55,7 @@ from benchmarks.solvers.plateau_solver import PlateauSolver
 from benchmarks.solvers.rcsp_solver import CircularRcspSolver, OnewayRcspSolver
 from benchmarks.solvers.astar_solver import OnewayAstarSolver
 from benchmarks.solvers.dijkstra_solver import OnewayDijkstraSolver
+from src.route_engine.engines.oneway_astar import precompute_landmarks
 
 logger = logging.getLogger(__name__)
 
@@ -441,6 +442,10 @@ def main():
         params["time_budget_sec"] = args.time_budget
 
     solvers = resolve_solvers(args.algo)
+
+    if graph is not None and any(isinstance(s, OnewayAstarSolver) for s in solvers):
+        logger.info("랜드마크 전처리 중...")
+        precompute_landmarks(graph)
 
     result_df = run_benchmark(solvers, graph, start_node, target_node, params, timeout_sec=args.timeout)
 
