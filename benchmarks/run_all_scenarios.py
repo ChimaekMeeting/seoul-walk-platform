@@ -10,11 +10,8 @@ from benchmarks.benchmark import _load_default_graph, run_benchmark, SOLVER_REGI
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.oneway_astar import precompute_landmarks
 
-# ONEWAY_ALGOS   = ["beam-oneway", "grasp-oneway", "alns-oneway", "rcsp-oneway", "plateau", "astar-oneway", "dijkstra-oneway"]
-# CIRCULAR_ALGOS = ["beam-circular", "grasp-circular", "alns-circular", "rcsp-circular"]
-
-ONEWAY_ALGOS   = ["astar-oneway", "dijkstra-oneway"]
-CIRCULAR_ALGOS = []
+ONEWAY_ALGOS   = ["beam-oneway", "grasp-oneway", "alns-oneway", "rcsp-oneway", "plateau", "astar-oneway", "bi-astar-oneway", "dijkstra-oneway"]
+CIRCULAR_ALGOS = ["beam-circular", "grasp-circular", "alns-circular", "rcsp-circular"]
 
 def main():
     print("그래프 로딩 중...", flush=True)
@@ -31,7 +28,7 @@ def main():
     with open(ROUTE_ENGINE_DATASET, encoding="utf-8") as f:
         dataset = json.load(f)
 
-    scenarios = dataset["scenarios"]
+    scenarios = dataset["scenarios"][:1]
     print(f"시나리오 {len(scenarios)}개 테스트 (oneway {sum(1 for s in scenarios if s['mode']=='oneway')}개, circular {sum(1 for s in scenarios if s['mode']=='circular')}개)\n", flush=True)
 
     all_rows = []
@@ -79,7 +76,7 @@ def main():
 
     print(summary.to_string())
     
-    TARGET_AGNOSTIC_ALGOS = {"A*(oneway)", "Dijkstra(oneway)"}  # target_km을 안 쓰는 순수 최단경로 solver
+    TARGET_AGNOSTIC_ALGOS = {"A*(oneway)", "Dijkstra(oneway)", "Bidirectional A*(oneway)"}  # target_km을 안 쓰는 순수 최단경로 solver
     hit = TARGET_AGNOSTIC_ALGOS & set(summary.index)
     if hit:
         print(

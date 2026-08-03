@@ -56,6 +56,8 @@ from benchmarks.solvers.rcsp_solver import CircularRcspSolver, OnewayRcspSolver
 from benchmarks.solvers.astar_solver import OnewayAstarSolver
 from benchmarks.solvers.dijkstra_solver import OnewayDijkstraSolver
 from src.route_engine.engines.oneway_astar import precompute_landmarks
+from benchmarks.solvers.bi_astar_solver import OnewayBidirectionalAstarSolver
+from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +85,7 @@ SOLVER_REGISTRY: dict[str, BasePathSolver] = {
     "rcsp-oneway": OnewayRcspSolver(),
     "plateau": PlateauSolver(),
     "astar-oneway": OnewayAstarSolver(),
+    "bi-astar-oneway": OnewayBidirectionalAstarSolver(),
     "dijkstra-oneway" : OnewayDijkstraSolver(),
     "dummy-a": DummySolver(name="DummySolver-A", fake_delay_sec=0.05),
     "dummy-b": DummySolver(name="DummySolver-B", fake_delay_sec=0.1),
@@ -381,6 +384,12 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=None,
         help="도착 노드 ID. 미지정 시 start-node와 동일(순환 경로 기본값)",
     )
+    parser.add_argument(
+        "--profile",
+        type=str,
+        default=None,
+        help="스코어링 프로필 (default/nature/safe/flat/running/landmark/child/convenient/accessible). 미지정 시 default",
+    )
     return parser.parse_args(argv)
 
 
@@ -438,6 +447,8 @@ def main():
 
     target_node = args.end_node if args.end_node is not None else start_node  # 편도는 --end-node로 별도 지정
     params = {"target_km": args.target_km}
+    if args.profile is not None:
+        params["profile"] = args.profile    
     if args.time_budget is not None:
         params["time_budget_sec"] = args.time_budget
 
@@ -446,6 +457,7 @@ def main():
     if graph is not None and any(isinstance(s, OnewayAstarSolver) for s in solvers):
         logger.info("랜드마크 전처리 중...")
         precompute_landmarks(graph)
+        precompute_scoring_features(graph)
 
     result_df = run_benchmark(solvers, graph, start_node, target_node, params, timeout_sec=args.timeout)
 
