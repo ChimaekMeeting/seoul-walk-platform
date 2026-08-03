@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jwt.exceptions import ExpiredSignatureError, InvalidSignatureError, DecodeError, InvalidTokenError
 
+from src.config.settings import settings
 from src.repository.user.user_repository import UserRepository
 from src.infrastructure.cache.repository.user_repository import UserRepository as CacheUserRepository
 from src.interfaces.schema.auth_schema import Status
@@ -25,7 +26,7 @@ class AuthService:
         access_payload = {
             "provider": provider.value,
             "provider_id": provider_id,
-            "exp": now + timedelta(minutes=60),
+            "exp": now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
             "type": "access"
         }
         access_token = jwt.encode(access_payload, self.ACCESS_SECRET_KEY, algorithm="HS256")
@@ -41,7 +42,7 @@ class AuthService:
         refresh_payload = {
             "provider": provider.value,
             "provider_id": provider_id,
-            "exp": now + timedelta(days=14),
+            "exp": now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
             "type": "refresh"
         }
         refresh_token = jwt.encode(refresh_payload, self.REFRESH_SECRET_KEY, algorithm="HS256")
