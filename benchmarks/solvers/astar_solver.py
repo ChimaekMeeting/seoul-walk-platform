@@ -1,7 +1,7 @@
 from benchmarks.solvers._oneway_engine_common import base_shortest_path_overlap_ratio
 from benchmarks.solvers.base_solver import BasePathSolver
 from src.route_engine.engines.oneway_astar import OnewayAstarEngine
-from src.route_engine.scoring.scoring_engine import calculate_custom_score
+from src.route_engine.scoring.scoring_engine import compute_custom_score_lookup
 from src.schema.route_schema import OnewayRouteInput
 import time
 
@@ -26,21 +26,23 @@ class OnewayAstarSolver(BasePathSolver):
             profile=params.get("profile"),
         )
         t1 = time.perf_counter()
-        calculate_custom_score(engine.G, {
+        scored = compute_custom_score_lookup(engine.G, {
             "mode": engine.scoring_mode,
             "weights": engine.weights,
             "blocked_tags": engine.blocked_tags,
         })
-        engine._min_ratio = engine._min_cost_per_m()
+        engine._weight_fn    = scored["weight"]
+        engine._score_lookup = scored["lookup"]
+        engine._min_ratio    = scored["min_ratio"]
         t2 = time.perf_counter()
 
         nodes = engine.find_path(start_node, target_node)
         t3 = time.perf_counter()
-        print(f"[A* 진단] G.copy={t1-t0:.3f}s, custom_score+min_ratio={t2-t1:.3f}s, find_path={t3-t2:.3f}s")
+        print(f"[A* 진단] G.assign={t1-t0:.3f}s, custom_score+min_ratio={t2-t1:.3f}s, find_path={t3-t2:.3f}s")
 
         if not nodes or len(nodes) < 2:
             raise ValueError("경로 생성 실패: 유효한 편도 경로를 찾지 못했습니다 (NO_PATH)")
 
-        _, cost = engine.utils.metrics(nodes)
+        cost = engine.path_cost(nodes)
         overlap_ratio = base_shortest_path_overlap_ratio(engine, nodes, start_node, target_node)
         return {"paths": [nodes], "cost": cost, "overlap_ratio": overlap_ratio}

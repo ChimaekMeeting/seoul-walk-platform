@@ -48,7 +48,8 @@ def base_shortest_path_overlap_ratio(engine, pruned_path: list, start_node: int,
     (benchmark.py의 edge_overlap_ratio는 '자기 자신과의 왕복 중복'이라 다른 지표임).
     """
     try:
-        base_path = nx.shortest_path(engine.G, start_node, end_node, weight="custom_score")
+        weight = getattr(engine, "_weight_fn", None) or "custom_score"
+        base_path = nx.shortest_path(engine.G, start_node, end_node, weight=weight)
     except nx.NetworkXNoPath:
         return 0.0
 
