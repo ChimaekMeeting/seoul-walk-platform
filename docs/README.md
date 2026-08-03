@@ -11,6 +11,7 @@
 | 담당 업무 | 시작 문서 |
 |---|---|
 | 인증·Kakao 로그인 | [authentication/README.md](authentication/README.md) |
+| Cloud Run 배포 | [deployment/README.md](deployment/README.md) |
 | 챗봇 | [chatbot/README.md](chatbot/README.md) |
 | 데이터 | [data/README.md](data/README.md) |
 | 경로 엔진·Graph | [route_engine/README.md](route_engine/README.md) |
@@ -58,6 +59,8 @@ docs/                              // 프로젝트 문서
 │   ├── data_ingestion.md          // 데이터 적재 절차
 │   ├── data_rebuild.md            // V1 전체 재구축·검증·복구
 │   └── testing.md                 // 테스트 작성 구조
+├── deployment/                    // Cloud Run 배포 영역
+│   └── README.md                  // Docker·cloudbuild·시크릿·마이그레이션 계약
 ├── proposals/                     // 아직 구현하지 않은 변경 제안
 │   ├── chatbot_upgrade_proposal.md // 챗봇 업그레이드 결정·작업 단위
 │   ├── chatbot_cleanup_proposal.md // 챗봇 불필요한 항목 제거 발견 목록
@@ -75,6 +78,7 @@ docs/                              // 프로젝트 문서
 도메인 작업:
 
 - [인증·Kakao 로그인](authentication/README.md)
+- [Cloud Run 배포](deployment/README.md)
 - [데이터](data/README.md)
 - [챗봇](chatbot/README.md)
 - [챗봇 Agent 하네스](chatbot/agent_harness.md)
