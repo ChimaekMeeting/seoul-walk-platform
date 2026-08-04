@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Body, Depends, Query, Request, Response
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from src.service.user.login_service import KakaoLoginService
 from src.interfaces.schema.login_schema import LoginUrlResponse, LoginResponse, MobileLoginRequest
 from src.interfaces.schema.auth_schema import AuthResponse, Status
 from src.interfaces.dependencies import get_kakao_login_service
+
+optional_bearer = HTTPBearer(auto_error=False)
 
 router = APIRouter(
     prefix="/api/login",
@@ -65,9 +68,10 @@ async def kakao_mobile_login(
 async def kakao_logout(
     request: Request,
     response: Response,
+    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
     service: KakaoLoginService = Depends(get_kakao_login_service)
 ):
-    access_token = request.cookies.get("access_token")
+    access_token = (credentials.credentials if credentials else None) or request.cookies.get("access_token")
     refresh_token = request.cookies.get("refresh_token")
 
     await service.logout(access_token, refresh_token)

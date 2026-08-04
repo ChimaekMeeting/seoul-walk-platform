@@ -137,17 +137,18 @@ class SurveyService:
         """사용자의 설문 완료 여부와 저장된 가중치를 반환합니다."""
         status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if status != Status.SUCCESS:
-            return SurveyStatusResponse(survey_completed=False)
+            return SurveyStatusResponse(status=SurveyStatus(status.value), survey_completed=False)
 
         user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
         if user is None:
-            return SurveyStatusResponse(survey_completed=False)
+            return SurveyStatusResponse(status=SurveyStatus.USER_NOT_FOUND, survey_completed=False)
 
         preference = UserPreferenceRepository.get_by_user_id(user.id)
         if preference is None or not preference.survey_completed:
-            return SurveyStatusResponse(survey_completed=False)
+            return SurveyStatusResponse(status=SurveyStatus.SUCCESS, survey_completed=False)
 
         return SurveyStatusResponse(
+            status=SurveyStatus.SUCCESS,
             survey_completed=True,
             default_target_km=preference.default_target_km,
             weights_safety=preference.weights_safety,
