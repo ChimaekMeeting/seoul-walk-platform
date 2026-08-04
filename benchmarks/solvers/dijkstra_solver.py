@@ -10,6 +10,7 @@ from benchmarks.solvers.base_solver import BasePathSolver
 from src.route_engine.engines.dijkstra import OnewayDijkstraEngine
 from src.route_engine.scoring.scoring_engine import compute_custom_score_lookup
 from src.schema.route_schema import OnewayRouteInput
+import time
 
 _DEFAULT_TARGET_KM = 3.0
 
@@ -38,10 +39,13 @@ class OnewayDijkstraSolver(BasePathSolver):
         engine._weight_fn    = scored["weight"]
         engine._score_lookup = scored["lookup"]
 
+        t0 = time.perf_counter()
         nodes = engine.find_path(start_node, target_node)
+        find_path_sec = time.perf_counter() - t0
+
         if not nodes or len(nodes) < 2:
             raise ValueError("경로 생성 실패: 유효한 편도 경로를 찾지 못했습니다 (NO_PATH)")
 
         cost = engine.path_cost(nodes)
         overlap_ratio = base_shortest_path_overlap_ratio(engine, nodes, start_node, target_node)
-        return {"paths": [nodes], "cost": cost, "overlap_ratio": overlap_ratio}
+        return {"paths": [nodes], "cost": cost, "overlap_ratio": overlap_ratio, "find_path_sec": round(find_path_sec, 6)}
