@@ -41,25 +41,21 @@ router = APIRouter(prefix="/api/user", tags=["user"])
 
 @router.get("/me", response_model=UserMeResponse)
 def get_me(
-    access_token: str = Cookie(None),
+    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
+    cookie_token: str = Cookie(None, alias="access_token"),
     service: UserService = Depends(get_user_service),
 ):
-    """
-    온보딩 설문 결과를 제출합니다.
-
-    input : 키워드 태그 목록, 선호 거리 선택지
-    output: 저장된 사용자 가중치 프로필
-    """
-    return service.get_me(access_token)
+    return service.get_me(_resolve_token(credentials, cookie_token))
 
 
 @router.patch("/me", response_model=UserUpdateResponse)
 def update_me(
     request: UserUpdateRequest,
-    access_token: str = Cookie(None),
+    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
+    cookie_token: str = Cookie(None, alias="access_token"),
     service: UserService = Depends(get_user_service),
 ):
-    return service.update_me(access_token, request.nickname)
+    return service.update_me(_resolve_token(credentials, cookie_token), request.nickname)
 
 
 @router.post("/survey", response_model=SurveyResponse)
@@ -77,7 +73,8 @@ def get_route_histories(
     limit: int = 20,
     offset: int = 0,
     is_favorite: Optional[bool] = None,
-    access_token: str = Cookie(None),
+    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
+    cookie_token: str = Cookie(None, alias="access_token"),
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """
@@ -85,7 +82,9 @@ def get_route_histories(
     is_favorite을 지정하면 즐겨찾기 여부로 필터링합니다(예: true → 즐겨찾기만).
     """
     try:
-        status, provider, provider_id = auth_service.check_access_token(access_token)
+        status, provider, provider_id = auth_service.check_access_token(
+            _resolve_token(credentials, cookie_token)
+        )
         if status != Status.SUCCESS:
             logger.warning("경로 기록 조회 인증 실패: status=%s", status.value)
             raise HTTPException(status_code=401, detail=status.value)
@@ -112,12 +111,15 @@ def get_route_histories(
 @router.patch("/routes/{history_id}/favorite", response_model=RouteHistoryItem)
 def toggle_favorite(
     history_id: int,
-    access_token: str = Cookie(None),
+    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
+    cookie_token: str = Cookie(None, alias="access_token"),
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """경로 기록의 즐겨찾기를 토글합니다."""
     try:
-        status, provider, provider_id = auth_service.check_access_token(access_token)
+        status, provider, provider_id = auth_service.check_access_token(
+            _resolve_token(credentials, cookie_token)
+        )
         if status != Status.SUCCESS:
             logger.warning("즐겨찾기 토글 인증 실패: status=%s, history_id=%s", status.value, history_id)
             raise HTTPException(status_code=401, detail=status.value)
@@ -143,14 +145,17 @@ def toggle_favorite(
 @router.get("/routes/{history_id}", response_model=RouteHistoryItem)
 def get_route_history(
     history_id: int,
-    access_token: str = Cookie(None),
+    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
+    cookie_token: str = Cookie(None, alias="access_token"),
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     특정 추천 경로 기록 상세를 조회합니다.
     """
     try:
-        status, provider, provider_id = auth_service.check_access_token(access_token)
+        status, provider, provider_id = auth_service.check_access_token(
+            _resolve_token(credentials, cookie_token)
+        )
         if status != Status.SUCCESS:
             logger.warning("경로 기록 상세 조회 인증 실패: status=%s, history_id=%s", status.value, history_id)
             raise HTTPException(status_code=401, detail=status.value)

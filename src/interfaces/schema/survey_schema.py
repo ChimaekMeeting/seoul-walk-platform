@@ -56,6 +56,7 @@ class SurveyResponse(BaseModel):
     
 class SurveyStatusResponse(BaseModel):
     """설문 완료 여부 및 저장된 가중치 조회 응답 스키마입니다."""
+    status: SurveyStatus
     survey_completed: bool
     default_target_km: Optional[float] = None
     weights_safety: Optional[float] = None
