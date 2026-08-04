@@ -45,4 +45,4 @@ class OnewayBidirectionalAstarSolver(BasePathSolver):
 
         cost = engine.path_cost(nodes)
         overlap_ratio = base_shortest_path_overlap_ratio(engine, nodes, start_node, target_node)
-        return {"paths": [nodes], "cost": cost, "overlap_ratio": overlap_ratio}
+        return {"paths": [nodes], "cost": cost, "overlap_ratio": overlap_ratio, "find_path_sec": round(t3 - t2, 6)}

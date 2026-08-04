@@ -66,6 +66,7 @@ RESULT_COLUMNS = [
     "cost", "overlap_ratio",
     "distance_km", "target_km", "distance_deviation_km",
     "is_closed_loop", "spike_count", "edge_overlap_ratio",
+    "find_path_sec",
     "error",
 ]
 REQUIRED_RESULT_KEYS = ("paths", "cost")
@@ -131,7 +132,11 @@ def _validate_solver_result(result) -> dict:
     if not isinstance(overlap_ratio, (int, float)) or isinstance(overlap_ratio, bool):
         raise TypeError(f"'overlap_ratio'는 float여야 합니다 (실제 타입: {type(overlap_ratio).__name__})")
 
-    return {"paths": result["paths"], "cost": result["cost"], "overlap_ratio": overlap_ratio}
+    find_path_sec = result.get("find_path_sec")  # solver가 안 주면 None (선택 항목)
+    if find_path_sec is not None and (not isinstance(find_path_sec, (int, float)) or isinstance(find_path_sec, bool)):
+        raise TypeError(f"'find_path_sec'는 float여야 합니다 (실제 타입: {type(find_path_sec).__name__})")
+
+    return {"paths": result["paths"], "cost": result["cost"], "overlap_ratio": overlap_ratio, "find_path_sec": find_path_sec}
 
 
 def _compute_route_distance_km(graph, paths) -> float | None:
@@ -216,6 +221,7 @@ def _failed_row(solver: BasePathSolver, status: str, elapsed_sec: float, error: 
         "is_closed_loop": None,
         "spike_count": None,
         "edge_overlap_ratio": None,
+        "find_path_sec": None,
         "error": error,
     }
 
