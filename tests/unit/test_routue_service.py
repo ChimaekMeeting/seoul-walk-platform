@@ -91,14 +91,14 @@ class TestAuthFailure:
 
         result = service.get_route(ACCESS_TOKEN, origin=ORIGIN, mode=WalkMode.CIRCULAR_RANDOM)
 
-        assert result.status == WalkRouteStatus.ACCESS_EXPIRED_TOKEN
+        assert result[0].status == WalkRouteStatus.ACCESS_EXPIRED_TOKEN
 
     def test_토큰이_유효하지_않으면_invalid_token_status를_반환한다(self, service, auth_service):
         auth_service.check_access_token.return_value = (Status.INVALID_TOKEN, None, None)
 
         result = service.get_route(ACCESS_TOKEN, origin=ORIGIN, mode=WalkMode.CIRCULAR_RANDOM)
 
-        assert result.status == WalkRouteStatus.INVALID_TOKEN
+        assert result[0].status == WalkRouteStatus.INVALID_TOKEN
 
 
 class TestUnknownMode:
@@ -122,7 +122,7 @@ class TestOnewayWithoutDestination:
     ):
         result = service.get_route(ACCESS_TOKEN, origin=ORIGIN, mode=mode)
 
-        assert result.status == WalkRouteStatus.INVALID_DESTINATION
+        assert result[0].status == WalkRouteStatus.INVALID_DESTINATION
 
 
 class TestModeRouting:
@@ -136,7 +136,7 @@ class TestModeRouting:
     )
     def test_모드에_맞는_엔진이_호출된다(self, service, patched_nodes, mode, destination):
         mock_engine_instance = MagicMock()
-        mock_engine_instance.run.return_value = SUCCESS_RESPONSE.model_copy(update={"mode": mode})
+        mock_engine_instance.run.return_value = [SUCCESS_RESPONSE.model_copy(update={"mode": mode})]
         MockEngineClass = MagicMock(return_value=mock_engine_instance)
 
         service.base_engines[mode] = MockEngineClass
@@ -152,7 +152,7 @@ class TestModeRouting:
 
     def test_엔진의_run_결과가_그대로_반환된다(self, service, patched_nodes):
         mock_engine_instance = MagicMock()
-        mock_engine_instance.run.return_value = SUCCESS_RESPONSE
+        mock_engine_instance.run.return_value = [SUCCESS_RESPONSE]
         MockEngineClass = MagicMock(return_value=mock_engine_instance)
 
         service.base_engines[WalkMode.CIRCULAR_RANDOM] = MockEngineClass
@@ -163,12 +163,12 @@ class TestModeRouting:
             mode=WalkMode.CIRCULAR_RANDOM,
         )
 
-        assert result.status == WalkRouteStatus.SUCCESS
-        assert result.total_km == 1.5
+        assert result[0].status == WalkRouteStatus.SUCCESS
+        assert result[0].total_km == 1.5
 
     def test_성공_경로에는_주변_POI를_붙인다(self, service, patched_nodes):
         mock_engine_instance = MagicMock()
-        mock_engine_instance.run.return_value = SUCCESS_RESPONSE.model_copy()
+        mock_engine_instance.run.return_value = [SUCCESS_RESPONSE.model_copy()]
         service.base_engines[WalkMode.CIRCULAR_RANDOM] = MagicMock(
             return_value=mock_engine_instance
         )
@@ -193,11 +193,11 @@ class TestModeRouting:
             )
 
         find_pois.assert_called_once_with(SUCCESS_RESPONSE.coordinates)
-        assert result.nearby_pois[0].category == "toilet"
+        assert result[0].nearby_pois[0].category == "toilet"
 
     def test_엔진이_실패_status를_반환하면_그대로_전달된다(self, service, patched_nodes):
         mock_engine_instance = MagicMock()
-        mock_engine_instance.run.return_value = FAILED_RESPONSE
+        mock_engine_instance.run.return_value = [FAILED_RESPONSE]
         MockEngineClass = MagicMock(return_value=mock_engine_instance)
 
         service.base_engines[WalkMode.CIRCULAR_RANDOM] = MockEngineClass
@@ -208,7 +208,7 @@ class TestModeRouting:
             mode=WalkMode.CIRCULAR_RANDOM,
         )
 
-        assert result.status == WalkRouteStatus.NO_PATH
+        assert result[0].status == WalkRouteStatus.NO_PATH
 
 
 def _chat_state(themes=None, profile=None):
