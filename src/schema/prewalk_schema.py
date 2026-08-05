@@ -77,7 +77,7 @@ class State(BaseModel):
     origin_candidate: Optional[List[Location]] = None
     destination_candidate: Optional[List[Location]] = None
 
-    route_result: Optional[WalkRouteResponse] = None
+    route_result: Optional[List[WalkRouteResponse]] = None
     is_complete: bool = False
     awaiting_confirmation: bool = False
     user_prompt: str  = ""

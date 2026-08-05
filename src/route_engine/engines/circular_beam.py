@@ -1,5 +1,5 @@
 import networkx as nx
-from typing import Optional
+from typing import Optional, List
 import logging
 
 from src.route_engine.engines.path_utils import PathUtils
@@ -34,7 +34,7 @@ class CircularBeamEngine:
         self.blocked_tags  = profile_config.blocked_tags
         self.scoring_mode  = profile_config.scoring_mode
 
-    def run(self) -> WalkRouteResponse:
+    def run(self) -> List[WalkRouteResponse]:
         """
         순환 경로를 생성합니다.
         """
@@ -56,26 +56,27 @@ class CircularBeamEngine:
         # 출발 노드가 없는 경우
         if start is None:
             logger.warning("출발 노드를 찾지 못했습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_START_NODE,
                 mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
-            )
+            )]
 
-        # 경로 생성
-        nodes = self.find_path(start, self.inp.target_km or 3.0)
+        # 경로 생성 (경로 후보가 리스트에 감싸져서 반환됨)
+        candidates = self.find_path(start, self.inp.target_km or 3.0)
 
         # 경로가 없는 경우
-        if not nodes:
+        if not candidates:
             logger.warning("경로가 비어 있습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_PATH,
                 mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
-            )
+            )]
 
+        nodes    = candidates[0]                            # 경로 1개만 사용
         pruned   = self.utils.prune_dead_ends(nodes)       # 왕복 가지 제거
         coords   = self.utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
         total_m  = self.utils.calc_distance(pruned)        # 총 이동 거리(미터)
@@ -83,14 +84,14 @@ class CircularBeamEngine:
 
         logger.info("경로 생성 완료: total_km=%.2f (target=%.2f), 노드=%d개", total_km, self.inp.target_km or 3.0, len(nodes))
 
-        return WalkRouteResponse(
+        return [WalkRouteResponse(
             status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
             mode            = self.mode,
             coordinates     = coords,
             total_km        = total_km,
-        )
+        )]
 
-    def find_path(self, start_node: int, target_km: float = 3.0) -> list[int]:
+    def find_path(self, start_node: int, target_km: float = 3.0) -> list[list[int]]:
         """
         beam search 기반 순환 경로를 생성합니다.
         """
@@ -103,7 +104,7 @@ class CircularBeamEngine:
         pool = self._build_pool(finished, beams)
         if not pool:
             logger.warning("beam search 후보가 비어 출발 노드만 반환합니다.")
-            return [start_node]
+            return [[start_node]]
 
         # 2단계: 반환점 → 출발지 + 가장 좋은 완성 경로 1개 채택
         best_path, best_key = None, None
@@ -118,11 +119,11 @@ class CircularBeamEngine:
         # 모든 후보가 복귀에 실패한 경우의 방어 코드
         if best_path is None:
             logger.warning("복귀 가능한 후보가 없어 첫 후보의 바깥 경로를 반환합니다.")
-            return pool[0][1]
+            return [pool[0][1]]
 
         logger.info("beam search 경로 선택: 노드=%d개, 거리초과=%.0fm, 품질밀도=%.3f",
                     len(best_path), best_key[0], best_key[1])
-        return best_path
+        return [best_path]
 
     def _find_start_to_waypoint(self, start_node: int, target_m: float) -> tuple:
         """

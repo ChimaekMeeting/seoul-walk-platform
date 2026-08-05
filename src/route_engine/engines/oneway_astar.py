@@ -1,5 +1,5 @@
 import networkx as nx
-from typing import Optional
+from typing import Optional, List
 import logging
 
 from src.route_engine.engines.path_utils import PathUtils
@@ -34,7 +34,7 @@ class OnewayAstarEngine:
         self._score_lookup: dict = {}
         self._min_ratio    = 1.0
 
-    def run(self) -> WalkRouteResponse:
+    def run(self) -> List[WalkRouteResponse]:
         """
         A* 최단 경로를 생성합니다.
         """
@@ -55,50 +55,52 @@ class OnewayAstarEngine:
 
         if start is None:
             logger.warning("출발 노드를 찾지 못했습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_START_NODE,
                 mode=self.mode, coordinates=[], total_km=0.0,
-            )
+            )]
 
         if end is None:
             logger.warning("도착 노드를 찾지 못했습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_END_NODE,
                 mode=self.mode, coordinates=[], total_km=0.0,
-            )
+            )]
 
-        nodes = self.find_path(start, end)
+        # 경로 생성 (경로 후보가 리스트에 감싸져서 반환됨)
+        candidates = self.find_path(start, end)
 
-        if not nodes:
+        if not candidates:
             logger.warning("경로가 비어 있습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_PATH,
                 mode=self.mode, coordinates=[], total_km=0.0,
-            )
+            )]
 
+        nodes     = candidates[0]                          # 경로 1개만 사용
         coords    = self.utils.extract_coordinates(nodes)
         total_m   = self.utils.calc_distance(nodes)
         total_km = round(total_m / 1000, 2)
 
         logger.info(f"total_km: {total_km}")
 
-        return WalkRouteResponse(
+        return [WalkRouteResponse(
             status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
             mode            = self.mode,
             coordinates     = coords,
             total_km        = total_km,
-        )
+        )]
 
-    def find_path(self, start: int, end: int) -> list[int]:
+    def find_path(self, start: int, end: int) -> list[list[int]]:
         """
         A* 알고리즘으로 최단 경로 노드 목록을 반환합니다.
         """
         try:
-            return nx.astar_path(
+            return [nx.astar_path(
                 self.G, start, end,
                 heuristic=self._heuristic,
                 weight=self._weight_fn,
-            )
+            )]
         except nx.NetworkXNoPath:
             logger.warning("출발-도착 노드 사이에 연결된 경로가 없습니다")
             return []
