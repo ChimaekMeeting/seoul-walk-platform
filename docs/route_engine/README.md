@@ -1,7 +1,7 @@
 # 경로 생성 엔진
 
 > 상태: Current
-> 기준일: 2026-07-30
+> 기준일: 2026-08-06
 > 관련 코드: `src/route_engine/`
 
 경로 생성 엔진은 외부 API나 챗봇 처리와 분리된 경로 계산 영역입니다.
@@ -18,6 +18,14 @@
 ## 계약 문서
 
 - [경로 그래프 계약](graph_contract.md)
+
+## Engine 반환 계약
+
+- `circular_beam`(`CircularBeamEngine`)·`oneway_beam`(`OnewayBeamEngine`)·`oneway_astar`(`OnewayAstarEngine`) 3개 엔진의 `run()`은 `List[WalkRouteResponse]`를 반환한다.
+- 같은 엔진들의 `find_path()`도 노드ID 경로 후보를 `list[list[int]]`로 감싸서 반환한다.
+- 현재는 항상 경로 1개만 생성해 리스트에 담아 반환한다. 여러 경로 후보를 동시에 생성하는 기능은 아직 구현하지 않았다.
+- `oneway_shortest` 모드의 실제 사용 엔진은 `dijkstra.py`(`OnewayDijkstraEngine`)에서 `oneway_astar.py`(`OnewayAstarEngine`)로 교체되었다. `OnewayDijkstraEngine`은 여전히 존재하지만 `route_service.py`에서는 더 이상 쓰지 않는다(벤치마크 등 다른 용도로만 남아있는지는 별도 확인 필요).
+- `route_service.get_route()`도 같은 계약(`List[WalkRouteResponse]`)으로 반환하며, 리스트의 첫 번째 요소만 사용해 POI 조회·이력 저장을 수행하고 리스트 전체를 그대로 반환한다.
 
 ## 영역 경계
 
