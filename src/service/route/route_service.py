@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Optional, List
 
 import networkx as nx
 
@@ -16,7 +16,7 @@ from src.repository.user.user_repository import UserRepository
 from src.repository.layer.route_poi_repository import RoutePoiRepository
 from src.route_engine.engines import (
     CircularBeamEngine,
-    OnewayDijkstraEngine,
+    OnewayAstarEngine,
     OnewayBeamEngine,
 )
 from src.route_engine.engines.path_utils import PathUtils
@@ -34,7 +34,7 @@ class RouteService:
 
         self.base_engines: dict = {
             WalkMode.CIRCULAR_RANDOM: CircularBeamEngine,
-            WalkMode.ONEWAY_SHORTEST: OnewayDijkstraEngine,
+            WalkMode.ONEWAY_SHORTEST: OnewayAstarEngine,
             WalkMode.ONEWAY_RANDOM: OnewayBeamEngine,
         }
 
@@ -47,7 +47,7 @@ class RouteService:
         mode: WalkMode = WalkMode.CIRCULAR_RANDOM,
         custom_weights: Optional[Weights] = None,
         profile: Optional[ScoringProfile] = None,
-    ) -> WalkRouteResponse:
+    ) -> List[WalkRouteResponse]:
         """
         context에 적합한 경로 생성 엔진을 호출합니다.
         mode는 경로 생성 방식(circular_random/oneway_shortest/oneway_random)을,
@@ -66,56 +66,57 @@ class RouteService:
         auth_status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if auth_status != Status.SUCCESS:
             logger.warning("walk route auth failed: mode=%s status=%s", mode, auth_status.value)
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus(auth_status.value),
                 mode=mode,
                 coordinates=[],
                 total_km=0.0,
-            )
+            )]
 
         if mode not in self.base_engines:
             logger.warning("walk route unknown mode: mode=%s", mode)
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.UNKNOWN_ERROR,
                 mode=mode,
                 coordinates=[],
                 total_km=0.0,
-            )
+            )]
 
         utils = PathUtils(self.G)
         if utils.find_nearest_node_with_expansion(origin.lat, origin.lon) is None:
             logger.warning("walk route no nearest start node: mode=%s", mode)
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_START_NODE,
                 mode=mode,
                 coordinates=[],
                 total_km=0.0,
-            )
+            )]
 
         if mode != WalkMode.CIRCULAR_RANDOM and destination is not None:
             if utils.find_nearest_node_with_expansion(destination.lat, destination.lon) is None:
                 logger.warning("walk route no nearest end node: mode=%s", mode)
-                return WalkRouteResponse(
+                return [WalkRouteResponse(
                     status=WalkRouteStatus.NO_NEAREST_END_NODE,
                     mode=mode,
                     coordinates=[],
                     total_km=0.0,
-                )
+                )]
 
         try:
             engine = self._build_engine(mode, origin, destination, target_km, custom_weights, profile)
         except ValueError:
             logger.warning("walk route invalid destination: mode=%s", mode)
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.INVALID_DESTINATION,
                 mode=mode,
                 coordinates=[],
                 total_km=0.0,
-            )
+            )]
 
         logger.info("walk route engine selected: mode=%s engine=%s", mode, type(engine).__name__)
 
-        result = engine.run()
+        results = engine.run()
+        result  = results[0]  # 경로 후보는 1개만 사용
         logger.info("walk route result: mode=%s status=%s total_km=%s", mode, result.status.value, result.total_km)
 
         if result.status == WalkRouteStatus.SUCCESS:
@@ -146,7 +147,7 @@ class RouteService:
             except Exception:
                 logger.exception("walk route history save failed: mode=%s", mode)
 
-        return result
+        return results
 
     def _build_engine(
         self,
