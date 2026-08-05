@@ -106,23 +106,42 @@ class CircularBeamEngine:
             return [start_node]
 
         # 2단계: 반환점 → 출발지 + 가장 좋은 완성 경로 1개 채택
-        best_path, best_key = None, None
+        # route_key(거리오차, 비용밀도)만 보면 반환 연결(connect_to)이 출발 구간을
+        # 되짚어가는(왕복 겹침) 후보가 뽑힐 수 있음 — connect_to는 GRASP/ALNS도 같이
+        # 쓰는 공용 함수라 거기서 직접 막지 않고, 이미 만들어둔 후보군(pool) 중에서
+        # '거리오차 → 왕복겹침 → 비용밀도' 순으로 비교해 겹침 적은 후보를 우선 채택.
+        best_path, best_score = None, None
         for cost, nodes, dist, visited in pool:
             closed = self._find_waypoint_to_start(nodes, visited, start_node)
             if closed is None:
                 continue  # 출발점으로 복귀 불가한 후보는 제외
-            key = self.utils.route_key(closed, target_m)  # (|실제 오차| - 허용 오차, 누적 비용 / 거리, 노드열)
-            if best_key is None or key < best_key:
-                best_key, best_path = key, closed
+            total_m, full_cost = self.utils.metrics(closed)
+            over, density = self.utils.objective(total_m, total_m, full_cost, target_m)
+            overlap = self._edge_overlap_ratio(closed)
+            score = (over, overlap, density)
+            if best_score is None or score < best_score:
+                best_score, best_path = score, closed
 
         # 모든 후보가 복귀에 실패한 경우의 방어 코드
         if best_path is None:
             logger.warning("복귀 가능한 후보가 없어 첫 후보의 바깥 경로를 반환합니다.")
             return pool[0][1]
 
-        logger.info("beam search 경로 선택: 노드=%d개, 거리초과=%.0fm, 품질밀도=%.3f",
-                    len(best_path), best_key[0], best_key[1])
+        logger.info("beam search 경로 선택: 노드=%d개, 거리초과=%.0fm, 왕복겹침=%.1f%%, 품질밀도=%.3f",
+                    len(best_path), best_score[0], best_score[1] * 100, best_score[2])
         return best_path
+
+    def _edge_overlap_ratio(self, path: list[int]) -> float:
+        """경로가 자기 자신의 구간(엣지)을 얼마나 재사용하는지 비율 (왕복 겹침 정도)."""
+        edge_counts: dict[frozenset, int] = {}
+        for u, v in zip(path, path[1:]):
+            key = frozenset((u, v))
+            edge_counts[key] = edge_counts.get(key, 0) + 1
+        total = sum(edge_counts.values())
+        if total == 0:
+            return 0.0
+        reused = sum(count for count in edge_counts.values() if count > 1)
+        return reused / total
 
     def _find_start_to_waypoint(self, start_node: int, target_m: float) -> tuple:
         """
