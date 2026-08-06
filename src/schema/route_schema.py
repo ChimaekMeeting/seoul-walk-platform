@@ -80,3 +80,35 @@ class Weights(BaseModel):
         le=1.0,
         description="리프트·엘리베이터 인접 경로 선호 가중치",
     )
+
+
+class GpsArtPoint(BaseModel):
+    """정규화된 도형 좌표 하나(로컬 좌표계, 단위 없음). 실제 위경도 변환은 route_engine에서 수행한다."""
+    x: float
+    y: float
+
+
+class GpsArtRouteInput(BaseModel):
+    shape_points: list[GpsArtPoint]  # 도형을 이루는 좌표, 순서대로 연결된다
+    origin_lat:   float              # 도형을 배치할 중심 위경도
+    origin_lon:   float
+    target_km:    float              # 목표 총 이동 거리(km). route_engine이 이 값에 맞춰 도형 스케일을 계산한다
+
+    @model_validator(mode="after")
+    def check_min_points(self) -> "GpsArtRouteInput":
+        if len(self.shape_points) < 2:
+            raise ValueError("shape_points는 최소 2개 이상이어야 합니다")
+        return self
+
+    @model_validator(mode="after")
+    def close_shape(self) -> "GpsArtRouteInput":
+        """마지막 점이 첫 점과 다르면 첫 점을 다시 붙여 도형을 닫는다."""
+        if self.shape_points[0] != self.shape_points[-1]:
+            self.shape_points = [*self.shape_points, self.shape_points[0]]
+        return self
+
+    @model_validator(mode="after")
+    def check_target_km_positive(self) -> "GpsArtRouteInput":
+        if self.target_km <= 0:
+            raise ValueError("target_km은 0보다 커야 합니다")
+        return self

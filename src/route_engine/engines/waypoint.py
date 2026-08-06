@@ -37,7 +37,9 @@ class WaypointComposerEngine:
         profile: Optional[ScoringProfile] = None,
     ):
         self.inp            = inp
-        self.G               = G.copy()  # 모든 leg가 공유하는 원본 보호용 복사본 1개
+        # 그래프를 직접 mutate하지 않고 leg 엔진에 그대로 넘기기만 하므로 복사가 필요 없다.
+        # 실제 mutation(예: OnewayBeamEngine의 custom_score 계산)은 그걸 하는 leg 엔진이 자체적으로 격리한다.
+        self.G               = G
         self.custom_weights  = custom_weights
         self.profile         = profile
         self.mode            = WalkMode.WAYPOINT
