@@ -2,7 +2,7 @@ import networkx as nx
 from typing import Optional, List
 import logging
 
-from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.engines.path_utils import PathUtils, _RETURN_REVISIT_PENALTY
 from src.route_engine.profiles import ScoringProfile, get_profile, merge_weights
 from src.interfaces.schema.walk_schema import (
     WalkMode,
@@ -21,6 +21,7 @@ class OnewayAstarEngine:
         G: nx.Graph,
         custom_weights: Optional[Weights] = None,
         profile: Optional[ScoringProfile] = None,
+        visited_nodes: Optional[set] = None,
     ):
         self.inp           = inp
         self.G             = G  # custom_score를 그래프에 쓰지 않으므로 copy() 불필요
@@ -33,6 +34,9 @@ class OnewayAstarEngine:
         self._weight_fn    = None
         self._score_lookup: dict = {}
         self._min_ratio    = 1.0
+        # WaypointComposerEngine이 leg 간 경로 겹침을 페널티로 방지할 때 채워줌. 기본(빈 set)이면 기존 동작과 동일.
+        self.visited_nodes = visited_nodes or set()
+        self.last_path_nodes: list[int] = []  # 가장 최근 run()이 실제로 사용한 노드열(WaypointComposerEngine이 다음 leg의 visited_nodes 누적에 사용)
 
     def run(self) -> List[WalkRouteResponse]:
         """
@@ -78,6 +82,7 @@ class OnewayAstarEngine:
             )]
 
         nodes     = candidates[0]                          # 경로 1개만 사용
+        self.last_path_nodes = nodes
         coords    = self.utils.extract_coordinates(nodes)
         total_m   = self.utils.calc_distance(nodes)
         total_km = round(total_m / 1000, 2)
@@ -95,11 +100,18 @@ class OnewayAstarEngine:
         """
         A* 알고리즘으로 최단 경로 노드 목록을 반환합니다.
         """
+        def _weight(u, v, d):
+            # PathUtils.connect_to와 동일한 패턴: 도착지 자신은 페널티 대상에서 제외한다.
+            base = self._weight_fn(u, v, d)
+            if v in self.visited_nodes and v != end:
+                return base * _RETURN_REVISIT_PENALTY
+            return base
+
         try:
             return [nx.astar_path(
                 self.G, start, end,
                 heuristic=self._heuristic,
-                weight=self._weight_fn,
+                weight=_weight,
             )]
         except nx.NetworkXNoPath:
             logger.warning("출발-도착 노드 사이에 연결된 경로가 없습니다")

@@ -2,7 +2,7 @@ import networkx as nx
 from typing import Optional, List
 import logging
 
-from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.engines.path_utils import PathUtils, _RETURN_REVISIT_PENALTY
 from src.route_engine.profiles import ScoringProfile, get_profile, merge_weights
 from src.interfaces.schema.walk_schema import (
     WalkMode,
@@ -24,6 +24,7 @@ class OnewayBeamEngine:
         G: nx.Graph,
         custom_weights: Optional[Weights] = None,
         profile: Optional[ScoringProfile] = None,
+        visited_nodes: Optional[set] = None,
     ):
         self.inp           = inp
         self.G             = G.copy()  # 원본 그래프 보호
@@ -33,6 +34,9 @@ class OnewayBeamEngine:
         self.weights       = merge_weights(profile_config.weights, custom_weights)
         self.blocked_tags  = profile_config.blocked_tags
         self.scoring_mode  = profile_config.scoring_mode
+        # WaypointComposerEngine이 leg 간 경로 겹침을 페널티로 방지할 때 채워줌. 기본(빈 set)이면 기존 동작과 동일.
+        self.visited_nodes = visited_nodes or set()
+        self.last_path_nodes: list[int] = []  # 가장 최근 run()이 실제로 사용한 노드열(왕복 가지 제거 후)
 
     def run(self) -> List[WalkRouteResponse]:
         """
@@ -86,6 +90,7 @@ class OnewayBeamEngine:
 
         nodes    = candidates[0]                            # 경로 1개만 사용
         pruned   = self.utils.prune_dead_ends(nodes)       # 왕복 가지 제거
+        self.last_path_nodes = pruned
         coords   = self.utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
         total_m  = self.utils.calc_distance(pruned)        # 총 이동 거리(m)
         total_km = round(total_m / 1000, 2)
@@ -208,8 +213,12 @@ class OnewayBeamEngine:
                         continue  # 노드 재방문 금지 → 단순 경로 → 왕복 가지 차단
 
                     edge = self.G.get_edge_data(current, n) or {}
+                    step_cost = edge.get("custom_score", 1.0)
+                    # leg 간 경로 겹침 방지: 다른 leg가 이미 지나간 노드면 페널티(도착지 자신은 제외)
+                    if n in self.visited_nodes and n != end:
+                        step_cost *= _RETURN_REVISIT_PENALTY
                     candidates.append((
-                        cost + edge.get("custom_score", 1.0),  # 누적 비용 갱신
+                        cost + step_cost,                      # 누적 비용 갱신
                         nodes + [n],                           # 노드열 갱신
                         dist + edge.get("length", 0),          # 누적 거리 갱신
                         visited | {n},                         # 방문 집합 갱신
@@ -233,5 +242,6 @@ class OnewayBeamEngine:
     def _find_waypoint_to_end(self, nodes: list[int], visited: set, end: int):
         """
         2단계: 한 후보의 중간지점 → 도착지 경로를 생성합니다.
+        leg 간 경로 겹침 방지를 위해 이 leg 내부 visited에 다른 leg의 visited_nodes도 합쳐서 넘긴다.
         """
-        return self.utils.connect_to(nodes, visited, end)
+        return self.utils.connect_to(nodes, visited | self.visited_nodes, end)
