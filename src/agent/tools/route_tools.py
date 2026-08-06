@@ -5,17 +5,20 @@ from langchain_core.tools import StructuredTool
 from src.interfaces.schema.walk_schema import WalkMode, Coordinate
 from src.route_engine.profiles import ScoringProfile
 from src.schema.route_schema import Weights
+from src.service.route.gps_art_service import GpsArtService
 
 
 class RouteTool:
-    """경로 생성 도구 모음. RouteExecutor가 모드별로 직접 호출합니다."""
-    def __init__(self):
+    def __init__(self, gps_art_service: GpsArtService):
         from src.interfaces.dependencies import get_route_service
         self.route_service = get_route_service()
+        self.gps_art_service = gps_art_service
+
         self.tools = [
             StructuredTool.from_function(coroutine=self.circular_random_route),
             StructuredTool.from_function(coroutine=self.oneway_shortest_route),
             StructuredTool.from_function(coroutine=self.oneway_random_route),
+            StructuredTool.from_function(coroutine=self.gps_art_route),
         ]
         self.tool_map = {t.name: t for t in self.tools}
 
@@ -44,4 +47,15 @@ class RouteTool:
         """
         return await asyncio.to_thread(
             self.route_service.get_route, access_token, origin, destination, target_km, WalkMode.ONEWAY_RANDOM, custom_weights, profile
+        )
+
+    async def gps_art_route(self, origin: Coordinate, shape: str, target_km: float = 3.0, access_token: str = "", custom_weights: Optional[Weights] = None, profile: Optional[ScoringProfile] = None):
+        """
+        출발지 주변에 지정한 도형(shape) 모양을 그리는 경로를 생성합니다.
+        하트, 별 등 특정 모양을 그리며 걷고 싶을 때 사용하세요.
+        """
+        shape_points = await self.gps_art_service.get_shape_points(access_token, shape)
+
+        return await asyncio.to_thread(
+            self.route_service.get_route, access_token, origin, None, target_km, WalkMode.GPS_ART, custom_weights, profile, shape_points
         )

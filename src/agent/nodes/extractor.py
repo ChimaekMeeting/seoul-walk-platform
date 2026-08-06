@@ -2,6 +2,7 @@ import json, logging
 from typing import Optional
 from langchain_core.output_parsers import StrOutputParser
 from src.schema.prewalk_schema import State, Location
+from src.interfaces.schema.walk_schema import WalkMode
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.utils.chatbot_utils import PromptUtils
 from src.agent.tools.mode_tools import ModeTool
@@ -101,7 +102,9 @@ class Extractor(GPTClient):
 
         state.mode         = pref.mode
         state.user_context = pref
-        state.themes       = await self._extract_themes(state.user_prompt)
+        # GPS Art는 도형 모양대로만 경로를 잇고 GpsArtEngine이 custom_weights/profile을 쓰지 않아
+        # themes.yaml 호출 결과가 어차피 반영되지 않으므로 불필요한 LLM 호출을 건너뛴다.
+        state.themes       = [] if pref.mode == WalkMode.GPS_ART else await self._extract_themes(state.user_prompt)
 
         # 로그
         logger.info(f"user_prompt: {state.user_prompt}")

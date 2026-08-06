@@ -13,6 +13,7 @@ MODE_TOOL_MAP: dict[WalkMode, str] = {
     WalkMode.CIRCULAR_RANDOM: "circular_random_route",
     WalkMode.ONEWAY_SHORTEST: "oneway_shortest_route",
     WalkMode.ONEWAY_RANDOM:   "oneway_random_route",
+    WalkMode.GPS_ART:         "gps_art_route",
 }
 
 # 테마·설문이 없을 때의 기본 가중치(baseline).
@@ -29,7 +30,8 @@ _CONVENIENT_THEMES = {"활기찬", "힙한"}
 
 class RouteExecutor:
     def __init__(self):
-        self.route_tool = RouteTool()
+        from src.interfaces.dependencies import get_gps_art_service
+        self.route_tool = RouteTool(get_gps_art_service())
 
     async def run(self, state: State) -> State:
         """
