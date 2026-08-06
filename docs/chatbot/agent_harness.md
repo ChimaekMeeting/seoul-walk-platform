@@ -3,7 +3,7 @@
 > 상태: Current  
 > 기준일: 2026-07-30  
 > 관련 코드: `src/agent/`, `src/service/chat/prewalk_service.py`, `src/schema/prewalk_schema.py`  
-> 검증 상태: 코드 정적 대조 완료(2026-07-30, `ConfirmationClassifier` 추가·Graph 재배선·dev PR #310 profile/nearby_pois 반영) + `ConfirmationClassifier`·조건부 진입점 실행 검증 완료(2026-07-30, 로컬 PostgreSQL·Valkey·실제 Kakao·OpenAI, 프런트엔드 연동 안드로이드 기기 테스트). profile/nearby_pois(dev PR #310)는 정적 대조만 했고 격리 환경 실행 검증은 별도로 안 함
+> 검증 상태: 코드 정적 대조 완료(2026-07-30, `ConfirmationClassifier` 추가·Graph 재배선·dev PR #310 profile/nearby_pois 반영) + `ConfirmationClassifier`·조건부 진입점 실행 검증 완료(2026-07-30, 로컬 PostgreSQL·Valkey·실제 Kakao·OpenAI, 프런트엔드 연동 안드로이드 기기 테스트). profile/nearby_pois(dev PR #310)는 정적 대조만 했고 격리 환경 실행 검증은 별도로 안 함. GPS Art 모드 배선(2026-08-06)은 정적 대조·문법 체크만 했고 실행 검증은 안 함(전용 테스트도 아직 없음) — 상세는 [경로 생성 엔진 GPS Art](../route_engine/README.md#gps-art) 참고
 
 ## 1. 책임
 
@@ -39,7 +39,7 @@ HTTP 입력:
 | `response` | 각 대화 Node·Orchestrator | `ChatResponse.state` |
 | `route_result` | `RouteExecutor` | API 응답·Valkey 저장 |
 
-`user_context`는 모드에 따라 `CircularPreference`, `OnewayPreference`, `OnewayShortestPreference` 중 하나다.
+`user_context`는 모드에 따라 `CircularPreference`, `OnewayPreference`, `OnewayShortestPreference`, `GPSArtPreference` 중 하나다.
 
 명시 `profile`이 없으면 `유모차`·`계단이 불편한` 테마는 내부 `accessible`,
 `활기찬`·`힙한` 테마는 `convenient`를 선택한다. 접근성 테마가 편의 테마보다
@@ -92,10 +92,10 @@ src/prompt/                                      # LLM Prompt
 | Node | 입력 | 출력·State 변경 | 외부 호출 |
 |---|---|---|---|
 | `WeatherChecker.run` | `lat`, `lon` | `init_message`(문자열) | 기상청·에어코리아·OpenAI |
-| `Extractor.run` | `State` | `mode`, `user_context`, `themes` | OpenAI, `ModeTool` |
+| `Extractor.run` | `State` | `mode`, `user_context`, `themes`(GPS Art는 `themes.yaml` 호출 자체를 건너뛰고 빈 리스트) | OpenAI, `ModeTool` |
 | `Interviewer.run` | `State` | 후보 위치, 보완된 context, `response`, 확인 상태 | OpenAI, `PlaceTool` |
 | `ConfirmationClassifier.run` | `State` | `is_complete`(긍정/부정 판정 결과), `awaiting_confirmation=False` | OpenAI(`PydanticOutputParser`, tool 미바인딩) |
-| `RouteExecutor.run` | `State` | `profile`, `route_result` | 사용자 설문, `RouteTool` |
+| `RouteExecutor.run` | `State` | `profile`, `route_result` | 사용자 설문, `RouteTool`(GPS Art는 내부에서 `GpsArtService`도 호출) |
 
 모든 대화 Node는 전달받은 State 객체를 변경해 반환한다. Node별 별도 입출력 schema는 없다.
 
@@ -137,9 +137,9 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 
 | 소유 Node | Tool | 입력 → 출력 |
 |---|---|---|
-| `Extractor` | `ModeTool` 3종 | 위치·거리 → 모드별 Preference |
+| `Extractor` | `ModeTool` 4종(`select_gps_art` 포함) | 위치·거리·도형(shape) → 모드별 Preference |
 | `Interviewer` | `PlaceTool` 2종 | keyword·category → Kakao 장소 결과 |
-| `RouteExecutor` | `RouteTool` 3종 | 좌표·거리·JWT·Profile·Weights → `WalkRouteResponse` |
+| `RouteExecutor` | `RouteTool` 4종(`gps_art_route` 포함) | 좌표·거리·JWT·Profile·Weights → `WalkRouteResponse`. `gps_art_route`는 실행 전 `GpsArtService.get_shape_points`로 도형 이름을 좌표로 먼저 변환한다 |
 
 | Node | 현재 사용하는 Prompt |
 |---|---|
