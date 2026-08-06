@@ -14,6 +14,7 @@ from src.schema.prewalk_schema import (
     CircularPreference,
     OnewayPreference,
     OnewayShortestPreference,
+    GPSArtPreference,
 )
 
 _FALLBACK_RESPONSE = "죄송해요, 일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요."
@@ -171,6 +172,8 @@ class Interviewer(GPTClient):
             return self._has_location(pref.origin) and self._has_location(pref.destination)
         elif isinstance(pref, OnewayPreference):
             return self._has_location(pref.origin) and self._has_location(pref.destination) and pref.target_km is not None
+        elif isinstance(pref, GPSArtPreference):
+            return self._has_location(pref.origin) and pref.target_km is not None and bool(pref.shape)
         else:
             return self._has_location(pref.origin) and pref.target_km is not None
 
@@ -184,9 +187,12 @@ class Interviewer(GPTClient):
         if isinstance(pref, (OnewayPreference, OnewayShortestPreference)):
             if not self._has_location(pref.destination):
                 missing.append("목적지 장소명 또는 좌표")
-        if isinstance(pref, (CircularPreference, OnewayPreference)):
+        if isinstance(pref, (CircularPreference, OnewayPreference, GPSArtPreference)):
             if pref.target_km is None:
                 missing.append("목표 거리")
+        if isinstance(pref, GPSArtPreference):
+            if not pref.shape:
+                missing.append("그리고 싶은 도형(모양)")
 
         return ", ".join(missing) if missing else ""
 
@@ -223,6 +229,17 @@ class Interviewer(GPTClient):
                 return f"현재 위치에서 출발하는 {km_str}km 순환 산책이 맞나요?"
             origin_name = origin.place_name if origin and origin.place_name else "현재 위치"
             return f"{origin_name}에서 출발하는 {km_str}km 순환 산책이 맞나요?"
+
+        if isinstance(ctx, GPSArtPreference):
+            origin    = ctx.origin
+            target_km = ctx.target_km or 3.0
+            km_str    = str(int(target_km)) if target_km == int(target_km) else str(target_km)
+            shape_name = ctx.shape or "도형"
+
+            if self._is_same_location(origin, current):
+                return f"현재 위치에서 출발해 {shape_name} 모양으로 {km_str}km를 걷는 경로가 맞나요?"
+            origin_name = origin.place_name if origin and origin.place_name else "현재 위치"
+            return f"{origin_name}에서 출발해 {shape_name} 모양으로 {km_str}km를 걷는 경로가 맞나요?"
 
         return "이 경로로 진행할까요?"
 

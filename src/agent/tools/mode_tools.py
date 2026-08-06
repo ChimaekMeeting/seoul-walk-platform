@@ -1,8 +1,13 @@
 from langchain_core.tools import StructuredTool
 from typing import Optional
 
-from src.schema.prewalk_schema import Location, CircularPreference, OnewayPreference, OnewayShortestPreference
-
+from src.schema.prewalk_schema import (
+    Location,
+    CircularPreference,
+    OnewayPreference,
+    OnewayShortestPreference,
+    GPSArtPreference
+)
 
 class ModeTool:
     def __init__(self):
@@ -10,6 +15,7 @@ class ModeTool:
             StructuredTool.from_function(self.select_circular),
             StructuredTool.from_function(self.select_oneway),
             StructuredTool.from_function(self.select_oneway_shortest),
+            StructuredTool.from_function(self.select_gps_art),
         ]
         self.tool_map = {t.name: t for t in self.tools}
 
@@ -35,3 +41,10 @@ class ModeTool:
         빠르게 이동하고 싶을 때 사용하세요.
         """
         return OnewayShortestPreference(origin=origin, destination=destination)
+
+    def select_gps_art(self, origin: Optional[Location] = None, shape: Optional[str] = None, target_km: Optional[float] = None) -> GPSArtPreference:
+        """
+        GPS Art를 기반으로 거리를 채우는 순환 경로를 선택합니다.
+        특정 모양으로 이동하고 싶을 때 사용하세요.
+        """
+        return GPSArtPreference(origin=origin, shape=shape, target_km=target_km)

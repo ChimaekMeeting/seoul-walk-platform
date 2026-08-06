@@ -16,12 +16,19 @@ from src.repository.user.user_repository import UserRepository
 from src.repository.layer.route_poi_repository import RoutePoiRepository
 from src.route_engine.engines import (
     CircularBeamEngine,
+    GpsArtEngine,
     OnewayAstarEngine,
     OnewayBeamEngine,
 )
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import ScoringProfile
-from src.schema.route_schema import CircularRouteInput, OnewayRouteInput, Weights
+from src.schema.route_schema import (
+    CircularRouteInput,
+    GpsArtPoint,
+    GpsArtRouteInput,
+    OnewayRouteInput,
+    Weights,
+)
 from src.service.user.auth_service import AuthService
 
 logger = logging.getLogger(__name__)
@@ -36,6 +43,7 @@ class RouteService:
             WalkMode.CIRCULAR_RANDOM: CircularBeamEngine,
             WalkMode.ONEWAY_SHORTEST: OnewayAstarEngine,
             WalkMode.ONEWAY_RANDOM: OnewayBeamEngine,
+            WalkMode.GPS_ART: GpsArtEngine,
         }
 
     def get_route(
@@ -47,12 +55,15 @@ class RouteService:
         mode: WalkMode = WalkMode.CIRCULAR_RANDOM,
         custom_weights: Optional[Weights] = None,
         profile: Optional[ScoringProfile] = None,
+        shape_points: Optional[List[GpsArtPoint]] = None,
     ) -> List[WalkRouteResponse]:
         """
         context에 적합한 경로 생성 엔진을 호출합니다.
-        mode는 경로 생성 방식(circular_random/oneway_shortest/oneway_random)을,
+        mode는 경로 생성 방식(circular_random/oneway_shortest/oneway_random/gps_art)을,
         profile은 어떤 score 조합을 선호할지(scoring profile)를 결정하며 서로 독립적입니다.
         custom_weights가 있으면 profile.weights를 base로 두고 해당 필드만 override합니다.
+        shape_points는 gps_art 모드 전용이며, 호출 전에 이미 도형 이름 -> 좌표 변환이
+        끝난 상태여야 합니다(RouteService는 이미지 생성 등 비동기 작업을 하지 않음).
         """
         logger.info(
             "walk route request: mode=%s origin=(%.5f, %.5f) has_destination=%s target_km=%s",
@@ -103,7 +114,7 @@ class RouteService:
                 )]
 
         try:
-            engine = self._build_engine(mode, origin, destination, target_km, custom_weights, profile)
+            engine = self._build_engine(mode, origin, destination, target_km, custom_weights, profile, shape_points)
         except ValueError:
             logger.warning("walk route invalid destination: mode=%s", mode)
             return [WalkRouteResponse(
@@ -157,6 +168,7 @@ class RouteService:
         target_km: Optional[float] = None,
         custom_weights: Optional[Weights] = None,
         profile: Optional[ScoringProfile] = None,
+        shape_points: Optional[List[GpsArtPoint]] = None,
     ):
         """profile/custom_weights를 엔진에 주입해 경로 생성 엔진 인스턴스를 반환합니다."""
         if mode == WalkMode.CIRCULAR_RANDOM:
@@ -166,6 +178,20 @@ class RouteService:
                 target_km=target_km,
             )
             return self.base_engines[mode](inp, self.G, custom_weights=custom_weights, profile=profile)
+
+        if mode == WalkMode.GPS_ART:
+            if not shape_points:
+                raise ValueError(f"{mode} 모드에서는 shape_points가 필요합니다")
+            if target_km is None:
+                raise ValueError(f"{mode} 모드에서는 target_km이 필요합니다")
+            inp = GpsArtRouteInput(
+                shape_points=shape_points,
+                origin_lat=origin.lat,
+                origin_lon=origin.lon,
+                target_km=target_km,
+            )
+            # GpsArtEngine은 내부적으로 leg마다 oneway_shortest만 써서 custom_weights/profile을 받지 않음
+            return self.base_engines[mode](inp, self.G)
 
         if destination is None:
             raise ValueError(f"{mode} 모드에서는 destination이 필요합니다")

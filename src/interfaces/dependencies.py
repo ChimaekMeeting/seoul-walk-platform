@@ -10,6 +10,7 @@ from src.service import (
     RouteService,
     BannerService,
     MapService,
+    GpsArtService,
     SurveyService
 )
 from src.agent.nodes import (
@@ -28,6 +29,7 @@ from src.repository.network.graph_artifact_repository import (
     GraphArtifactRepository,
 )
 from src.repository.network.graph_repository import GraphRepository
+from src.route_engine.engines.oneway_astar import precompute_landmarks
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,7 @@ weather_client      = WeatherClient(kakao_client)
 banner_service      = BannerService(MarathonClient(), weather_client)
 map_service         = MapService(kakao_client)
 survey_service      = SurveyService(auth_service)
+gps_art_service     = GpsArtService(auth_service)
 
 G = None
 route_service: Optional[RouteService] = None
@@ -66,6 +69,11 @@ def init_route_service():
     global G, route_service, prewalk_orchestrator
     G             = load_runtime_graph()
     precompute_scoring_features(G)
+    # OnewayAstarEngine._heuristic이 노드 속성 landmark_dist를 그대로 참조하므로
+    # (oneway_astar.py), 그래프 로드 시 한 번 미리 계산해두지 않으면 oneway_shortest·
+    # GPS Art(WaypointComposerEngine이 내부적으로 OnewayAstarEngine 사용) 모두 A* 탐색에서
+    # KeyError로 실패한다. 지금까지는 benchmarks/*.py에서만 호출됐다.
+    precompute_landmarks(G)
     route_service = RouteService(G=G, auth_service=auth_service)
     prewalk_orchestrator = PrewalkOrchestrator(
         weather_checker        = WeatherChecker(weather_client=weather_client),
@@ -110,3 +118,7 @@ def get_map_service() -> MapService:
 # 온보딩 설문
 def get_survey_service() -> SurveyService:
     return survey_service
+
+# GPS Art
+def get_gps_art_service() -> GpsArtService:
+    return gps_art_service

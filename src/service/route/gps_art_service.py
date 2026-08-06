@@ -15,7 +15,14 @@ logger = logging.getLogger(__name__)
 
 _PICTURES_DIR = "pictures"
 _IMAGE_MODEL = "gpt-image-1-mini"  # 단순 실루엣 아이콘이라 저렴한 모델로 충분
-_APPROX_EPSILON_RATIO = 0.004  # cv2.approxPolyDP 허용 오차 = 둘레의 0.4%
+# cv2.approxPolyDP 허용 오차(픽셀 고정값, 둘레 비율이 아님).
+# 둘레 비율(예: 0.15%)로 잡으면 이미지를 확대해도 상대 오차가 그대로라 점 개수가
+# 거의 안 늘어난다(스케일 불변) — 이미지를 키웠을 때 실제로 더 촘촘해지게 하려면
+# 이렇게 절대 픽셀값으로 고정해야 한다. 1024px 우산 이미지(perimeter≈3236px) 기준
+# 실측: 1px->119점, 2px->83점, 3px->69점, 5px->51점, 8px->39점.
+# leg가 늘어날수록 도로망 격자 노이즈에 취약해지고 leg 하나 실패 시
+# WaypointComposerEngine이 그 지점에서 전체 경로를 자르므로, 무작정 낮추지 말 것.
+_APPROX_EPSILON_PX = 2.0
 
 
 class GpsArtService:
@@ -58,7 +65,12 @@ class GpsArtService:
             logger.warning("gps art contour extraction failed: shape=%s error=%s", shape_name, e)
             return None
 
-        return self._extract_shape_points(contour)
+        points = self._extract_shape_points(contour)
+        logger.info(
+            "gps art shape points extracted: shape=%s count=%d points=%s",
+            shape_name, len(points), [(p.x, p.y) for p in points],
+        )
+        return points
 
     async def _generate_image(self, shape_name: str, save_path: str) -> None:
         """
@@ -123,9 +135,7 @@ class GpsArtService:
         cv2.approxPolyDP로 도형이 실제로 꺾이는 지점만 남깁니다 — 직선 구간은
         점 간격과 무관하게 양 끝점만 남고, 곡선은 굴곡에 따라 필요한 만큼만 남습니다.
         """
-        perimeter = cv2.arcLength(contour, closed=True)
-        epsilon = _APPROX_EPSILON_RATIO * perimeter
-        approx = cv2.approxPolyDP(contour, epsilon, closed=True)
+        approx = cv2.approxPolyDP(contour, _APPROX_EPSILON_PX, closed=True)
         raw_points = [tuple(int(v) for v in pt[0]) for pt in approx]
         return self._normalize_points(raw_points)
 
