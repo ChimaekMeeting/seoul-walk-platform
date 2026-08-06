@@ -54,6 +54,15 @@ class OnewayShortestPreference(BasePreference):
     destination: Optional[Location] = None
 
 
+class GPSArtPreference(BasePreference):
+    """
+    GPS Art 기반 경로일 때 채워야 할 필수 정보입니다.
+    """
+    mode:      WalkMode = WalkMode.GPS_ART
+    shape:     Optional[str] = None
+    target_km: Optional[float] = None
+
+
 class ConfirmationResult(BaseModel):
     """
     확인 질문에 대한 사용자 응답의 긍정/부정 분류 결과입니다.
@@ -71,7 +80,12 @@ class State(BaseModel):
 
     mode: Optional[WalkMode] = None
     user_context: Optional[
-        Union[CircularPreference, OnewayPreference, OnewayShortestPreference]
+        Union[
+            CircularPreference,
+            OnewayPreference,
+            OnewayShortestPreference,
+            GPSArtPreference,
+        ]
     ] = None
 
     origin_candidate: Optional[List[Location]] = None
