@@ -37,6 +37,9 @@ python-dotenv = "^1.0.1"
 geoalchemy2 = "^0.18.4"
 openpyxl = "^3.1.5"
 
+# --- Image Processing (GPS Art 실루엣 윤곽선 추출) ---
+opencv-python = "^5.0.0"
+
 # --- LangChain Ecosystem ---
 langchain = "^0.3.0"
 langchain-core = "^0.3.0"
