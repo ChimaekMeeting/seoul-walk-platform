@@ -23,6 +23,11 @@ template: |
 
   **select_oneway_shortest** — 목적지까지 최단 경로 (거리 무관, 빠른 이동)
 
+  **select_gps_art** — 출발지에서 시작해 특정 도형(하트, 별 등) 모양을 그리며 걷는 산책
+  - **사용자가 하트, 별, 곰 등 구체적인 도형·모양의 이름을 명시한 경우에만 이 도구를 선택하세요.**
+  - 목적지 개념이 없습니다(destination 필드 자체가 없음) — 출발지에서 시작해 도형을 그리고 순환하듯 끝납니다.
+  - **"예쁜 길", "동그랗게", "예쁜 모양의 길"처럼 도형이 아니라 길의 분위기·형태를 막연히 묘사하는 표현은 도형 언급으로 보지 말고 select_circular를 선택하세요.** 구체적인 도형 이름이 없다면 이 도구를 선택하지 마세요.
+
   ### [필드 추출 규칙]
 
   **origin (출발지) — 아래 우선순위대로 하나만 적용하세요**
@@ -44,6 +49,12 @@ template: |
   - "운동", "러닝" 등 언급 시 5.0 이상으로 추론
   - 언급 없으면 기본값 3.0
   - select_oneway_shortest에는 불필요 (전달하지 않음)
+  - select_gps_art에도 필요 (select_circular와 동일하게 처리)
+
+  **shape (도형 이름)**
+  - select_gps_art일 때만 필수, 그 외 도구에는 없는 필드
+  - "하트 모양으로", "별 모양 산책" 등에서 도형 이름만 추출 (예: "하트", "별")
+  - 구체적인 도형 이름이 없으면 애초에 select_gps_art를 선택하지 않으므로 이 필드도 채울 일이 없음
 
   ### [참조 데이터]
   [Current Context]: {current_context}
@@ -84,6 +95,18 @@ template: |
   - "3km 편도로 산책하고 싶어"
     → select_oneway(origin=null, destination=null, target_km=3.0)
     이유: "편도"라는 명시적 표현이 있으므로 목적지가 없어도 select_circular로 바꾸지 않고 select_oneway를 선택. destination은 아직 언급되지 않았으므로 null로 두어 나중에 질문하도록 함
+
+  - "하트 모양으로 3km 산책하고 싶어"
+    → select_gps_art(origin=null, shape="하트", target_km=3.0)
+    이유: 구체적인 도형(하트)이 명시됐으므로 GPS Art 모드 선택, 도형 이름을 shape에 기록
+
+  - "여기서 별 모양으로 걷고 싶어"
+    → select_gps_art(origin=null, shape="별", target_km=3.0)
+    이유: "여기"는 위치 대명사이므로 origin은 null(현재 위치로 자동 대체), 구체적인 도형(별) 언급 → GPS Art. 거리 언급이 없으므로 기본값 3.0 사용
+
+  - "동그랗게 예쁜 길로 산책하고 싶어"
+    → select_circular(origin=null, target_km=3.0)
+    이유: "동그랗게 예쁜 길"은 구체적인 도형 지정이 아니라 길의 분위기·형태를 막연히 묘사한 표현 → GPS Art로 판단하지 않고 순환 모드로 처리
 
   ### [사용자 입력]
   [User Input]: {user_input}
