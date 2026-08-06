@@ -1,0 +1,8 @@
+# GPS Art용 실루엣 아이콘 이미지 생성 프롬프트.
+# 컨투어 추출 품질을 일정하게 유지하기 위해 스타일(흰 배경·굵은 검은 실루엣·장식 없음)을 고정한다.
+_type: prompt
+input_variables: ["shape"]
+template: |
+  A {shape} solid silhouette icon, single flat black shape filled solid.
+  Solid white background. No internal lines, no internal details, no highlights, no texture inside the shape.
+  No shadow. No ground line. No text. No gradient. Centered, simple flat icon.
