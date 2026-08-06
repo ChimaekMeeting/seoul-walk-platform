@@ -17,6 +17,7 @@ from src.schema.prewalk_schema import (
 )
 
 _FALLBACK_RESPONSE = "죄송해요, 일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요."
+_KAKAO_API_ERROR_RESPONSE = "내부적으로 오류가 발생했어요. 잠시 후 다시 시도해 주세요."
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +68,17 @@ class Interviewer(GPTClient):
             return state
         logger.info("interview.yaml이 호출되었습니다.")
 
-        candidates, search_failures, out_of_seoul = await self._execute_tool_calls(
+        candidates, search_failures, out_of_seoul, api_error = await self._execute_tool_calls(
             raw_response.tool_calls if raw_response.tool_calls else [],
             state,
         )
+
+        # Kakao API 호출 자체가 예외로 실패했으면, 검색 결과 판단 없이 바로 내부 오류 안내로 재질문한다.
+        if api_error:
+            state.is_complete = False
+            state.response    = _KAKAO_API_ERROR_RESPONSE
+            logger.info("Kakao API 호출 중 오류가 발생했습니다.")
+            return state
 
         # 검색 결과는 있지만 전부 서울 밖이면, LLM 문구 생성 없이 하드코딩 안내로 바로 재질문한다.
         if out_of_seoul:
@@ -248,10 +256,22 @@ class Interviewer(GPTClient):
             return f"'{origin_kw}' 위치는 서울 밖이라 출발지로 사용할 수 없어요. 서울 내에서만 산책 경로를 추천해드릴 수 있어요. 출발하고 싶으신 다른 장소를 알려주시겠어요?"
         return f"'{destination_kw}' 위치는 서울 밖이라 목적지로 사용할 수 없어요. 서울 내에서만 산책 경로를 추천해드릴 수 있어요. 도착하고 싶으신 다른 장소를 알려주시겠어요?"
 
-    async def _execute_tool_calls(self, tool_calls: list, state: State) -> tuple[dict, dict, dict]:
+    async def _safe_kakao_call(self, coro):
+        """
+        Kakao API 호출을 감싸 예외 발생 시 (None, True)를 반환합니다.
+        """
+        try:
+            result = await coro
+            return result, False
+        except Exception:
+            logger.exception("kakao_api_error")
+            return None, True
+
+    async def _execute_tool_calls(self, tool_calls: list, state: State) -> tuple[dict, dict, dict, bool]:
         candidates      = {}
         search_failures = {}  # target("origin"/"destination") -> 검색했지만 결과 없던 키워드
         out_of_seoul    = {}  # target("origin"/"destination") -> 검색은 됐지만 전부 서울 밖이던 키워드
+        api_error       = False  # Kakao API 호출 자체가 예외로 실패했는지
 
         fallback_lat = (
             (state.user_context.origin.lat if state.user_context and state.user_context.origin else None)
@@ -276,11 +296,16 @@ class Interviewer(GPTClient):
             if not args.get("lat") or not args.get("lon"):
                 args["lat"] = fallback_lat
                 args["lon"] = fallback_lon
-            
-            output = await self.place_tool.tool_map[name].ainvoke(args)
+
+            output, call_failed = await self._safe_kakao_call(
+                self.place_tool.tool_map[name].ainvoke(args)
+            )
+            if call_failed:
+                api_error = True
+                continue
 
             logger.info(f"위치를 검색합니다: keyword={args.get('query', name)}, target={target}, 결과수={len(output.documents) if isinstance(output, PlaceSearchResult) else 0}")
-            
+
             if isinstance(output, PlaceSearchResult) and output.documents:
                 if target == "origin":
                     fallback_lat = float(output.documents[0].y)
@@ -303,10 +328,14 @@ class Interviewer(GPTClient):
             origin = state.user_context.origin
             # origin 자동 보완
             if origin and origin.place_name and origin.lat is None and "origin_candidate" not in candidates:
-                result = await self.place_tool.get_address_from_keyword(
-                    keyword=origin.place_name, lat=fallback_lat, lon=fallback_lon
+                result, call_failed = await self._safe_kakao_call(
+                    self.place_tool.get_address_from_keyword(
+                        keyword=origin.place_name, lat=fallback_lat, lon=fallback_lon
+                    )
                 )
-                if isinstance(result, PlaceSearchResult) and result.documents:
+                if call_failed:
+                    api_error = True
+                elif isinstance(result, PlaceSearchResult) and result.documents:
                     fallback_lat = float(result.documents[0].y)
                     fallback_lon = float(result.documents[0].x)
 
@@ -326,10 +355,14 @@ class Interviewer(GPTClient):
             if hasattr(state.user_context, "destination"):
                 dest = state.user_context.destination
                 if dest and dest.place_name and dest.lat is None and "destination_candidate" not in candidates:
-                    result = await self.place_tool.get_address_from_keyword(
-                        keyword=dest.place_name, lat=fallback_lat, lon=fallback_lon
+                    result, call_failed = await self._safe_kakao_call(
+                        self.place_tool.get_address_from_keyword(
+                            keyword=dest.place_name, lat=fallback_lat, lon=fallback_lon
+                        )
                     )
-                    if isinstance(result, PlaceSearchResult) and result.documents:
+                    if call_failed:
+                        api_error = True
+                    elif isinstance(result, PlaceSearchResult) and result.documents:
                         seoul_docs = [
                             Location(lat=float(d.y), lon=float(d.x), address=d.address_name, place_name=d.place_name)
                             for d in result.documents
@@ -342,5 +375,4 @@ class Interviewer(GPTClient):
                     else:
                         search_failures["destination"] = dest.place_name
 
-        return candidates, search_failures, out_of_seoul
-
+        return candidates, search_failures, out_of_seoul, api_error
