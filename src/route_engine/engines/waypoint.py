@@ -60,6 +60,7 @@ class WaypointComposerEngine:
             (self.inp.end_lat, self.inp.end_lon),              # 목적지
         ]
 
+        visited_nodes: set = set()  # 앞선 leg들이 지나간 노드. 다음 leg 탐색에 겹침 페널티로 반영
         leg_results: List[WalkRouteResponse] = []
         for i, mode in enumerate(self.inp.leg_modes):
             start_lat, start_lon = stops[i]
@@ -73,6 +74,7 @@ class WaypointComposerEngine:
             )
             engine = _LEG_ENGINES[mode](
                 leg_inp, self.G, custom_weights=self.custom_weights, profile=self.profile,
+                visited_nodes=visited_nodes,
             )
             result = engine.run()[0]  # leg 엔진도 후보 리스트를 반환하므로 1개만 사용
 
@@ -80,10 +82,11 @@ class WaypointComposerEngine:
             if result.status != WalkRouteStatus.SUCCESS and mode != "oneway_shortest":
                 logger.warning("leg %d(%s)에서 실패해 최단 경로로 대체합니다: status=%s",
                                i + 1, mode, result.status.value)
-                fallback = OnewayAstarEngine(
+                engine = OnewayAstarEngine(
                     leg_inp, self.G, custom_weights=self.custom_weights, profile=self.profile,
+                    visited_nodes=visited_nodes,
                 )
-                result = fallback.run()[0]
+                result = engine.run()[0]
 
             leg_results.append(result)
 
@@ -92,6 +95,8 @@ class WaypointComposerEngine:
             if result.status != WalkRouteStatus.SUCCESS:
                 logger.warning("leg %d에서 최단 경로 대체도 실패해 이후 leg를 생략합니다: status=%s", i + 1, result.status.value)
                 break
+
+            visited_nodes.update(engine.last_path_nodes)  # 실제로 이 leg를 만든 엔진(재시도 포함)의 경로를 누적
 
         return [self._stitch(leg_results, len(self.inp.leg_modes))]
 
