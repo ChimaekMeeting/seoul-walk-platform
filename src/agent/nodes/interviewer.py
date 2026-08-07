@@ -15,6 +15,7 @@ from src.schema.prewalk_schema import (
     OnewayPreference,
     OnewayShortestPreference,
     GPSArtPreference,
+    WayPointPreference,
 )
 
 _FALLBACK_RESPONSE = "죄송해요, 일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요."
@@ -111,6 +112,23 @@ class Interviewer(GPTClient):
                     logger.info(f"destination_candidate: {candidates['destination_candidate']}")
                     logger.info(f"destination: {state.user_context.destination}")
 
+            if "waypoint_candidates" in candidates:
+                waypoint_candidates: dict = candidates["waypoint_candidates"]
+                if state.user_context and hasattr(state.user_context, "waypoints"):
+                    waypoints = state.user_context.waypoints
+                    if state.waypoint_candidates is None:
+                        state.waypoint_candidates = [None] * len(waypoints)
+                    for idx, locs in waypoint_candidates.items():
+                        if idx >= len(state.waypoint_candidates):
+                            state.waypoint_candidates.extend(
+                                [None] * (idx + 1 - len(state.waypoint_candidates))
+                            )
+                        state.waypoint_candidates[idx] = locs
+                        if locs and idx < len(waypoints):
+                            waypoints[idx] = locs[0]
+                            logger.info(f"waypoint_candidate[{idx}]: {locs}")
+                            logger.info(f"waypoint[{idx}]: {waypoints[idx]}")
+
             is_complete = self._is_complete(state.user_context)
             logger.info(f"is_complete을 재확인합니다: is_complete = {is_complete}")
 
@@ -174,6 +192,12 @@ class Interviewer(GPTClient):
             return self._has_location(pref.origin) and self._has_location(pref.destination) and pref.target_km is not None
         elif isinstance(pref, GPSArtPreference):
             return self._has_location(pref.origin) and pref.target_km is not None and bool(pref.shape)
+        elif isinstance(pref, WayPointPreference):
+            if not self._has_location(pref.origin) or not self._has_location(pref.destination):
+                return False
+            if any(not self._has_location(wp) for wp in pref.waypoints):
+                return False
+            return all(leg.target_km is not None for leg in pref.legs if leg.mode == "oneway_random")
         else:
             return self._has_location(pref.origin) and pref.target_km is not None
 
@@ -184,7 +208,7 @@ class Interviewer(GPTClient):
         missing = []
         if not self._has_location(pref.origin):
             missing.append("출발지 장소명 또는 좌표")
-        if isinstance(pref, (OnewayPreference, OnewayShortestPreference)):
+        if isinstance(pref, (OnewayPreference, OnewayShortestPreference, WayPointPreference)):
             if not self._has_location(pref.destination):
                 missing.append("목적지 장소명 또는 좌표")
         if isinstance(pref, (CircularPreference, OnewayPreference, GPSArtPreference)):
@@ -193,6 +217,11 @@ class Interviewer(GPTClient):
         if isinstance(pref, GPSArtPreference):
             if not pref.shape:
                 missing.append("그리고 싶은 도형(모양)")
+        if isinstance(pref, WayPointPreference):
+            if any(not self._has_location(wp) for wp in pref.waypoints):
+                missing.append("경유지 장소명 또는 좌표")
+            if any(leg.mode == "oneway_random" and leg.target_km is None for leg in pref.legs):
+                missing.append("우회 구간의 목표 거리")
 
         return ", ".join(missing) if missing else ""
 
@@ -230,6 +259,18 @@ class Interviewer(GPTClient):
             origin_name = origin.place_name if origin and origin.place_name else "현재 위치"
             return f"{origin_name}에서 출발하는 {km_str}km 순환 산책이 맞나요?"
 
+        if isinstance(ctx, WayPointPreference):
+            origin      = ctx.origin
+            dest        = ctx.destination
+            origin_name = origin.place_name if origin and origin.place_name else "현재 위치"
+            dest_name   = dest.place_name if dest and dest.place_name else "목적지"
+            waypoint_names = ", ".join(wp.place_name or "경유지" for wp in ctx.waypoints)
+            route_desc  = f"{waypoint_names}를 거쳐 " if waypoint_names else ""
+
+            if self._is_same_location(origin, dest):
+                return f"{origin_name}에서 출발해 {route_desc}다시 {origin_name}로 돌아오는 순환 경로가 맞나요?"
+            return f"{origin_name}에서 {route_desc}{dest_name}까지 가는 경로가 맞나요?"
+
         if isinstance(ctx, GPSArtPreference):
             origin    = ctx.origin
             target_km = ctx.target_km or 3.0
@@ -249,6 +290,7 @@ class Interviewer(GPTClient):
         """
         origin_kw      = search_failures.get("origin")
         destination_kw = search_failures.get("destination")
+        waypoint_kws   = [v for k, v in search_failures.items() if k.startswith("waypoint_")]
 
         if origin_kw and destination_kw:
             if origin_kw == destination_kw:
@@ -256,7 +298,10 @@ class Interviewer(GPTClient):
             return f"'{origin_kw}', '{destination_kw}' 모두 검색 결과가 없어요. 출발하고 싶으신 곳과 도착하고 싶으신 곳을 다시 알려주시면 그에 맞는 산책 경로를 준비해드리겠습니다!"
         if origin_kw:
             return f"'{origin_kw}' 검색 결과가 없어요. 출발하고 싶으신 다른 장소를 알려주시면 그에 맞는 산책 경로를 준비해드리겠습니다!"
-        return f"'{destination_kw}' 검색 결과가 없어요. 도착하고 싶으신 다른 장소를 알려주시면 그에 맞는 산책 경로를 준비해드리겠습니다!"
+        if destination_kw:
+            return f"'{destination_kw}' 검색 결과가 없어요. 도착하고 싶으신 다른 장소를 알려주시면 그에 맞는 산책 경로를 준비해드리겠습니다!"
+        joined = "', '".join(waypoint_kws)
+        return f"'{joined}' 경유지 검색 결과가 없어요. 경유지를 다시 알려주시면 그에 맞는 산책 경로를 준비해드리겠습니다!"
 
     def _build_out_of_seoul_message(self, out_of_seoul: dict[str, str]) -> str:
         """
@@ -264,6 +309,7 @@ class Interviewer(GPTClient):
         """
         origin_kw      = out_of_seoul.get("origin")
         destination_kw = out_of_seoul.get("destination")
+        waypoint_kws   = [v for k, v in out_of_seoul.items() if k.startswith("waypoint_")]
 
         if origin_kw and destination_kw:
             if origin_kw == destination_kw:
@@ -271,7 +317,10 @@ class Interviewer(GPTClient):
             return f"'{origin_kw}', '{destination_kw}' 위치 모두 서울 밖이에요. 서울 내에서만 산책 경로를 추천해드릴 수 있어요. 출발하고 싶으신 곳과 도착하고 싶으신 곳을 다시 알려주시겠어요?"
         if origin_kw:
             return f"'{origin_kw}' 위치는 서울 밖이라 출발지로 사용할 수 없어요. 서울 내에서만 산책 경로를 추천해드릴 수 있어요. 출발하고 싶으신 다른 장소를 알려주시겠어요?"
-        return f"'{destination_kw}' 위치는 서울 밖이라 목적지로 사용할 수 없어요. 서울 내에서만 산책 경로를 추천해드릴 수 있어요. 도착하고 싶으신 다른 장소를 알려주시겠어요?"
+        if destination_kw:
+            return f"'{destination_kw}' 위치는 서울 밖이라 목적지로 사용할 수 없어요. 서울 내에서만 산책 경로를 추천해드릴 수 있어요. 도착하고 싶으신 다른 장소를 알려주시겠어요?"
+        joined = "', '".join(waypoint_kws)
+        return f"'{joined}' 위치는 서울 밖이라 경유지로 사용할 수 없어요. 서울 내에서만 산책 경로를 추천해드릴 수 있어요. 경유지를 다시 알려주시겠어요?"
 
     async def _safe_kakao_call(self, coro):
         """
@@ -310,6 +359,12 @@ class Interviewer(GPTClient):
             if not has_destination:
                 target = "origin"
 
+            # waypoint는 여러 개일 수 있어 waypoint_index로 구분하고, 실패 결과도 인덱스별로 구분한다.
+            waypoint_index = args.get("waypoint_index") if target == "waypoint" else None
+            if target == "waypoint" and not isinstance(waypoint_index, int):
+                waypoint_index = 0
+            failure_key = f"waypoint_{waypoint_index}" if target == "waypoint" else target
+
             if not args.get("lat") or not args.get("lon"):
                 args["lat"] = fallback_lat
                 args["lon"] = fallback_lon
@@ -334,11 +389,14 @@ class Interviewer(GPTClient):
                     if is_within_seoul_bbox(float(d.y), float(d.x))
                 ]
                 if seoul_docs:
-                    candidates[f"{target}_candidate"] = seoul_docs
+                    if target == "waypoint":
+                        candidates.setdefault("waypoint_candidates", {})[waypoint_index] = seoul_docs
+                    else:
+                        candidates[f"{target}_candidate"] = seoul_docs
                 else:
-                    out_of_seoul[target] = args.get("keyword") or args.get("category") or ""
+                    out_of_seoul[failure_key] = args.get("keyword") or args.get("category") or ""
             else:
-                search_failures[target] = args.get("keyword") or args.get("category") or ""
+                search_failures[failure_key] = args.get("keyword") or args.get("category") or ""
 
         # 2. place_name은 있지만 좌표가 없는 location 자동 보완
         if state.user_context:
@@ -391,5 +449,33 @@ class Interviewer(GPTClient):
                             out_of_seoul["destination"] = dest.place_name
                     else:
                         search_failures["destination"] = dest.place_name
+
+            # waypoints 자동 보완 (place_name은 있지만 좌표가 없는 항목만)
+            if hasattr(state.user_context, "waypoints"):
+                waypoint_candidates: dict = candidates.get("waypoint_candidates", {})
+                for idx, wp in enumerate(state.user_context.waypoints):
+                    if not (wp and wp.place_name and wp.lat is None and idx not in waypoint_candidates):
+                        continue
+                    result, call_failed = await self._safe_kakao_call(
+                        self.place_tool.get_address_from_keyword(
+                            keyword=wp.place_name, lat=fallback_lat, lon=fallback_lon
+                        )
+                    )
+                    if call_failed:
+                        api_error = True
+                    elif isinstance(result, PlaceSearchResult) and result.documents:
+                        seoul_docs = [
+                            Location(lat=float(d.y), lon=float(d.x), address=d.address_name, place_name=d.place_name)
+                            for d in result.documents
+                            if is_within_seoul_bbox(float(d.y), float(d.x))
+                        ]
+                        if seoul_docs:
+                            waypoint_candidates[idx] = seoul_docs
+                        else:
+                            out_of_seoul[f"waypoint_{idx}"] = wp.place_name
+                    else:
+                        search_failures[f"waypoint_{idx}"] = wp.place_name
+                if waypoint_candidates:
+                    candidates["waypoint_candidates"] = waypoint_candidates
 
         return candidates, search_failures, out_of_seoul, api_error

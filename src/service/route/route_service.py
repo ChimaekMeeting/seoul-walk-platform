@@ -19,6 +19,7 @@ from src.route_engine.engines import (
     GpsArtEngine,
     OnewayAstarEngine,
     OnewayBeamEngine,
+    WaypointComposerEngine,
 )
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import ScoringProfile
@@ -27,6 +28,9 @@ from src.schema.route_schema import (
     GpsArtPoint,
     GpsArtRouteInput,
     OnewayRouteInput,
+    WaypointCoordinate,
+    WaypointLegMode,
+    WaypointRouteInput,
     Weights,
 )
 from src.service.user.auth_service import AuthService
@@ -44,6 +48,7 @@ class RouteService:
             WalkMode.ONEWAY_SHORTEST: OnewayAstarEngine,
             WalkMode.ONEWAY_RANDOM: OnewayBeamEngine,
             WalkMode.GPS_ART: GpsArtEngine,
+            WalkMode.WAYPOINT: WaypointComposerEngine,
         }
 
     def get_route(
@@ -56,14 +61,20 @@ class RouteService:
         custom_weights: Optional[Weights] = None,
         profile: Optional[ScoringProfile] = None,
         shape_points: Optional[List[GpsArtPoint]] = None,
+        waypoints: Optional[List[Coordinate]] = None,
+        leg_modes: Optional[List[WaypointLegMode]] = None,
+        leg_target_km: Optional[List[Optional[float]]] = None,
     ) -> List[WalkRouteResponse]:
         """
         context에 적합한 경로 생성 엔진을 호출합니다.
-        mode는 경로 생성 방식(circular_random/oneway_shortest/oneway_random/gps_art)을,
+        mode는 경로 생성 방식(circular_random/oneway_shortest/oneway_random/gps_art/waypoint)을,
         profile은 어떤 score 조합을 선호할지(scoring profile)를 결정하며 서로 독립적입니다.
         custom_weights가 있으면 profile.weights를 base로 두고 해당 필드만 override합니다.
         shape_points는 gps_art 모드 전용이며, 호출 전에 이미 도형 이름 -> 좌표 변환이
         끝난 상태여야 합니다(RouteService는 이미지 생성 등 비동기 작업을 하지 않음).
+        waypoints/leg_modes/leg_target_km은 waypoint 모드 전용이다. leg_modes[i]/leg_target_km[i]는
+        origin -> waypoints[0] -> ... -> destination 순서상 i번째 구간의 이동 방식이며,
+        지정하지 않은 구간은 최단 경로(oneway_shortest)로 채워진다.
         """
         logger.info(
             "walk route request: mode=%s origin=(%.5f, %.5f) has_destination=%s target_km=%s",
@@ -113,8 +124,22 @@ class RouteService:
                     total_km=0.0,
                 )]
 
+        if mode == WalkMode.WAYPOINT and waypoints:
+            for wp in waypoints:
+                if utils.find_nearest_node_with_expansion(wp.lat, wp.lon) is None:
+                    logger.warning("walk route no nearest waypoint node: mode=%s", mode)
+                    return [WalkRouteResponse(
+                        status=WalkRouteStatus.NO_NEAREST_END_NODE,
+                        mode=mode,
+                        coordinates=[],
+                        total_km=0.0,
+                    )]
+
         try:
-            engine = self._build_engine(mode, origin, destination, target_km, custom_weights, profile, shape_points)
+            engine = self._build_engine(
+                mode, origin, destination, target_km, custom_weights, profile, shape_points,
+                waypoints, leg_modes, leg_target_km,
+            )
         except ValueError:
             logger.warning("walk route invalid destination: mode=%s", mode)
             return [WalkRouteResponse(
@@ -169,6 +194,9 @@ class RouteService:
         custom_weights: Optional[Weights] = None,
         profile: Optional[ScoringProfile] = None,
         shape_points: Optional[List[GpsArtPoint]] = None,
+        waypoints: Optional[List[Coordinate]] = None,
+        leg_modes: Optional[List[WaypointLegMode]] = None,
+        leg_target_km: Optional[List[Optional[float]]] = None,
     ):
         """profile/custom_weights를 엔진에 주입해 경로 생성 엔진 인스턴스를 반환합니다."""
         if mode == WalkMode.CIRCULAR_RANDOM:
@@ -192,6 +220,30 @@ class RouteService:
             )
             # GpsArtEngine은 내부적으로 leg마다 oneway_shortest만 써서 custom_weights/profile을 받지 않음
             return self.base_engines[mode](inp, self.G)
+
+        if mode == WalkMode.WAYPOINT:
+            if destination is None:
+                raise ValueError(f"{mode} 모드에서는 destination이 필요합니다")
+
+            stop_waypoints = waypoints or []
+            expected_legs  = len(stop_waypoints) + 1
+
+            # 지정하지 않은 구간은 최단 경로(oneway_shortest)로 채운다.
+            padded_modes = list(leg_modes or [])
+            padded_modes += ["oneway_shortest"] * (expected_legs - len(padded_modes))
+            padded_target_km = list(leg_target_km or [])
+            padded_target_km += [None] * (expected_legs - len(padded_target_km))
+
+            inp = WaypointRouteInput(
+                start_lat=origin.lat,
+                start_lon=origin.lon,
+                end_lat=destination.lat,
+                end_lon=destination.lon,
+                waypoints=[WaypointCoordinate(lat=wp.lat, lon=wp.lon) for wp in stop_waypoints],
+                leg_modes=padded_modes,
+                leg_target_km=padded_target_km,
+            )
+            return self.base_engines[mode](inp, self.G, custom_weights=custom_weights, profile=profile)
 
         if destination is None:
             raise ValueError(f"{mode} 모드에서는 destination이 필요합니다")

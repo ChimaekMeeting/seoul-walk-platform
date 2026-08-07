@@ -1,12 +1,14 @@
 from langchain_core.tools import StructuredTool
-from typing import Optional
+from typing import List, Optional
 
 from src.schema.prewalk_schema import (
     Location,
     CircularPreference,
     OnewayPreference,
     OnewayShortestPreference,
-    GPSArtPreference
+    GPSArtPreference,
+    WayPointPreference,
+    WaypointLegPreference,
 )
 
 class ModeTool:
@@ -16,6 +18,7 @@ class ModeTool:
             StructuredTool.from_function(self.select_oneway),
             StructuredTool.from_function(self.select_oneway_shortest),
             StructuredTool.from_function(self.select_gps_art),
+            StructuredTool.from_function(self.select_waypoint),
         ]
         self.tool_map = {t.name: t for t in self.tools}
 
@@ -48,3 +51,24 @@ class ModeTool:
         특정 모양으로 이동하고 싶을 때 사용하세요.
         """
         return GPSArtPreference(origin=origin, shape=shape, target_km=target_km)
+
+    def select_waypoint(
+        self,
+        origin: Optional[Location] = None,
+        waypoints: Optional[List[Location]] = None,
+        destination: Optional[Location] = None,
+        legs: Optional[List[WaypointLegPreference]] = None,
+    ) -> WayPointPreference:
+        """
+        경유지를 하나 이상 거쳐가는 경로(waypoint)를 선택합니다.
+        출발지 -> waypoints[0] -> ... -> waypoints[-1] -> destination 순으로 이동하며,
+        legs[i]는 그 순서상 i번째 구간의 이동 방식입니다. 사용자가 구간별 이동 방식을
+        언급하지 않으면 legs는 비워두세요(각 구간은 최단 경로로 처리됩니다).
+        순환 코스를 원하면 destination을 origin과 동일한 위치로 지정하세요.
+        """
+        return WayPointPreference(
+            origin=origin,
+            waypoints=waypoints or [],
+            destination=destination,
+            legs=legs or [],
+        )

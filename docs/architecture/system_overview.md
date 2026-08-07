@@ -187,15 +187,17 @@ WalkRouteRequest
 → WalkRouteResponse
 ```
 
-현재 API에 연결된 엔진은 다음 세 개입니다.
+현재 API에 연결된 엔진은 다음 다섯 개입니다(2026-08-07 코드 대조로 표 갱신 — `oneway_shortest`는 `OnewayDijkstraEngine`에서 `OnewayAstarEngine`으로 교체됐고 GPS Art·Waypoint 모드가 추가됐다. 교체 배경은 [경로 생성 엔진](../route_engine/README.md) 문서의 "oneway_shortest 엔진: Dijkstra → A*(ALT) 교체" 절 참고).
 
 | `WalkMode` | 활성 엔진 |
 |---|---|
 | `circular_random` | `CircularBeamEngine` |
-| `oneway_shortest` | `OnewayDijkstraEngine` |
+| `oneway_shortest` | `OnewayAstarEngine` |
 | `oneway_random` | `OnewayBeamEngine` |
+| `gps_art` | `GpsArtEngine`(내부적으로 `WaypointComposerEngine`·`OnewayAstarEngine` 사용) |
+| `waypoint` | `WaypointComposerEngine`(leg별로 `OnewayAstarEngine`/`OnewayBeamEngine` 조합) |
 
-RCSP·GRASP·ALNS 계열은 코드와 benchmark에는 존재하지만 `RouteService.base_engines`에 연결되지 않은 대안 알고리즘입니다.
+RCSP·GRASP·ALNS 계열과 `OnewayDijkstraEngine`(dijkstra.py)·양방향 A*(`oneway_bi_astar.py`)는 코드와 benchmark에는 존재하지만 `RouteService.base_engines`에 연결되지 않은 대안 알고리즘입니다.
 
 ### 6.3 챗봇 경로 흐름
 

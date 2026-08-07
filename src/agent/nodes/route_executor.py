@@ -14,6 +14,7 @@ MODE_TOOL_MAP: dict[WalkMode, str] = {
     WalkMode.ONEWAY_SHORTEST: "oneway_shortest_route",
     WalkMode.ONEWAY_RANDOM:   "oneway_random_route",
     WalkMode.GPS_ART:         "gps_art_route",
+    WalkMode.WAYPOINT:        "waypoint_route",
 }
 
 # 테마·설문이 없을 때의 기본 가중치(baseline).
@@ -43,10 +44,22 @@ class RouteExecutor:
             logger.warning(f"모드와 매핑되는 경로 생성 엔진이 없습니다: mode = {state.mode}")
             return state
 
-        args = {
-            k: Coordinate(lat=v["lat"], lon=v["lon"]) if k in ("origin", "destination") else v
-            for k, v in state.user_context.model_dump(exclude={"mode"}, exclude_none=True).items()
-        }
+        context_dump = state.user_context.model_dump(exclude={"mode"}, exclude_none=True)
+        legs         = context_dump.pop("legs", None)  # waypoint 모드 전용: leg_modes/leg_target_km로 분리
+
+        args = {}
+        for k, v in context_dump.items():
+            if k in ("origin", "destination"):
+                args[k] = Coordinate(lat=v["lat"], lon=v["lon"])
+            elif k == "waypoints":
+                args[k] = [Coordinate(lat=wp["lat"], lon=wp["lon"]) for wp in v]
+            else:
+                args[k] = v
+
+        if legs is not None:
+            args["leg_modes"]     = [leg["mode"] for leg in legs]
+            args["leg_target_km"] = [leg["target_km"] for leg in legs]
+
         args["access_token"]   = state.access_token or ""
         profile = self._select_profile(state)
         state.profile = profile
