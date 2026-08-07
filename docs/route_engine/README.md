@@ -1,7 +1,7 @@
 # 경로 생성 엔진
 
 > 상태: Current
-> 기준일: 2026-08-07
+> 기준일: 2026-08-08
 > 관련 코드: `src/route_engine/`
 
 경로 생성 엔진은 외부 API나 챗봇 처리와 분리된 경로 계산 영역입니다.
@@ -23,10 +23,51 @@
 
 - `circular_beam`(`CircularBeamEngine`)·`oneway_beam`(`OnewayBeamEngine`)·`oneway_astar`(`OnewayAstarEngine`)·`gps_art`(`GpsArtEngine`)·`waypoint`(`WaypointComposerEngine`) 5개 엔진의 `run()`은 모두 `List[WalkRouteResponse]`를 반환한다.
 - 이 중 `circular_beam`·`oneway_beam`·`oneway_astar`의 `find_path()`는 노드ID 경로 후보를 `list[list[int]]`로 감싸서 반환한다. `gps_art`·`waypoint`는 자체 `find_path()`가 없다 — 대신 다른 엔진들의 `run()` 결과를 조합(`WaypointComposerEngine`)하거나 그 조합에 위임(`GpsArtEngine`)해서 최종 경로를 만든다.
-- 현재는 항상 경로 1개만 생성해 리스트에 담아 반환한다. 여러 경로 후보를 동시에 생성하는 기능은 아직 구현하지 않았다.
+- `circular_random`·`oneway_random`은 2026-08-07부터 최대 3개까지 벡터로 다양화한 후보를 반환한다(상세는 아래 "후보 다양화(벡터 score 기반)" 절 참고). `oneway_shortest`·GPS Art, 그리고 경유지 조합 중 다양화할 대안이 없는 경우(예: 모든 leg가 `oneway_shortest`)는 여전히 1개만 반환한다.
 - `oneway_shortest` 모드의 실제 사용 엔진은 `dijkstra.py`(`OnewayDijkstraEngine`)에서 `oneway_astar.py`(`OnewayAstarEngine`)로 교체되었다. 배경·현재 사용처는 바로 아래 "oneway_shortest 엔진: Dijkstra → A*(ALT) 교체" 절 참고.
-- `route_service.get_route()`도 같은 계약(`List[WalkRouteResponse]`)으로 반환하며, 리스트의 첫 번째 요소만 사용해 POI 조회·이력 저장을 수행하고 리스트 전체를 그대로 반환한다.
+- `route_service.get_route()`도 같은 계약(`List[WalkRouteResponse]`)으로 반환한다. POI 조회는 성공한 후보 전부에 적용하고, `RouteHistory` 저장은 아직 대표 후보(리스트의 첫 번째)만 한다 — 사용자가 실제로 어떤 후보를 골랐는지 아직 API로 전달받지 않기 때문이며, 그 흐름이 생기면 선택된 후보를 저장하도록 바꿀 예정이다(`route_service.py`의 `TODO` 주석 참고). 리스트 전체는 그대로 반환한다.
 - `OnewayAstarEngine._heuristic`은 그래프 로드 시 `precompute_landmarks(G)`(`oneway_astar.py`)가 미리 채워둔 노드 속성 `landmark_dist`를 그대로 참조한다. 이 함수는 2026-08-07 이전까지 `benchmarks/*.py`에서만 호출됐고 `dependencies.init_route_service()`(실제 서버·스크립트 부팅 경로)에는 연결돼 있지 않아서, 그래프가 정상 로드돼도 `oneway_shortest`·GPS Art(내부적으로 `WaypointComposerEngine`을 거쳐 `OnewayAstarEngine`을 씀) 둘 다 A* 탐색 단계에서 `KeyError: 'landmark_dist'`로 실패했다(그래프 미로딩으로 인한 `NO_NEAREST_START_NODE`에 가려져 있다가 그래프 데이터 복구 후 GPS Art 실행 검증 중 드러남). `dependencies.py`의 `init_route_service()`에 `precompute_landmarks(G)` 호출을 추가해 수정했다(2026-08-07).
+
+## 후보 다양화(벡터 score 기반)
+
+**왜 필요한가**
+
+- beam search(`oneway_beam.py`/`circular_beam.py`)는 내부적으로 여러 후보(`_BEAM_WIDTH=8`)를 유지하다가도, 최종적으로는 안전·자연·평지 등을 전부 하나의 스칼라(`custom_score`)로 블렌딩한 기준 하나로만 후보를 좁혔다 — 그래서 여러 개를 뽑아도 사실상 비슷한 경로만 나오는 문제가 있었다.
+- `target_km`(거리 허용오차) 자체는 이 다양화와 무관하게 여전히 1순위 조건이다 — 벡터 비교는 목표 거리를 만족(또는 가장 근접)하는 후보 풀 안에서만 적용한다.
+
+**벡터 score — `scoring_engine.py`**
+
+- `compute_score_vector(graph) -> {(u, v): {"safety": cost, "nature": cost, "slope": cost, "convenience": cost, "accessibility": cost}, ...}`를 추가했다. 기존 `calculate_custom_score`/`compute_custom_score_lookup`은 전혀 수정하지 않았다 — 그래서 A*(`oneway_astar.py`의 ALT `min_ratio`)·GRASP·ALNS·RCSP 등 이 스코어 함수를 공유하는 다른 엔진에는 영향이 없다.
+- 각 차원 값은 `length * (1 - feature)`다. `feature`(0~1, 1이 가장 좋음)가 1이면 0, 0이면 그 edge의 `length` 전체가 비용이 된다 — `custom_score`처럼 경로를 따라 그대로 합산할 수 있고, 모든 차원이 이미 미터 단위라 추가 정규화 없이 비교 가능하다.
+- profile 가중치를 받지 않는다 — 대표 후보(아래 "후보 1")는 기존처럼 요청받은 profile의 가중 스칼라로 뽑고, 이 벡터는 나머지 후보를 가중치와 무관하게 다양화하는 용도로만 쓴다.
+
+**경로별 벡터 합산과 다양화 선택 — `path_utils.py`**
+
+- `PathUtils.path_score_vector(path, vector_lookup)`: `metrics()`가 `custom_score`를 합산하는 것과 같은 패턴으로, 경로를 따라 벡터를 성분별로 합산한다.
+- `PathUtils.vector_distance(a, b)`: 두 벡터 사이 유클리드 거리.
+- `PathUtils.select_diverse_paths(candidates, k=3)`: **후보 1**(`candidates[0]`, 호출부가 기존 스칼라 키로 이미 정한 대표)을 고정하고, 나머지 중 이미 뽑힌 것들과의 최소거리가 가장 큰 것을 greedy farthest-point(k-center) 방식으로 최대 `k-1`개 더 뽑는다. 최댓값이 아니라 **최솟값의 최댓값**을 기준으로 삼는 이유는, "다른 후보와는 멀어도 기존에 뽑힌 것 중 하나와 거의 같은" 사실상의 중복을 배제하기 위해서다. 후보가 `k`개 미만이면 있는 만큼만 반환한다. `payload` 자리에는 노드 ID 리스트뿐 아니라 `WalkRouteResponse` 등 어떤 타입도 그대로 통과시킬 수 있다(`TypeVar` 기반 제네릭).
+
+**`oneway_beam.py`/`circular_beam.py`: 최종 3개 선택**
+
+- 도착(또는 복귀) 연결에 성공한 완성 후보 전체를 모아 기존 정렬 키(`oneway_beam`은 `(over, overlap, density)`, `circular_beam`은 `(over, density)`)로 정렬한다. `over`(거리 허용오차)와 `overlap`(우회도, `oneway_beam` 전용)은 벡터에 넣지 않는다 — 둘 다 "이 모드에서 유효한 후보인가"를 정하는 조건이라, 트레이드오프 대상인 품질 벡터와 성격이 다르기 때문이다.
+- **후보 1** = 이 정렬 키 기준 최상위(오늘까지의 단일 결과와 완전히 동일). **후보 2·3** = 후보 1과 같은 거리 등급(`over`가 같은 값)을 만족하는 후보들 안에서만, `compute_score_vector`로 계산한 5차원 벡터를 `select_diverse_paths`로 다양화해서 뽑는다.
+- `OnewayBeamEngine`에 `last_path_nodes_by_candidate: list[list[int]]`를 추가했다 — 반환하는 모든 후보의 노드열을 반환 순서대로 보관한다. 기존 `last_path_nodes`(단일 필드)는 후보 1의 단축값으로 그대로 남겨 하위 호환을 유지한다. `OnewayAstarEngine`에도 인터페이스를 맞추기 위해 `last_path_nodes_by_candidate = [last_path_nodes]`(항상 후보 1개뿐이라 트리비얼)를 추가했다.
+- `CircularBeamEngine`은 `last_path_nodes` 계열 자체가 없다 — `WaypointLegMode`가 `oneway_shortest`/`oneway_random`만 허용해서(`route_schema.py`) 순환 모드는 구조적으로 waypoint leg가 될 수 없고, 따라서 cross-leg 겹침 방지 대상이 아니기 때문이다.
+
+**`waypoint.py`: leg 조합에도 다양화 전파**
+
+- `WaypointComposerEngine`이 leg 엔진을 호출할 때 이제 그 leg의 전체 후보 리스트(`engine.run()`)와 노드열 리스트(`engine.last_path_nodes_by_candidate`)를 둘 다 보관한다. 상태 판정·재시도(`oneway_shortest`로 대체)·`visited_nodes` 누적은 기존처럼 대표 후보(인덱스 0) 기준으로만 한다.
+- 모든 leg가 성공했을 때만: leg별로 같은 인덱스(0/1/2)끼리 짝지어 이어붙인 "슬롯" 최대 3개를 만든다(leg에 그 인덱스의 후보가 없으면 대표로 대체 — 예: `oneway_shortest` leg는 항상 대표만 있음). 슬롯 중 노드열이 완전히 같은 것(예: 전 leg가 `oneway_shortest`라 애초에 대안이 없는 경우)은 버리고, 남은 슬롯들의 전체 경로 벡터를 계산해 `select_diverse_paths`로 최종 정리한다.
+- 이 방식은 leg 개수와 무관하게 항상 최대 3개만 계산한다 — leg별 후보를 전부 조합(3^legs)하지는 않는다. 일부 leg가 실패한 경우엔 다양화 없이 기존처럼 대표 경로 1개만 이어붙여 반환한다(부분/실패 경로까지 3개로 부풀리지 않음).
+- 검증: 단일 leg(순수 `oneway_random`), 2-leg(경유지 1개, 양쪽 다 `oneway_random`, 각각 3-lane), 2-leg 전부 `oneway_shortest`(대안 없음, degenerate case) 세 시나리오를 실제 toy 그래프로 직접 실행해 각각 3개/3개/1개(중복 제거 확인)가 나오는 것까지 확인했다(2026-08-07). **정식 `tests/` 회귀 테스트로는 아직 옮기지 않았다** — 지금까지는 임시 스크립트로만 검증했다.
+
+**`route_service.py`: POI·이력 처리**
+
+- POI 조회(`RoutePoiRepository.find_near_route`)는 성공한 후보 전부에 적용한다.
+- `RouteHistory` 저장은 아직 대표 후보(리스트의 첫 번째)만 한다 — 사용자가 실제로 어떤 후보를 선택했는지 API로 전달받는 흐름이 아직 없기 때문이다. **알려진 개선 항목**: 그 흐름이 생기면 사용자가 실제로 고른 후보를 저장하도록 바꿀 예정이다(`route_service.py`의 `TODO` 주석 참고).
+- `walk_router.py`(직접 REST API)는 의도적으로 이번 변경 범위에서 제외했다 — 레거시로 간주하기로 했고, `response.status.value`가 이미 실제 반환 타입(`List[...]`)과 맞지 않는 기존 버그도 그대로 둔다.
+
+**아직 확인 안 된 것**: 실제 그래프 규모에서 이 다양화가 실제로 서로 다른 "의미 있는" 3개(예: 정말 확연히 다른 동선)를 만들어내는지는 toy 그래프 검증까지만 했고, 실서비스 규모 그래프·프런트엔드 노출까지는 확인하지 않았다. `tests/`에 정식 회귀 테스트도 아직 없다.
 
 ## oneway_shortest 엔진: Dijkstra → A*(ALT) 교체
 
