@@ -1,10 +1,10 @@
 import asyncio
-from typing import Optional
+from typing import List, Optional
 from langchain_core.tools import StructuredTool
 
 from src.interfaces.schema.walk_schema import WalkMode, Coordinate
 from src.route_engine.profiles import ScoringProfile
-from src.schema.route_schema import Weights
+from src.schema.route_schema import WaypointLegMode, Weights
 from src.service.route.gps_art_service import GpsArtService
 
 
@@ -19,6 +19,7 @@ class RouteTool:
             StructuredTool.from_function(coroutine=self.oneway_shortest_route),
             StructuredTool.from_function(coroutine=self.oneway_random_route),
             StructuredTool.from_function(coroutine=self.gps_art_route),
+            StructuredTool.from_function(coroutine=self.waypoint_route),
         ]
         self.tool_map = {t.name: t for t in self.tools}
 
@@ -58,4 +59,26 @@ class RouteTool:
 
         return await asyncio.to_thread(
             self.route_service.get_route, access_token, origin, None, target_km, WalkMode.GPS_ART, custom_weights, profile, shape_points
+        )
+
+    async def waypoint_route(
+        self,
+        origin: Coordinate,
+        destination: Coordinate,
+        waypoints: Optional[List[Coordinate]] = None,
+        leg_modes: Optional[List[WaypointLegMode]] = None,
+        leg_target_km: Optional[List[Optional[float]]] = None,
+        access_token: str = "",
+        custom_weights: Optional[Weights] = None,
+        profile: Optional[ScoringProfile] = None,
+    ):
+        """
+        경유지를 하나 이상 거쳐 목적지까지 이동하는 경로를 생성합니다.
+        leg_modes[i]/leg_target_km[i]는 origin -> waypoints[0] -> ... -> destination 순서상
+        i번째 구간의 이동 방식이며, 지정하지 않은 구간은 최단 경로로 처리됩니다.
+        """
+        return await asyncio.to_thread(
+            self.route_service.get_route,
+            access_token, origin, destination, None, WalkMode.WAYPOINT, custom_weights, profile, None,
+            waypoints, leg_modes, leg_target_km,
         )

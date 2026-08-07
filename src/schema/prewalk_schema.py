@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional, Union, List
+from typing import Literal, Optional, Union, List
 from src.interfaces.schema.walk_schema import WalkMode, WalkRouteResponse
 from src.route_engine.profiles import ScoringProfile
 
@@ -63,6 +63,32 @@ class GPSArtPreference(BasePreference):
     target_km: Optional[float] = None
 
 
+# route_schema.WaypointLegMode와 동일한 값이지만, route_schema -> walk_schema -> route_engine.profiles
+# -> route_schema로 이어지는 기존 순환 임포트를 피하기 위해 여기서도 로컬로 재정의한다.
+WaypointLegMode = Literal["oneway_shortest", "oneway_random"]
+
+
+class WaypointLegPreference(BaseModel):
+    """
+    경유지 구간(leg) 하나의 이동 방식입니다. 언급이 없으면 최단 경로로 간주합니다.
+    """
+    mode:      WaypointLegMode = "oneway_shortest"
+    target_km: Optional[float] = None  # mode가 oneway_random일 때만 사용
+
+
+class WayPointPreference(BasePreference):
+    """
+    경유지를 거쳐가는 경로일 때 채워야 할 필수 정보입니다.
+    origin -> waypoints[0] -> ... -> waypoints[-1] -> destination 순으로 이동하며,
+    legs[i]가 그 순서상 i번째 구간의 이동 방식입니다(길이는 waypoints 길이 + 1).
+    순환 코스를 원하면 destination을 origin과 동일한 위치로 설정합니다.
+    """
+    mode:        WalkMode = WalkMode.WAYPOINT
+    waypoints:   List[Location] = Field(default_factory=list)
+    destination: Optional[Location] = None
+    legs:        List[WaypointLegPreference] = Field(default_factory=list)
+
+
 class ConfirmationResult(BaseModel):
     """
     확인 질문에 대한 사용자 응답의 긍정/부정 분류 결과입니다.
@@ -85,11 +111,13 @@ class State(BaseModel):
             OnewayPreference,
             OnewayShortestPreference,
             GPSArtPreference,
+            WayPointPreference,
         ]
     ] = None
 
     origin_candidate: Optional[List[Location]] = None
     destination_candidate: Optional[List[Location]] = None
+    waypoint_candidates: Optional[List[Optional[List[Location]]]] = None
 
     route_result: Optional[List[WalkRouteResponse]] = None
     is_complete: bool = False
