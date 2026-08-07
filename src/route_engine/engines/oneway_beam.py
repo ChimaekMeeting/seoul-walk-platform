@@ -10,7 +10,7 @@ from src.interfaces.schema.walk_schema import (
     WalkRouteResponse
 )
 from src.schema.route_schema import OnewayRouteInput, Weights
-from src.route_engine.scoring.scoring_engine import calculate_custom_score
+from src.route_engine.scoring.scoring_engine import calculate_custom_score, compute_score_vector
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,8 @@ class OnewayBeamEngine:
         self.scoring_mode  = profile_config.scoring_mode
         # WaypointComposerEngine이 leg 간 경로 겹침을 페널티로 방지할 때 채워줌. 기본(빈 set)이면 기존 동작과 동일.
         self.visited_nodes = visited_nodes or set()
-        self.last_path_nodes: list[int] = []  # 가장 최근 run()이 실제로 사용한 노드열(왕복 가지 제거 후)
+        self.last_path_nodes: list[int] = []  # 후보 1(run()[0])의 노드열(왕복 가지 제거 후) — 하위 호환용 단축 값
+        self.last_path_nodes_by_candidate: list[list[int]] = []  # run()이 반환한 모든 후보의 노드열(반환 순서와 동일)
 
     def run(self) -> List[WalkRouteResponse]:
         """
@@ -88,21 +89,32 @@ class OnewayBeamEngine:
                 total_km=0.0,
             )]
 
-        nodes    = candidates[0]                            # 경로 1개만 사용
-        pruned   = self.utils.prune_dead_ends(nodes)       # 왕복 가지 제거
-        self.last_path_nodes = pruned
-        coords   = self.utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
-        total_m  = self.utils.calc_distance(pruned)        # 총 이동 거리(m)
-        total_km = round(total_m / 1000, 2)
+        # find_path()가 최대 3개까지 다양화한 후보를 반환함 — 각각을 응답으로 변환
+        responses: List[WalkRouteResponse] = []
+        for i, nodes in enumerate(candidates):
+            pruned = self.utils.prune_dead_ends(nodes)  # 왕복 가지 제거
+            # 반환하는 모든 후보의 노드열을 인덱스별로 보관 — WalkRouteResponse에는
+            # 좌표만 있고 노드 ID가 없어서, 나중에 호출자가 후보 1이 아닌 다른 후보를
+            # 선택하더라도(예: WaypointComposerEngine이 leg 선택 로직을 바꾸는 경우)
+            # 그 후보의 실제 노드열을 되찾을 수 있게 하기 위함.
+            self.last_path_nodes_by_candidate.append(pruned)
+            if i == 0:
+                # 하위 호환용 — 지금의 WaypointComposerEngine은 항상 후보 1(run()[0])만
+                # 쓰므로 last_path_nodes는 그 경우를 위한 단축 값이다.
+                self.last_path_nodes = pruned
+            coords   = self.utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
+            total_m  = self.utils.calc_distance(pruned)        # 총 이동 거리(m)
+            total_km = round(total_m / 1000, 2)
+            responses.append(WalkRouteResponse(
+                status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
+                mode            = self.mode,
+                coordinates     = coords,
+                total_km        = total_km,
+            ))
 
-        logger.info(f"total_km: {total_km}")
+        logger.info(f"생성된 후보 수: {len(responses)}, total_km: {[r.total_km for r in responses]}")
 
-        return [WalkRouteResponse(
-            status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
-            mode            = self.mode,
-            coordinates     = coords,
-            total_km        = total_km,
-        )]
+        return responses
 
     def find_path(self, start: int, end: int, target_km: float = 3.0) -> list[list[int]]:
         """
@@ -131,8 +143,8 @@ class OnewayBeamEngine:
             logger.warning("beam search 후보가 비어 최단 경로로 대체합니다.")
             return [base_shortest]
 
-        # 2단계: 중간지점 → 도착지 + 가장 좋은 완성 경로 1개 채택
-        best_path, best_key = None, None
+        # 2단계: 중간지점 → 도착지 연결에 성공한 완성 후보를 모두 모은다
+        closed_candidates: list[tuple[tuple, list[int]]] = []  # [(key, path), ...]
         for cost, nodes, dist, visited in pool:
             closed = self._find_waypoint_to_end(nodes, visited, end)
             if closed is None:
@@ -140,17 +152,31 @@ class OnewayBeamEngine:
             over, density, path_tuple = self.utils.route_key(closed, target_m)
             overlap = self._overlap_ratio(closed, base_edges)
             key = (over, overlap, density, path_tuple)  # 거리 합격 → 우회도 → 품질밀도 순으로 비교
-            if best_key is None or key < best_key:
-                best_key, best_path = key, closed
+            closed_candidates.append((key, closed))
 
         # 모든 후보가 도착 연결에 실패한 경우의 방어 코드
-        if best_path is None:
+        if not closed_candidates:
             logger.warning("도착 연결 가능한 후보가 없어 최단 경로로 대체합니다.")
             return [base_shortest]
 
-        logger.info("beam search 편도 경로 선택: 노드=%d개, 거리초과=%.0fm, 우회도=%.3f, 품질밀도=%.3f",
+        # 후보 1: 기존과 동일하게 (거리 합격 → 우회도 → 품질밀도) 기준 최상위
+        closed_candidates.sort(key=lambda item: item[0])
+        best_key, best_path = closed_candidates[0]
+        logger.info("beam search 편도 경로 선택(대표): 노드=%d개, 거리초과=%.0fm, 우회도=%.3f, 품질밀도=%.3f",
                     len(best_path), best_key[0], best_key[1], best_key[2])
-        return [best_path]
+
+        # 후보 2·3: 대표와 같은 거리 등급(over)을 만족하는 후보들 안에서만
+        # safety/nature/slope/convenience/accessibility 벡터로 다양화한다.
+        # (over가 0.0으로 정확히 겹치는 경우가 흔해 그룹핑 기준으로 안전하지만,
+        #  overlap/density는 연속값이라 정확히 안 겹칠 수 있어 기준에서 제외한다.)
+        qualifying = [(key, path) for key, path in closed_candidates if key[0] == best_key[0]]
+
+        vector_lookup = compute_score_vector(self.G)
+        diversity_candidates = [
+            (self.utils.path_score_vector(path, vector_lookup), path)
+            for _, path in qualifying
+        ]
+        return self.utils.select_diverse_paths(diversity_candidates, k=3)
 
 
     def _overlap_ratio(self, path: list[int], base_edges: set) -> float:
