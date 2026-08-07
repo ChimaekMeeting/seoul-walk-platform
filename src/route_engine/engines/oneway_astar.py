@@ -37,6 +37,10 @@ class OnewayAstarEngine:
         # WaypointComposerEngine이 leg 간 경로 겹침을 페널티로 방지할 때 채워줌. 기본(빈 set)이면 기존 동작과 동일.
         self.visited_nodes = visited_nodes or set()
         self.last_path_nodes: list[int] = []  # 가장 최근 run()이 실제로 사용한 노드열(WaypointComposerEngine이 다음 leg의 visited_nodes 누적에 사용)
+        # OnewayBeamEngine과 인터페이스를 맞추기 위한 필드. A*는 항상 후보가 1개뿐이라
+        # 실질적으로 [last_path_nodes]와 같지만, WaypointComposerEngine이 leg 엔진 종류와
+        # 무관하게 같은 방식으로 후보별 노드열을 조회할 수 있게 해준다.
+        self.last_path_nodes_by_candidate: list[list[int]] = []
 
     def run(self) -> List[WalkRouteResponse]:
         """
@@ -83,6 +87,7 @@ class OnewayAstarEngine:
 
         nodes     = candidates[0]                          # 경로 1개만 사용
         self.last_path_nodes = nodes
+        self.last_path_nodes_by_candidate = [nodes]
         coords    = self.utils.extract_coordinates(nodes)
         total_m   = self.utils.calc_distance(nodes)
         total_km = round(total_m / 1000, 2)

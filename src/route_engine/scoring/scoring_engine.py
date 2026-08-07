@@ -11,6 +11,10 @@ COMFORT_TAG_PENALTIES = {
     "building_inside": 1.08,
 }
 
+# 후보 경로를 다양화할 때 쓰는 벡터 score의 차원. custom_score의 profile 가중치와는
+# 무관하게, 대표 후보(가중 스칼라 기준 1등)와 다른 두 후보를 고를 때만 쓴다.
+VECTOR_SCORE_DIMENSIONS = ("safety", "nature", "slope", "convenience", "accessibility")
+
 _FEATURE_CACHE_KEY = "_scoring_feature_cache"
 
 
@@ -184,3 +188,32 @@ def compute_custom_score_lookup(graph: nx.Graph, profile: dict) -> dict:
         return _lookup.get((u, v), 1.0)
 
     return {"weight": _weight, "lookup": lookup, "min_ratio": min_ratio}
+
+
+def compute_score_vector(graph: nx.Graph) -> dict[tuple, dict[str, float]]:
+    """
+    완성된 후보 경로들을 다양화하기 위한 edge별 벡터 비용을 계산한다.
+    calculate_custom_score/compute_custom_score_lookup과 달리 profile 가중치를 쓰지 않는다
+    — 대표 후보(후보 1)는 기존 가중 스칼라(custom_score)로 뽑고, 나머지 후보(2·3)는
+    가중치와 무관한 "순수 품질 차이"로 다양화하기 위해 별도로 존재한다.
+
+    각 차원 값은 length * (1 - feature)다. feature(0~1, 1이 가장 좋음)가 1이면 0,
+    0이면 length 전체가 그 차원의 비용으로 잡힌다 — custom_score처럼 경로를 따라
+    그대로 합산할 수 있다(path_utils.path_score_vector 참고).
+
+    반환: {(u, v): {"safety": cost, "nature": cost, ...}, (v, u): {...}, ...}
+    (무방향 그래프이므로 양방향 조회 등록, compute_custom_score_lookup과 동일 패턴)
+    """
+    cache = _get_feature_cache(graph)
+
+    vectors: dict[tuple, dict[str, float]] = {}
+    for i, (u, v) in enumerate(cache["edge_keys"]):
+        length = float(cache["length"][i])
+        edge_vector = {
+            dim: length * (1.0 - float(cache[dim][i]))
+            for dim in VECTOR_SCORE_DIMENSIONS
+        }
+        vectors[(u, v)] = edge_vector
+        vectors[(v, u)] = edge_vector
+
+    return vectors

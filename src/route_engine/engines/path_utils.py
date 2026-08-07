@@ -1,7 +1,10 @@
 import math
 import random
+from typing import TypeVar
 
 import networkx as nx
+
+_PathT = TypeVar("_PathT")
 
 _R1_M: float = 30.0   # ROUT-NODE 1차 탐색 반경 (m)
 _R2_M: float = 300.0  # ROUT-NODE 2차 탐색 반경 (m)
@@ -181,6 +184,63 @@ class PathUtils:
         """
         total_m, full_cost = self.metrics(path)
         return self.objective(total_m, total_m, full_cost, target_m) + (tuple(path),)
+
+    # ── 후보 다양화(safety/nature/slope/convenience/accessibility 벡터) ──────────
+    @staticmethod
+    def path_score_vector(path: list[int], vector_lookup: dict) -> dict[str, float]:
+        """
+        scoring_engine.compute_score_vector()가 만든 edge별 벡터를 경로를 따라 성분별로 합산합니다.
+        vector_lookup에 없는 edge(이론상 없어야 하지만 방어적으로)는 0으로 취급합니다.
+
+        path: 노드 id lst: [1, 2, 3, ...]
+        vector_loockup: {(u,v): {"safety": cost, ...}, ...}
+        """
+        totals: dict[str, float] = {}
+        for i in range(len(path) - 1):
+            edge_vector = vector_lookup.get((path[i], path[i + 1])) or {}  # edge 순회
+            for dim, cost in edge_vector.items():
+                totals[dim] = totals.get(dim, 0.0) + cost
+        return totals
+
+    @staticmethod
+    def vector_distance(a: dict[str, float], b: dict[str, float]) -> float:
+        """
+        두 score vector 사이의 유클리드 거리. 각 차원이 이미 같은 단위(미터)라
+        추가 정규화 없이 그대로 비교합니다.
+        """
+        keys = set(a) | set(b)
+        return math.sqrt(sum((a.get(k, 0.0) - b.get(k, 0.0)) ** 2 for k in keys))
+
+    @staticmethod
+    def select_diverse_paths(
+        candidates: list[tuple[dict, _PathT]],
+        k: int = 3,
+    ) -> list[_PathT]:
+        """
+        candidates[0](이미 정해진 대표 후보, 기존 스칼라 키 기준 1등)을 기준으로,
+        나머지 후보 중 벡터 공간에서 서로·이미 뽑힌 후보로부터 최대한 먼 (k-1)개를
+        greedy farthest-point(k-center) 방식으로 추가 선택합니다.
+        candidates가 k개 미만이면 있는 만큼만 반환합니다.
+
+        인자: candidates = [(score_vector, payload), ...] — payload는 노드 ID 리스트뿐
+        아니라 WalkRouteResponse 등 무엇이든 될 수 있다(그대로 통과시키기만 함).
+        반환: 선택된 payload 목록(최대 k개, candidates[0]의 payload가 항상 첫 번째)
+        """
+        if not candidates:
+            return []
+
+        selected = [candidates[0]]
+        remaining = list(candidates[1:])
+
+        while remaining and len(selected) < k:  # 아직 경로 후보 k를 다 못 채웠다면
+            best_idx, best_min_dist = None, -1.0
+            for idx, (vec, _) in enumerate(remaining):
+                min_dist = min(PathUtils.vector_distance(vec, s_vec) for s_vec, _ in selected)  # 벡터 간 유사도 측정
+                if min_dist > best_min_dist:
+                    best_min_dist, best_idx = min_dist, idx  # 선택된 후보와 비교했을 때, 가장 거리가 먼 경로를 후보로 등록
+            selected.append(remaining.pop(best_idx))
+
+        return [path for _, path in selected]
 
     def connect_to(
         self,

@@ -152,10 +152,19 @@ class RouteService:
         logger.info("walk route engine selected: mode=%s engine=%s", mode, type(engine).__name__)
 
         results = engine.run()
-        result  = results[0]  # 경로 후보는 1개만 사용
-        logger.info("walk route result: mode=%s status=%s total_km=%s", mode, result.status.value, result.total_km)
+        # circular_random/oneway_random은 이제 최대 3개까지 다양화한 후보를 반환한다(results[0]이 대표 후보).
+        # POI는 성공한 후보 전부에 붙이고, RouteHistory는 아직 대표 후보 1개만 저장한다
+        # — 사용자가 실제로 어떤 후보를 골랐는지는 아직 API로 전달받지 않기 때문이다.
+        # TODO: 사용자가 후보 중 하나를 선택하는 흐름이 생기면, 그때 선택된 후보를 저장하도록 바꾼다.
+        first_result = results[0]
+        logger.info(
+            "walk route result: mode=%s status=%s total_km=%s candidates=%d",
+            mode, first_result.status.value, first_result.total_km, len(results),
+        )
 
-        if result.status == WalkRouteStatus.SUCCESS:
+        for result in results:
+            if result.status != WalkRouteStatus.SUCCESS:
+                continue
             try:
                 result.nearby_pois = [
                     RoutePoiItem.model_validate(poi)
@@ -166,6 +175,7 @@ class RouteService:
             except Exception:
                 logger.exception("route POI lookup failed: mode=%s", mode)
 
+        if first_result.status == WalkRouteStatus.SUCCESS:
             try:
                 user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
                 if user is not None:
@@ -174,12 +184,12 @@ class RouteService:
                         mode=mode,
                         origin_lat=origin.lat,
                         origin_lon=origin.lon,
-                        coordinates=result.coordinates,
-                        total_km=result.total_km,
+                        coordinates=first_result.coordinates,
+                        total_km=first_result.total_km,
                         destination_lat=destination.lat if destination else None,
                         destination_lon=destination.lon if destination else None,
                     )
-                    result.id = history.id
+                    first_result.id = history.id
             except Exception:
                 logger.exception("walk route history save failed: mode=%s", mode)
 

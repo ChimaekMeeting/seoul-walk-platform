@@ -10,7 +10,7 @@ from src.interfaces.schema.walk_schema import (
     WalkRouteResponse
 )
 from src.schema.route_schema import CircularRouteInput, Weights
-from src.route_engine.scoring.scoring_engine import calculate_custom_score
+from src.route_engine.scoring.scoring_engine import calculate_custom_score, compute_score_vector
 
 logger = logging.getLogger(__name__)
 
@@ -76,20 +76,25 @@ class CircularBeamEngine:
                 total_km=0.0,
             )]
 
-        nodes    = candidates[0]                            # 경로 1개만 사용
-        pruned   = self.utils.prune_dead_ends(nodes)       # 왕복 가지 제거
-        coords   = self.utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
-        total_m  = self.utils.calc_distance(pruned)        # 총 이동 거리(미터)
-        total_km = round(total_m / 1000, 2)
+        # find_path()가 최대 3개까지 다양화한 후보를 반환함 — 각각을 응답으로 변환
+        # (순환은 waypoint leg로 쓰이지 않아 last_path_nodes 계열은 두지 않는다)
+        responses: List[WalkRouteResponse] = []
+        for nodes in candidates:
+            pruned   = self.utils.prune_dead_ends(nodes)       # 왕복 가지 제거
+            coords   = self.utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
+            total_m  = self.utils.calc_distance(pruned)        # 총 이동 거리(미터)
+            total_km = round(total_m / 1000, 2)
+            responses.append(WalkRouteResponse(
+                status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
+                mode            = self.mode,
+                coordinates     = coords,
+                total_km        = total_km,
+            ))
 
-        logger.info("경로 생성 완료: total_km=%.2f (target=%.2f), 노드=%d개", total_km, self.inp.target_km or 3.0, len(nodes))
+        logger.info("생성된 후보 수: %d, total_km=%s (target=%.2f)",
+                    len(responses), [r.total_km for r in responses], self.inp.target_km or 3.0)
 
-        return [WalkRouteResponse(
-            status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
-            mode            = self.mode,
-            coordinates     = coords,
-            total_km        = total_km,
-        )]
+        return responses
 
     def find_path(self, start_node: int, target_km: float = 3.0) -> list[list[int]]:
         """
@@ -106,24 +111,36 @@ class CircularBeamEngine:
             logger.warning("beam search 후보가 비어 출발 노드만 반환합니다.")
             return [[start_node]]
 
-        # 2단계: 반환점 → 출발지 + 가장 좋은 완성 경로 1개 채택
-        best_path, best_key = None, None
+        # 2단계: 반환점 → 출발지 연결에 성공한 완성 후보를 모두 모은다
+        closed_candidates: list[tuple[tuple, list[int]]] = []  # [(key, path), ...]
         for cost, nodes, dist, visited in pool:
             closed = self._find_waypoint_to_start(nodes, visited, start_node)
             if closed is None:
                 continue  # 출발점으로 복귀 불가한 후보는 제외
             key = self.utils.route_key(closed, target_m)  # (|실제 오차| - 허용 오차, 누적 비용 / 거리, 노드열)
-            if best_key is None or key < best_key:
-                best_key, best_path = key, closed
+            closed_candidates.append((key, closed))
 
         # 모든 후보가 복귀에 실패한 경우의 방어 코드
-        if best_path is None:
+        if not closed_candidates:
             logger.warning("복귀 가능한 후보가 없어 첫 후보의 바깥 경로를 반환합니다.")
             return [pool[0][1]]
 
-        logger.info("beam search 경로 선택: 노드=%d개, 거리초과=%.0fm, 품질밀도=%.3f",
+        # 후보 1: 기존과 동일하게 (거리 합격 → 품질밀도) 기준 최상위
+        closed_candidates.sort(key=lambda item: item[0])
+        best_key, best_path = closed_candidates[0]
+        logger.info("beam search 경로 선택(대표): 노드=%d개, 거리초과=%.0fm, 품질밀도=%.3f",
                     len(best_path), best_key[0], best_key[1])
-        return [best_path]
+
+        # 후보 2·3: 대표와 같은 거리 등급(over)을 만족하는 후보들 안에서만
+        # safety/nature/slope/convenience/accessibility 벡터로 다양화한다.
+        qualifying = [(key, path) for key, path in closed_candidates if key[0] == best_key[0]]
+
+        vector_lookup = compute_score_vector(self.G)
+        diversity_candidates = [
+            (self.utils.path_score_vector(path, vector_lookup), path)
+            for _, path in qualifying
+        ]
+        return self.utils.select_diverse_paths(diversity_candidates, k=3)
 
     def _find_start_to_waypoint(self, start_node: int, target_m: float) -> tuple:
         """
