@@ -1,7 +1,7 @@
 # 경로 생성 엔진
 
 > 상태: Current
-> 기준일: 2026-08-06
+> 기준일: 2026-08-07
 > 관련 코드: `src/route_engine/`
 
 경로 생성 엔진은 외부 API나 챗봇 처리와 분리된 경로 계산 영역입니다.
@@ -21,12 +21,42 @@
 
 ## Engine 반환 계약
 
-- `circular_beam`(`CircularBeamEngine`)·`oneway_beam`(`OnewayBeamEngine`)·`oneway_astar`(`OnewayAstarEngine`) 3개 엔진의 `run()`은 `List[WalkRouteResponse]`를 반환한다.
-- 같은 엔진들의 `find_path()`도 노드ID 경로 후보를 `list[list[int]]`로 감싸서 반환한다.
+- `circular_beam`(`CircularBeamEngine`)·`oneway_beam`(`OnewayBeamEngine`)·`oneway_astar`(`OnewayAstarEngine`)·`gps_art`(`GpsArtEngine`)·`waypoint`(`WaypointComposerEngine`) 5개 엔진의 `run()`은 모두 `List[WalkRouteResponse]`를 반환한다.
+- 이 중 `circular_beam`·`oneway_beam`·`oneway_astar`의 `find_path()`는 노드ID 경로 후보를 `list[list[int]]`로 감싸서 반환한다. `gps_art`·`waypoint`는 자체 `find_path()`가 없다 — 대신 다른 엔진들의 `run()` 결과를 조합(`WaypointComposerEngine`)하거나 그 조합에 위임(`GpsArtEngine`)해서 최종 경로를 만든다.
 - 현재는 항상 경로 1개만 생성해 리스트에 담아 반환한다. 여러 경로 후보를 동시에 생성하는 기능은 아직 구현하지 않았다.
-- `oneway_shortest` 모드의 실제 사용 엔진은 `dijkstra.py`(`OnewayDijkstraEngine`)에서 `oneway_astar.py`(`OnewayAstarEngine`)로 교체되었다. `OnewayDijkstraEngine`은 여전히 존재하지만 `route_service.py`에서는 더 이상 쓰지 않는다(벤치마크 등 다른 용도로만 남아있는지는 별도 확인 필요).
+- `oneway_shortest` 모드의 실제 사용 엔진은 `dijkstra.py`(`OnewayDijkstraEngine`)에서 `oneway_astar.py`(`OnewayAstarEngine`)로 교체되었다. 배경·현재 사용처는 바로 아래 "oneway_shortest 엔진: Dijkstra → A*(ALT) 교체" 절 참고.
 - `route_service.get_route()`도 같은 계약(`List[WalkRouteResponse]`)으로 반환하며, 리스트의 첫 번째 요소만 사용해 POI 조회·이력 저장을 수행하고 리스트 전체를 그대로 반환한다.
 - `OnewayAstarEngine._heuristic`은 그래프 로드 시 `precompute_landmarks(G)`(`oneway_astar.py`)가 미리 채워둔 노드 속성 `landmark_dist`를 그대로 참조한다. 이 함수는 2026-08-07 이전까지 `benchmarks/*.py`에서만 호출됐고 `dependencies.init_route_service()`(실제 서버·스크립트 부팅 경로)에는 연결돼 있지 않아서, 그래프가 정상 로드돼도 `oneway_shortest`·GPS Art(내부적으로 `WaypointComposerEngine`을 거쳐 `OnewayAstarEngine`을 씀) 둘 다 A* 탐색 단계에서 `KeyError: 'landmark_dist'`로 실패했다(그래프 미로딩으로 인한 `NO_NEAREST_START_NODE`에 가려져 있다가 그래프 데이터 복구 후 GPS Art 실행 검증 중 드러남). `dependencies.py`의 `init_route_service()`에 `precompute_landmarks(G)` 호출을 추가해 수정했다(2026-08-07).
+
+## oneway_shortest 엔진: Dijkstra → A*(ALT) 교체
+
+**무엇이 바뀌었나**
+
+- `route_service.py`의 `base_engines[WalkMode.ONEWAY_SHORTEST]`가 `dijkstra.py`(`OnewayDijkstraEngine`)에서 `oneway_astar.py`(`OnewayAstarEngine`)로 교체됐다(커밋 `6429ab1`, 2026-08-06). 같은 커밋에서 엔진들의 `run()` 반환 타입을 `List[WalkRouteResponse]`로 통일하는 리팩터도 함께 들어갔다.
+- A* 자체는 그 전에 `benchmarks/`(`astar_solver.py`)용으로 먼저 작성됐고(커밋 `8a2eb10`, 2026-08-02), 초기 휴리스틱을 랜드마크 기반 ALT 방식으로 교체한 뒤(커밋 `f9c96b0`, 2026-08-03) `route_service.py`에 연결됐다.
+
+**왜 A*(ALT)인가 — 휴리스틱 구조**
+
+- `precompute_landmarks(G)`(`oneway_astar.py`)가 그래프 경계 근방 8개 지점을 랜드마크로 선정하고(`_select_landmarks`: 위도·경도 극값 + 대각 극값 4개), 각 랜드마크에서 전체 노드까지 `length`(profile 무관 실거리) 기준 Dijkstra 최단거리를 미리 계산해 노드 속성 `landmark_dist`(랜드마크별 거리 리스트)에 저장한다.
+- `_heuristic(node, target)`은 두 노드의 `landmark_dist` 차이 중 최댓값(삼각부등식 하한, ALT의 핵심 아이디어)에 그래프 전체의 최소 cost/length 비율(`_min_ratio`)을 곱해 반환한다 — profile 가중치가 걸린 비용 함수에 대해서도 admissible(과대추정하지 않음)하도록 스케일을 맞추는 부분이다.
+- Dijkstra(`dijkstra.py`)는 이런 휴리스틱 없이 `nx.shortest_path`(사실상 Dijkstra)로 균일하게 탐색한다 — 정보 없는 탐색이라 A*보다 더 많은 노드를 방문하는 경향이 있지만, 별도의 사전 계산(랜드마크·`landmark_dist`)이 필요 없다는 차이가 있다.
+
+**`OnewayDijkstraEngine`의 현재 상태 — production에서는 죽은 코드**
+
+- `route_service.py`·`waypoint.py`(`_LEG_ENGINES`)·`gps_art.py` 등 실제 요청을 처리하는 코드 경로 어디에서도 더 이상 `OnewayDijkstraEngine`을 참조하지 않는다.
+- `benchmarks/solvers/dijkstra_solver.py`(A*와 나란히 비교하기 위한 baseline)·`benchmarks/benchmark.py`의 `SOLVER_REGISTRY`·`benchmarks/run_all_scenarios.py`의 `ONEWAY_ALGOS` 목록에서만 여전히 쓰인다.
+- `tests/`에는 `OnewayDijkstraEngine`을 다루는 테스트가 하나도 없다 — 회귀 검증 없이 benchmark 용도로만 유지되는 상태다.
+- **알려진 불일치**: `OnewayDijkstraEngine.run()`은 아직도 `WalkRouteResponse`를 리스트가 아닌 단일 값으로 반환한다 — 2026-08-06 리팩터 때 형제 엔진(`CircularBeamEngine`/`OnewayBeamEngine`/`OnewayAstarEngine`)은 전부 `List[WalkRouteResponse]`로 맞췄지만 `dijkstra.py`는 함께 수정되지 않았다. 지금은 어디서도 호출하지 않아 문제가 없지만, 나중에 이 엔진을 다시 연결하면 `results[0]` 언패킹 코드와 그대로 충돌한다.
+
+**부팅 시 필수 의존성**
+
+- A*를 쓰려면 그래프 로드 직후 `precompute_landmarks(G)`가 반드시 호출되어 `landmark_dist`가 채워져 있어야 한다(안 하면 `KeyError: 'landmark_dist'`) — 이 부팅 배선 버그와 수정 내역은 위 [Engine 반환 계약](#engine-반환-계약) 항목에서 다룬다.
+
+**벤치마크 — 저장소에 커밋된 비교 수치는 없음**
+
+- `benchmarks/runner/test_oneway_shortest_path.py`가 Dijkstra·양방향 Dijkstra·A*의 경로 비용 일치성과 지연시간을 비교하도록 만들어져 있다(`LATENCY_REPEAT`만큼 반복 측정 후 `benchmarks/results/oneway_shortest_path/bidir_astar_latency.csv`에 기록). 이 CSV는 로컬 실행 시에만 생성되며 저장소에는 커밋돼 있지 않다 — 즉 "A*가 실제로 더 빠르다/경로 품질이 같다"는 수치는 이 문서 작성 시점 기준 재현된 적이 없다.
+- `benchmarks/run_all_scenarios.py`도 `dijkstra-oneway`를 시나리오 비교 대상에 포함하지만, `oneway_shortest`/`oneway_astar`/`dijkstra-oneway`는 모두 `target_km`을 무시하는 순수 최단경로 알고리즘이라 이 스크립트가 계산하는 거리 이탈(`distance_deviation_km`) 지표는 편도 우회(`oneway_random`) 계열 solver와 직접 비교할 수 없다(스크립트 자체 주석에 명시).
+- **아직 확인 안 된 것**: 실제 그래프 규모에서 Dijkstra 대비 A*(ALT)의 속도·품질 개선폭. 위 benchmark 스크립트를 로컬에서 실행해 수치를 남기기 전까지는 "왜 이 교체가 유의미한가"를 정량적으로 뒷받침하는 근거가 없다.
 
 ## Waypoint(경유지) 조합 엔진
 
@@ -36,7 +66,12 @@
 - `WaypointComposerEngine`은 그래프를 직접 mutate하지 않고 leg 엔진에 그대로 넘기기만 하므로 `G.copy()`를 하지 않는다(`self.G = G`). 실제 mutation(예: `OnewayBeamEngine`의 `custom_score` 계산)은 그걸 하는 leg 엔진이 자체적으로 격리한다. 인접 leg의 경계 좌표는 동일한 `(lat, lon)` 값을 그대로 재사용해 노드 스냅 불일치를 방지한다.
 - leg가 실패하면(그리고 아직 `oneway_shortest`로 시도하지 않았다면) `OnewayAstarEngine`으로 그 leg만 재시도한다(다른 엔진들의 `base_shortest` 대체와 같은 패턴). 그 재시도까지 실패해야 해당 leg에서 중단한다.
 - 결과 상태(`_stitch`)는 모든 leg 성공 시 `SUCCESS`, 일부만 성공 시 `PARTIAL_ROUTE`(성공한 구간까지만 좌표·거리 반환), 첫 leg부터(재시도 포함) 실패하면 그 leg의 실패 status를 그대로 사용한다. `mode`는 이 조합 전용으로 추가한 `WalkMode.WAYPOINT`를 쓴다.
-- 아직 `route_service.py`/`walk_router.py`(API)와는 연동하지 않았다 — `route_engine` 안에서만 호출 가능하다. 챗봇 연동을 포함한 leg별 `profile`/`custom_weights` 지정은 아직 지원하지 않고, 현재는 `WaypointComposerEngine` 생성자의 공통 `custom_weights`/`profile` 값을 모든 leg에 동일하게 적용한다.
+- `route_service.py`와 연동됐다(2026-08-07): `RouteService.base_engines[WalkMode.WAYPOINT] = WaypointComposerEngine`, `_build_engine()`이 `waypoints`/`leg_modes`/`leg_target_km`를 받아 `WaypointRouteInput`을 구성한다. LLM이나 API 호출자가 일부 leg만 지정해도 나머지는 `oneway_shortest`로 자동 패딩해 `len(leg_modes) == len(waypoints)+1` 불변식을 채운다. 각 waypoint 좌표도 origin/destination과 동일하게 `find_nearest_node_with_expansion` 사전 검증을 거친다.
+- `walk_router.py`(직접 REST API)에는 아직 연동하지 않았다 — GPS Art와 마찬가지로 챗봇 경유만 지원한다.
+- 챗봇 연동: `mode_tools.py`에 `select_waypoint`(`origin`/`waypoints`/`destination`/`legs` → `WayPointPreference`)가 추가됐고, `route_tools.py`에 `waypoint_route` tool이, `route_executor.py`의 `MODE_TOOL_MAP`에 `WalkMode.WAYPOINT: "waypoint_route"`가 추가됐다. `RouteExecutor.run`은 `WayPointPreference.legs`(`{mode, target_km}` 객체 리스트)를 `leg_modes`/`leg_target_km` 두 리스트로 분리해 tool 인자를 구성한다. 경유지 장소 검색은 `place_tools.py`의 `target="waypoint"`+`waypoint_index`로 식별하고, `interviewer.py`가 인덱스별 후보(`state.waypoint_candidates`)를 관리한다.
+- leg별 `profile`/`custom_weights` 지정은 여전히 지원하지 않는다 — `RouteExecutor`가 계산한 공통 `profile`/`custom_weights` 하나를 `WaypointComposerEngine` 생성자를 통해 모든 leg에 동일하게 적용한다(변경 없음).
+- `extraction.yaml`에 `select_waypoint` 선택 규칙(경유지 표현 판단, 순환 코스 처리, `waypoints`/`legs` 필드 추출, 판단 예시 3개)이, `interview.yaml`에 경유지 장소 검색 가이드(`target="waypoint"`+`waypoint_index` 지정, 인덱스 오검색 방지, 복수 경유지 확인 질문)가 추가됐다(2026-08-07).
+- **아직 확인 안 된 것**: 위 prompt 가이드가 추가됐다는 것과 실제 LLM이 대화에서 이 모드를 의도대로 선택·태깅한다는 것은 다른 문제다 — 정적 대조(YAML 파싱, `load_prompt(...).format(...)` 렌더링 확인)만 했고 실제 LLM 호출로 검증하지 않았다. 이 연동은 `tests/unit/test_routue_service.py::TestWaypointRouting`(mock 엔진 기반 4개 테스트) + 기존 `test_waypoint_engine.py`(엔진 자체 단위 테스트)로만 확인했고, 실제 그래프·LLM·Kakao를 사용한 실행 검증은 하지 않았다.
 
 **leg 간 경로 겹침 방지(visited_nodes 페널티)**
 
