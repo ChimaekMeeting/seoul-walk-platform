@@ -28,6 +28,11 @@ template: |
   - 목적지 개념이 없습니다(destination 필드 자체가 없음) — 출발지에서 시작해 도형을 그리고 순환하듯 끝납니다.
   - **"예쁜 길", "동그랗게", "예쁜 모양의 길"처럼 도형이 아니라 길의 분위기·형태를 막연히 묘사하는 표현은 도형 언급으로 보지 말고 select_circular를 선택하세요.** 구체적인 도형 이름이 없다면 이 도구를 선택하지 마세요.
 
+  **select_waypoint** — 경유지를 하나 이상 거쳐 목적지(또는 출발지로 되돌아옴)까지 가는 산책
+  - **"~를 거쳐", "~를 지나서", "~에 들렀다가", "먼저 ~ 갔다가" 등으로 중간에 들를 장소를 명시한 경우에만 이 도구를 선택하세요.** 경유지 언급이 전혀 없다면 이 도구를 선택하지 말고 select_oneway/select_oneway_shortest/select_circular 중에서 고르세요.
+  - 경유지를 거친 뒤 원래 출발지로 되돌아오고 싶어하면("~거쳐서 다시 돌아오고 싶어" 등) destination을 origin과 동일한 장소명으로 채우세요(순환 코스).
+  - 경유지를 거친 뒤 새로운 곳에서 끝나면 destination에 그 목적지를 채우세요.
+
   ### [필드 추출 규칙]
 
   **origin (출발지) — 아래 우선순위대로 하나만 적용하세요**
@@ -38,10 +43,22 @@ template: |
   5. 위 어느 것도 해당하지 않고 언급 자체가 없으면 → null
 
   **destination (목적지)**
-  - select_oneway / select_oneway_shortest일 때만 필수
+  - select_oneway / select_oneway_shortest / select_waypoint일 때만 필수
   - 장소명 언급 → place_name만 기록
   - 순환(select_circular) 모드에서는 null
+  - select_waypoint에서 경유지를 거쳐 출발지로 되돌아오는 순환 코스라면 origin과 동일한 장소명으로 채움(§select_waypoint 규칙 참고)
   - "자연친화적인 길", "조용한 길", "야경이 예쁜 곳" 등 길의 분위기·특성을 묘사하는 표현은 장소명이 아님 → destination null, select_circular로 처리
+
+  **waypoints (경유지 목록)**
+  - select_waypoint일 때만 필수, 그 외 도구에는 없는 필드
+  - 문장에 언급된 순서대로 리스트에 담으세요(이동 순서: origin → waypoints[0] → ... → waypoints[-1] → destination)
+  - 각 항목은 다른 위치 필드와 동일하게 place_name만 기록하고 lat/lon/address는 채우지 마세요
+
+  **legs (구간별 이동 방식)**
+  - select_waypoint에서만 사용하는 선택 항목(옵션) — 구간별로 다른 이동 방식을 언급하지 않았다면 아예 비워두세요(모든 구간이 자동으로 최단 경로로 처리됩니다)
+  - 순서는 waypoints와 동일한 구간 순서(origin→waypoints[0]이 legs[0], ..., 마지막 경유지→destination이 legs[-1])입니다
+  - 특정 구간에서 "우회해서", "~km 채워서"처럼 목표 거리를 채우며 돌아가고 싶다는 언급이 있으면 그 구간 위치에 {{mode: "oneway_random", target_km: 값}}을 채우세요. 언급되지 않은 뒤쪽 구간은 배열에 아예 포함하지 않아도 됩니다(자동으로 최단 경로 처리됨)
+  - 구간별 언급이 전혀 없으면 legs를 통째로 비워두세요
 
 
   **target_km (목표 거리)**
@@ -107,6 +124,18 @@ template: |
   - "동그랗게 예쁜 길로 산책하고 싶어"
     → select_circular(origin=null, target_km=3.0)
     이유: "동그랗게 예쁜 길"은 구체적인 도형 지정이 아니라 길의 분위기·형태를 막연히 묘사한 표현 → GPS Art로 판단하지 않고 순환 모드로 처리
+
+  - "홍대에서 신촌 거쳐서 이대까지 산책하고 싶어"
+    → select_waypoint(origin="홍대", waypoints=[{{"place_name":"신촌"}}], destination="이대")
+    이유: "거쳐서"로 중간 경유지(신촌)를 명시하고 최종 목적지(이대)도 있으므로 select_waypoint 선택. 구간별 이동 방식 언급이 없으므로 legs는 비워둠
+
+  - "구파발역에서 출발해서 불광천 거쳐 다시 구파발역으로 돌아오고 싶어"
+    → select_waypoint(origin="구파발역", waypoints=[{{"place_name":"불광천"}}], destination="구파발역")
+    이유: 경유지(불광천)를 거친 뒤 출발지로 되돌아오는 순환 코스이므로 destination을 origin과 동일한 장소명("구파발역")으로 채움
+
+  - "여기서 한강공원 들렀다가 반포한강공원까지 걷고 싶어, 첫 구간은 우회해서 2km 채워줘"
+    → select_waypoint(origin=null, waypoints=[{{"place_name":"한강공원"}}], destination="반포한강공원", legs=[{{"mode":"oneway_random","target_km":2.0}}])
+    이유: "여기"는 위치 대명사이므로 origin은 null(현재 위치로 자동 대체). 경유지(한강공원)와 최종 목적지(반포한강공원)가 있어 select_waypoint 선택. 첫 구간(출발지→한강공원)에 대해서만 우회+목표거리(2km) 언급이 있으므로 legs[0]에만 반영하고 두 번째 구간(한강공원→반포한강공원)은 언급이 없어 legs 배열에 포함하지 않음(자동으로 최단 경로 처리됨)
 
   ### [사용자 입력]
   [User Input]: {user_input}
