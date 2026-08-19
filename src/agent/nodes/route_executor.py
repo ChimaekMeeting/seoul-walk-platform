@@ -22,9 +22,13 @@ MODE_TOOL_MAP: dict[WalkMode, str] = {
 #   (안전/평지 0.5, 미관·활동·동반 0.0 → 일반 경로 = 해당 특성 무편향)
 _BASELINE_WEIGHTS = Weights().model_dump()
 
-# 대화 테마(state.themes)를 가중치에 반영하는 강도. 설문 delta(±0.2) 대비 배수.
-# baseline이 0이 된 미관 특성을 테마가 충분히 끌어올리도록 강하게 적용함.
-_THEME_STRENGTH = 3.0
+# 대화 테마(state.themes)를 가중치에 반영하는 EMA 블렌딩 강도(0~1)와 목표값.
+# base[key] = alpha * _THEME_TARGET + (1 - alpha) * base[key] — 클수록 테마가 base를 더 세게 끌어당김.
+# TODO(임시): TAG_WEIGHT_MAP은 "이 테마가 어떤 축에 영향을 주는지"(키 집합)만 참고하고
+# delta 값 자체는 쓰지 않음 — 모든 축이 같은 고정 target으로 끌려감(태그별 크기 구분 없음).
+# 추후 delta/weights 체계를 한 번에 다시 설계할 때 함께 정리 예정.
+_THEME_EMA_ALPHA  = 0.6
+_THEME_TARGET     = 1.0
 
 _ACCESSIBLE_THEMES = {"유모차", "계단이 불편한"}
 _CONVENIENT_THEMES = {"활기찬", "힙한"}
@@ -119,11 +123,12 @@ class RouteExecutor:
             if stored is not None:
                 base[key] = max(0.0, min(1.0, base[key] + stored - default))
 
-        # 테마 delta를 _THEME_STRENGTH 배로 적용하고, clamp를 [0.0, 1.0](스키마 전 범위)로 넓힘
-        #   - 기존 (delta * 0.5 + clamp[0.1, 0.8])은 nature를 0.5→0.6 정도만 올려 효과가 미미했음
+        # 테마는 EMA 블렌딩으로 반영. TAG_WEIGHT_MAP의 delta 값은 쓰지 않고, 이 테마가
+        # 건드리는 축(key)인지만 참고해 고정된 _THEME_TARGET 쪽으로 alpha만큼 끌어당김
+        # (임시 방식, 위 TODO 참고).
         for tag in state.themes:
-            for key, delta in TAG_WEIGHT_MAP.get(tag, {}).items():
-                base[key] = max(0.0, min(1.0, base[key] + delta * _THEME_STRENGTH))
+            for key in TAG_WEIGHT_MAP.get(tag, {}):
+                base[key] = _THEME_EMA_ALPHA * _THEME_TARGET + (1 - _THEME_EMA_ALPHA) * base[key]
 
         weights = Weights(**base)
         return weights
