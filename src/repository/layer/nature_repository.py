@@ -1,11 +1,11 @@
-from collections import Counter
-
 import geopandas as gpd
 import pandas as pd
-from sqlalchemy import delete, func, select, text
+from geoalchemy2 import Geography
+from sqlalchemy import cast, delete, func, select, text
 
 from src.database.postgresql import get_postgresql_db, engine
 from src.entity.layer.nature_layer import NatureLayer
+from src.entity.network.walk_edge import WalkEdge
 from src.repository.utils import RepositoryUtils
 
 
@@ -130,18 +130,33 @@ class NatureRepository:
         return result.rowcount
 
     @staticmethod
-    def get_nature_h3_counts() -> dict[str, int]:
+    def get_nature_counts_by_edge(radius_m: int = 50) -> dict[int, int]:
         """
-        기존 OSM 녹지의 H3 셀(resolution 9)별 폴리곤 개수를 반환합니다.
+        Edge(walk_edges)로부터 반경 radius_m 이내에 있는 NatureLayer 개수를 Edge별로 집계합니다.
 
-        V1 공원 Polygon은 별도 길이 중첩 비율 계산 경로를 사용하므로 이 집계에서 제외합니다.
-        폴리곤의 중심점(centroid)을 기준으로 H3 셀을 계산합니다.
+        V1 공원 Polygon은 별도 길이 중첩 비율 계산 경로(update_edge_park_overlap_ratios)를
+        사용하므로 이 집계에서 제외합니다.
+
+        Returns:
+            dict[int, int]: {link_id: count} 형태의 딕셔너리.
         """
-        lat_expr, lon_expr = RepositoryUtils.geom_centroid_lat_lon(NatureLayer.geom)
+        edge_geog = cast(WalkEdge.geom, Geography())
+        nature_geog = cast(NatureLayer.geom, Geography())
+
         with get_postgresql_db() as db:
             rows = db.execute(
-                select(lat_expr.label("lat"), lon_expr.label("lon"))
-                .where(NatureLayer.osm_raw_id.is_not(None))
+                select(WalkEdge.link_id, func.count(NatureLayer.id))
+                # join 연산을 할 때는 기준이 되는 테이블을 명시해야 함.
+                # 따라서 select_from() 필요
+                .select_from(WalkEdge)
+                # edge로부터 NatureLayer feature가 radius_m 내에 있고,
+                # V1 공원 Polygon(osm_raw_id is null)이 아니면 join
+                .join(
+                    NatureLayer,
+                    func.ST_DWithin(edge_geog, nature_geog, radius_m)
+                    & NatureLayer.osm_raw_id.is_not(None),
+                )
+                .group_by(WalkEdge.link_id)
             ).fetchall()
-        cells = (RepositoryUtils.lat_lon_to_h3(row.lat, row.lon) for row in rows)
-        return dict(Counter(cells))
+
+        return {row.link_id: row[1] for row in rows}

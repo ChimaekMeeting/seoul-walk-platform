@@ -40,7 +40,7 @@ class LandmarkCollector:
 
     def update_edge(self) -> None:
         EdgeRepository.ensure_score_column("landmark_score")
-        CollectorUtils.update_edge_scores("landmark_score", LandmarkRepository.get_landmark_h3_counts())
+        CollectorUtils.update_edge_scores("landmark_score", LandmarkRepository.get_landmark_counts_by_edge())
 
     def save(self) -> None:
         self.update_node()

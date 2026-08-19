@@ -22,7 +22,6 @@ geoalchemy2==0.18.4 ; python_version >= "3.11" and python_version < "4.0"
 geopandas==0.14.4 ; python_version >= "3.11" and python_version < "4.0"
 greenlet==3.3.2 ; python_version >= "3.11" and python_version < "4.0" and (platform_machine == "aarch64" or platform_machine == "ppc64le" or platform_machine == "x86_64" or platform_machine == "amd64" or platform_machine == "AMD64" or platform_machine == "win32" or platform_machine == "WIN32")
 h11==0.16.0 ; python_version >= "3.11" and python_version < "4.0"
-h3==4.5.0 ; python_version >= "3.11" and python_version < "4.0"
 httpcore==1.0.9 ; python_version >= "3.11" and python_version < "4.0"
 httptools==0.7.1 ; python_version >= "3.11" and python_version < "4.0"
 httpx-sse==0.4.3 ; python_version >= "3.11" and python_version < "4.0"

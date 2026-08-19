@@ -1,7 +1,7 @@
 from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import BigInteger, Boolean, Float, String
+from sqlalchemy import BigInteger, Boolean, Float, Index, String, text
 
 
 class WalkEdge(Base):
@@ -9,6 +9,9 @@ class WalkEdge(Base):
     도보 네트워크 엣지(링크) 정보를 관리하는 엔티티입니다.
     """
     __tablename__ = "walk_edges"
+    __table_args__ = (
+        Index("idx_walk_edges_geog", text("(geom::geography)"), postgresql_using="gist"),
+    )
 
     link_id: Mapped[int] = mapped_column(
         BigInteger,
@@ -116,7 +119,7 @@ class WalkEdge(Base):
         Float,
         nullable=False,
         server_default="0.0",
-        comment="상권 등 편의 데이터의 H3 기반 제한 점수(0.0~1.0)",
+        comment="상권 등 편의 데이터의 Edge 반경 기반 제한 점수(0.0~1.0)",
     )
     is_school_zone: Mapped[bool] = mapped_column(
         Boolean,
@@ -131,6 +134,6 @@ class WalkEdge(Base):
         comment="차량 주의가 필요한 어린이보호구역 인접 Edge",
     )
     geom = mapped_column(
-        Geometry("LINESTRING", srid=4326),
+        Geometry("LINESTRING", srid=4326, spatial_index=True),
         nullable=False
     )

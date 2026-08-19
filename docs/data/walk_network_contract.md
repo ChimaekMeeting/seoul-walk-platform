@@ -1,7 +1,7 @@
 # 도보 네트워크 계약
 
 > 상태: Current
-> 기준일: 2026-07-30
+> 기준일: 2026-08-20
 > 관련 코드: `src/entity/network/`, `src/repository/network/`, `src/route_engine/graph/`
 
 ## 1. 책임
@@ -36,7 +36,7 @@ Tag는 `WalkEdge`의 명시적 필드에서 `GraphRepository` 한 곳이 생성�
 
 | 형상 | 연결 기준 |
 |---|---|
-| 안전·상권 Point | H3 resolution 9 셀 집계 |
+| 안전·상권 Point | Edge 반경 50m 이내 GiST 공간 조인 집계 |
 | 편의·교통·접근성 Point | 50m 이내 최근접 WalkEdge, 가능한 경우 WalkNode |
 | 공원 Polygon | Edge와 실제 교차한 길이 비율 |
 | 외부 Line | 거리·도로명·연속성 검증 후에만 확정 Tag |

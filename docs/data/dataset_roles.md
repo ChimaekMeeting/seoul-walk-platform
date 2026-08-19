@@ -1,7 +1,7 @@
 # V1 데이터 역할표
 
 > 상태: Current
-> 기준일: 2026-07-30
+> 기준일: 2026-08-20
 > 관련 코드: `src/data/source_collector.py`, `src/data/data_collector.py`, `src/data/collectors/`
 
 ## 상태 기준
@@ -43,7 +43,7 @@
 | 22 | 버스정류소 | `bus_stop` POI | 활성 | 50m 이내 WalkEdge 연결 |
 | 23 | 공중화장실 위치 | `public_toilet` POI | 활성 | 검증된 서울 좌표 사용, 50m 밖은 표시 전용 |
 | 24 | 공중화장실 상세정보 | 화장실 POI 속성 | 활성 | 유일한 주소·명칭만 위치 원본과 결합 |
-| 25 | 서울 상권 | `convenience_score` | 제한 활성 | 동일 위치 집계와 H3 상한 적용 |
+| 25 | 서울 상권 | `convenience_score` | 제한 활성 | 동일 위치 집계와 Edge 반경 기반 로그 정규화 상한 적용 |
 
 ## 공통 처리 기준
 

@@ -1,6 +1,5 @@
 import math
 
-import h3
 import numpy as np
 import pandas as pd
 from sqlalchemy import func, select, cast
@@ -16,10 +15,6 @@ class RepositoryUtils:
     def geom_centroid_lat_lon(geom):
         centroid = func.ST_Centroid(geom)
         return func.ST_Y(centroid), func.ST_X(centroid)
-
-    @staticmethod
-    def lat_lon_to_h3(lat: float, lon: float, resolution: int = 9) -> str:
-        return h3.latlng_to_cell(lat, lon, resolution)
 
     @staticmethod
     def fetch_nearby_points(

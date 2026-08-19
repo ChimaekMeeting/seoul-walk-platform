@@ -1,7 +1,7 @@
 from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import BigInteger, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String, text
 from typing import Optional
 
 
@@ -10,6 +10,9 @@ class NatureLayer(Base):
     OSM 녹지와 승인된 공원 Polygon 등 자연 영역 정보를 관리합니다.
     """
     __tablename__ = "nature_layer"
+    __table_args__ = (
+        Index("idx_nature_layer_geog", text("(geom::geography)"), postgresql_using="gist"),
+    )
 
     id: Mapped[int] = mapped_column(
         BigInteger,
@@ -42,6 +45,6 @@ class NatureLayer(Base):
         nullable=True,
     )
     geom = mapped_column(
-        Geometry("GEOMETRY", srid=4326),
+        Geometry("GEOMETRY", srid=4326, spatial_index=True),
         nullable=False
     )

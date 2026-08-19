@@ -3,7 +3,6 @@ from sqlalchemy import func, select, insert, inspect, text, cast
 from geoalchemy2 import Geography
 from src.database.postgresql import get_postgresql_db, engine
 from src.entity.network.walk_edge import WalkEdge
-from src.repository.utils import RepositoryUtils
 from typing import List
 
 import logging
@@ -51,25 +50,6 @@ class EdgeRepository:
                 conn.execute(text(f"ALTER TABLE walk_edges ADD COLUMN {name} FLOAT DEFAULT 0.0"))
 
     @staticmethod
-    def get_link_h3_cells() -> list:
-        """
-        각 엣지의 중심점을 H3 셀(resolution 9)로 변환한 (link_id, h3_cell) 목록을 반환합니다.
-
-        Returns:
-            list: (link_id, h3_cell) 속성을 가진 객체 리스트.
-        """
-        from types import SimpleNamespace
-        lat_expr, lon_expr = RepositoryUtils.geom_centroid_lat_lon(WalkEdge.geom)
-        with get_postgresql_db() as db:
-            rows = db.execute(
-                select(WalkEdge.link_id, lat_expr.label("lat"), lon_expr.label("lon"))
-            ).fetchall()
-        return [
-            SimpleNamespace(link_id=row.link_id, h3_cell=RepositoryUtils.lat_lon_to_h3(row.lat, row.lon))
-            for row in rows
-        ]
-
-    @staticmethod
     def update_scores(updates: List[dict]):
         """
         엣지별 스코어 값을 일괄 업데이트합니다.
@@ -92,6 +72,17 @@ class EdgeRepository:
                 """),
                 {"ids": link_ids, "vals": vals},
             )
+
+    @staticmethod
+    def get_all_link_ids() -> list[int]:
+        """
+        walk_edges 전체 link_id 목록을 반환합니다.
+
+        Returns:
+            list[int]: link_id 목록.
+        """
+        with get_postgresql_db() as db:
+            return list(db.execute(select(WalkEdge.link_id)).scalars())
 
     @staticmethod
     def get_all_for_slope() -> list:

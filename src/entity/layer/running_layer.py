@@ -1,12 +1,15 @@
 from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import BigInteger, ForeignKey, String
+from sqlalchemy import BigInteger, ForeignKey, Index, String, text
 from typing import Optional
 
 
 class RunningLayer(Base):
     __tablename__ = "running_layer"
+    __table_args__ = (
+        Index("idx_running_layer_geog", text("(geom::geography)"), postgresql_using="gist"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     csv_raw_id: Mapped[Optional[int]] = mapped_column(
@@ -23,4 +26,4 @@ class RunningLayer(Base):
         String(20), nullable=True,
         comment="easy | medium | hard"
     )
-    geom = mapped_column(Geometry("GEOMETRY", srid=4326), nullable=True)
+    geom = mapped_column(Geometry("GEOMETRY", srid=4326, spatial_index=True), nullable=True)
