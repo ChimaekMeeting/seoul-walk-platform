@@ -1,9 +1,9 @@
 # 챗봇 Agent 하네스
 
 > 상태: Current  
-> 기준일: 2026-08-08  
+> 기준일: 2026-08-20  
 > 관련 코드: `src/agent/`, `src/service/chat/prewalk_service.py`, `src/schema/prewalk_schema.py`  
-> 검증 상태: 코드 정적 대조 완료(2026-07-30, `ConfirmationClassifier` 추가·Graph 재배선·dev PR #310 profile/nearby_pois 반영) + `ConfirmationClassifier`·조건부 진입점 실행 검증 완료(2026-07-30, 로컬 PostgreSQL·Valkey·실제 Kakao·OpenAI, 프런트엔드 연동 안드로이드 기기 테스트). profile/nearby_pois(dev PR #310)는 정적 대조만 했고 격리 환경 실행 검증은 별도로 안 함. GPS Art 모드 배선(2026-08-06)은 정적 대조·문법 체크만 했고 실행 검증은 안 함(전용 테스트도 아직 없음) — 상세는 [경로 생성 엔진 GPS Art](../route_engine/README.md#gps-art) 참고. Waypoint 모드 배선(2026-08-07)은 정적 대조 + 단위 테스트(mock 엔진 기반)까지 확인했고, 추출·인터뷰 prompt 가이드(2026-08-07 추가)도 정적 대조(YAML 파싱·렌더링 확인)만 했다 — 실제 LLM·Kakao·그래프 실행 검증은 아직 없다 — 상세는 [경로 생성 엔진](../route_engine/README.md) 참고. `circular_random`/`oneway_random`의 후보 다양화(벡터 score, 2026-08-08)는 toy 그래프로 직접 실행 검증했지만 정식 `tests/` 회귀 테스트와 실서비스 그래프 검증은 아직 없다 — 상세는 [경로 생성 엔진](../route_engine/README.md)의 "후보 다양화(벡터 score 기반)" 절 참고
+> 검증 상태: 코드 정적 대조 완료(2026-07-30, `ConfirmationClassifier` 추가·Graph 재배선·dev PR #310 profile/nearby_pois 반영) + `ConfirmationClassifier`·조건부 진입점 실행 검증 완료(2026-07-30, 로컬 PostgreSQL·Valkey·실제 Kakao·OpenAI, 프런트엔드 연동 안드로이드 기기 테스트). profile/nearby_pois(dev PR #310)는 정적 대조만 했고 격리 환경 실행 검증은 별도로 안 함. GPS Art 모드 배선(2026-08-06)은 정적 대조·문법 체크만 했고 실행 검증은 안 함(전용 테스트도 아직 없음) — 상세는 [경로 생성 엔진 GPS Art](../route_engine/README.md#gps-art) 참고. Waypoint 모드 배선(2026-08-07)은 정적 대조 + 단위 테스트(mock 엔진 기반)까지 확인했고, 추출·인터뷰 prompt 가이드(2026-08-07 추가)도 정적 대조(YAML 파싱·렌더링 확인)만 했다 — 실제 LLM·Kakao·그래프 실행 검증은 아직 없다 — 상세는 [경로 생성 엔진](../route_engine/README.md) 참고. `circular_random`/`oneway_random`의 후보 다양화(벡터 score, 2026-08-08)는 toy 그래프로 직접 실행 검증했지만 정식 `tests/` 회귀 테스트와 실서비스 그래프 검증은 아직 없다 — 상세는 [경로 생성 엔진](../route_engine/README.md)의 "후보 다양화(벡터 score 기반)" 절 참고. `Interviewer` 하드코딩 문구 전면 제거(2026-08-20, 확인·검색실패·서울밖 안내를 `interview.yaml` LLM 생성으로 통합 + LLM/Kakao 오류 시 raw exception 노출)는 문법·정적 대조만 했고 실제 LLM·Kakao 실행 검증은 아직 없다
 
 ## 1. 책임
 
@@ -56,7 +56,8 @@ HTTP 입력:
 - 경로 성공: `route_result`(`List[WalkRouteResponse]`)는 모드에 따라 최대 3개까지 담길 수 있다(`circular_random`/`oneway_random`은 벡터 기반으로 다양화한 후보 최대 3개, 그 외 모드는 1개 — 상세는 [경로 생성 엔진](../route_engine/README.md)의 "후보 다양화(벡터 score 기반)" 절 참고)
 - 경로 성공: `RouteService`가 `RouteHistory`를 저장하고 `route_result[0].id`(대표 후보만)에 반영한다 — 나머지 후보의 `id`는 비어 있다(사용자가 실제로 고른 후보를 저장하는 흐름은 아직 없음, 알려진 개선 항목)
 - 경로 성공: 성공한 후보 전부에 대해 그 경로 50m 안의 도보망 연결 POI를 `route_result[i].nearby_pois`로 반환
-- LLM 출력: 초기 인사, 모드·거리·위치·테마 추출, 누락 질문, 확인 질문 긍정·부정 판정
+- LLM 출력: 초기 인사, 모드·거리·위치·테마 추출, 누락 질문, 확인 질문 긍정·부정 판정, 최종 확인 요청·검색 실패·서울 밖 안내(2026-08-20부터 전부 `interview.yaml` 생성, 하드코딩 문구 없음)
+- 오류 출력: `Interviewer`의 LLM·Kakao API 호출이 실패하면 안내 문구 대신 발생한 예외 메시지를 `response`에 그대로 노출한다(2026-08-20부터, 의도된 동작)
 
 현재 intent State에는 access JWT가 포함되며 API 응답과 Valkey JSON 양쪽으로 전달된다. `ChatSession.current_state`는 경로 완료 후에도 `START`로 남는다.
 
@@ -142,6 +143,8 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 
 이전에는(2026-07-29 이전) `Interviewer`가 정보 충분 시 만든 `awaiting_confirmation=True` 상태를 Orchestrator가 Python if/else로 직접 처리하며 Graph 자체를 우회했고(긍정 시 `route_executor.run()` 직접 호출, 부정 시 하드코딩 문구 반환), 그래서 Graph에 선언된 조건부 Edge가 실행되지 않는 죽은 코드였다. 2026-07-30 `ConfirmationClassifier` 도입과 함께 이 우회 코드를 제거하고 확인 판정 자체를 Graph 안의 정식 Node·조건부 Edge로 옮겼다(근거: [챗봇 하드코딩 문구 처리 방안 제안](../proposals/chatbot_hardcoding_proposal.md) 1, 3번 항목).
 
+2026-08-20에는 `Interviewer` 내부의 나머지 하드코딩 응답 문구(확인 질문 f-string, 검색 실패·서울 밖 안내 f-string, LLM/Kakao API 실패 시 fallback 문장)를 모두 제거했다. 확인 질문·검색 실패·서울 밖 안내는 `interview.yaml`에 추가한 우선순위 지침(0: 서울 밖, 1: 검색 실패, 2: 최종 확인)을 통해 LLM이 생성하고, LLM·Kakao API 호출이 실패한 경우에는 대체 문구 대신 발생한 예외를 그대로 `response`에 노출한다(근거: [챗봇 하드코딩 문구 처리 방안 제안](../proposals/chatbot_hardcoding_proposal.md) 2, 6, 9번 항목). 이 변경은 정적 대조만 했고, 실제 LLM이 새 지침을 얼마나 정확히 따르는지·raw exception 노출이 실제 대화에서 어떻게 보이는지는 아직 실행 검증하지 않았다.
+
 ### Tool과 Prompt
 
 | 소유 Node | Tool | 입력 → 출력 |
@@ -154,7 +157,7 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 |---|---|
 | `WeatherChecker` | `weather_checker.yaml` |
 | `Extractor` | `extraction.yaml`, `themes.yaml` |
-| `Interviewer` | `interview.yaml`(도구 바인딩 1차 호출 + 검색 결과 반영용 2차 재호출, 2차는 도구 미바인딩) |
+| `Interviewer` | `interview.yaml` 단일 파일 — 도구 바인딩 1차 호출(장소 검색)과, 확인 요청·검색 실패·서울 밖 안내·재질문을 만드는 도구 미바인딩 호출(`_generate_response()`로 통합, `parser=str_parser`) 두 가지 방식으로 호출한다 |
 | `ConfirmationClassifier` | `confirmation.yaml`(도구 미바인딩, `PydanticOutputParser`로 `ConfirmationResult.is_positive` 파싱) |
 | `RouteExecutor` | 없음 |
 
@@ -198,7 +201,7 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 | State 없음·만료 | `session_not_found` | init부터 재시작 |
 | 타 사용자 State | `unaccessible` | 자신의 thread 사용 |
 | Extractor LLM 실패 | 기존 State 유지 | 다음 intent에서 재시도 |
-| Interviewer LLM 실패 | fallback 문장 | 다음 intent에서 재시도 |
+| Interviewer LLM·Kakao API 실패 | 발생한 예외 메시지를 그대로 `response`에 노출(2026-08-20부터, 하드코딩 fallback 문구 없음) | 다음 intent에서 재시도 |
 | ConfirmationClassifier LLM 실패 | `is_complete=False`로 처리해 `Extractor`로 진행(안전 측 기본값, 별도 fallback 문구 없음) | 다음 intent에서 재확인 질문 재생성 |
 | RouteTool 실패 | 예외를 기록하고 기존 State 유지 | 조건 확인 후 재확인 |
 | State 저장 실패 | 응답은 반환될 수 있음 | Valkey 복구 후 init 재시작 |
