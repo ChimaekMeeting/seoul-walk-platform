@@ -1,7 +1,7 @@
 # 데이터 적재
 
 > 상태: Current
-> 기준일: 2026-07-30
+> 기준일: 2026-08-20
 > 관련 코드: `src/data/source_collector.py`, `src/data/data_collector.py`
 
 ## 1. 목적
@@ -73,18 +73,26 @@ V1 실행 순서:
 
 ## 6. 연결 기준
 
-- 안전·어린이·상권: H3 resolution 9 집계
+- 안전·어린이·상권: Edge 반경 50m 이내 GiST 공간 조인 집계
 - 화장실·버스정류소·리프트·엘리베이터: 50m 이내 WalkEdge
 - 공원: Polygon과 Edge의 실제 교차 길이
 - 가로수길·보행자우선도로·외부 터널: 후보 Layer까지만 저장
 
-POI 연결 전 다음 geography GiST 인덱스가 있어야 한다.
+POI 연결·안전/어린이/상권/자연/랜드마크/러닝 Score 집계 전 다음 geography GiST 인덱스가 있어야 한다.
 
 ```text
 idx_route_pois_geog
 idx_walk_edges_geog
 idx_walk_nodes_geog
+idx_safety_layer_geog
+idx_child_layer_geog
+idx_running_layer_geog
+idx_nature_layer_geog
+idx_landmark_layer_geog
+idx_csv_raw_geog
 ```
+
+`idx_route_pois_geog`·`idx_walk_edges_geog`·`idx_walk_nodes_geog`는 `RoutePoiRepository.create_spatial_index()`가 POI 연결 시점에 직접 생성한다. 나머지(Score 집계용) 6개는 각 Entity의 `__table_args__`에 선언되어 있어 테이블을 새로 만들 때만 자동 생성되고, 이미 존재하는 테이블에는 자동 반영되지 않는다(`init_table()`은 기존 테이블의 컬럼만 diff하고 인덱스는 다루지 않는다). 기존 DB에 적용하려면 `CREATE INDEX IF NOT EXISTS idx_{table}_geog ON {table} USING GIST ((geom::geography))`를 테이블별로 직접 실행해야 한다.
 
 ## 7. 정상 기준
 

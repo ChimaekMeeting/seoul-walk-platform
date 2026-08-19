@@ -69,7 +69,7 @@ class ChildCollector:
 
     def update_edge(self) -> None:
         EdgeRepository.ensure_score_column("child_score")
-        CollectorUtils.update_edge_scores("child_score", ChildRepository.get_child_h3_counts())
+        CollectorUtils.update_edge_scores("child_score", ChildRepository.get_child_counts_by_edge())
         updated = ChildRepository.update_nearest_school_zone_edges(
             max_distance_m=50.0
         )

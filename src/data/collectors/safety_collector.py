@@ -89,7 +89,7 @@ class SafetyCollector:
 
     def update_edge(self) -> None:
         EdgeRepository.ensure_score_column("safety_score")
-        CollectorUtils.update_edge_scores("safety_score", SafetyRepository.get_safety_h3_counts())
+        CollectorUtils.update_edge_scores("safety_score", SafetyRepository.get_safety_counts_by_edge())
 
     def save(self) -> None:
         self.update_node()

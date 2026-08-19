@@ -1,7 +1,7 @@
 # 데이터 영역 계약
 
 > 상태: Current
-> 기준일: 2026-07-30
+> 기준일: 2026-08-20
 > 관련 코드: `src/data/`, `src/entity/network/`, `src/entity/layer/`, `src/repository/network/`, `src/repository/layer/`
 
 ## 1. 책임
@@ -45,7 +45,7 @@ GraphRepository.load_graph()
 
 ## 5. 의존 영역
 
-- PostgreSQL/PostGIS와 H3
+- PostgreSQL/PostGIS
 - 로컬 CSV·XLSX·Shapefile
 - OSM 수계 조회
 - Entity·Repository schema

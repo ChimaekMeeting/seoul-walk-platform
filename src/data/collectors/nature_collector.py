@@ -55,7 +55,7 @@ class NatureCollector:
 
     def update_edge(self) -> None:
         EdgeRepository.ensure_score_column("nature_score")
-        CollectorUtils.update_edge_scores("nature_score", NatureRepository.get_nature_h3_counts())
+        CollectorUtils.update_edge_scores("nature_score", NatureRepository.get_nature_counts_by_edge())
 
     def save(self) -> None:
         self.update_node()

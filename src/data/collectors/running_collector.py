@@ -306,7 +306,7 @@ class RunningCourseCollector:
 
     def update_edge(self) -> None:
         EdgeRepository.ensure_score_column("running_score")
-        CollectorUtils.update_edge_scores("running_score", RunningRepository.get_running_h3_counts())
+        CollectorUtils.update_edge_scores("running_score", RunningRepository.get_running_counts_by_edge())
 
     def save(self) -> None:
         self.update_node()

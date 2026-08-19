@@ -31,7 +31,6 @@ def _auto_mock(name):
 for _mod in [
     "redis",
     "redis.asyncio",
-    "h3",
     "langchain_core",
     "langchain_core.prompts",
     "langchain_core.output_parsers",
@@ -67,7 +66,7 @@ for _mod in [
     "src.agent.nodes.weather_checker",
     # Chat service (langgraph 의존)
     "src.service.chat.prewalk_service",
-    # Repository (geoalchemy2/h3 의존)
+    # Repository (geoalchemy2 의존)
     "src.repository.utils",
     "src.repository.user.user_repository",
     "src.repository.user.user_preference_repository",

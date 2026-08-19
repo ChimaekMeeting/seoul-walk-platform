@@ -75,7 +75,7 @@ def collect_v1(network_mode: str) -> None:
     logger.info("--- 편의·교통·접근성 POI 적재·도보망 연결 ---")
     RoutePoiCollector().save()
 
-    logger.info("--- 상권 H3 편의 Score 적재 ---")
+    logger.info("--- 상권 편의 Score 적재 ---")
     CommercialCollector().save()
 
     logger.info("--- 서울 수계 폴리곤 적재 ---")

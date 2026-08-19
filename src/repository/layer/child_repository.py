@@ -1,4 +1,3 @@
-from collections import Counter
 from typing import List
 
 import pandas as pd
@@ -9,6 +8,7 @@ from sqlalchemy import cast, delete, func, insert, select, text
 from src.database.postgresql import engine, get_postgresql_db
 from src.entity.layer.child_layer import ChildLayer
 from src.repository.utils import RepositoryUtils
+from src.entity.network.walk_edge import WalkEdge
 
 
 class ChildRepository:
@@ -61,18 +61,28 @@ class ChildRepository:
             db.commit()
 
     @staticmethod
-    def get_child_h3_counts() -> dict[str, int]:
+    def get_child_counts_by_edge(radius_m: int = 50) -> dict[int, int]:
         """
-        H3 셀(resolution 9)별 어린이 시설 개수를 반환합니다.
-        walk_edges.child_score 산정에 사용됩니다.
+        Edge(walk_edges)로부터 반경 radius_m 이내에 있는 ChildLayer 개수를 Edge별로 집계합니다.
+
+        Returns:
+            dict[int, int]: {link_id: count} 형태의 딕셔너리.
         """
-        lat_expr, lon_expr = RepositoryUtils.geom_centroid_lat_lon(ChildLayer.geom)
+        edge_geog = cast(WalkEdge.geom, Geography())
+        safety_geog = cast(ChildLayer.geom, Geography())
+
         with get_postgresql_db() as db:
             rows = db.execute(
-                select(lat_expr.label("lat"), lon_expr.label("lon"))
+                select(WalkEdge.link_id, func.count(ChildLayer.id))
+                # join 연산을 할 때는 기준이 되는 테이블을 명시해야 함.
+                # 따라서 select_from() 필요
+                .select_from(WalkEdge)
+                # edge로부터 Childlayer feature가 radius_m 내에 있으면 join
+                .join(ChildLayer, func.ST_DWithin(edge_geog, safety_geog, radius_m))
+                .group_by(WalkEdge.link_id)
             ).fetchall()
-        cells = (RepositoryUtils.lat_lon_to_h3(row.lat, row.lon) for row in rows)
-        return dict(Counter(cells))
+
+        return {row.link_id: row[1] for row in rows}
 
     @staticmethod
     def update_nearest_school_zone_edges(max_distance_m: float = 50.0) -> int:

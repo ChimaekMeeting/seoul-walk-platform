@@ -17,7 +17,6 @@ networkx = "3.6"
 pandas = "^2.2.0"
 geopandas = "^0.14.0"
 shapely = "^2.0.0"
-h3 = "^4.0.0"
 
 # --- API & Backend Core ---
 fastapi = "^0.115.0"

@@ -1,13 +1,14 @@
-from collections import Counter
 from typing import List
 
 import pandas as pd
 from shapely.wkt import loads as wkt_loads
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, func, insert, select, cast
+from geoalchemy2 import Geography
 
 from src.database.postgresql import get_postgresql_db
 from src.entity.layer.safety_layer import SafetyLayer
 from src.repository.utils import RepositoryUtils
+from src.entity.network.walk_edge import WalkEdge
 
 
 class SafetyRepository:
@@ -57,17 +58,25 @@ class SafetyRepository:
             db.commit()
 
     @staticmethod
-    def get_safety_h3_counts() -> dict[str, int]:
+    def get_safety_counts_by_edge(radius_m: int = 50) -> dict[int, int]:
         """
-        H3 셀(resolution 9)별 SafetyLayer 개수를 반환합니다.
+        Edge(walk_edges)로부터 반경 radius_m 이내에 있는 SafetyLayer 개수를 Edge별로 집계합니다.
 
         Returns:
-            dict[str, int]: {h3_cell: count} 형태의 딕셔너리.
+            dict[int, int]: {link_id: count} 형태의 딕셔너리.
         """
-        lat_expr, lon_expr = RepositoryUtils.geom_centroid_lat_lon(SafetyLayer.geom)
+        edge_geog = cast(WalkEdge.geom, Geography())
+        safety_geog = cast(SafetyLayer.geom, Geography())
+
         with get_postgresql_db() as db:
             rows = db.execute(
-                select(lat_expr.label("lat"), lon_expr.label("lon"))
+                select(WalkEdge.link_id, func.count(SafetyLayer.id))
+                # join 연산을 할 때는 기준이 되는 테이블을 명시해야 함.
+                # 따라서 select_from() 필요
+                .select_from(WalkEdge)
+                # edge로부터 safetylayer feature가 radius_m 내에 있으면 join
+                .join(SafetyLayer, func.ST_DWithin(edge_geog, safety_geog, radius_m))
+                .group_by(WalkEdge.link_id)
             ).fetchall()
-        cells = (RepositoryUtils.lat_lon_to_h3(row.lat, row.lon) for row in rows)
-        return dict(Counter(cells))
+
+        return {row.link_id: row[1] for row in rows}

@@ -11,11 +11,12 @@ from geoalchemy2.functions import (
     ST_Y,
 )
 from shapely.wkt import loads as wkt_loads
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, select, cast
 
 from src.database.postgresql import get_postgresql_db
 from src.entity.layer.running_layer import RunningLayer
 from src.repository.utils import RepositoryUtils
+from src.entity.network.walk_edge import WalkEdge
 
 
 class RunningRepository:
@@ -60,19 +61,28 @@ class RunningRepository:
             db.commit()
 
     @staticmethod
-    def get_running_h3_counts() -> dict[str, int]:
+    def get_running_counts_by_edge(radius_m: int = 50) -> dict[int, int]:
         """
-        H3 셀(resolution 9)별 코스 지점 개수를 반환합니다.
+        Edge(walk_edges)로부터 반경 radius_m 이내에 있는 RunningLayer 개수를 Edge별로 집계합니다.
+    
+        Returns:
+            dict[int, int]: {link_id: count} 형태의 딕셔너리.
         """
-        from collections import Counter
-        lat_expr, lon_expr = RepositoryUtils.geom_centroid_lat_lon(RunningLayer.geom)
+        edge_geog = cast(WalkEdge.geom, Geography())
+        safety_geog = cast(RunningLayer.geom, Geography())
+    
         with get_postgresql_db() as db:
             rows = db.execute(
-                select(lat_expr.label("lat"), lon_expr.label("lon"))
-                .where(RunningLayer.geom.isnot(None))
+                select(WalkEdge.link_id, func.count(RunningLayer.id))
+                # join 연산을 할 때는 기준이 되는 테이블을 명시해야 함.
+                # 따라서 select_from() 필요
+                .select_from(WalkEdge)
+                # edge로부터 Childlayer feature가 radius_m 내에 있으면 join
+                .join(RunningLayer, func.ST_DWithin(edge_geog, safety_geog, radius_m))
+                .group_by(WalkEdge.link_id)
             ).fetchall()
-        cells = (RepositoryUtils.lat_lon_to_h3(row.lat, row.lon) for row in rows)
-        return dict(Counter(cells))
+    
+        return {row.link_id: row[1] for row in rows}
 
     @staticmethod
     def get_running_layer_near(

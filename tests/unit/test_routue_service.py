@@ -115,6 +115,7 @@ class TestOnewayWithoutDestination:
         [
             WalkMode.ONEWAY_SHORTEST,
             WalkMode.ONEWAY_RANDOM,
+            WalkMode.WAYPOINT,
         ],
     )
     def test_편도_모드에_destination_없으면_invalid_destination을_반환한다(
@@ -132,6 +133,7 @@ class TestModeRouting:
             (WalkMode.CIRCULAR_RANDOM, None),
             (WalkMode.ONEWAY_SHORTEST, DEST),
             (WalkMode.ONEWAY_RANDOM, DEST),
+            (WalkMode.WAYPOINT, DEST),
         ],
     )
     def test_모드에_맞는_엔진이_호출된다(self, service, patched_nodes, mode, destination):
@@ -195,6 +197,49 @@ class TestModeRouting:
         find_pois.assert_called_once_with(SUCCESS_RESPONSE.coordinates)
         assert result[0].nearby_pois[0].category == "toilet"
 
+    def test_후보가_여러_개면_POI는_전부에_붙고_이력은_대표_후보만_저장한다(self, service, patched_nodes):
+        mock_engine_instance = MagicMock()
+        mock_engine_instance.run.return_value = [
+            SUCCESS_RESPONSE.model_copy(update={"total_km": 1.5}),
+            SUCCESS_RESPONSE.model_copy(update={"total_km": 1.6}),
+        ]
+        service.base_engines[WalkMode.CIRCULAR_RANDOM] = MagicMock(
+            return_value=mock_engine_instance
+        )
+        pois = [{
+            "category": "toilet",
+            "name": "개방화장실",
+            "address": "서울",
+            "lat": 37.5,
+            "lon": 127.0,
+            "distance_to_route_m": 12.3,
+        }]
+
+        with patch(
+            "src.service.route.route_service.RoutePoiRepository.find_near_route",
+            return_value=pois,
+        ) as find_pois, patch(
+            "src.service.route.route_service.UserRepository.find_by_provider_and_provider_id",
+            return_value=MagicMock(id=1),
+        ), patch(
+            "src.service.route.route_service.RouteHistoryRepository.save",
+            return_value=MagicMock(id=99),
+        ) as save_history:
+            result = service.get_route(
+                ACCESS_TOKEN,
+                origin=ORIGIN,
+                target_km=3.0,
+                mode=WalkMode.CIRCULAR_RANDOM,
+            )
+
+        assert len(result) == 2
+        assert find_pois.call_count == 2  # 성공한 후보 전부에 POI 조회
+        assert result[0].nearby_pois[0].category == "toilet"
+        assert result[1].nearby_pois[0].category == "toilet"
+        save_history.assert_called_once()  # 이력 저장은 대표 후보 1개만
+        assert result[0].id == 99
+        assert result[1].id is None
+
     def test_엔진이_실패_status를_반환하면_그대로_전달된다(self, service, patched_nodes):
         mock_engine_instance = MagicMock()
         mock_engine_instance.run.return_value = [FAILED_RESPONSE]
@@ -209,6 +254,82 @@ class TestModeRouting:
         )
 
         assert result[0].status == WalkRouteStatus.NO_PATH
+
+
+class TestWaypointRouting:
+    """RouteService <-> WaypointComposerEngine 연동 검증."""
+
+    def test_경유지의_nearest_node가_없으면_실패를_반환한다(self, service):
+        with patch("src.service.route.route_service.PathUtils") as MockPathUtils:
+            MockPathUtils.return_value.find_nearest_node_with_expansion.side_effect = [1, 1, None]
+            result = service.get_route(
+                ACCESS_TOKEN,
+                origin=ORIGIN,
+                destination=DEST,
+                mode=WalkMode.WAYPOINT,
+                waypoints=[Coordinate(lat=37.55, lon=127.05)],
+            )
+
+        assert result[0].status == WalkRouteStatus.NO_NEAREST_END_NODE
+
+    def _capture_input(self, service):
+        """base_engines[WAYPOINT]를 가짜 엔진으로 바꿔 실제로 구성된 WaypointRouteInput을 잡아낸다."""
+        captured = {}
+
+        def fake_engine(inp, G, custom_weights=None, profile=None):
+            captured["inp"] = inp
+            mock_instance = MagicMock()
+            mock_instance.run.return_value = [
+                SUCCESS_RESPONSE.model_copy(update={"mode": WalkMode.WAYPOINT})
+            ]
+            return mock_instance
+
+        service.base_engines[WalkMode.WAYPOINT] = fake_engine
+        return captured
+
+    def test_leg_modes_미지정시_전_구간이_최단경로로_패딩된다(self, service, patched_nodes):
+        captured = self._capture_input(service)
+
+        service.get_route(
+            ACCESS_TOKEN,
+            origin=ORIGIN,
+            destination=DEST,
+            mode=WalkMode.WAYPOINT,
+            waypoints=[Coordinate(lat=37.55, lon=127.05), Coordinate(lat=37.57, lon=127.06)],
+        )
+
+        assert captured["inp"].leg_modes == ["oneway_shortest"] * 3
+        assert captured["inp"].leg_target_km == [None, None, None]
+
+    def test_leg_modes_일부만_지정하면_나머지만_최단경로로_패딩된다(self, service, patched_nodes):
+        captured = self._capture_input(service)
+
+        service.get_route(
+            ACCESS_TOKEN,
+            origin=ORIGIN,
+            destination=DEST,
+            mode=WalkMode.WAYPOINT,
+            waypoints=[Coordinate(lat=37.55, lon=127.05)],
+            leg_modes=["oneway_random"],
+            leg_target_km=[1.2],
+        )
+
+        assert captured["inp"].leg_modes == ["oneway_random", "oneway_shortest"]
+        assert captured["inp"].leg_target_km == [1.2, None]
+
+    def test_경유지가_없으면_단일_구간으로_구성된다(self, service, patched_nodes):
+        captured = self._capture_input(service)
+
+        service.get_route(
+            ACCESS_TOKEN,
+            origin=ORIGIN,
+            destination=DEST,
+            mode=WalkMode.WAYPOINT,
+        )
+
+        assert captured["inp"].waypoints == []
+        assert captured["inp"].leg_modes == ["oneway_shortest"]
+        assert captured["inp"].leg_target_km == [None]
 
 
 def _chat_state(themes=None, profile=None):
