@@ -1,9 +1,9 @@
 # 챗봇 Prewalk 대화 테스트 시나리오
 
 > 상태: Current
-> 기준일: 2026-08-03
+> 기준일: 2026-08-20
 > 관련 코드: `scripts/test_prewalk_conversation.py`, `src/agent/nodes/extractor.py`, `src/agent/nodes/interviewer.py`, `src/agent/nodes/confirmation_classifier.py`, `src/schema/prewalk_schema.py`
-> 검증 상태: 7차 실행(2026-08-03)까지 완료. **11개 시나리오 전부 확정.** 1번(의정부역)에서 `out_of_seoul` 경로가 정상 동작함을 확인했고, 6차 실행에서 발견한 문구 버그(circular 모드인데 "도착하고 싶으신 곳" 언급)를 `interviewer.py`에서 수정한 뒤 7차 실행으로 재확인 완료. **알려진 미해결 UX 이슈(3번)**: 확인 대기 중 무관한 발화("오늘 날씨 어때?")에 재확인 질문이 그대로 반복될 뿐 호응이 없음 — 원인 파악 완료, 수정은 보류(§아래 참고)
+> 검증 상태: 7차 실행(2026-08-03)까지 완료. **11개 시나리오 전부 확정.** 1번(의정부역)에서 `out_of_seoul` 경로가 정상 동작함을 확인했고, 6차 실행에서 발견한 문구 버그(circular 모드인데 "도착하고 싶으신 곳" 언급)를 `interviewer.py`에서 수정한 뒤 7차 실행으로 재확인 완료. **미해결 UX 이슈였던 3번**: 확인 대기 중 무관한 발화("오늘 날씨 어때?")에 재확인 질문이 그대로 반복될 뿐 아무 언급이 없던 문제 — 2026-08-03엔 원인만 파악하고 수정은 보류했으나, 2026-08-20 `Interviewer` 하드코딩 제거로 구조적 원인이 없어져 "호응 없이 명확히 선 긋기"로 재설계함(§아래 참고, 재실행 검증 전). **2026-08-20 이후 전체 재검증 필요**: `Interviewer`의 하드코딩 응답 문구(확인 질문·검색 실패·서울 밖 안내·fallback)를 전부 제거하고 `interview.yaml` LLM 생성으로 바꿔서, 1·2·3·7·8번이 거치는 코드 경로 자체가 달라졌다 — 아래 표의 "실행 결과"는 그 이전 코드 기준이라 최신 상태를 보장하지 않는다. §"2026-08-20" 절 참고
 
 ## 1. 목적과 범위
 
@@ -118,6 +118,16 @@
 **원인**: `ConfirmationClassifier`가 부정 판정 → `Extractor`가 이번 턴엔 아무것도 추출하지 않고(정상) → `Interviewer`는 `state.user_context`가 여전히 완전(complete)하다고 보고 `interview.yaml`(LLM 호출, 호응 로직이 있는 곳)을 아예 거치지 않은 채 완전히 하드코딩된 `_build_confirmation_message`로 바로 확인 질문을 재생성한다. 이 함수는 `user_prompt`를 보지 않으므로 호응이 구조적으로 불가능하다.
 
 **검토했던 수정 방향(보류)**: `State`에 "이번 턴에 실제로 뭔가 추출됐는지" 플래그를 추가하고, `Interviewer`가 `is_complete=True`인데 이번 턴엔 아무것도 못 뽑은 경우(=재확인 상황)에만 짧은 호응을 LLM으로 생성해 확인 질문 앞에 붙이는 방식. 크래시·오작동이 아니라 UX 다듬기 수준이라 우선순위를 낮춰 보류하기로 함(2026-08-03).
+
+### 2026-08-20: Interviewer 하드코딩 제거 — 3번 근본 원인의 구조적 해소 여부 재검증 필요
+
+[챗봇 하드코딩 문구 처리 방안 제안](../proposals/chatbot_hardcoding_proposal.md) 2·6·9번에 따라 `_build_confirmation_message`/`_build_search_failure_message`/`_build_out_of_seoul_message`/`_FALLBACK_RESPONSE`/`_KAKAO_API_ERROR_RESPONSE`를 전부 제거하고, 확인 질문·검색 실패·서울 밖 안내를 `interview.yaml` 호출(`_generate_response()`)로 통합했다.
+
+이는 위 3번 시나리오의 원인으로 지목했던 "`is_complete=True`면 `interview.yaml`(LLM 호출)을 아예 안 거치고 하드코딩 함수로 직행한다"는 구조 자체를 없앤다 — 이제 재확인 상황도 `interview.yaml`을 호출하므로 `user_prompt`("오늘 날씨 어때?")가 LLM에 전달된다.
+
+**설계 방향 정정(같은 날)**: 처음엔 "호응까지 곁들이면 좋다"는 방향으로 검토했으나, 무관한 발화에는 호응하지 않고 "그 부분은 저희 서비스에서 도와드릴 수 있는 게 아니에요" 같은 명확한 선 긋기로 대응해야 한다는 방향으로 확정했다. 이에 따라 `interview.yaml`의 "무관한 주제 처리"를 지침 0번(최우선)으로 올리고, `[Current Context]` 완성 여부와 무관하게 항상 적용되도록 조건을 없앴다 — 이제 3번 시나리오(재확인 중 "오늘 날씨 어때?")에도 이 지침이 그대로 적용돼, "그건 도와드릴 수 없어요" 안내 뒤 기존 확인 요청을 이어가는 것이 기대 동작이다. 다만 이 지침도 아직 정적 대조만 했고, LLM이 실제로 호응 없이 선 긋기 톤을 지키는지·기존 확인 요청을 자연스럽게 이어붙이는지는 재실행해서 확인해야 한다.
+
+1·2·7·8번도 같은 이유로 코드 경로가 바뀌었으므로(1·8번은 `_build_out_of_seoul_message`/`_build_search_failure_message` → `interview.yaml`, 2번은 지침 번호만 0→0으로 유지되고 문구·조건이 바뀜, 7번은 미변경) 8차 재실행이 필요하다.
 
 ## 3. 관리 원칙
 

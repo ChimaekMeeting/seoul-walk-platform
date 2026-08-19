@@ -18,9 +18,6 @@ from src.schema.prewalk_schema import (
     WayPointPreference,
 )
 
-_FALLBACK_RESPONSE = "죄송해요, 일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요."
-_KAKAO_API_ERROR_RESPONSE = "내부적으로 오류가 발생했어요. 잠시 후 다시 시도해 주세요."
-
 logger = logging.getLogger(__name__)
 
 class Interviewer(GPTClient):
@@ -35,6 +32,8 @@ class Interviewer(GPTClient):
         """
         정보가 부족하다면 → 질문을 던지고
         정보가 충분하면   → 확인 메시지를 생성한다(경로는 사용자 확인 후 실행).
+        모든 사용자 응대 문구는 interview.yaml을 통해 LLM이 생성한다.
+        LLM/외부 API 호출이 실패한 경우에만 발생한 오류를 그대로 응답으로 노출한다.
         """
         is_complete  = self._is_complete(state.user_context)
         missing_info = self._get_missing_info(state.user_context)
@@ -42,59 +41,46 @@ class Interviewer(GPTClient):
         logger.info(f"is_complete: {is_complete}")
         logger.info(f"missing_info: {missing_info}")
 
-        input_variables = {
-            "current_context":  self.prompt_utils.format_for_prompt(state.user_context),
-            "current_location": self.prompt_utils.format_for_prompt(state.current_location),
-            "missing_info":     missing_info,
-            "user_input":       state.user_prompt,
-        }
-
         # 정보가 충분하면 → 사용자 확인 질문 생성 (경로 실행은 확인 후)
         if is_complete:
             state.awaiting_confirmation = True
             state.is_complete           = False
-            state.response              = self._build_confirmation_message(state)
+            state.response = await self._generate_response(state, missing_info="")
             logger.info(f"확인 대기 상태로 전환합니다: {state.response}")
             return state
 
-        # 정보가 부족하면 → interview.yaml 호출
+        # 정보가 부족하면 → interview.yaml 호출 (장소 검색 tool 바인딩)
         try:
             raw_response = await super().get_response(
                 prompt_name="interview",
-                input_variables=input_variables,
+                input_variables=self._build_input_variables(state, missing_info),
                 llm=self.model,
             )
-        except Exception:
+        except Exception as e:
             logger.exception("interviewer_interview_llm_error")
-            state.response = _FALLBACK_RESPONSE
+            state.response = str(e)
             return state
         logger.info("interview.yaml이 호출되었습니다.")
 
-        candidates, search_failures, out_of_seoul, api_error = await self._execute_tool_calls(
+        candidates, search_failures, out_of_seoul, api_error_message = await self._execute_tool_calls(
             raw_response.tool_calls if raw_response.tool_calls else [],
             state,
         )
 
-        # Kakao API 호출 자체가 예외로 실패했으면, 검색 결과 판단 없이 바로 내부 오류 안내로 재질문한다.
-        if api_error:
+        # Kakao API 호출 자체가 예외로 실패했으면, 검색 결과 판단 없이 오류를 그대로 보여준다.
+        if api_error_message is not None:
             state.is_complete = False
-            state.response    = _KAKAO_API_ERROR_RESPONSE
+            state.response    = api_error_message
             logger.info("Kakao API 호출 중 오류가 발생했습니다.")
             return state
 
-        # 검색 결과는 있지만 전부 서울 밖이면, LLM 문구 생성 없이 하드코딩 안내로 바로 재질문한다.
-        if out_of_seoul:
+        # 검색 결과가 0건이거나 전부 서울 밖인 대상이 있으면 LLM이 안내 문구를 생성한다.
+        if search_failures or out_of_seoul:
             state.is_complete = False
-            state.response    = self._build_out_of_seoul_message(out_of_seoul)
-            logger.info(f"검색 결과가 서울 밖입니다: {out_of_seoul}")
-            return state
-
-        # 검색 결과가 0건인 대상이 있으면, LLM 문구 생성 없이 하드코딩 안내로 바로 재질문한다.
-        # (origin=destination 동일 처리 같은 무관한 이유로 재질문하는 오해를 막기 위함)
-        if search_failures:
-            state.is_complete = False
-            state.response    = self._build_search_failure_message(search_failures)
-            logger.info(f"장소 검색 결과 없음: {search_failures}")
+            state.response = await self._generate_response(
+                state, missing_info, search_failures=search_failures, out_of_seoul=out_of_seoul,
+            )
+            logger.info(f"검색 실패/서울 밖 안내: {state.response}")
             return state
 
         if candidates:
@@ -136,26 +122,12 @@ class Interviewer(GPTClient):
             if is_complete:
                 state.awaiting_confirmation = True
                 state.is_complete           = False
-                state.response              = self._build_confirmation_message(state)
+                state.response = await self._generate_response(state, missing_info="")
                 logger.info(f"확인 대기 상태로 전환합니다: {state.response}")
                 return state
 
-            try:
-                # 검색으로 확정된 origin/destination을 반영해 interview.yaml을 다시 호출한다.
-                # llm= 대신 parser=만 넘겨 tool 미바인딩 모델을 사용 — 재검색을 원천 차단한다.
-                response = await super().get_response(
-                    prompt_name="interview",
-                    input_variables={
-                        "current_context":  self.prompt_utils.format_for_prompt(state.user_context),
-                        "current_location": self.prompt_utils.format_for_prompt(state.current_location),
-                        "missing_info":     self._get_missing_info(state.user_context),
-                        "user_input":       state.user_prompt,
-                    },
-                    parser=self.str_parser,
-                )
-            except Exception:
-                logger.exception("interviewer_interview_followup_llm_error")
-                response = _FALLBACK_RESPONSE
+            # 검색으로 확정된 origin/destination을 반영해 interview.yaml을 다시 호출한다.
+            response = await self._generate_response(state, self._get_missing_info(state.user_context))
             logger.info("interview.yaml이 검색 결과 반영을 위해 재호출되었습니다.")
         else:
             response = raw_response.content
@@ -167,6 +139,67 @@ class Interviewer(GPTClient):
         logger.info(f"user_context: {state.user_context.model_dump_json() if state.user_context else None}")
 
         return state
+
+    def _build_input_variables(
+        self,
+        state: State,
+        missing_info: str,
+        search_failures: Optional[dict[str, str]] = None,
+        out_of_seoul: Optional[dict[str, str]] = None,
+    ) -> dict:
+        return {
+            "current_context":  self.prompt_utils.format_for_prompt(state.user_context),
+            "current_location": self.prompt_utils.format_for_prompt(state.current_location),
+            "missing_info":     missing_info,
+            "search_failures":  self._describe_targets(search_failures, "검색 결과 없음"),
+            "out_of_seoul":     self._describe_targets(out_of_seoul, "서울 밖"),
+            "user_input":       state.user_prompt,
+        }
+
+    async def _generate_response(
+        self,
+        state: State,
+        missing_info: str,
+        search_failures: Optional[dict[str, str]] = None,
+        out_of_seoul: Optional[dict[str, str]] = None,
+    ) -> str:
+        """
+        interview.yaml을 tool 미바인딩 상태(parser=str_parser)로 호출해 사용자 응답 문구를 생성한다.
+        확인 질문 / 검색 실패 안내 / 서울 밖 안내 / 정보 재질문을 전부 이 경로로 통일한다.
+        호출이 실패하면 발생한 예외를 그대로 문자열로 반환한다.
+        """
+        try:
+            return await super().get_response(
+                prompt_name="interview",
+                input_variables=self._build_input_variables(
+                    state, missing_info, search_failures, out_of_seoul,
+                ),
+                parser=self.str_parser,
+            )
+        except Exception as e:
+            logger.exception("interviewer_response_llm_error")
+            return str(e)
+
+    @staticmethod
+    def _target_label(key: str) -> str:
+        if key == "origin":
+            return "출발지"
+        if key == "destination":
+            return "목적지"
+        if key.startswith("waypoint_"):
+            idx = key.split("_", 1)[1]
+            return f"{int(idx) + 1}번째 경유지" if idx.isdigit() else "경유지"
+        return key
+
+    def _describe_targets(self, targets: Optional[dict[str, str]], reason: str) -> str:
+        """
+        {target: keyword} 딕셔너리를 LLM 입력용 자연어 설명으로 변환한다.
+        (LLM 응답을 대체하는 것이 아니라 LLM에 전달할 입력을 구성하는 것)
+        """
+        if not targets:
+            return "없음"
+        parts = [f"{self._target_label(key)}('{keyword}') {reason}" for key, keyword in targets.items()]
+        return "; ".join(parts)
 
     def _has_location(self, loc: Optional[Location]) -> bool:
         """
@@ -225,119 +258,22 @@ class Interviewer(GPTClient):
 
         return ", ".join(missing) if missing else ""
 
-    def _is_same_location(self, a: Optional[Location], b: Optional[Location]) -> bool:
-        """두 Location이 같은 지점인지 좌표 기준으로 비교합니다."""
-        if a is None or b is None:
-            return False
-        if (a.lat is not None and b.lat is not None
-                and a.lon is not None and b.lon is not None):
-            return abs(a.lat - b.lat) < 1e-6 and abs(a.lon - b.lon) < 1e-6
-        return False
-
-    def _build_confirmation_message(self, state: State) -> str:
-        """경로 실행 전 사용자에게 보낼 확인 질문을 생성합니다."""
-        ctx     = state.user_context
-        current = state.current_location
-
-        if isinstance(ctx, (OnewayShortestPreference, OnewayPreference)):
-            origin    = ctx.origin
-            dest      = ctx.destination
-            dest_name = dest.place_name if dest and dest.place_name else "목적지"
-
-            if self._is_same_location(origin, current):
-                return f"현재 위치부터 {dest_name}까지가 맞나요?"
-            origin_name = origin.place_name if origin and origin.place_name else "현재 위치"
-            return f"{origin_name}부터 {dest_name}까지가 맞나요?"
-
-        if isinstance(ctx, CircularPreference):
-            origin    = ctx.origin
-            target_km = ctx.target_km or 3.0
-            km_str    = str(int(target_km)) if target_km == int(target_km) else str(target_km)
-
-            if self._is_same_location(origin, current):
-                return f"현재 위치에서 출발하는 {km_str}km 순환 산책이 맞나요?"
-            origin_name = origin.place_name if origin and origin.place_name else "현재 위치"
-            return f"{origin_name}에서 출발하는 {km_str}km 순환 산책이 맞나요?"
-
-        if isinstance(ctx, WayPointPreference):
-            origin      = ctx.origin
-            dest        = ctx.destination
-            origin_name = origin.place_name if origin and origin.place_name else "현재 위치"
-            dest_name   = dest.place_name if dest and dest.place_name else "목적지"
-            waypoint_names = ", ".join(wp.place_name or "경유지" for wp in ctx.waypoints)
-            route_desc  = f"{waypoint_names}를 거쳐 " if waypoint_names else ""
-
-            if self._is_same_location(origin, dest):
-                return f"{origin_name}에서 출발해 {route_desc}다시 {origin_name}로 돌아오는 순환 경로가 맞나요?"
-            return f"{origin_name}에서 {route_desc}{dest_name}까지 가는 경로가 맞나요?"
-
-        if isinstance(ctx, GPSArtPreference):
-            origin    = ctx.origin
-            target_km = ctx.target_km or 3.0
-            km_str    = str(int(target_km)) if target_km == int(target_km) else str(target_km)
-            shape_name = ctx.shape or "도형"
-
-            if self._is_same_location(origin, current):
-                return f"현재 위치에서 출발해 {shape_name} 모양으로 {km_str}km를 걷는 경로가 맞나요?"
-            origin_name = origin.place_name if origin and origin.place_name else "현재 위치"
-            return f"{origin_name}에서 출발해 {shape_name} 모양으로 {km_str}km를 걷는 경로가 맞나요?"
-
-        return "이 경로로 진행할까요?"
-
-    def _build_search_failure_message(self, search_failures: dict[str, str]) -> str:
-        """
-        장소 검색 결과가 0건인 대상에 맞춰 하드코딩 안내 문구를 만듭니다.
-        """
-        origin_kw      = search_failures.get("origin")
-        destination_kw = search_failures.get("destination")
-        waypoint_kws   = [v for k, v in search_failures.items() if k.startswith("waypoint_")]
-
-        if origin_kw and destination_kw:
-            if origin_kw == destination_kw:
-                return f"'{origin_kw}' 검색 결과가 없어요. 출발하고 싶으신 곳과 도착하고 싶으신 곳을 다시 알려주시면 그에 맞는 산책 경로를 준비해드리겠습니다!"
-            return f"'{origin_kw}', '{destination_kw}' 모두 검색 결과가 없어요. 출발하고 싶으신 곳과 도착하고 싶으신 곳을 다시 알려주시면 그에 맞는 산책 경로를 준비해드리겠습니다!"
-        if origin_kw:
-            return f"'{origin_kw}' 검색 결과가 없어요. 출발하고 싶으신 다른 장소를 알려주시면 그에 맞는 산책 경로를 준비해드리겠습니다!"
-        if destination_kw:
-            return f"'{destination_kw}' 검색 결과가 없어요. 도착하고 싶으신 다른 장소를 알려주시면 그에 맞는 산책 경로를 준비해드리겠습니다!"
-        joined = "', '".join(waypoint_kws)
-        return f"'{joined}' 경유지 검색 결과가 없어요. 경유지를 다시 알려주시면 그에 맞는 산책 경로를 준비해드리겠습니다!"
-
-    def _build_out_of_seoul_message(self, out_of_seoul: dict[str, str]) -> str:
-        """
-        검색은 됐지만 서울 밖인 대상에 맞춰 하드코딩 안내 문구를 만듭니다.
-        """
-        origin_kw      = out_of_seoul.get("origin")
-        destination_kw = out_of_seoul.get("destination")
-        waypoint_kws   = [v for k, v in out_of_seoul.items() if k.startswith("waypoint_")]
-
-        if origin_kw and destination_kw:
-            if origin_kw == destination_kw:
-                return f"'{origin_kw}' 위치는 서울 밖이에요. 서울 내에서만 산책 경로를 추천해드릴 수 있어요. 출발하고 싶으신 곳과 도착하고 싶으신 곳을 다시 알려주시겠어요?"
-            return f"'{origin_kw}', '{destination_kw}' 위치 모두 서울 밖이에요. 서울 내에서만 산책 경로를 추천해드릴 수 있어요. 출발하고 싶으신 곳과 도착하고 싶으신 곳을 다시 알려주시겠어요?"
-        if origin_kw:
-            return f"'{origin_kw}' 위치는 서울 밖이라 출발지로 사용할 수 없어요. 서울 내에서만 산책 경로를 추천해드릴 수 있어요. 출발하고 싶으신 다른 장소를 알려주시겠어요?"
-        if destination_kw:
-            return f"'{destination_kw}' 위치는 서울 밖이라 목적지로 사용할 수 없어요. 서울 내에서만 산책 경로를 추천해드릴 수 있어요. 도착하고 싶으신 다른 장소를 알려주시겠어요?"
-        joined = "', '".join(waypoint_kws)
-        return f"'{joined}' 위치는 서울 밖이라 경유지로 사용할 수 없어요. 서울 내에서만 산책 경로를 추천해드릴 수 있어요. 경유지를 다시 알려주시겠어요?"
-
     async def _safe_kakao_call(self, coro):
         """
-        Kakao API 호출을 감싸 예외 발생 시 (None, True)를 반환합니다.
+        Kakao API 호출을 감싸 예외 발생 시 (None, 예외)를 반환합니다.
         """
         try:
             result = await coro
-            return result, False
-        except Exception:
+            return result, None
+        except Exception as e:
             logger.exception("kakao_api_error")
-            return None, True
+            return None, e
 
-    async def _execute_tool_calls(self, tool_calls: list, state: State) -> tuple[dict, dict, dict, bool]:
+    async def _execute_tool_calls(self, tool_calls: list, state: State) -> tuple[dict, dict, dict, Optional[str]]:
         candidates      = {}
         search_failures = {}  # target("origin"/"destination") -> 검색했지만 결과 없던 키워드
         out_of_seoul    = {}  # target("origin"/"destination") -> 검색은 됐지만 전부 서울 밖이던 키워드
-        api_error       = False  # Kakao API 호출 자체가 예외로 실패했는지
+        api_error_message: Optional[str] = None  # Kakao API 호출 자체가 예외로 실패했으면 그 오류 문자열
 
         fallback_lat = (
             (state.user_context.origin.lat if state.user_context and state.user_context.origin else None)
@@ -369,11 +305,11 @@ class Interviewer(GPTClient):
                 args["lat"] = fallback_lat
                 args["lon"] = fallback_lon
 
-            output, call_failed = await self._safe_kakao_call(
+            output, error = await self._safe_kakao_call(
                 self.place_tool.tool_map[name].ainvoke(args)
             )
-            if call_failed:
-                api_error = True
+            if error is not None:
+                api_error_message = str(error)
                 continue
 
             logger.info(f"위치를 검색합니다: keyword={args.get('query', name)}, target={target}, 결과수={len(output.documents) if isinstance(output, PlaceSearchResult) else 0}")
@@ -403,13 +339,13 @@ class Interviewer(GPTClient):
             origin = state.user_context.origin
             # origin 자동 보완
             if origin and origin.place_name and origin.lat is None and "origin_candidate" not in candidates:
-                result, call_failed = await self._safe_kakao_call(
+                result, error = await self._safe_kakao_call(
                     self.place_tool.get_address_from_keyword(
                         keyword=origin.place_name, lat=fallback_lat, lon=fallback_lon
                     )
                 )
-                if call_failed:
-                    api_error = True
+                if error is not None:
+                    api_error_message = str(error)
                 elif isinstance(result, PlaceSearchResult) and result.documents:
                     fallback_lat = float(result.documents[0].y)
                     fallback_lon = float(result.documents[0].x)
@@ -430,13 +366,13 @@ class Interviewer(GPTClient):
             if hasattr(state.user_context, "destination"):
                 dest = state.user_context.destination
                 if dest and dest.place_name and dest.lat is None and "destination_candidate" not in candidates:
-                    result, call_failed = await self._safe_kakao_call(
+                    result, error = await self._safe_kakao_call(
                         self.place_tool.get_address_from_keyword(
                             keyword=dest.place_name, lat=fallback_lat, lon=fallback_lon
                         )
                     )
-                    if call_failed:
-                        api_error = True
+                    if error is not None:
+                        api_error_message = str(error)
                     elif isinstance(result, PlaceSearchResult) and result.documents:
                         seoul_docs = [
                             Location(lat=float(d.y), lon=float(d.x), address=d.address_name, place_name=d.place_name)
@@ -456,13 +392,13 @@ class Interviewer(GPTClient):
                 for idx, wp in enumerate(state.user_context.waypoints):
                     if not (wp and wp.place_name and wp.lat is None and idx not in waypoint_candidates):
                         continue
-                    result, call_failed = await self._safe_kakao_call(
+                    result, error = await self._safe_kakao_call(
                         self.place_tool.get_address_from_keyword(
                             keyword=wp.place_name, lat=fallback_lat, lon=fallback_lon
                         )
                     )
-                    if call_failed:
-                        api_error = True
+                    if error is not None:
+                        api_error_message = str(error)
                     elif isinstance(result, PlaceSearchResult) and result.documents:
                         seoul_docs = [
                             Location(lat=float(d.y), lon=float(d.x), address=d.address_name, place_name=d.place_name)
@@ -478,4 +414,4 @@ class Interviewer(GPTClient):
                 if waypoint_candidates:
                     candidates["waypoint_candidates"] = waypoint_candidates
 
-        return candidates, search_failures, out_of_seoul, api_error
+        return candidates, search_failures, out_of_seoul, api_error_message
