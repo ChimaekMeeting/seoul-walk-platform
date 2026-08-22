@@ -123,8 +123,9 @@ class OnewayBeamEngine:
         target_m = target_km * 1000  # 목표 거리를 미터로 환산함
 
         # custom_score 기준 최단경로 — 우회 실패/불가 시의 최종 대체 경로로도 사용함
+        min_ratio = self.utils.min_cost_length_ratio(self.G)
         try:
-            base_shortest = nx.shortest_path(self.G, start, end, weight="custom_score")
+            base_shortest = self.utils.astar_path(start, end, weight="custom_score", min_ratio=min_ratio)
         except nx.NetworkXNoPath:
             logger.warning("출발-도착 간 경로가 존재하지 않습니다.")
             return []

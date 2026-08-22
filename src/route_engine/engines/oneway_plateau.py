@@ -20,7 +20,7 @@ Plateau method 기반 우회 편도(oneway_random) 경로 생성 엔진.
 
 
 import networkx as nx
-from typing import Optional
+from typing import List, Optional
 import logging
 
 from src.route_engine.engines.path_utils import PathUtils
@@ -60,7 +60,7 @@ class OnewayPlateauEngine:
         self.blocked_tags  = profile_config.blocked_tags
         self.scoring_mode  = profile_config.scoring_mode
 
-    def run(self) -> WalkRouteResponse:
+    def run(self) -> List[WalkRouteResponse]:
         """
         우회 편도 경로를 생성합니다.
         """
@@ -80,22 +80,22 @@ class OnewayPlateauEngine:
         # 출발 노드가 없는 경우
         if start is None:
             logger.warning("출발 노드를 찾지 못했습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_START_NODE,
                 mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
-            )
+            )]
 
         # 도착 노드가 없는 경우
         if end is None:
             logger.warning("도착 노드를 찾지 못했습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_END_NODE,
                 mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
-            )
+            )]
 
         # 경로 생성
         nodes = self.find_path(start, end, self.inp.target_km or 3.0)
@@ -103,12 +103,12 @@ class OnewayPlateauEngine:
         # 경로가 없는 경우
         if not nodes:
             logger.warning("경로가 비어 있습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_PATH,
                 mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
-            )
+            )]
 
         pruned   = self.utils.prune_dead_ends(nodes)       # 왕복 가지 제거
         coords   = self.utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
@@ -117,12 +117,12 @@ class OnewayPlateauEngine:
 
         logger.info(f"total_km: {total_km}")
 
-        return WalkRouteResponse(
+        return [WalkRouteResponse(
             status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
             mode            = self.mode,
             coordinates     = coords,
             total_km        = total_km,
-        )
+        )]
 
     def find_path(self, start: int, end: int, target_km: float = 3.0) -> list[int]:
         """

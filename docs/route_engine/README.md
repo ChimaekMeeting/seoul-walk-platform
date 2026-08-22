@@ -21,7 +21,7 @@
 
 ## Engine 반환 계약
 
-- `circular_beam`(`CircularBeamEngine`)·`oneway_beam`(`OnewayBeamEngine`)·`oneway_astar`(`OnewayAstarEngine`)·`gps_art`(`GpsArtEngine`)·`waypoint`(`WaypointComposerEngine`) 5개 엔진의 `run()`은 모두 `List[WalkRouteResponse]`를 반환한다.
+- `src/route_engine/engines/`의 모든 엔진(`CircularBeamEngine`·`OnewayBeamEngine`·`OnewayAstarEngine`·`OnewayBidirectionalAstarEngine`·`OnewayDijkstraEngine`·`OnewayBidirectionalDijkstraEngine`·`CircularGraspEngine`·`OnewayGraspEngine`·`CircularAlnsEngine`·`OnewayAlnsEngine`·`CircularRcspEngine`·`OnewayRcspEngine`·`OnewayPlateauEngine`·`GpsArtEngine`·`WaypointComposerEngine`)의 `run()`은 모두 `List[WalkRouteResponse]`를 반환한다(2026-08-23 통일 — 이전에는 GRASP/ALNS/RCSP/Plateau/Dijkstra 계열이 단일 `WalkRouteResponse`를 반환해 형제 엔진들과 반환 타입이 달랐다).
 - 이 중 `circular_beam`·`oneway_beam`·`oneway_astar`의 `find_path()`는 노드ID 경로 후보를 `list[list[int]]`로 감싸서 반환한다. `gps_art`·`waypoint`는 자체 `find_path()`가 없다 — 대신 다른 엔진들의 `run()` 결과를 조합(`WaypointComposerEngine`)하거나 그 조합에 위임(`GpsArtEngine`)해서 최종 경로를 만든다.
 - `circular_random`·`oneway_random`은 2026-08-07부터 최대 3개까지 벡터로 다양화한 후보를 반환한다(상세는 아래 "후보 다양화(벡터 score 기반)" 절 참고). `oneway_shortest`·GPS Art, 그리고 경유지 조합 중 다양화할 대안이 없는 경우(예: 모든 leg가 `oneway_shortest`)는 여전히 1개만 반환한다.
 - `oneway_shortest` 모드의 실제 사용 엔진은 `dijkstra.py`(`OnewayDijkstraEngine`)에서 `oneway_astar.py`(`OnewayAstarEngine`)로 교체되었다. 배경·현재 사용처는 바로 아래 "oneway_shortest 엔진: 거리 전용(distance-only) weight + Haversine 휴리스틱" 절 참고.
@@ -95,7 +95,7 @@
 - `route_service.py`·`waypoint.py`(`_LEG_ENGINES`)·`gps_art.py` 등 실제 요청을 처리하는 코드 경로 어디에서도 `OnewayDijkstraEngine`·`OnewayBidirectionalDijkstraEngine`을 참조하지 않는다. `OnewayBidirectionalDijkstraEngine`(2026-08-23 신설)도 처음부터 이 상태로 추가됐다 — `route_service.py`/`src/route_engine/engines/__init__.py`에 연결하지 않았다.
 - `benchmarks/solvers/{dijkstra,bi_dijkstra}_solver.py`(A*와 나란히 비교하기 위한 baseline)·`benchmarks/benchmark.py`의 `SOLVER_REGISTRY`·`benchmarks/run_all_scenarios.py`의 `ONEWAY_ALGOS` 목록에서만 쓰인다.
 - `tests/`에는 이 둘을 다루는 테스트가 하나도 없다 — 회귀 검증 없이 benchmark 용도로만 유지되는 상태다.
-- **알려진 불일치**: `OnewayDijkstraEngine.run()`은 아직도 `WalkRouteResponse`를 리스트가 아닌 단일 값으로 반환한다 — 2026-08-06 리팩터 때 형제 엔진(`CircularBeamEngine`/`OnewayBeamEngine`/`OnewayAstarEngine`)은 전부 `List[WalkRouteResponse]`로 맞췄지만 `dijkstra.py`는 함께 수정되지 않았다. `OnewayBidirectionalDijkstraEngine`은 `run()`을 상속만 하므로 이 불일치도 그대로 물려받는다. 지금은 어디서도 호출하지 않아 문제가 없지만, 나중에 이 엔진들을 다시 연결하면 `results[0]` 언패킹 코드와 그대로 충돌한다.
+- **해결된 불일치(2026-08-23)**: `OnewayDijkstraEngine.run()`은 2026-08-06 리팩터 때 형제 엔진(`CircularBeamEngine`/`OnewayBeamEngine`/`OnewayAstarEngine`)이 전부 `List[WalkRouteResponse]`로 맞출 때 함께 수정되지 않아 단일 `WalkRouteResponse`를 반환했었다. GRASP/ALNS/RCSP/Plateau 계열(`circular_alns.py`/`circular_grasp.py`/`circular_rcsp.py`/`oneway_alns.py`/`oneway_grasp.py`/`oneway_plateau.py`/`oneway_rcsp.py`)도 같은 이유로 단일 반환이었다. 2026-08-23에 이 8개 파일 전부를 `List[WalkRouteResponse]`로 통일했다 — 이제 `route_engine/engines/`의 모든 엔진이 같은 반환 계약을 따른다. `OnewayBidirectionalDijkstraEngine`은 `run()`을 상속만 하므로 자동으로 함께 통일됐다.
 
 **벤치마크 solver도 동일하게 갱신됨(2026-08-23)**
 
@@ -107,6 +107,35 @@
 - `benchmarks/runner/test_oneway_shortest_path.py`가 Dijkstra·양방향 Dijkstra·A*의 경로 비용 일치성과 지연시간을 비교하도록 만들어져 있다(`LATENCY_REPEAT`만큼 반복 측정 후 `benchmarks/results/oneway_shortest_path/bidir_astar_latency.csv`에 기록). 이 CSV는 로컬 실행 시에만 생성되며 저장소에는 커밋돼 있지 않다 — 즉 "A*가 실제로 더 빠르다/경로 품질이 같다"는 수치는 이 문서 작성 시점 기준 재현된 적이 없다.
 - `benchmarks/run_all_scenarios.py`도 `dijkstra-oneway`를 시나리오 비교 대상에 포함하지만, `oneway_shortest`/`oneway_astar`/`dijkstra-oneway`는 모두 `target_km`을 무시하는 순수 최단경로 알고리즘이라 이 스크립트가 계산하는 거리 이탈(`distance_deviation_km`) 지표는 편도 우회(`oneway_random`) 계열 solver와 직접 비교할 수 없다(스크립트 자체 주석에 명시).
 - **아직 확인 안 된 것**: 실제 그래프 규모에서 Dijkstra 대비 A*(Haversine 휴리스틱)의 속도·품질 개선폭. 위 benchmark 스크립트를 로컬에서 실행해 수치를 남기기 전까지는 "왜 이 교체가 유의미한가"를 정량적으로 뒷받침하는 근거가 없다.
+
+## 편도 우회·순환 엔진의 내부 재연결 — Dijkstra → A* 전환(2026-08-23)
+
+**무엇이 바뀌었나**
+
+- beam/grasp/alns/rcsp(편도·순환 8개 엔진 전부)가 내부적으로 쓰던 `nx.shortest_path`(Dijkstra 기반) 호출을 A*로 교체했다. `OnewayDijkstraEngine`/`OnewayBidirectionalDijkstraEngine`(엔진 자체)은 그대로 유지 — 이번 전환은 "다른 엔진 내부에서 보조적으로 쓰던 Dijkstra 호출"만 대상이다.
+- `path_utils.py`에 공용 유틸 2개 추가:
+  - `PathUtils.min_cost_length_ratio(G, cost_attr="custom_score")`: `cost_attr/length`의 그래프 전체 최솟값
+  - `PathUtils.astar_path(source, target, weight, min_ratio=1.0)`: Haversine 직선거리(× `min_ratio`)를 admissible 휴리스틱으로 쓰는 `nx.astar_path` 래퍼
+- `PathUtils.connect_to()`(순환의 복귀 연결·편도의 도착 연결에 공통 사용) 안의 `nx.shortest_path`를 `self.astar_path(...)`로 교체 — weight가 이미 `length` 기반(revisit penalty만 곱함)이라 `min_ratio=1.0`(기본값)으로 충분하다. **이 한 곳을 바꾼 것만으로** `connect_to()`를 호출하는 8개 엔진(`circular_beam`/`circular_grasp`/`circular_alns`/`circular_rcsp`/`oneway_beam`/`oneway_grasp`/`oneway_alns`/`oneway_rcsp`) 전부에 적용된다.
+- `weight="custom_score"` 기준으로 직접 `nx.shortest_path`를 부르던 나머지 지점도 개별 교체:
+  - `oneway_beam.py`·`oneway_grasp.py`·`oneway_rcsp.py`의 "base_shortest"(목표 거리 미달성 시 최종 대체 경로) 계산
+  - `oneway_alns.py`·`circular_alns.py`의 `_repair_shortest`/`_repair_detour`(destroy/repair 재연결) — `min_ratio`를 `find_path()` 시작 시 한 번만 계산해 `self._min_ratio`로 캐싱(반복 호출마다 재계산 방지)
+  - `oneway_rcsp.py`의 기존 `_min_cost_per_m()`은 `PathUtils.min_cost_length_ratio()`를 호출하는 래퍼로 정리(중복 로직 제거, 계산 결과는 동일)
+
+**`min_ratio`가 왜 여전히 필요한가**
+
+- 이 엔진들은 Dijkstra/A*(`oneway_shortest`)와 달리 **`custom_score`(안전·자연 등 블렌딩된 비용)를 weight로 그대로 쓴다** — distance-only로 바뀌지 않았다. `custom_score`는 `bonus`(안전·자연 가점)로 `length`보다 작아질 수 있어서, Haversine 직선거리를 보정 없이 그대로 휴리스틱으로 쓰면 admissible이 깨진다(실제로 `tests/unit/test_visited_nodes_penalty.py`에서 같은 유형의 회귀가 발견된 바 있다 — 위 "Haversine 휴리스틱의 admissibility 전제" 절 참고).
+- 실측(2026-08-23, 기준 그래프 노드 160,328개·엣지 223,927개): default 프로필 `min_ratio≈0.80`, safe+landmark 프로필 `min_ratio≈0.43` — 휴리스틱이 쓸모없어질 정도로 과도하게 깎이지는 않는다.
+
+**`oneway_plateau.py`는 대상에서 제외**
+
+- `nx.single_source_dijkstra`(정방향/역방향 트리 계산) 2곳은 그대로 유지했다 — A*는 "고정된 목적지 하나"를 향한 탐색 구조인데, Plateau 알고리즘은 출발지/도착지 각각에서 **전체 노드까지의 트리**를 구해 겹치는 지점을 찾는 방식이라 구조적으로 A*로 대체할 수 없다.
+
+**검증**
+
+- 코드를 직접 수정한 6개 모듈(`path_utils.py`, `oneway_beam.py`, `oneway_grasp.py`, `oneway_rcsp.py`, `oneway_alns.py`, `circular_alns.py`) + `connect_to()` 공유로 동작만 바뀐 3개(`circular_beam.py`, `circular_grasp.py`, `circular_rcsp.py`) + 변경 없음을 확인한 `oneway_plateau.py`까지 총 10개 모듈 전부 import 정상, 전체 `pytest tests/` 253 passed(기존 무관 실패 37건 외 회귀 없음)
+- 실제 프로덕션 규모 그래프(노드 160,328·엣지 223,927)에서 beam/grasp/rcsp/alns/plateau/circular_alns를 직접 실행 — 전부 `SUCCESS`, 서로 다른 알고리즘 간 거리 결과가 근접하게 일치함을 확인. 목표 거리가 실제로 달성 가능한 케이스에서도 정상 동작 확인.
+- **아직 확인 안 된 것**: 이 전환으로 beam/grasp/alns/rcsp의 실제 탐색 속도가 개선됐는지는 별도로 벤치마크하지 않았다(A*가 Dijkstra보다 느려지는 경우는 없지만, 휴리스틱이 `min_ratio`로 깎여 있어 개선폭은 `oneway_shortest`만큼 크지 않을 수 있다).
 
 ## Waypoint(경유지) 조합 엔진
 
