@@ -1,5 +1,5 @@
 import networkx as nx
-from typing import Optional
+from typing import List, Optional
 import logging
 
 from src.route_engine.engines.path_utils import PathUtils
@@ -33,7 +33,7 @@ class OnewayDijkstraEngine:
         self._weight_fn    = None
         self._score_lookup: dict = {}
 
-    def run(self) -> WalkRouteResponse:
+    def run(self) -> List[WalkRouteResponse]:
         """
         Dijkstra 최단 경로를 생성합니다.
         """
@@ -48,26 +48,26 @@ class OnewayDijkstraEngine:
 
         if start is None:
             logger.warning("출발 노드를 찾지 못했습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_START_NODE,
                 mode=self.mode, coordinates=[], total_km=0.0,
-            )
+            )]
 
         if end is None:
             logger.warning("도착 노드를 찾지 못했습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_END_NODE,
                 mode=self.mode, coordinates=[], total_km=0.0,
-            )
+            )]
 
         nodes = self.find_path(start, end)
 
         if not nodes:
             logger.warning("경로가 비어 있습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_PATH,
                 mode=self.mode, coordinates=[], total_km=0.0,
-            )
+            )]
 
         coords    = self.utils.extract_coordinates(nodes)
         total_m   = self.utils.calc_distance(nodes)
@@ -75,12 +75,12 @@ class OnewayDijkstraEngine:
 
         logger.info(f"total_km: {total_km}")
 
-        return WalkRouteResponse(
+        return [WalkRouteResponse(
             status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
             mode            = self.mode,
             coordinates     = coords,
             total_km        = total_km,
-        )
+        )]
 
     def find_path(self, start: int, end: int) -> list[int]:
         """

@@ -242,6 +242,34 @@ class PathUtils:
 
         return [path for _, path in selected]
 
+    @staticmethod
+    def min_cost_length_ratio(G: nx.Graph, cost_attr: str = "custom_score") -> float:
+        """
+        그래프 전체에서 (cost_attr / length)의 최솟값을 반환합니다.
+        Haversine 직선거리(m) × 이 값을 A* admissible heuristic으로 쓰면, cost_attr이
+        length보다 작아질 수 있는(custom_score처럼 안전·자연 등으로 할인되는) weight를
+        쓰더라도 휴리스틱이 실제 비용을 과대추정하지 않습니다.
+        """
+        return min(
+            (data.get(cost_attr, 1.0) or 1.0) / max(data.get("length", 1.0) or 1.0, 1e-6)
+            for _, _, data in G.edges(data=True)
+        )
+
+    def astar_path(self, source: int, target: int, weight, min_ratio: float = 1.0) -> list[int]:
+        """
+        nx.astar_path 래퍼 — Haversine 직선거리(min_ratio로 스케일)를 admissible heuristic으로
+        씁니다. weight가 length 그대로면 기본값(1.0)으로 충분합니다. custom_score처럼 length보다
+        작아질 수 있는 weight를 쓸 때는 min_cost_length_ratio(...)로 구한 값을 넘겨야
+        admissible이 유지됩니다(안 넘기면 A*가 최적이 아닌 경로를 반환할 수 있음).
+        경로가 없으면 nx.shortest_path와 동일하게 nx.NetworkXNoPath를 던집니다.
+        """
+        def _h(u, v, _min_ratio=min_ratio):
+            nu, nv = self.G.nodes[u], self.G.nodes[v]
+            return self._haversine_m(
+                nu.get("lat", 0), nu.get("lon", 0), nv.get("lat", 0), nv.get("lon", 0)
+            ) * _min_ratio
+        return nx.astar_path(self.G, source, target, heuristic=_h, weight=weight)
+
     def connect_to(
         self,
         nodes: list[int],
@@ -262,7 +290,9 @@ class PathUtils:
             return d.get("length", 1.0) * penalty
 
         try:
-            tail = nx.shortest_path(self.G, nodes[-1], target, weight=_weight)
+            # _weight의 기본값이 length(m) 그대로이고 revisit_penalty(≥1)는 비용을 늘리기만
+            # 하므로, Haversine 직선거리를 그대로 써도(min_ratio=1.0 기본값) admissible하다.
+            tail = self.astar_path(nodes[-1], target, weight=_weight)
         except nx.NetworkXNoPath:
             return None
         return nodes + tail[1:]  # 바깥 경로 + 연결 경로(중복 노드 제거)

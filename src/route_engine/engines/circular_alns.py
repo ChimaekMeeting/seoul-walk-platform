@@ -1,7 +1,7 @@
 import math
 import random
 import networkx as nx
-from typing import Optional
+from typing import List, Optional
 import logging
 
 from src.route_engine.engines.path_utils import PathUtils
@@ -47,8 +47,9 @@ class CircularAlnsEngine:
         self.weights       = merge_weights(profile_config.weights, custom_weights)
         self.blocked_tags  = profile_config.blocked_tags
         self.scoring_mode  = profile_config.scoring_mode
+        self._min_ratio    = 1.0  # find_path()가 실제 값으로 갱신함(A* 휴리스틱 스케일)
 
-    def run(self) -> WalkRouteResponse:
+    def run(self) -> List[WalkRouteResponse]:
         """
         순환 경로를 생성합니다.
         """
@@ -70,12 +71,12 @@ class CircularAlnsEngine:
         # 출발 노드가 없는 경우
         if start is None:
             logger.warning("출발 노드를 찾지 못했습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_START_NODE,
                 mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
-            )
+            )]
 
         # 경로 생성
         nodes = self.find_path(start, self.inp.target_km or 3.0)
@@ -83,12 +84,12 @@ class CircularAlnsEngine:
         # 경로가 없는 경우
         if not nodes:
             logger.warning("경로가 비어 있습니다.")
-            return WalkRouteResponse(
+            return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_PATH,
                 mode=self.mode,
                 coordinates=[],
                 total_km=0.0,
-            )
+            )]
 
         pruned   = self.utils.prune_dead_ends(nodes)       # 왕복 가지 제거
         coords   = self.utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
@@ -98,12 +99,12 @@ class CircularAlnsEngine:
         logger.info("경로 생성 완료: total_km=%.2f (target=%.2f), 노드=%d개",
                     total_km, self.inp.target_km or 3.0, len(nodes))
 
-        return WalkRouteResponse(
+        return [WalkRouteResponse(
             status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
             mode            = self.mode,
             coordinates     = coords,
             total_km        = total_km,
-        )
+        )]
 
     def find_path(self, start_node: int, target_km: float = 3.0) -> list[int]:
         """
@@ -111,6 +112,8 @@ class CircularAlnsEngine:
         """
         target_m = target_km * 1000  # 목표 거리를 미터 단위로 환산함
         rng = random.Random(self.seed)  # 엔진 전용 난수 인스턴스 → 재현성 보장
+        # destroy/repair 재연결(_repair_shortest/_repair_detour)의 A* 휴리스틱 스케일용으로 캐싱함
+        self._min_ratio = self.utils.min_cost_length_ratio(self.G)
 
         # 1단계: 출발지 → 반환점 (탐욕 구성)
         cost, nodes, dist, visited = self._find_start_to_waypoint(start_node, target_m)
@@ -279,7 +282,7 @@ class CircularAlnsEngine:
         """
         a_left, a_right = path[i - 1], path[j + 1]
         try:
-            rec = nx.shortest_path(self.G, a_left, a_right, weight="custom_score")
+            rec = self.utils.astar_path(a_left, a_right, weight="custom_score", min_ratio=self._min_ratio)
         except nx.NetworkXNoPath:
             return None
         return path[:i - 1] + rec + path[j + 2:]  # 접두부 + 재연결 + 접미부
@@ -294,7 +297,7 @@ class CircularAlnsEngine:
             return self._repair_shortest(path, i, j, rng)
         m = rng.choice(candidates)  # 경유지 1개 택
         try:
-            rec_tail = nx.shortest_path(self.G, m, a_right, weight="custom_score")
+            rec_tail = self.utils.astar_path(m, a_right, weight="custom_score", min_ratio=self._min_ratio)
         except nx.NetworkXNoPath:
             return self._repair_shortest(path, i, j, rng)
         rec = [a_left] + rec_tail  # aL → m → ... → aR
