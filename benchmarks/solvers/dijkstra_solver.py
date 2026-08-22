@@ -8,7 +8,7 @@ src/route_engine/engines/dijkstra.py (OnewayDijkstraEngine)ë¥¼ BasePathSolver ê·
 from benchmarks.solvers._oneway_engine_common import base_shortest_path_overlap_ratio
 from benchmarks.solvers.base_solver import BasePathSolver
 from src.route_engine.engines.dijkstra import OnewayDijkstraEngine
-from src.route_engine.scoring.scoring_engine import compute_custom_score_lookup
+from src.route_engine.scoring.scoring_engine import compute_distance_only_lookup
 from src.schema.route_schema import OnewayRouteInput
 import time
 
@@ -31,11 +31,7 @@ class OnewayDijkstraSolver(BasePathSolver):
             custom_weights=params.get("custom_weights"),
             profile=params.get("profile"),
         )
-        scored = compute_custom_score_lookup(engine.G, {
-            "mode": engine.scoring_mode,
-            "weights": engine.weights,
-            "blocked_tags": engine.blocked_tags,
-        })
+        scored = compute_distance_only_lookup(engine.G, engine.blocked_tags)
         engine._weight_fn    = scored["weight"]
         engine._score_lookup = scored["lookup"]
 

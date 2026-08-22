@@ -55,8 +55,8 @@ from benchmarks.solvers.plateau_solver import PlateauSolver
 from benchmarks.solvers.rcsp_solver import CircularRcspSolver, OnewayRcspSolver
 from benchmarks.solvers.astar_solver import OnewayAstarSolver
 from benchmarks.solvers.dijkstra_solver import OnewayDijkstraSolver
-from src.route_engine.engines.oneway_astar import precompute_landmarks
 from benchmarks.solvers.bi_astar_solver import OnewayBidirectionalAstarSolver
+from benchmarks.solvers.bi_dijkstra_solver import OnewayBidirectionalDijkstraSolver
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 logger = logging.getLogger(__name__)
@@ -88,6 +88,7 @@ SOLVER_REGISTRY: dict[str, BasePathSolver] = {
     "astar-oneway": OnewayAstarSolver(),
     "bi-astar-oneway": OnewayBidirectionalAstarSolver(),
     "dijkstra-oneway" : OnewayDijkstraSolver(),
+    "bi-dijkstra-oneway": OnewayBidirectionalDijkstraSolver(),
     "dummy-a": DummySolver(name="DummySolver-A", fake_delay_sec=0.05),
     "dummy-b": DummySolver(name="DummySolver-B", fake_delay_sec=0.1),
 }
@@ -461,8 +462,7 @@ def main():
     solvers = resolve_solvers(args.algo)
 
     if graph is not None and any(isinstance(s, OnewayAstarSolver) for s in solvers):
-        logger.info("랜드마크 전처리 중...")
-        precompute_landmarks(graph)
+        logger.info("스코어링 feature 캐시 전처리 중...")
         precompute_scoring_features(graph)
 
     result_df = run_benchmark(solvers, graph, start_node, target_node, params, timeout_sec=args.timeout)
