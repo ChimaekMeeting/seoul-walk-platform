@@ -1,7 +1,7 @@
 # 경로 생성 엔진
 
 > 상태: Current
-> 기준일: 2026-08-08
+> 기준일: 2026-08-23
 > 관련 코드: `src/route_engine/`
 
 경로 생성 엔진은 외부 API나 챗봇 처리와 분리된 경로 계산 영역입니다.
@@ -24,9 +24,9 @@
 - `circular_beam`(`CircularBeamEngine`)·`oneway_beam`(`OnewayBeamEngine`)·`oneway_astar`(`OnewayAstarEngine`)·`gps_art`(`GpsArtEngine`)·`waypoint`(`WaypointComposerEngine`) 5개 엔진의 `run()`은 모두 `List[WalkRouteResponse]`를 반환한다.
 - 이 중 `circular_beam`·`oneway_beam`·`oneway_astar`의 `find_path()`는 노드ID 경로 후보를 `list[list[int]]`로 감싸서 반환한다. `gps_art`·`waypoint`는 자체 `find_path()`가 없다 — 대신 다른 엔진들의 `run()` 결과를 조합(`WaypointComposerEngine`)하거나 그 조합에 위임(`GpsArtEngine`)해서 최종 경로를 만든다.
 - `circular_random`·`oneway_random`은 2026-08-07부터 최대 3개까지 벡터로 다양화한 후보를 반환한다(상세는 아래 "후보 다양화(벡터 score 기반)" 절 참고). `oneway_shortest`·GPS Art, 그리고 경유지 조합 중 다양화할 대안이 없는 경우(예: 모든 leg가 `oneway_shortest`)는 여전히 1개만 반환한다.
-- `oneway_shortest` 모드의 실제 사용 엔진은 `dijkstra.py`(`OnewayDijkstraEngine`)에서 `oneway_astar.py`(`OnewayAstarEngine`)로 교체되었다. 배경·현재 사용처는 바로 아래 "oneway_shortest 엔진: Dijkstra → A*(ALT) 교체" 절 참고.
+- `oneway_shortest` 모드의 실제 사용 엔진은 `dijkstra.py`(`OnewayDijkstraEngine`)에서 `oneway_astar.py`(`OnewayAstarEngine`)로 교체되었다. 배경·현재 사용처는 바로 아래 "oneway_shortest 엔진: 거리 전용(distance-only) weight + Haversine 휴리스틱" 절 참고.
 - `route_service.get_route()`도 같은 계약(`List[WalkRouteResponse]`)으로 반환한다. POI 조회는 성공한 후보 전부에 적용하고, `RouteHistory` 저장은 아직 대표 후보(리스트의 첫 번째)만 한다 — 사용자가 실제로 어떤 후보를 골랐는지 아직 API로 전달받지 않기 때문이며, 그 흐름이 생기면 선택된 후보를 저장하도록 바꿀 예정이다(`route_service.py`의 `TODO` 주석 참고). 리스트 전체는 그대로 반환한다.
-- `OnewayAstarEngine._heuristic`은 그래프 로드 시 `precompute_landmarks(G)`(`oneway_astar.py`)가 미리 채워둔 노드 속성 `landmark_dist`를 그대로 참조한다. 이 함수는 2026-08-07 이전까지 `benchmarks/*.py`에서만 호출됐고 `dependencies.init_route_service()`(실제 서버·스크립트 부팅 경로)에는 연결돼 있지 않아서, 그래프가 정상 로드돼도 `oneway_shortest`·GPS Art(내부적으로 `WaypointComposerEngine`을 거쳐 `OnewayAstarEngine`을 씀) 둘 다 A* 탐색 단계에서 `KeyError: 'landmark_dist'`로 실패했다(그래프 미로딩으로 인한 `NO_NEAREST_START_NODE`에 가려져 있다가 그래프 데이터 복구 후 GPS Art 실행 검증 중 드러남). `dependencies.py`의 `init_route_service()`에 `precompute_landmarks(G)` 호출을 추가해 수정했다(2026-08-07).
+- `OnewayAstarEngine._heuristic`은 2026-08-23부터 랜드마크 기반 ALT 방식이 아니라 Haversine 직선거리(`PathUtils._haversine_m`)를 쓴다. 이에 따라 `precompute_landmarks()`/`_select_landmarks()`/`landmark_dist` 노드 속성은 코드에서 전부 제거됐다 — 상세는 아래 "oneway_shortest 엔진: 거리 전용(distance-only) weight + Haversine 휴리스틱" 절 참고.
 
 ## 후보 다양화(벡터 score 기반)
 
@@ -37,7 +37,7 @@
 
 **벡터 score — `scoring_engine.py`**
 
-- `compute_score_vector(graph) -> {(u, v): {"safety": cost, "nature": cost, "slope": cost, "convenience": cost, "accessibility": cost}, ...}`를 추가했다. 기존 `calculate_custom_score`/`compute_custom_score_lookup`은 전혀 수정하지 않았다 — 그래서 A*(`oneway_astar.py`의 ALT `min_ratio`)·GRASP·ALNS·RCSP 등 이 스코어 함수를 공유하는 다른 엔진에는 영향이 없다.
+- `compute_score_vector(graph) -> {(u, v): {"safety": cost, "nature": cost, "slope": cost, "convenience": cost, "accessibility": cost}, ...}`를 추가했다. 기존 `calculate_custom_score`/`compute_custom_score_lookup`은 전혀 수정하지 않았다 — 그래서 A*(`oneway_astar.py`)·GRASP·ALNS·RCSP 등 이 스코어 함수를 공유하는 다른 엔진에는 영향이 없다(단, A*는 2026-08-23부터 weight/휴리스틱이 이 스코어 함수 자체를 안 쓰도록 바뀌었다 — 위 "oneway_shortest 엔진" 절 참고).
 - 각 차원 값은 `length * (1 - feature)`다. `feature`(0~1, 1이 가장 좋음)가 1이면 0, 0이면 그 edge의 `length` 전체가 비용이 된다 — `custom_score`처럼 경로를 따라 그대로 합산할 수 있고, 모든 차원이 이미 미터 단위라 추가 정규화 없이 비교 가능하다.
 - profile 가중치를 받지 않는다 — 대표 후보(아래 "후보 1")는 기존처럼 요청받은 profile의 가중 스칼라로 뽑고, 이 벡터는 나머지 후보를 가중치와 무관하게 다양화하는 용도로만 쓴다.
 
@@ -69,35 +69,44 @@
 
 **아직 확인 안 된 것**: 실제 그래프 규모에서 이 다양화가 실제로 서로 다른 "의미 있는" 3개(예: 정말 확연히 다른 동선)를 만들어내는지는 toy 그래프 검증까지만 했고, 실서비스 규모 그래프·프런트엔드 노출까지는 확인하지 않았다. `tests/`에 정식 회귀 테스트도 아직 없다.
 
-## oneway_shortest 엔진: Dijkstra → A*(ALT) 교체
+## oneway_shortest 엔진: 거리 전용(distance-only) weight + Haversine 휴리스틱
 
-**무엇이 바뀌었나**
+**무엇이 바뀌었나(2026-08-23)**
 
-- `route_service.py`의 `base_engines[WalkMode.ONEWAY_SHORTEST]`가 `dijkstra.py`(`OnewayDijkstraEngine`)에서 `oneway_astar.py`(`OnewayAstarEngine`)로 교체됐다(커밋 `6429ab1`, 2026-08-06). 같은 커밋에서 엔진들의 `run()` 반환 타입을 `List[WalkRouteResponse]`로 통일하는 리팩터도 함께 들어갔다.
-- A* 자체는 그 전에 `benchmarks/`(`astar_solver.py`)용으로 먼저 작성됐고(커밋 `8a2eb10`, 2026-08-02), 초기 휴리스틱을 랜드마크 기반 ALT 방식으로 교체한 뒤(커밋 `f9c96b0`, 2026-08-03) `route_service.py`에 연결됐다.
+- `OnewayDijkstraEngine`(`dijkstra.py`)·`OnewayAstarEngine`(`oneway_astar.py`)·`OnewayBidirectionalAstarEngine`(`oneway_bi_astar.py`)·`OnewayBidirectionalDijkstraEngine`(`oneway_bi_dijkstra.py`) 네 엔진 모두 weight 계산이 `scoring_engine.py`의 `compute_distance_only_lookup(graph, blocked_tags)`로 바뀌었다(또는 처음부터 이걸로 신설됐다). 기존 `compute_custom_score_lookup`(안전·자연·평지 등을 블렌딩한 `custom_score`) 대신 **거리(length)만** weight로 쓰고, `blocked_tags`에 해당하는 edge만 `inf`로 차단한다. `bonus`/`slope_penalty`/`caution_penalty`/`comfort_penalty`는 전혀 반영하지 않는다.
+- `OnewayAstarEngine._heuristic`은 랜드마크 기반 ALT 방식 대신 **Haversine 직선거리**(`PathUtils._haversine_m`)를 쓴다. weight가 거리(length) 그대로이므로 직선거리 ≤ 실제 도로망 거리(삼각부등식)가 항상 성립해 별도 보정(`min_ratio`) 없이 admissible하다.
+- `OnewayBidirectionalAstarEngine`은 `OnewayAstarEngine`을, `OnewayBidirectionalDijkstraEngine`(신설, 2026-08-23)은 `OnewayDijkstraEngine`을 상속하고 `find_path()`만 각각 양방향 탐색(`_bidirectional_astar_path` / `nx.bidirectional_dijkstra`)으로 교체하는 구조라, 둘 다 `run()`을 오버라이드하지 않는다 — weight/휴리스틱 변경이 별도 수정 없이 그대로 상속·적용된다.
+- `precompute_landmarks()`/`_select_landmarks()`/`landmark_dist` 노드 속성은 코드에서 전부 제거됐다(`oneway_astar.py`, `dependencies.py`의 `init_route_service()`, `benchmarks/benchmark.py`, `benchmarks/run_all_scenarios.py`).
+- 설계 배경·검토한 대안(전부 weight 0 vs weight를 length로 완전 대체 vs 채택된 절충안), 양방향 Dijkstra 신설 경위는 [route_engine 최단 경로 가중치 거리 전용 전환 제안](../proposals/route_engine_shortest_weight_distance_only_proposal.md) 참고.
 
-**왜 A*(ALT)인가 — 휴리스틱 구조**
+**Haversine 휴리스틱의 admissibility 전제 — 새 테스트 그래프를 만들 때 주의**
 
-- `precompute_landmarks(G)`(`oneway_astar.py`)가 그래프 경계 근방 8개 지점을 랜드마크로 선정하고(`_select_landmarks`: 위도·경도 극값 + 대각 극값 4개), 각 랜드마크에서 전체 노드까지 `length`(profile 무관 실거리) 기준 Dijkstra 최단거리를 미리 계산해 노드 속성 `landmark_dist`(랜드마크별 거리 리스트)에 저장한다.
-- `_heuristic(node, target)`은 두 노드의 `landmark_dist` 차이 중 최댓값(삼각부등식 하한, ALT의 핵심 아이디어)에 그래프 전체의 최소 cost/length 비율(`_min_ratio`)을 곱해 반환한다 — profile 가중치가 걸린 비용 함수에 대해서도 admissible(과대추정하지 않음)하도록 스케일을 맞추는 부분이다.
-- Dijkstra(`dijkstra.py`)는 이런 휴리스틱 없이 `nx.shortest_path`(사실상 Dijkstra)로 균일하게 탐색한다 — 정보 없는 탐색이라 A*보다 더 많은 노드를 방문하는 경향이 있지만, 별도의 사전 계산(랜드마크·`landmark_dist`)이 필요 없다는 차이가 있다.
+- Haversine 휴리스틱이 admissible하려면 **모든 edge의 declared `length`가 그 edge 양 끝 노드의 실제 좌표 간 직선거리 이상**이어야 한다(직선이 두 점 사이 최단 경로이므로, 도로가 직선보다 짧을 수는 없다는 물리적 전제). 실제 production 그래프(OSM/Kakao 도로망)는 이 전제를 자연스럽게 만족할 것으로 예상하지만 실측 확인은 안 했다.
+- 좌표와 `length`를 서로 무관하게 임의로 정하는 합성 테스트 그래프(toy graph)는 이 전제를 쉽게 어길 수 있다 — 실제로 `tests/unit/test_visited_nodes_penalty.py`의 `diamond_graph` fixture가 이 문제로 `OnewayAstarEngine`이 더 긴 경로를 반환하는 회귀를 냈다가 수정됐다(2026-08-23, 좌표를 모든 length보다 훨씬 작은 범위로 재조정). 새 toy graph를 만들 때는 노드 좌표 차이를 declared length보다 충분히 작게 잡아 이 문제를 피해야 한다.
 
-**`OnewayDijkstraEngine`의 현재 상태 — production에서는 죽은 코드**
+**이전 방식(A*(ALT))과의 차이 — 왜 바뀌었나**
 
-- `route_service.py`·`waypoint.py`(`_LEG_ENGINES`)·`gps_art.py` 등 실제 요청을 처리하는 코드 경로 어디에서도 더 이상 `OnewayDijkstraEngine`을 참조하지 않는다.
-- `benchmarks/solvers/dijkstra_solver.py`(A*와 나란히 비교하기 위한 baseline)·`benchmarks/benchmark.py`의 `SOLVER_REGISTRY`·`benchmarks/run_all_scenarios.py`의 `ONEWAY_ALGOS` 목록에서만 여전히 쓰인다.
-- `tests/`에는 `OnewayDijkstraEngine`을 다루는 테스트가 하나도 없다 — 회귀 검증 없이 benchmark 용도로만 유지되는 상태다.
-- **알려진 불일치**: `OnewayDijkstraEngine.run()`은 아직도 `WalkRouteResponse`를 리스트가 아닌 단일 값으로 반환한다 — 2026-08-06 리팩터 때 형제 엔진(`CircularBeamEngine`/`OnewayBeamEngine`/`OnewayAstarEngine`)은 전부 `List[WalkRouteResponse]`로 맞췄지만 `dijkstra.py`는 함께 수정되지 않았다. 지금은 어디서도 호출하지 않아 문제가 없지만, 나중에 이 엔진을 다시 연결하면 `results[0]` 언패킹 코드와 그대로 충돌한다.
+- 이전에는 A*가 `custom_score`(profile 가중치가 걸린 비용)를 최소화했고, 휴리스틱도 그에 맞춰 랜드마크 기반 실거리 추정(`landmark_dist`)에 `min_ratio`(그래프 전체 최소 cost/length 비율) 보정을 곱해 admissible을 유지했다.
+- 최단 경로류 엔진(Dijkstra/A*/양방향 A*)의 목적을 "profile 가중치와 무관하게 순수 거리 기준 최단 경로"로 좁히면서, `custom_score` 계산 자체가 필요 없어졌고 — 그에 따라 랜드마크 기반 보정도 함께 불필요해졌다. 거리(길이)와 weight가 같은 값이므로 Haversine 직선거리가 그대로 admissible 하한이 된다.
+- 다른 엔진(`beam`/`grasp`/`alns`/`rcsp`/`plateau`, `circular_*` 계열)은 이번 변경 대상이 아니며 여전히 `calculate_custom_score` 기반 블렌딩 비용을 쓴다.
 
-**부팅 시 필수 의존성**
+**`OnewayDijkstraEngine`·`OnewayBidirectionalDijkstraEngine`의 현재 상태 — production에서는 죽은 코드**
 
-- A*를 쓰려면 그래프 로드 직후 `precompute_landmarks(G)`가 반드시 호출되어 `landmark_dist`가 채워져 있어야 한다(안 하면 `KeyError: 'landmark_dist'`) — 이 부팅 배선 버그와 수정 내역은 위 [Engine 반환 계약](#engine-반환-계약) 항목에서 다룬다.
+- `route_service.py`·`waypoint.py`(`_LEG_ENGINES`)·`gps_art.py` 등 실제 요청을 처리하는 코드 경로 어디에서도 `OnewayDijkstraEngine`·`OnewayBidirectionalDijkstraEngine`을 참조하지 않는다. `OnewayBidirectionalDijkstraEngine`(2026-08-23 신설)도 처음부터 이 상태로 추가됐다 — `route_service.py`/`src/route_engine/engines/__init__.py`에 연결하지 않았다.
+- `benchmarks/solvers/{dijkstra,bi_dijkstra}_solver.py`(A*와 나란히 비교하기 위한 baseline)·`benchmarks/benchmark.py`의 `SOLVER_REGISTRY`·`benchmarks/run_all_scenarios.py`의 `ONEWAY_ALGOS` 목록에서만 쓰인다.
+- `tests/`에는 이 둘을 다루는 테스트가 하나도 없다 — 회귀 검증 없이 benchmark 용도로만 유지되는 상태다.
+- **알려진 불일치**: `OnewayDijkstraEngine.run()`은 아직도 `WalkRouteResponse`를 리스트가 아닌 단일 값으로 반환한다 — 2026-08-06 리팩터 때 형제 엔진(`CircularBeamEngine`/`OnewayBeamEngine`/`OnewayAstarEngine`)은 전부 `List[WalkRouteResponse]`로 맞췄지만 `dijkstra.py`는 함께 수정되지 않았다. `OnewayBidirectionalDijkstraEngine`은 `run()`을 상속만 하므로 이 불일치도 그대로 물려받는다. 지금은 어디서도 호출하지 않아 문제가 없지만, 나중에 이 엔진들을 다시 연결하면 `results[0]` 언패킹 코드와 그대로 충돌한다.
+
+**벤치마크 solver도 동일하게 갱신됨(2026-08-23)**
+
+- `benchmarks/solvers/{dijkstra,astar,bi_astar,bi_dijkstra}_solver.py`는 `engine.run()`을 호출하지 않고 weight 계산 로직을 자체적으로 복제해서 쓴다(단계별 시간 측정 목적). 네 solver 모두 `compute_distance_only_lookup(engine.G, engine.blocked_tags)`를 쓰고(`bi_dijkstra_solver.py`는 처음부터 이걸로 작성됨), `astar_solver.py`/`bi_astar_solver.py`의 `engine._min_ratio = ...` 대입(더 이상 존재하지 않는 필드)도 제거해 weight와 `_heuristic`(Haversine)의 전제가 다시 일치한다.
+- `benchmarks/runner/test_oneway_shortest_path.py`도 같은 기준으로 갱신했다 — `scoring_engine.py`나 실제 엔진 클래스를 참조하지 않고 자체 재구현하는 구조는 유지하되, weight/heuristic 계산을 production과 동일하게(weight=length(m), heuristic=Haversine 직선거리(m)) 맞췄다. `PROFILE_WEIGHTS`/`compute_custom_score`/`compute_min_ratio`는 삭제했고(profile 블렌딩이 사라졌으므로), `haversine_km`(km)를 `haversine_m`(m)으로 바꿔 `length`(m)와 단위를 맞췄다.
 
 **벤치마크 — 저장소에 커밋된 비교 수치는 없음**
 
 - `benchmarks/runner/test_oneway_shortest_path.py`가 Dijkstra·양방향 Dijkstra·A*의 경로 비용 일치성과 지연시간을 비교하도록 만들어져 있다(`LATENCY_REPEAT`만큼 반복 측정 후 `benchmarks/results/oneway_shortest_path/bidir_astar_latency.csv`에 기록). 이 CSV는 로컬 실행 시에만 생성되며 저장소에는 커밋돼 있지 않다 — 즉 "A*가 실제로 더 빠르다/경로 품질이 같다"는 수치는 이 문서 작성 시점 기준 재현된 적이 없다.
 - `benchmarks/run_all_scenarios.py`도 `dijkstra-oneway`를 시나리오 비교 대상에 포함하지만, `oneway_shortest`/`oneway_astar`/`dijkstra-oneway`는 모두 `target_km`을 무시하는 순수 최단경로 알고리즘이라 이 스크립트가 계산하는 거리 이탈(`distance_deviation_km`) 지표는 편도 우회(`oneway_random`) 계열 solver와 직접 비교할 수 없다(스크립트 자체 주석에 명시).
-- **아직 확인 안 된 것**: 실제 그래프 규모에서 Dijkstra 대비 A*(ALT)의 속도·품질 개선폭. 위 benchmark 스크립트를 로컬에서 실행해 수치를 남기기 전까지는 "왜 이 교체가 유의미한가"를 정량적으로 뒷받침하는 근거가 없다.
+- **아직 확인 안 된 것**: 실제 그래프 규모에서 Dijkstra 대비 A*(Haversine 휴리스틱)의 속도·품질 개선폭. 위 benchmark 스크립트를 로컬에서 실행해 수치를 남기기 전까지는 "왜 이 교체가 유의미한가"를 정량적으로 뒷받침하는 근거가 없다.
 
 ## Waypoint(경유지) 조합 엔진
 

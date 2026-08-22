@@ -1,7 +1,9 @@
 """
 benchmarks/runner/test_oneway_shortest_path.py
 
-현재 Dijkstra vs Bidirectional Dijkstra vs A* 속도 비교 테스트
+Dijkstra vs Bidirectional Dijkstra vs A* 속도 비교 테스트 (거리 전용 weight 기준, 2026-08-23)
+- production 엔진(dijkstra.py/oneway_astar.py/oneway_bi_astar.py)과 동일하게
+  weight=length(m), A* heuristic=Haversine 직선거리(m)를 쓴다 — profile 가중치 블렌딩은 없다.
 - benchmarks/config.py 의 상수를 그대로 사용
 - oneway 테스트 케이스만 대상으로 함 (편도 최단경로 문제)
 - 실행: python -m benchmarks.runner.test_oneway_shortest_path
@@ -26,71 +28,18 @@ from benchmarks.config import (
 from src.route_engine.engines.path_utils import PathUtils
 
 # ────────────────────────────────────────────────
-# 1. 프로필별 가중치 — profiles.py PROFILES 딕셔너리 기준
-#    "mode": "general" | "running" 은 scoring_engine의 분기 키
+# 1. weight/heuristic — production 엔진(scoring_engine.compute_distance_only_lookup,
+#    oneway_astar.OnewayAstarEngine._heuristic)과 동일하게 거리(length, m)만 쓴다.
+#    profile 가중치 블렌딩은 더 이상 반영하지 않는다.
 # ────────────────────────────────────────────────
-PROFILE_WEIGHTS = {
-    "default":  {"safety": 0.5, "nature": 0.5, "slope": 0.5, "landmark": 0.0, "child": 0.0, "running": 0.0, "mode": "general"},
-    "nature":   {"safety": 0.5, "nature": 0.8, "slope": 0.5, "landmark": 0.0, "child": 0.0, "running": 0.0, "mode": "general"},
-    "safe":     {"safety": 0.8, "nature": 0.5, "slope": 0.5, "landmark": 0.0, "child": 0.0, "running": 0.0, "mode": "general"},
-    "flat":     {"safety": 0.5, "nature": 0.5, "slope": 0.8, "landmark": 0.0, "child": 0.0, "running": 0.0, "mode": "general"},
-    "running":  {"safety": 0.5, "nature": 0.5, "slope": 0.5, "landmark": 0.0, "child": 0.0, "running": 0.8, "mode": "running"},
-    "landmark": {"safety": 0.5, "nature": 0.5, "slope": 0.5, "landmark": 0.8, "child": 0.0, "running": 0.0, "mode": "general"},
-    "child":    {"safety": 0.5, "nature": 0.5, "slope": 0.5, "landmark": 0.0, "child": 0.8, "running": 0.0, "mode": "general"},
-}
+def distance_weight(u, v, edge_data: dict) -> float:
+    """scoring_engine.py compute_distance_only_lookup과 동일한 공식(m 단위)."""
+    return max(1.0, float(edge_data.get("length", 1.0) or 1.0))
 
 
-def compute_custom_score(edge_data: dict, weights: dict) -> float:
-    """
-    scoring_engine.py calculate_custom_score 공식과 동일.
-
-    general 모드:
-        score = (length × (2 - slope)^slope_w) / (safety^a × nature^b × bonus)
-        bonus = (1 + landmark × landmark_w) × (1 + child × child_w)  [weight > 0 시만]
-
-    running 모드:
-        score = (length × (1 + slope × slope_w)) /
-                (safety × nature × (1 + running × running_w) × (1 + log1p(length/50)))
-    """
-    mode = weights.get("mode", "general")
-
-    length = edge_data.get("length", 1.0) or 1.0
-    # 실제 코드와 동일하게 [0, 1] 클램핑 + None/0 → 기본값 0.5
-    safety = max(0.0, min(1.0, edge_data.get("safety_score",  0.5) or 0.5))
-    nature = max(0.0, min(1.0, edge_data.get("nature_score",  0.5) or 0.5))
-    slope  = max(0.0, min(1.0, edge_data.get("slope_score",   0.5) or 0.5))
-
-    safety_w   = weights["safety"]
-    nature_w   = weights["nature"]
-    slope_w    = weights["slope"]
-    landmark_w = weights.get("landmark", 0.0)
-    child_w    = weights.get("child",    0.0)
-    running_w  = weights.get("running",  0.0)
-
-    if mode == "running":
-        running      = max(0.0, min(1.0, edge_data.get("running_score", 0.0) or 0.0))
-        running_bonus = 1.0 + running * running_w
-        slope_factor  = 1.0 + slope * slope_w
-        length_bonus  = 1.0 + math.log1p(length / 50.0)
-        calculated    = (length * slope_factor) / (
-            (safety + 1e-6) * (nature + 1e-6) * running_bonus * length_bonus
-        )
-    else:
-        slope_penalty = (2.0 - slope) ** slope_w
-        denominator   = (safety + 1e-6) ** safety_w * (nature + 1e-6) ** nature_w
-        # landmark/child는 지수승이 아닌 가산 보너스 (scoring_engine.py 참조)
-        if landmark_w > 0:
-            denominator *= 1.0 + edge_data.get("landmark_score", 0.0) * landmark_w
-        if child_w > 0:
-            denominator *= 1.0 + edge_data.get("child_score", 0.0) * child_w
-        calculated    = (length * slope_penalty) / denominator
-
-    return max(1.0, calculated)
-
-
-def haversine_km(lat1, lon1, lat2, lon2) -> float:
-    """A* heuristic 및 노드 매칭에 쓰는 직선거리(km)"""
-    R = 6371.0
+def haversine_m(lat1, lon1, lat2, lon2) -> float:
+    """A* heuristic 및 노드 매칭에 쓰는 직선거리(m). PathUtils._haversine_m과 동일 공식."""
+    R = 6371000.0
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
@@ -109,41 +58,16 @@ def load_graph() -> nx.Graph:
     for row in nodes_df.itertuples():
         G.add_node(row.node_id, lat=row.lat, lon=row.lon)
     for row in edges_df.itertuples():
-        G.add_edge(
-            row.u, row.v,
-            length=row.length,
-            safety_score=getattr(row, "safety_score", 0.0),
-            nature_score=getattr(row, "nature_score", 0.0),
-            landmark_score=getattr(row, "landmark_score", 0.0),
-            child_score=getattr(row, "child_score", 0.0),
-        )
+        G.add_edge(row.u, row.v, length=row.length)
     return G
 
 
-def build_weight_fn(profile: str):
-    weights = PROFILE_WEIGHTS[profile]
-
-    def weight_fn(u, v, edge_data):
-        return compute_custom_score(edge_data, weights)
-
-    return weight_fn
-
-
-def compute_min_ratio(G: nx.Graph, profile: str) -> float:
-    """프로필별 (비용/거리) 최솟값 → A* heuristic admissibility 보장"""
-    weights = PROFILE_WEIGHTS[profile]
-    return min(
-        compute_custom_score(data, weights) / max(data.get("length", 1.0), 1e-6)
-        for _, _, data in G.edges(data=True)
-    )
-
-
-def astar_heuristic_fn(G: nx.Graph, min_cost_per_km: float):
-    """admissible heuristic: 직선거리(km) × 프로필별 최소 비용/km"""
+def astar_heuristic_fn(G: nx.Graph):
+    """admissible heuristic: 직선거리(m). weight가 length(m) 그대로이므로 별도 보정이 필요 없다."""
     def h(u, v):
         lat1, lon1 = G.nodes[u]["lat"], G.nodes[u]["lon"]
         lat2, lon2 = G.nodes[v]["lat"], G.nodes[v]["lon"]
-        return haversine_km(lat1, lon1, lat2, lon2) * min_cost_per_km
+        return haversine_m(lat1, lon1, lat2, lon2)
     return h
 
 
@@ -202,18 +126,14 @@ def main():
     oneway_cases = [c for c in scenarios if c["mode"] == "oneway"]
     print(f"oneway 테스트 케이스 {len(oneway_cases)}개 대상으로 진행")
 
+    # weight/heuristic이 더 이상 profile에 의존하지 않으므로 루프 밖에서 한 번만 계산한다.
+    weight_fn = distance_weight
+    heuristic = astar_heuristic_fn(G)
+
     cost_mismatches = []
     rows = []
     for case in oneway_cases:
-        profile = case["profile"]
-        if profile not in PROFILE_WEIGHTS:
-            print(f"[{case['id']}] 프로필 '{profile}'은 이번 테스트 대상 아님 (skip)")
-            continue
-
-        weight_fn  = build_weight_fn(profile)
-        # A* heuristic admissibility: 프로필별 min(비용/km) 사용
-        min_ratio  = compute_min_ratio(G, profile)
-        heuristic  = astar_heuristic_fn(G, min_ratio)
+        profile = case["profile"]  # 결과 기록용으로만 남김 — weight/heuristic에는 더 이상 영향 없음
 
         start_node = find_nearest_node(utils, case["start_lat"], case["start_lon"])
         end_node   = find_nearest_node(utils, case["end_lat"],   case["end_lon"])

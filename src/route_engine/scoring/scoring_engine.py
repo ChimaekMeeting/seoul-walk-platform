@@ -190,6 +190,31 @@ def compute_custom_score_lookup(graph: nx.Graph, profile: dict) -> dict:
     return {"weight": _weight, "lookup": lookup, "min_ratio": min_ratio}
 
 
+def compute_distance_only_lookup(graph: nx.Graph, blocked_tags: list[str] | None = None) -> dict:
+    """
+    custom_score 블렌딩(safety/nature/slope/comfort_penalty 등) 없이 거리(length)만
+    weight로 쓴다. blocked_tags에 해당하는 edge만 inf로 차단하고, 나머지는 length 그대로.
+
+    반환: {"weight": callable(u, v, data) -> float, "lookup": {(u, v): float, ...}}
+    """
+    cache = _get_feature_cache(graph)
+    blocked_tags = blocked_tags or []
+
+    lookup: dict[tuple, float] = {}
+    for i, (u, v) in enumerate(cache["edge_keys"]):
+        if blocked_tags and any(tag in cache["tags_list"][i] for tag in blocked_tags):
+            cost = float("inf")
+        else:
+            cost = float(cache["length"][i])
+        lookup[(u, v)] = cost
+        lookup[(v, u)] = cost
+
+    def _weight(u, v, d, _lookup=lookup):
+        return _lookup.get((u, v), 1.0)
+
+    return {"weight": _weight, "lookup": lookup}
+
+
 def compute_score_vector(graph: nx.Graph) -> dict[tuple, dict[str, float]]:
     """
     완성된 후보 경로들을 다양화하기 위한 edge별 벡터 비용을 계산한다.

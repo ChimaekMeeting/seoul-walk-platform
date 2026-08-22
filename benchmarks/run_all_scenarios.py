@@ -19,10 +19,9 @@ from benchmarks.benchmark import (
     SOLVER_REGISTRY,
 )
 from src.route_engine.engines.path_utils import PathUtils
-from src.route_engine.engines.oneway_astar import precompute_landmarks
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
-ONEWAY_ALGOS   = ["astar-oneway", "dijkstra-oneway", "bi-astar-oneway", "beam-oneway", "grasp-oneway", "alns-oneway", "rcsp-oneway", "plateau"]
+ONEWAY_ALGOS   = ["astar-oneway", "dijkstra-oneway", "bi-astar-oneway", "bi-dijkstra-oneway", "beam-oneway", "grasp-oneway", "alns-oneway", "rcsp-oneway", "plateau"]
 CIRCULAR_ALGOS = ["beam-circular", "grasp-circular", "alns-circular", "rcsp-circular"]
 
 _POOL_GRAPH = None  # 워커 프로세스 전역 — 워커당 1번만 채워짐(그래프 재전송 없음)
@@ -32,7 +31,6 @@ def _pool_worker_init():
     """워커 프로세스 시작 시 1회만 실행 — 그래프를 이 워커 메모리 안에 준비."""
     global _POOL_GRAPH
     _POOL_GRAPH = _load_default_graph()
-    precompute_landmarks(_POOL_GRAPH)
     precompute_scoring_features(_POOL_GRAPH)
 
 

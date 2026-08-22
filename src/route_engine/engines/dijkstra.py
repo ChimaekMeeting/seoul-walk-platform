@@ -10,7 +10,7 @@ from src.interfaces.schema.walk_schema import (
     WalkRouteResponse
 )
 from src.schema.route_schema import OnewayRouteInput, Weights
-from src.route_engine.scoring.scoring_engine import compute_custom_score_lookup
+from src.route_engine.scoring.scoring_engine import compute_distance_only_lookup
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +39,7 @@ class OnewayDijkstraEngine:
         """
         logger.info(f"최단 경로 생성 엔진을 시작합니다: scoring_mode={self.scoring_mode}, weights={self.weights}")
 
-        scored = compute_custom_score_lookup(self.G, {
-            "mode": self.scoring_mode,
-            "weights": self.weights,
-            "blocked_tags": self.blocked_tags,
-        })
+        scored = compute_distance_only_lookup(self.G, self.blocked_tags)
         self._weight_fn    = scored["weight"]
         self._score_lookup = scored["lookup"]
 
@@ -100,7 +96,7 @@ class OnewayDijkstraEngine:
             return []
 
     def path_cost(self, path: list[int]) -> float:
-        """경로(노드 리스트)의 누적 custom_score. 벤치마크 solver의 cost 계산용."""
+        """경로(노드 리스트)의 누적 거리(m). 경로에 blocked edge가 있으면 inf. 벤치마크 solver의 cost 계산용."""
         return sum(
             self._score_lookup.get((path[i], path[i + 1]), 1.0)
             for i in range(len(path) - 1)

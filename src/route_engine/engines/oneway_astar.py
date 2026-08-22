@@ -10,7 +10,7 @@ from src.interfaces.schema.walk_schema import (
     WalkRouteResponse
 )
 from src.schema.route_schema import OnewayRouteInput, Weights
-from src.route_engine.scoring.scoring_engine import compute_custom_score_lookup
+from src.route_engine.scoring.scoring_engine import compute_distance_only_lookup
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,6 @@ class OnewayAstarEngine:
         self.scoring_mode  = profile_config.scoring_mode
         self._weight_fn    = None
         self._score_lookup: dict = {}
-        self._min_ratio    = 1.0
         # WaypointComposerEngine이 leg 간 경로 겹침을 페널티로 방지할 때 채워줌. 기본(빈 set)이면 기존 동작과 동일.
         self.visited_nodes = visited_nodes or set()
         self.last_path_nodes: list[int] = []  # 가장 최근 run()이 실제로 사용한 노드열(WaypointComposerEngine이 다음 leg의 visited_nodes 누적에 사용)
@@ -48,14 +47,9 @@ class OnewayAstarEngine:
         """
         logger.info(f"최단 경로 생성 엔진(A*)을 시작합니다: scoring_mode={self.scoring_mode}, weights={self.weights}")
 
-        scored = compute_custom_score_lookup(self.G, {
-            "mode": self.scoring_mode,
-            "weights": self.weights,
-            "blocked_tags": self.blocked_tags,
-        })
+        scored = compute_distance_only_lookup(self.G, self.blocked_tags)
         self._weight_fn    = scored["weight"]
         self._score_lookup = scored["lookup"]
-        self._min_ratio    = scored["min_ratio"]
 
         # 출발 노드와 도착 노드 탐색
         start = self.utils.find_nearest_node(self.inp.start_lat, self.inp.start_lon)
@@ -126,7 +120,7 @@ class OnewayAstarEngine:
             return []
 
     def path_cost(self, path: list[int]) -> float:
-        """경로(노드 리스트)의 누적 custom_score. 벤치마크 solver의 cost 계산용."""
+        """경로(노드 리스트)의 누적 거리(m). 경로에 blocked edge가 있으면 inf. 벤치마크 solver의 cost 계산용."""
         return sum(
             self._score_lookup.get((path[i], path[i + 1]), 1.0)
             for i in range(len(path) - 1)
@@ -134,38 +128,10 @@ class OnewayAstarEngine:
 
     def _heuristic(self, node: int, target: int) -> float:
         """
-        A* 휴리스틱: 랜드마크 삼각부등식 기반 도로망거리 추정 × 최소 비용/거리 비율.
+        A* 휴리스틱: 두 좌표 사이의 Haversine 직선거리(m).
+        weight가 거리(length) 그대로이므로 직선거리 ≤ 실제 도로망 거리(삼각부등식)가
+        항상 성립해 별도 보정(min_ratio) 없이 admissible하다.
         """
-        d_node   = self.G.nodes[node]["landmark_dist"]
-        d_target = self.G.nodes[target]["landmark_dist"]
-        network_est = max(abs(a - b) for a, b in zip(d_node, d_target))
-        return network_est * self._min_ratio
-
-
-def precompute_landmarks(G: nx.Graph) -> None:
-    """
-    그래프 경계 근처 8개 노드를 랜드마크로 선정하고, 각 랜드마크에서 전체 노드까지의
-    실제 도로망 거리(m, length 기준 — 프로필 무관)를 미리 계산해 노드 속성에 저장합니다.
-    그래프 로드 시 한 번만 호출하면 되고, 프로필이 달라져도 재계산할 필요 없습니다.
-    """
-    landmarks = _select_landmarks(G)
-    for lm in landmarks:
-        dist = nx.single_source_dijkstra_path_length(G, lm, weight="length")
-        for node in G.nodes:
-            G.nodes[node].setdefault("landmark_dist", []).append(dist.get(node, float("inf")))
-    G.graph["landmark_nodes"] = landmarks
-
-
-def _select_landmarks(G: nx.Graph) -> list[int]:
-    """
-    위도/경도 극값(동서남북 + 대각선 4방향) 근처 노드를 랜드마크로 선정합니다.
-    """
-    nodes = list(G.nodes(data=True))
-    by_lat = sorted(nodes, key=lambda nd: nd[1].get("lat", 0))
-    by_lon = sorted(nodes, key=lambda nd: nd[1].get("lon", 0))
-    candidates = {by_lat[0][0], by_lat[-1][0], by_lon[0][0], by_lon[-1][0]}
-    candidates.add(min(nodes, key=lambda nd: nd[1].get("lat", 0) + nd[1].get("lon", 0))[0])
-    candidates.add(max(nodes, key=lambda nd: nd[1].get("lat", 0) + nd[1].get("lon", 0))[0])
-    candidates.add(max(nodes, key=lambda nd: nd[1].get("lat", 0) - nd[1].get("lon", 0))[0])
-    candidates.add(min(nodes, key=lambda nd: nd[1].get("lat", 0) - nd[1].get("lon", 0))[0])
-    return list(candidates)
+        n = self.G.nodes[node]
+        t = self.G.nodes[target]
+        return self.utils._haversine_m(n.get("lat", 0), n.get("lon", 0), t.get("lat", 0), t.get("lon", 0))
