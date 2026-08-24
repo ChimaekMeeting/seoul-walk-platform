@@ -1,7 +1,7 @@
 from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import BigInteger, Boolean, Float, Index, String, text
+from sqlalchemy import BigInteger, Boolean, Float, Index, text
 
 
 class WalkEdge(Base):
@@ -25,66 +25,11 @@ class WalkEdge(Base):
         BigInteger,
         nullable=False
     )
-    raw_link_type_code: Mapped[str] = mapped_column(
-        String(4),
-        nullable=False,
-    )
-    allows_pedestrian: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
-    allows_vehicle: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
-    allows_bicycle: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
-    allows_pm: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
-    is_walkable: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
-    raw_is_elevated: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
-    raw_is_subway_network: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
-    raw_is_bridge: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
-    raw_is_tunnel: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
-    raw_is_overpass: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
-    raw_is_crosswalk: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
-    raw_is_park_green: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
-    raw_is_building_inside: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-    )
     length_m: Mapped[float] = mapped_column(
         Float,
         nullable=True
     )
+    '''
     safety_score: Mapped[float] = mapped_column(
         Float,
         server_default="0.0"
@@ -92,12 +37,6 @@ class WalkEdge(Base):
     nature_score: Mapped[float] = mapped_column(
         Float,
         server_default="0.0"
-    )
-    park_overlap_ratio: Mapped[float] = mapped_column(
-        Float,
-        nullable=False,
-        server_default="0.0",
-        comment="Edge 길이 중 서울시 공원 Polygon 내부에 포함되는 비율(0.0~1.0)",
     )
     slope_score: Mapped[float] = mapped_column(
         Float,
@@ -114,6 +53,12 @@ class WalkEdge(Base):
     child_score: Mapped[float] = mapped_column(
         Float,
         server_default="0.0"
+    )
+    park_overlap_ratio: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        server_default="0.0",
+        comment="Edge 길이 중 서울시 공원 Polygon 내부에 포함되는 비율(0.0~1.0)",
     )
     convenience_score: Mapped[float] = mapped_column(
         Float,
@@ -132,7 +77,8 @@ class WalkEdge(Base):
         nullable=False,
         server_default="false",
         comment="차량 주의가 필요한 어린이보호구역 인접 Edge",
-    )
+    )  
+    '''
     geom = mapped_column(
         Geometry("LINESTRING", srid=4326, spatial_index=True),
         nullable=False

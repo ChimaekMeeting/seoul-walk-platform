@@ -33,7 +33,7 @@ def init_table():
     """
     DB_AUTO_MIGRATE 설정에 따라 스키마를 동기화합니다.
 
-    full   (기본): CREATE TABLE + ADD COLUMN + DROP COLUMN
+    full   (기본): CREATE TABLE + ADD COLUMN + DROP COLUMN + 누락 인덱스 생성
     create (프로덕션 권장): CREATE TABLE + ADD COLUMN 만 허용 — DROP 차단
     off    : 스키마 변경 없음, init_table 전체 스킵
     """
@@ -59,7 +59,6 @@ def init_table():
 
             for col_name, col in defined.items():
                 if col_name not in existing:
-                    # Postgres ENUM 등 별도 생성이 필요한 타입(SchemaType)을 먼저 만든 뒤 컬럼을 추가합니다.
                     if hasattr(col.type, "create"):
                         col.type.create(bind=conn, checkfirst=True)
                     col_type = col.type.compile(engine.dialect)
@@ -69,13 +68,18 @@ def init_table():
                         )
                     )
 
-            # DROP은 full 모드에서만 실행 — create/off 모드에서는 차단
             if mode == "full":
                 for col_name in existing:
                     if col_name not in defined:
                         conn.execute(
                             text(f'ALTER TABLE "{table.name}" DROP COLUMN "{col_name}"')
                         )
+
+            existing_indexes = {idx["name"] for idx in inspector.get_indexes(table.name)}
+            for index in table.indexes:
+                if index.name not in existing_indexes:
+                    logger.info("[init_db] 인덱스 생성: %s.%s", table.name, index.name)
+                    index.create(bind=conn, checkfirst=True)
 
 
 def init_db():
