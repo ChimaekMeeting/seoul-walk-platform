@@ -27,7 +27,12 @@ def run_circular_engine(engine, start_node: int, target_km: float) -> tuple[list
         "blocked_tags": engine.blocked_tags,
     })
 
-    nodes = engine.find_path(start_node, target_km)
+    result = engine.find_path(start_node, target_km)
+    if not result:
+        raise ValueError("경로 생성 실패: 유효한 순환 경로를 찾지 못했습니다 (NO_PATH)")
+
+    # beam처럼 다양화 후보 여러 개(list[list[int]])를 반환하는 엔진은 대표 후보(첫 번째)만 사용
+    nodes = result[0] if isinstance(result[0], list) else result
     if not nodes or len(nodes) < 2:
         raise ValueError("경로 생성 실패: 유효한 순환 경로를 찾지 못했습니다 (NO_PATH)")
 

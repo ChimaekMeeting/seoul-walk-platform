@@ -48,6 +48,7 @@ beautifulsoup4 = "^4.14.3"
 langgraph = ">=0.2.0,<1.0.0"
 
 # --- UI (Streamlit 프로토타입 전용 — API 이미지에서 제외) ---
+pyarrow = "^25.0.1"
 [tool.poetry.group.ui]
 optional = true
 
@@ -75,6 +76,7 @@ ipykernel = "^7.3.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
 
 [tool.poetry.group.analysis.dependencies]
 jupyter = "^1.0.0"
