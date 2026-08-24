@@ -25,8 +25,91 @@ class BaseNetworkCollector:
     def __init__(self, dataframe: pd.DataFrame | None = None):
         self.csv = CSVSource()
         df = dataframe if dataframe is not None else self.csv.load_walk_network()
-        self.nodes_df = df[df["노드링크 유형"] == "NODE"].copy()
-        self.edges_df = df[df["노드링크 유형"] == "LINK"].copy()
+        nodes_df = df[df["노드링크 유형"] == "NODE"].copy()
+        edges_df = df[df["노드링크 유형"] == "LINK"].copy()
+
+        self.nodes_df, node_id_map = self._dedup_nodes(nodes_df)
+        edges_df = self._remap_edge_nodes(edges_df, node_id_map)
+        edges_df = self._dedup_edges(edges_df)
+        self.edges_df = self._filter_pedestrian_links(edges_df)
+
+
+    @staticmethod
+    def _dedup_nodes(nodes_df: pd.DataFrame) -> tuple[pd.DataFrame, dict[int, int]]:
+        """
+        노드 WKT(좌표)가 완전히 같은 행을 하나의 canonical node_id로 합칩니다.
+        반환하는 매핑은 삭제된 node_id -> 남긴 canonical node_id 입니다.
+        """
+        node_id_map: dict[int, int] = {}
+        canonical_by_wkt: dict[str, int] = {}
+        keep_mask = []
+
+        for node_id, wkt in nodes_df[["노드 ID", "노드 WKT"]].itertuples(index=False, name=None):
+            node_id = int(node_id)
+            canonical_id = canonical_by_wkt.get(wkt)
+            if canonical_id is None:
+                canonical_by_wkt[wkt] = node_id
+                node_id_map[node_id] = node_id
+                keep_mask.append(True)
+            else:
+                node_id_map[node_id] = canonical_id
+                keep_mask.append(False)
+
+        removed = keep_mask.count(False)
+        if removed:
+            logger.info("노드 WKT 좌표 기준 중복 %d건 제거", removed)
+
+        return nodes_df[keep_mask].copy(), node_id_map
+
+    @staticmethod
+    def _remap_edge_nodes(edges_df: pd.DataFrame, node_id_map: dict[int, int]) -> pd.DataFrame:
+        edges_df = edges_df.copy()
+        edges_df["시작노드 ID"] = edges_df["시작노드 ID"].apply(
+            lambda value: node_id_map.get(int(value), int(value))
+        )
+        edges_df["종료노드 ID"] = edges_df["종료노드 ID"].apply(
+            lambda value: node_id_map.get(int(value), int(value))
+        )
+        return edges_df
+
+    @staticmethod
+    def _canonical_coords(wkt: str) -> tuple[tuple[float, float], ...]:
+        coords = tuple(
+            (float(lon), float(lat))
+            for lon, lat in re.findall(r"([\d.]+)\s+([\d.]+)", wkt)
+        )
+        reversed_coords = tuple(reversed(coords))
+        return min(coords, reversed_coords)
+
+    @classmethod
+    def _dedup_edges(cls, edges_df: pd.DataFrame) -> pd.DataFrame:
+        node_pair = edges_df[["시작노드 ID", "종료노드 ID"]].apply(
+            lambda row: tuple(sorted((int(row.iloc[0]), int(row.iloc[1])))),
+            axis=1,
+        )
+        canonical_coords = edges_df["링크 WKT"].map(cls._canonical_coords)
+        dedup_key = pd.Series(
+            list(zip(node_pair, canonical_coords)),
+            index=edges_df.index,
+        )
+
+        before = len(edges_df)
+        deduped = edges_df[~dedup_key.duplicated(keep="first")].copy()
+        removed = before - len(deduped)
+        if removed:
+            logger.info(
+                "노드쌍+좌표 기준 중복(역방향 A→B/B→A 포함) %d건 제거", removed
+            )
+        return deduped
+
+    def _filter_pedestrian_links(self, edges_df: pd.DataFrame) -> pd.DataFrame:
+        allows_pedestrian = edges_df["링크 유형 코드"].apply(
+            lambda value: self.parse_link_type_code(value)[0] == "1"
+        )
+        removed = int((~allows_pedestrian).sum())
+        if removed:
+            logger.info("보행자 통행불가 링크(0xxx) %d건 제거", removed)
+        return edges_df[allows_pedestrian].copy()
 
     @staticmethod
     def parse_flag(value) -> bool:
