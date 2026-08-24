@@ -177,8 +177,7 @@ class RoutePoiRepository:
                     ) AS distance_m
                 FROM route_pois AS poi
                 JOIN walk_edges AS edge
-                  ON edge.is_walkable = true
-                 AND ST_DWithin(
+                  ON ST_DWithin(
                         poi.geom::geography,
                         edge.geom::geography,
                         :max_distance_m

@@ -18,36 +18,9 @@ class GraphArtifactError(RuntimeError):
 
 class GraphArtifactRepository:
     SCHEMA_VERSION = 1
-    REQUIRED_NODE_ATTRIBUTES = frozenset(
-        {
-            "lon",
-            "lat",
-            "node_type",
-            "is_underground",
-            "is_overpass",
-        }
-    )
+    REQUIRED_NODE_ATTRIBUTES = frozenset({"lon", "lat"})
     REQUIRED_EDGE_ATTRIBUTES = frozenset(
-        {
-            "link_id",
-            "length",
-            "raw_link_type_code",
-            "is_walkable",
-            "safety_score",
-            "nature_score",
-            "slope_score",
-            "running_score",
-            "landmark_score",
-            "child_score",
-            "park_overlap_ratio",
-            "convenience_score",
-            "is_school_zone",
-            "is_vehicle_caution",
-            "toilet_count",
-            "transit_count",
-            "accessibility_poi_count",
-            "tags",
-        }
+        {"link_id", "length", "toilet_count", "transit_count", "accessibility_poi_count"}
     )
 
     @staticmethod
