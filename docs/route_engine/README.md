@@ -137,6 +137,48 @@
 - 실제 프로덕션 규모 그래프(노드 160,328·엣지 223,927)에서 beam/grasp/rcsp/alns/plateau/circular_alns를 직접 실행 — 전부 `SUCCESS`, 서로 다른 알고리즘 간 거리 결과가 근접하게 일치함을 확인. 목표 거리가 실제로 달성 가능한 케이스에서도 정상 동작 확인.
 - **아직 확인 안 된 것**: 이 전환으로 beam/grasp/alns/rcsp의 실제 탐색 속도가 개선됐는지는 별도로 벤치마크하지 않았다(A*가 Dijkstra보다 느려지는 경우는 없지만, 휴리스틱이 `min_ratio`로 깎여 있어 개선폭은 `oneway_shortest`만큼 크지 않을 수 있다).
 
+## 경유지 후보 풀: 단일 풀, cutoff SSSP + lazy 거리표 (2026-08-30)
+
+- `waypoint_pool.py`(`WaypointPoolGenerator`/`WaypointPoolResult`)는 p1(출발지) 기준
+  거리 전용(distance-only) cutoff SSSP를 1회 수행해 r_max(=target_m/2) 이내 노드를
+  후보 풀로 모은다. 새 경로 탐색 알고리즘이 아니라 이후 조합 단계(beam/GRASP/지역탐색,
+  별도 이슈)가 쓸 입력을 준비하는 전처리 단계라 WalkRouteResponse를 반환하지 않고,
+  engines/__init__.py에도 등록하지 않는다. 아직 소비하는 조합 단계가 없어
+  route_service.py 연동도 하지 않는다.
+- r_max = target_m/2 근거: Lewis & Corcoran(J. Heuristics, 2022) 논문에서 확인한
+  삼각부등식 — 어떤 라운드트립이 노드 v를 지난다면 길이 ≥ 2·dist(p1,v)가 항상 성립하므로,
+  target_m 이내 라운드트립에 포함되려면 dist(p1,v) ≤ target_m/2가 필요조건이다. 경유지
+  개수(n)와 무관하게 성립한다.
+- r_min(거리 하한)은 두지 않는다 — 위 논문과 후속 논문(SN Comp Sci, 2024, n=3~8
+  candidate pool 검증) 모두 하한 없이 r_max 이내 전체를 후보로 쓰고, 하한을 뒷받침하는
+  공식도 제시하지 않는다(2026-08-30 논문 원문 확인).
+- **풀 내 노드 간 거리는 lazy 계산 + LRU 캐시로 제공한다**(`WaypointPoolResult.distance(u, v)`).
+  처음엔 풀 전체 pairwise를 사전 전량 계산해 dict로 들고 있었으나, 실제 서울 그래프
+  (노드 160,328개·엣지 223,927개) 벤치마크에서 target_km이 큰 경우(5~8km) pool·pairwise
+  항목 수가 함께 급증해 MemoryError로 실패하는 걸 확인해(2026-08-30) lazy+캐시로
+  전환했다. `distance(u, v)` 호출 시점에 u를 소스로 하는 cutoff=r_max SSSP를 1회
+  계산해 그 행(row) 전체를 캐시하고, 이후 같은 u 조회는 캐시를 그대로 쓴다. 무방향
+  그래프라 반대 방향(v가 소스인 행)이 이미 캐시돼 있으면 그것도 재사용한다. 캐시 행
+  개수 상한(`_DEFAULT_PAIRWISE_CACHE_ROWS=256`)은 논문 근거 없는 임의값이며, 조합
+  단계(별도 이슈)에서 실제 접근 패턴을 보고 재튜닝이 필요하다.
+- lazy+캐시 전환 근거: Lewis & Corcoran(SN Comp Sci, 2024)의 Pareto 지역탐색
+  (Algorithm 3/4)도 매 이웃 연산마다 선택된 노드 기준으로 그때그때 도달 트리를
+  계산하지, 전체 쌍을 사전에 다 계산해두지 않는다 — 같은 계보의 2023년 논문
+  (Lewis, Corcoran, Gagarin, JOCO)에서 처음 나온 neighbourhood operator(정점 u_i
+  선택 → RFS/BFS 트리 → 새 해 생성)도 동일한 on-demand 계산 패턴이다.
+- pairwise 유도 부분그래프 최적화: r_max 밖의 노드는 어떤 라운드트립에도 포함될 수
+  없으므로(위 삼각부등식 근거), lazy SSSP도 원본 그래프 전체가 아니라 p1의 r_max
+  유도 부분그래프(`G.subgraph(dist_from_p1.keys())`)에서만 돌려 탐색 범위를 줄였다.
+- **실제 그래프 규모 벤치마크(2026-08-30, lazy+캐시 버전)**: 20개 시나리오(target_km
+  1~8) 전부 성공, MemoryError 재현 안 됨. 풀 생성(cutoff SSSP 1회) 자체는 target_km과
+  무관하게 320~770ms 수준으로 일정함(이전 전량계산 버전은 target_km이 클수록 88~385초까지
+  늘어졌었음). 다만 `distance()` 조회 속도는 여전히 pool 크기에 비례해 늘어난다 —
+  완전 무작위 균등 샘플링(캐시 히트가 거의 없는 최악 케이스)으로 500쌍 조회 시 pool
+  1.4만개 시나리오(target_km=8)에서 약 31초 소요. 실제 조합 단계는 소수의 활성 후보를
+  반복 접근하는 구조라 캐시 히트율이 이보다 높을 가능성이 크지만, 조합 단계가 나와야
+  실측 확인 가능하다(`benchmarks/runner/waypoint_pool_benchmark.py`로 재현 가능).
+
+
 ## Waypoint(경유지) 조합 엔진
 
 - `waypoint.py`(`WaypointComposerEngine`)는 출발지 → 경유지들 → 목적지를 구간(leg)별로 나눠, 각 leg에 지정된 모드의 기존 편도 엔진(`OnewayAstarEngine`/`OnewayBeamEngine`)을 순차 호출해 하나의 경로로 이어 붙인다. 새 탐색 알고리즘은 추가하지 않고 기존 엔진을 조합만 한다.

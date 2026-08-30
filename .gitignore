@@ -38,10 +38,17 @@ src/data/raw/*
 !src/data/raw/metadata/**
 .claude/
 
-
 # gcloud SDK 로컬 설치 (실수로 저장소에 설치됨)
 Y/
 
 # DB 덤프 및 복원 로그
 *.dump
 restore_log.txt
+
+# cache 폴더는 제외하되, infrastructure/cache는 버전 관리합니다.
+!src/infrastructure/cache/
+!src/infrastructure/cache/repository/
+!src/infrastructure/cache/repository/weather_cache_repository.py
+
+# test
+!tests/unit/test_waypoint_pool.py
