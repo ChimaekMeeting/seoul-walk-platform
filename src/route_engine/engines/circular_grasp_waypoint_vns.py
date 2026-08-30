@@ -70,15 +70,28 @@ class CircularGraspWaypointVnsEngine:
         config: GraspConfig = DEFAULT_CONFIG,
     ):
         self.inp = inp
-        self.G = G.copy()
+        # G.copy() 안 함(2026-08-30 재검토) — grasp_waypoint_common.py/waypoint_pool.py/
+        # PathUtils는 읽기 전용이고 calculate_custom_score()도 안 부른다(mode="distance"
+        # 전용). 이유는 circular_grasp_waypoint_local.py::__init__ 주석 참고. 그래프를
+        # 변형하는 코드를 추가하면 이 가정이 깨지므로 다시 복사해야 한다(benchmarks/
+        # benchmark.py 모듈 docstring의 "그래프 공유·변형 규칙" 참고).
+        #
+        # 이 클래스는 특히 복사를 안 하는 효과가 크다 — 예전엔 아래 CircularGraspWaypointVndEngine
+        # 생성 시 그 __init__이 자기 몫으로 또 G.copy()를 해서(16만 노드 기준 약 1.7초) 만든
+        # 사본을 바로 다음 줄에서 self.G로 덮어써 버렸다(:83). 즉 인스턴스 생성마다 약 1.7초를
+        # 통째로 낭비했다 — G.copy()를 아예 없애 이 낭비도 함께 사라진다.
+        self.G = G
         self.mode = mode
         self.seed = seed
         self.config = config
         self.utils = PathUtils(self.G)
         self.cost_cache = _CostCache(self.G, mode=mode)
         self.pool_generator = WaypointPoolGenerator(self.G)
-        # VND 단계는 같은 그래프 사본·같은 캐시를 공유하도록 인스턴스를 만든 뒤 덮어쓴다
-        # (VndEngine의 __init__이 G.copy()를 또 하므로, 생성 직후 동일 객체로 교체).
+        # VND 단계는 같은 그래프·같은 캐시를 공유하도록 인스턴스를 만든 뒤 덮어쓴다.
+        # self.G 재대입은 이제(둘 다 복사를 안 하므로) 같은 객체를 다시 가리키는 것이라
+        # 실질적으로는 no-op이지만, utils/cost_cache는 VndEngine.__init__이 자기 몫으로
+        # 새로 만든 인스턴스이므로 VNS의 것으로 실제로 교체해야 한다(GRASP 반복 전체에서
+        # A* 캐시를 공유하기 위함 — 안 하면 VND 쪽 캐시가 매번 비어 시작한다).
         self._vnd_engine = CircularGraspWaypointVndEngine(inp, self.G, mode=mode, seed=seed, config=config)
         self._vnd_engine.G = self.G
         self._vnd_engine.utils = self.utils

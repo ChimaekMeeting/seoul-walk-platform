@@ -28,6 +28,37 @@ CSV로 저장한다. 이 프로젝트의 실제 목적("적당한 시간 내에 
 계속 진행된다 (status/error 컬럼에 실패 사유가 기록됨). 타임아웃된 알고리즘은
 스레드가 아니라 별도 OS 프로세스로 실행되므로, 진짜로 kill되어 좀비로 남지 않는다.
 
+그래프 공유·변형 규칙(2026-08-30, G.copy() 필요 여부 재검토 이후 명시):
+    solver.solve(graph, ...)에 넘기는 graph 객체가 호출마다 새로 격리되는지는
+    실행 경로에 따라 다르다 — engine 구현자는 자기 engine이 어느 경로로 실행될지
+    가정하지 말고, 그래프를 변형(edge/node 속성 쓰기, add_*/remove_* 등)하는 engine은
+    항상 자기 __init__에서 스스로 G.copy()로 방어해야 한다.
+
+    - benchmark.py::_run_single(): 알고리즘 1회 실행마다 별도 OS 프로세스를 새로
+      띄우고, graph는 그 프로세스 경계를 넘어갈 때 pickle을 통해 자동으로 매번
+      독립된 복사본이 된다 — 이 경로만 쓰면 engine이 그래프를 변형해도 다른 호출로
+      새어나가지 않는다.
+    - run_all_scenarios.py / run_min_separation_validation.py / run_alns_validation.py /
+      run_geometry_validation.py(모두 multiprocessing.Pool 기반): _pool_worker_init()이
+      워커 프로세스당 그래프를 "1번만" 로드해 전역(_POOL_GRAPH)에 두고, 그 뒤 같은
+      워커가 처리하는 모든 태스크(여러 seed·start_node·target_km·algo 조합)가 그
+      "같은" 객체를 재사용한다 — 매 호출 재격리가 없다. 이 경로에서 그래프를 변형하는
+      engine을 새로 등록하면서 자체 G.copy() 없이 넘기면, 그 변형이 같은 워커의
+      이후 호출(전혀 다른 solver·조건)에 그대로 새어나가는 버그가 된다.
+
+    현재 SOLVER_REGISTRY 기준: circular_grasp.py/grasp_solver.py 계열(run_circular_engine()
+    경유, calculate_custom_score()로 그래프에 custom_score를 실제로 써넣음)은 자기
+    __init__에서 G.copy()를 한다 — 필요해서 하는 것이므로 지우면 안 된다. 반면
+    grasp_waypoint_common.py 기반 4종(Local/VND/VNS/ALNS, circular_grasp_waypoint_*.py)은
+    mode="distance" 전용이라 run_circular_engine_distance_only()를 쓰고
+    calculate_custom_score()를 아예 안 부르며, 이 파이프라인이 실제로 쓰는 것
+    (grasp_waypoint_common.py/waypoint_pool.py/PathUtils)은 전부 읽기 전용이라 __init__에서
+    G.copy()를 하지 않는다(16만 노드 기준 1회 약 1.7초 절약 — VNS는 예전에 내부적으로
+    VndEngine을 또 만들며 이 복사를 두 번 해서 그중 한 번은 즉시 버려졌었다). 새 engine을
+    추가할 때 그래프를 변형하는 코드가 하나라도 있으면, 어느 실행 경로를 타든 안전하도록
+    반드시 자체적으로 G.copy()를 넣어야 한다 — 위 풀 재사용 경로에서는 하네스가 그 실수를
+    막아주지 않는다.
+
 실행:
     python -m benchmarks.benchmark --list                  # 등록된 알고리즘 목록만 확인
     python -m benchmarks.benchmark --algo dummy-a           # 하나만 실행

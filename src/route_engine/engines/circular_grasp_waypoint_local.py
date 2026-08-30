@@ -62,7 +62,17 @@ class CircularGraspWaypointLocalEngine:
         config: GraspConfig = DEFAULT_CONFIG,
     ):
         self.inp = inp
-        self.G = G.copy()  # 원본 그래프 보호(기존 circular_grasp.py 관례와 동일)
+        # G.copy() 안 함(기존 circular_grasp.py 관례와 다름, 2026-08-30 재검토) — 이 클래스와
+        # grasp_waypoint_common.py/waypoint_pool.py/PathUtils가 이 파이프라인 안에서 실제로
+        # 부르는 메서드는 전부 읽기 전용이고(G.add_*/remove_*/set_*_attributes 등 변형 호출
+        # 없음), calculate_custom_score()도 부르지 않는다(mode="distance" 전용이라
+        # run_circular_engine_distance_only()를 씀 — custom_score를 그래프에 기록하는
+        # run_circular_engine()과 다름). circular_grasp.py류가 매번 복사하는 건 그쪽이
+        # calculate_custom_score()로 그래프를 실제로 변형하기 때문— 이 클래스는 해당 없다.
+        # 16만 노드 그래프에서 G.copy() 1회가 약 1.7초라 그 비용을 그대로 아낀다. 이후 이
+        # 클래스에 그래프를 변형하는 코드를 추가한다면 이 가정이 깨지므로 다시 복사해야 한다
+        # (benchmarks/benchmark.py 모듈 docstring의 "그래프 공유·변형 규칙" 참고).
+        self.G = G
         self.mode = mode
         self.seed = seed
         self.config = config

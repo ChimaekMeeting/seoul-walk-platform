@@ -28,6 +28,11 @@ CIRCULAR_ALGOS = [
 ]
 
 _POOL_GRAPH = None  # 워커 프로세스 전역 — 워커당 1번만 채워짐(그래프 재전송 없음)
+# 주의(2026-08-30): 이 전역은 워커가 처리하는 모든 태스크(여러 시나리오·algo 조합)가
+# 그대로 재사용한다 — benchmark.py::_run_single()과 달리 호출마다 pickle로 재격리되지
+# 않는다. 그래프를 변형하는 engine을 새로 등록한다면 그 engine이 자체적으로 G.copy()를
+# 하는지 반드시 확인할 것(자세한 규칙은 benchmark.py 모듈 docstring "그래프 공유·변형
+# 규칙" 참고) — 안 하면 그 변형이 이후 다른 태스크로 새어나가는 버그가 된다.
 
 
 def _pool_worker_init():

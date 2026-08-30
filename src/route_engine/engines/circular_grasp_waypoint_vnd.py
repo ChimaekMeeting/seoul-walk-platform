@@ -63,7 +63,12 @@ class CircularGraspWaypointVndEngine:
         config: GraspConfig = DEFAULT_CONFIG,
     ):
         self.inp = inp
-        self.G = G.copy()
+        # G.copy() 안 함(2026-08-30 재검토) — 이 클래스가 부르는 것(grasp_waypoint_common.py/
+        # waypoint_pool.py/PathUtils)은 전부 읽기 전용이고 calculate_custom_score()도 안
+        # 부른다(mode="distance" 전용). 이유는 circular_grasp_waypoint_local.py::__init__
+        # 주석 참고 — 그래프를 변형하는 코드를 추가하면 이 가정이 깨지므로 다시 복사해야
+        # 한다(benchmarks/benchmark.py 모듈 docstring의 "그래프 공유·변형 규칙" 참고).
+        self.G = G
         self.mode = mode
         self.seed = seed
         self.config = config

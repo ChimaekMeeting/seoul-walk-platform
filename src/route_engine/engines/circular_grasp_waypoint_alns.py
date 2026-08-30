@@ -103,7 +103,14 @@ class CircularGraspWaypointAlnsEngine:
         config: GraspConfig = DEFAULT_CONFIG,
     ):
         self.inp = inp
-        self.G = G.copy()  # 원본 그래프 보호(기존 circular_grasp.py 관례와 동일)
+        # G.copy() 안 함(2026-08-30 재검토) — grasp_waypoint_common.py/waypoint_pool.py/
+        # PathUtils는 읽기 전용이고, waypoint_alns.py::alns_search는 G 자체를 받지 않으며
+        # (candidates dict + cost 콜백만 받음) 구조적으로 그래프를 변형할 수 없다.
+        # calculate_custom_score()도 안 부른다(mode="distance" 전용). 이유는
+        # circular_grasp_waypoint_local.py::__init__ 주석 참고 — 그래프를 변형하는 코드를
+        # 추가하면 이 가정이 깨지므로 다시 복사해야 한다(benchmarks/benchmark.py 모듈
+        # docstring의 "그래프 공유·변형 규칙" 참고).
+        self.G = G
         self.mode = mode
         self.seed = seed
         self.config = config

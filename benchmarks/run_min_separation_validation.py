@@ -43,6 +43,10 @@ ALGOS = ["grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-circular"]  # 
 TIMEOUT_SEC = 400.0  # VNS가 target_km=5.0에서 최대 250초 안팎 걸리는 것을 감안한 여유
 
 _POOL_GRAPH = None
+# 주의(2026-08-30): 워커가 처리하는 모든 조합(seed×target_km×start_node×algo)이 이
+# 전역을 그대로 재사용한다 — 그래프를 변형하는 engine을 추가한다면 자체 G.copy()가
+# 있는지 반드시 확인할 것(규칙은 benchmarks/benchmark.py 모듈 docstring "그래프
+# 공유·변형 규칙" 참고).
 
 
 def _pool_worker_init():

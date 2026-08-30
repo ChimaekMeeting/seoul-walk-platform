@@ -36,6 +36,9 @@ ALGOS = ["grasp-wp-alns"]
 TIMEOUT_SEC = 300.0
 
 _POOL_GRAPH = None
+# 주의(2026-08-30): 워커가 처리하는 모든 조합이 이 전역을 그대로 재사용한다 — 그래프를
+# 변형하는 engine을 추가한다면 자체 G.copy()가 있는지 반드시 확인할 것(규칙은
+# benchmarks/benchmark.py 모듈 docstring "그래프 공유·변형 규칙" 참고).
 
 
 def _pool_worker_init():
