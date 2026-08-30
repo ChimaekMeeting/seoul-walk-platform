@@ -14,10 +14,90 @@
 | Profile | `src/route_engine/profiles.py` | 사용자 선호 가중치와 차단 tags 정의 |
 | Scoring | `src/route_engine/scoring/` | WalkEdge 속성과 Profile을 경로 비용으로 계산 |
 | Engine | `src/route_engine/engines/` | 순환·편도 경로 탐색 알고리즘 |
+| Waypoint Search | `src/route_engine/waypoint_beam.py` | 외부 후보·거리 함수로 경유지 선택 및 순서 탐색(API 미연결) |
 
 ## 계약 문서
 
 - [경로 그래프 계약](graph_contract.md)
+
+## 경유지 Beam Search 독립 함수 (2026-08-30)
+
+진입점은 [waypoint_beam.py](../../src/route_engine/waypoint_beam.py)의
+`beam_search()`이다. 기존 `engines/`의 도로 노드 탐색이나
+`WaypointComposerEngine`의 구간 연결을 대체하지 않는다. `RouteService` 및
+API에는 연결하지 않았으며, 아래 기존 Engine의 `run()` 반환 계약과 별개이다.
+
+### 입력·출력·의존성
+
+- `candidates`: `node_id: int`, `lat: float`, `lon: float`를 가진 후보 목록.
+  필수 키와 정수 ID를 검사하고, 중복 ID는 `ValueError`로 거부한다.
+  좌표로 다시 스냅하지 않으며 입력을 변경하지 않는다.
+- `cost(a, b) -> float`: 동일한 그래프에서 계산한 대칭인 순수 거리(m).
+  도달 불가는 양의 `inf`; 음수·NaN·음의 inf는 거부한다.
+  그래프 버전 일치, 거리의 대칭성 및 lazy 캐시는 제공자 책임이다.
+  임의 custom score로 교체하면 거리(m) 평가 의미가 달라지므로 이 계약을 재검토해야 한다.
+- `start_id`, `end_id`, 양수 `target_m`, 양의 정수 `waypoint_count`(N),
+  `beam_width`(B)를 명시적으로 받는다. 순환은 `end_id=start_id`로 호출한다.
+  출발·도착은 후보 선택 대상에서 제외하고, 남은 후보 수가 N보다 작으면 거부한다.
+  편도 후보 풀의 적절성은 제공자가 보장해야 하며, 순환용 cutoff 풀을 자동 전용하지 않는다.
+- 반환 `BeamResult.orders`: 최대 B개의 `WaypointOrder`, `(error_m, waypoint_ids)`
+  오름차순. `waypoint_ids`는 출발·도착을 제외한 정확히 N개의 중복 없는 ID 튜플이고,
+  `distance_m`는 출발부터 도착까지 구간 cost의 합, `error_m`는 목표와의 절대 차이다.
+  이는 실제 도로 노드열이나 `WalkRouteResponse`가 아니다.
+- `evaluated_candidates`: 미선택 후보를 붙이려 시도한 횟수(inf로 제외된 시도 포함).
+  `cost_calls`: 캐시 적중 여부와 무관한 callback 호출 수이며 A* 실행 횟수가 아니다.
+- 탐색에서 완성 조합을 찾지 못하면 `orders=()`와 측정값을 반환한다.
+  이는 전역적으로 해가 없다는 증명이 아니다. 호출자가 실패 메시지를 처리한다.
+  cost 제공자의 예외는 숨기지 않고 전달한다.
+- 표준 라이브러리만 사용한다. 후보 생성·그래프 로딩·DB·스냅·A* 복원은 수행하지 않는다.
+  ALNS와 GRASP는 호출하지 않으며, 다른 알고리즘과의 출력 변환은 아직 연결하지 않았다.
+
+### 구현한 탐색 규칙과 참고 범위
+
+1. 현재 부분 경유지 순서마다 미선택 후보 하나를 붙인다.
+2. `partial_m`에 새 구간 cost를 더하고, `closed_m = partial_m + cost(마지막, 도착)`으로 평가한다.
+   앞 단계의 임시 복귀 구간은 `partial_m`에 넣지 않아 다음 단계에 중복 합산되지 않는다.
+3. 모든 부모의 확장 결과에서 `abs(closed_m - target_m)`가 작은 전역 Top-B를 남긴다.
+   동점은 경유지 ID 튜플 순서로 결정한다. 마지막 ID가 같아도 다른 순서는 합치지 않는다.
+4. N개를 선택할 때까지 반복하고 최종 생존 조합을 반환한다.
+
+- [TLMR](https://link.springer.com/article/10.1007/s40747-024-01611-z)의 부분 경로에
+  다음 노드를 붙이는 구조를 경유지 순서 확장에 응용했다. 학습 모델·누적 확률·부모별 상위 n개 선택은 구현하지 않았다.
+- MS-Pointer는 [팀 Beam Search 노션 정리](https://app.notion.com/p/Beam-search-3c7295569fdc8099bcecf5ac0eb57291)의
+  전역 Top-B 반복 구조를 참고했다. IEEE 원문 수도 코드 직접 대조나 논문 전체 재현을 주장하지 않는다.
+- 목표 거리 평가식, 고정 N, ID 동점 처리는 본 프로젝트의 구현 규칙이다.
+  중간 `closed_m`은 지금 도착지로 연결할 경우의 거리일 뿐, N개 선택 후 거리의 예측 보장이나
+  최적 오차의 하한이 아니다. Beam 가지치기는 최적해를 놓칠 수 있다.
+- 부모별 후보 제한 q, 목표 초과 가지치기, 별도 pairwise 거리표는 없다.
+  generator와 `nsmallest`로 확장 상태 전체의 저장은 피하지만 모든 확장 후보는 평가한다.
+  따라서 후보 풀이 크면 B가 작아도 거리 계산이 오래 걸릴 수 있다.
+- 경유지 중복 선택 금지는 실제 도로 구간 재방문 금지가 아니다.
+  역방향 순환 순서도 별도 후보로 남을 수 있으므로 반환 개수가 경로 다양성을 보장하지 않는다.
+  목표 허용 오차·도로 경로 유효성·겹침·다양성은 실제 경로 복원 후 별도 검증해야 한다.
+
+### 실행·검증·복구
+
+저장소 루트의 Git Bash에서 API나 DB를 띄우지 않고 실행한다.
+
+```bash
+./.venv/Scripts/python.exe -m pytest --noconftest tests/unit/test_waypoint_beam.py -q
+```
+
+- 2026-08-30, Windows 로컬 Python 3.12.13 / pytest 8.4.2에서
+  [단위 테스트](../../tests/unit/test_waypoint_beam.py) 72개 통과.
+  작은 거리표의 전체 순열 비교, 전역 Top-B와 독립 기준 구현 비교, 복귀 거리 중복 합산 방지,
+  결정성·입력 보존·inf·입력 오류·호출량을 검증했다.
+- `--noconftest`로 기존 테스트의 DB mock 및 자동 환경변수 주입 없이도 통과했다.
+  Python `-S` 환경에서 독립 import도 확인했다.
+- 같은 환경에서 기존 `test_graph_artifact_repository.py`, `test_runtime_graph_loading.py`,
+  `test_path_utils.py`만 별도 실행하면 31개 통과·3개 실패했다.
+  실패는 `safety_score` 누락을 거부해야 한다는 artifact 테스트 1건과
+  빈 그래프/좌표 없는 노드의 최근접 노드 처리 테스트 2건이다.
+  해당 기존 코드·테스트는 이번 작업에서 변경하지 않았고 신규 Beam 테스트 없이도 재현했다.
+- 실제 artifact 규모의 성능, 다연님 실제 후보/거리 모듈 연결, ALNS/GRASP 연결,
+  실제 도로 경로 복원 및 API Workflow는 아직 검증하지 않았다.
+- 문제 발생 시 신규 함수 호출부와 이 단위 테스트부터 확인한다. 기존 서비스 연결과
+  DB·artifact 변경이 없으므로 이 함수의 사용을 중지하는 데 데이터 복구는 필요하지 않다.
 
 ## Engine 반환 계약
 

@@ -20,7 +20,11 @@ node_modules/
 outputs/
 package.json
 package-lock.json
-tests/
+# 기존 미등록 테스트는 계속 제외하고, 경유지 Beam 테스트만 공유합니다.
+/tests/*
+!/tests/unit/
+/tests/unit/*
+!/tests/unit/test_waypoint_beam.py
 .claude/
 
 # 로컬 Poetry 환경 설정과 경로 API 테스트 결과는 버전 관리하지 않습니다.
