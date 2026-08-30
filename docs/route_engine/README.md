@@ -440,7 +440,102 @@ admissible해 랜드마크 ALT 자체를 쓰지 않는다(2026-08-23, 아래 "on
 
 ```bash
 ./.venv/Scripts/python.exe -m pytest tests/unit/test_landmark_planar.py -q
+```
 
+- 2026-08-30, 로컬 pytest 실행에서 5개 테스트 전부 통과. 섹터 8개 고정 배치
+  (45도 간격 외곽 노드) 정확한 배정, 좁은 각도 분포에서 일부 섹터가 비어
+  `n_sectors`보다 적게 반환되는 경우, `n_sectors < 1` 거부, 5×5 grid에서 전체
+  쌍(300쌍) admissibility 위반 0건, `alt_heuristic` 수치 손계산 대조를 확인했다.
+- 최초 섹터 배정 테스트는 외곽 노드를 섹터 "경계"(정확히 45도 배수)에 둬서
+  `atan2`/`radians` 변환의 부동소수 반올림으로 인접 섹터로 흔들리는 실패를
+  겪었다 — 노드를 섹터 "중앙" 각도(22.5도 오프셋)로 옮겨 해결했다. 구현
+  로직 자체의 결함은 아니었다.
+- toy 그래프(5×5 grid, 반경형 8노드)로만 검증했다. 실제 서울 그래프
+  규모(15만+ 노드)에서의 선택 시간·섹터 분포·A* 탐색량 감소 효과, Random/Farthest
+  대비 비교, 어떤 엔진에도 연결한 실행은 아직 확인하지 않았다.
+- 문제 발생 시 이 두 파일과 단위 테스트부터 확인한다. 어떤 엔진·API·DB도
+  변경하지 않아 복구가 필요 없다.
+
+## Avoid 랜드마크 선택 독립 함수 (2026-08-30)
+
+ALT의 Avoid 랜드마크 선택법을 독립 함수로 구현했다. 진입점은
+[landmark_avoid.py](../../src/route_engine/landmark_avoid.py)의
+`select_landmarks_avoid()`이며, 공용 인프라는 Planar와 동일하게
+[landmark_shared.py](../../src/route_engine/landmark_shared.py)를 그대로 쓴다 —
+`weight(v)` 계산에 `alt_heuristic`을 그대로 재사용해서 이번에 공용 모듈에 새로
+추가한 함수는 없다. Planar와 마찬가지로 어떤 엔진에도 연결하지 않았다.
+
+### 알고리즘(원 논문 기준)
+
+좌표가 아니라 그래프 구조(최단경로 트리)로 "기존 랜드마크가 잘 못 덮는 영역"을
+찾는다. 이미 뽑힌 랜드마크 집합 S가 있는 상태에서 k회 반복하며 매번:
+
+1. 루트 r을 무작위로 고르고 최단경로 트리(SPT) T_r을 만든다
+   (`nx.dijkstra_predecessor_and_distance`).
+2. 모든 노드 v의 `weight(v) = dist(r,v) - (S 기준 ALT 하한)`을 구한다. S가
+   비어있으면 하한이 항상 0이라 `weight(v) = dist(r,v)`다 — 이 경우 이후 단계는
+   "루트에서 가장 무거운 가지를 따라 리프까지 내려가는" 동작으로 줄어든다.
+3. `size(v)`를 후위 순회로 구한다 — v의 서브트리(자신 포함)에 기존 랜드마크가
+   하나라도 있으면 0, 없으면 서브트리 전체 weight 합.
+4. size가 가장 큰 노드 w를 고르고(기존 랜드마크가 없는, 가장 안 덮인 영역), w에서
+   시작해 항상 size가 가장 큰 자식으로 내려가 리프에 도달하면 그 리프를 새
+   랜드마크로 추가한다. 동점은 노드 ID가 작은 쪽을 우선한다(원 논문에 없는 이
+   구현의 결정).
+
+### 구현이 원 논문과 다른 점
+
+- **참고 논문 재확인**: 작업 티켓은 Goldberg, Kaplan, Werneck의 "Reach for A*"
+  (2006, MSR-TR-2005-132)를 인용했다. 2026-08-30 원문(도입부·관련 연구)을
+  확인했으나 Avoid 선택법 자체는 없었다(전체를 다 읽지는 못함). size(v)/서브트리
+  하강 pseudocode가 명확히 나온 곳은 같은 저자 그룹의 더 이른 논문인
+  Goldberg & Werneck, *Computing Point-to-Point Shortest Paths from External
+  Memory* (2005) §6.3.4였고, 이 구현은 그 절을 기준으로 삼았다.
+- **루트 선택**: 원 논문은 "기존 랜드마크에서 먼 노드를 더 높은 확률로 고르면
+  결과가 더 좋았다"고 언급하지만, 이 구현은 단순 균등 무작위(`random.Random(seed).choice`)
+  만 쓴다 — 가중 샘플링은 구현하지 않았다.
+- **SPT의 동점 predecessor**: `nx.dijkstra_predecessor_and_distance`가 동점
+  최단경로로 여러 predecessor를 반환할 수 있는데, 첫 번째만 부모로 써서 단일
+  트리로 단순화했다(`_subtree_children`).
+- **완전 소진 시 방어적 처리**: 최대 연결요소가 이미 기존 랜드마크로 전부
+  '덮여서'(모든 노드의 size가 0) 더 이상 안 덮인 리프를 찾을 수 없는 극단적인
+  경우, 아직 안 뽑힌 노드 중 하나를 무작위로 대신 골라 항상 서로 다른 k개를
+  반환한다 — 원 논문에는 없는 처리다.
+
+### 전처리 비용
+
+- 반복(랜드마크 1개)마다 SSSP 2회(루트 SPT 1회 + 새 랜드마크 자체 거리표 1회)가
+  필요해 Farthest(반복당 SSSP 1회)보다 크다.
+- 게다가 매 반복 전체 노드에 대해 `alt_heuristic`(현재까지 뽑힌 랜드마크 수만큼
+  순회)을 다시 계산해야 해서, 랜드마크 수 k가 늘수록 반복당 비용도 함께
+  늘어난다(반복당 O(n·|S|)). k=16, n=16만 규모에서 실제로 얼마나 걸리는지는
+  아직 실측하지 않았다 — Random/Farthest/Planar 대비 벤치마크(아래 "미확인"
+  항목)에서 함께 측정해야 한다.
+
+### Admissibility 검증
+
+Planar와 동일하게 `landmark_shared.py`의 `verify_admissible`을 그대로 쓴다 —
+Avoid로 고른 랜드마크도 admissibility는 삼각부등식으로 항상 증명되는 성질이라
+(`landmark_dist`가 실제 최단거리인 한) 별도 새 검증 로직이 필요 없다.
+
+### 실행·검증·복구
+
+```bash
+./.venv/Scripts/python.exe -m pytest tests/unit/test_landmark_avoid.py -q
+```
+
+- 2026-08-30, 로컬 pytest 실행에서 8개 테스트 전부 통과. 손으로 계산한 고정
+  트리(노드 6개)로 `_select_avoid_landmark`의 핵심 로직 3가지를 직접 검증했다 —
+  기존 랜드마크가 없을 때 가장 무거운 가지를 따라 내려가는 것, 기존 랜드마크가
+  있는 서브트리를 완전히 건너뛰는 것(size=0 오염이 부모까지 전파), 남은 후보가
+  루트 자신뿐인 극단 케이스. 6×6 grid에서는 `select_landmarks_avoid`가 k개
+  distinct 노드를 반환하는지, seed 고정 시 재현되는지, k가 너무 크면 거부하는지,
+  3개 seed에서 전체 쌍 admissibility 위반이 0건인지 확인했다.
+- **미확인**: 실제 서울 그래프 규모(15만+ 노드)에서의 선택 시간(위 "전처리
+  비용" 참고), Random/Farthest/Planar 대비 h(n) 품질·탐색 노드 수 비교
+  벤치마크, 어떤 엔진에도 연결한 실행. Random/Farthest 자체도 아직 구현하지
+  않아 4개 선택법을 한 번에 비교하는 벤치마크는 그것부터 필요하다.
+- 문제 발생 시 이 두 파일과 단위 테스트부터 확인한다. 어떤 엔진·API·DB도
+  변경하지 않아 복구가 필요 없다.
 
 ## Waypoint(경유지) 조합 엔진
 
