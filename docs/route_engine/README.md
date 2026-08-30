@@ -15,6 +15,7 @@
 | Scoring | `src/route_engine/scoring/` | WalkEdge 속성과 Profile을 경로 비용으로 계산 |
 | Engine | `src/route_engine/engines/` | 순환·편도 경로 탐색 알고리즘 |
 | Waypoint Search | `src/route_engine/waypoint_beam.py` | 외부 후보·거리 함수로 경유지 선택 및 순서 탐색(API 미연결) |
+| Waypoint Improvement | `src/route_engine/waypoint_alns.py` | 외부 초기 경유지 순서를 받아 선택·순서를 개선(API 미연결) |
 
 ## 계약 문서
 
@@ -64,7 +65,8 @@ API에는 연결하지 않았으며, 아래 기존 Engine의 `run()` 반환 계�
 - [TLMR](https://link.springer.com/article/10.1007/s40747-024-01611-z)의 부분 경로에
   다음 노드를 붙이는 구조를 경유지 순서 확장에 응용했다. 학습 모델·누적 확률·부모별 상위 n개 선택은 구현하지 않았다.
 - MS-Pointer는 [팀 Beam Search 노션 정리](https://app.notion.com/p/Beam-search-3c7295569fdc8099bcecf5ac0eb57291)의
-  전역 Top-B 반복 구조를 참고했다. IEEE 원문 수도 코드 직접 대조나 논문 전체 재현을 주장하지 않는다.
+  전역 Top-B 반복 구조를 참고했다. 2026-08-30 제공된 원문 PDF 6쪽 Table 2와도 대조했다.
+  신경망 점수 모델과 논문 전체를 재현한 것은 아니다.
 - 목표 거리 평가식, 고정 N, ID 동점 처리는 본 프로젝트의 구현 규칙이다.
   중간 `closed_m`은 지금 도착지로 연결할 경우의 거리일 뿐, N개 선택 후 거리의 예측 보장이나
   최적 오차의 하한이 아니다. Beam 가지치기는 최적해를 놓칠 수 있다.
@@ -73,7 +75,7 @@ API에는 연결하지 않았으며, 아래 기존 Engine의 `run()` 반환 계�
   따라서 후보 풀이 크면 B가 작아도 거리 계산이 오래 걸릴 수 있다.
 - 경유지 중복 선택 금지는 실제 도로 구간 재방문 금지가 아니다.
   역방향 순환 순서도 별도 후보로 남을 수 있으므로 반환 개수가 경로 다양성을 보장하지 않는다.
-  목표 허용 오차·도로 경로 유효성·겹침·다양성은 실제 경로 복원 후 별도 검증해야 한다.
+  목표 허용 오차는 호출자가 판정한다. 실제 도로 겹침·다양성 평가는 이 모듈의 구현 범위가 아니다.
 
 ### 실행·검증·복구
 
@@ -98,6 +100,112 @@ API에는 연결하지 않았으며, 아래 기존 Engine의 `run()` 반환 계�
   실제 도로 경로 복원 및 API Workflow는 아직 검증하지 않았다.
 - 문제 발생 시 신규 함수 호출부와 이 단위 테스트부터 확인한다. 기존 서비스 연결과
   DB·artifact 변경이 없으므로 이 함수의 사용을 중지하는 데 데이터 복구는 필요하지 않다.
+
+## 경유지 ALNS 독립 함수 (2026-08-30)
+
+진입점은 [waypoint_alns.py](../../src/route_engine/waypoint_alns.py)의 `alns_search()`이다.
+Beam 알고리즘을 호출하지 않으며, 외부에서 완성한 초기 경유지 순서를 받는다.
+기존 Engine·서비스·DB·API는 변경하지 않았다.
+
+### 입력·출력과 공유 자료형
+
+- `candidates`, `cost`, `start_id`, `end_id`, `target_m`의 의미는 위 Beam 계약과 같다.
+- `initial_ids`는 출발·도착을 제외한 중복 없는 경유지 ID 순서다. 초기 해의 개수 N을 유지한다.
+  N을 별도 입력받거나 자동으로 선택하지 않는다. 초기 해는 후보 풀에 속하고 도달 가능해야 한다.
+  저장된 초기 거리값을 신뢰하지 않고 동일한 `cost`로 다시 계산한다.
+- [waypoint_types.py](../../src/route_engine/waypoint_types.py)에 `WaypointCandidate`,
+  `CostFunction`, `WaypointOrder`를 모았다. Beam의 기존 import 경로에서도 해당 이름을 사용할 수 있다.
+  이는 현재 두 모듈의 내부 공유 표현이며, 아직 팀원 GRASP의 실제 반환 계약과 합의·연동한 것은 아니다.
+- `ALNSResult.best`는 초기 해와 복구 완료 후보 중 최저 거리 오차의 조합이다.
+  `current`는 마지막 수락 조합이므로 best보다 나쁠 수 있다. 목표 오차가 같은 경우 best를 교체하지 않는다.
+- `iterations`는 착수한 시도 수, `evaluated_orders`는 초기 해·중간 삽입을 포함한 평가 착수 수다.
+  `cost_calls`는 실제 callback 호출 수이며 캐시 적중을 포함한다.
+  `accepted_moves`, `failed_repairs`, 연산자별 전체 사용 횟수·현재 가중치도 반환한다.
+- 종료 이유는 `iterations`, `cost_budget`, `exact_target`이다. 오차 0을 찾으면 조기 종료한다.
+  목표 허용 오차 충족 여부는 별도 판정한다.
+
+### 구현 규칙
+
+1. 제거 수는 `ceil(N * removal_fraction)`(최소 1)이다. 현재 해에서 무작위 제거 또는 연속 구간 제거를 한다.
+   순환에서는 끝·처음 경유지를 연결한 구간도 허용하고, 편도에서는 끝을 넘어가지 않는다.
+2. 제거된 경유지와 아직 선택하지 않았던 후보를 모두 삽입 대상으로 허용한다.
+   `candidate_limit`가 있으면 cost 호출 전에 이번 복구의 후보를 균등 표본추출한다.
+   표본 수는 제거 수 이상이어야 하며, 제외한 후보를 대신 평가하지는 않는다.
+3. Greedy repair는 후보·삽입 위치 전체에서 삽입 후 목표 거리 오차가 가장 작은 것을 선택한다.
+   Random-order repair는 후보 순서를 섞고, 첫 삽입 가능한 후보의 최저 오차 위치를 선택한다.
+   둘 다 N개가 될 때까지 반복하며 동점은 ID 순서로 처리한다. 중간 삽입 평가는 탐욕적이며 최적 복구를 보장하지 않는다.
+4. N개 복구에 실패하면 해당 시도를 버리고 current와 best를 유지한다. 이는 전역적인 해 부재 증명이 아니다.
+   초기 해의 도달 불가는 `ValueError`, cost 제공자 예외·음수·NaN 등은 숨기지 않고 전달한다.
+5. 현재 해보다 오차가 작거나 같으면 수락하고, 크면 `exp(-오차증가 / T)` 확률로 수락한다.
+   `T`는 `start_temperature_m`에서 시작해 매 완료 시도마다 `cooling_rate`를 곱한다.
+   T=0은 악화 해를 수락하지 않는 비교 실험용 설정이다.
+6. Destroy·Repair를 각각 독립적으로 가중 룰렛 선택한다. 처음 수락한 조합에 한해
+   전역 최적 갱신 6점, 현재 해 개선 3점, 그 외 수락 1점을 양쪽 연산자에 동일하게 준다.
+   동일·이미 수락한 조합, 거절 및 복구 실패는 0점이다.
+7. `segment_length`회마다 `w = (1-r)*w + r*(누적점수/사용횟수)`로 갱신한다.
+   미사용 연산자는 유지하고 가중치 하한은 1e-6이다. 미완료 segment는 다음 선택이 없으면 갱신하지 않는다.
+8. `max_cost_calls`는 초기 해 평가까지 포함한 호출 한도다. 진행 중 예산이 끝나면 미완료 복구를 폐기하고
+   이전까지의 best를 반환한다. 한 번의 cost 호출 소요 시간을 제한하는 타임아웃은 아니다.
+
+기본 매개변수와 6/3/1 보상은 실험 시작용 설계값이며 논문에서 검증된 보행 서비스 튜닝값이 아니다.
+`iterations=200`, `removal_fraction=0.3`, `start_temperature_m=100`, `cooling_rate=0.99`,
+`segment_length=20`, `reaction_factor=0.2`는 구현 시 선택한 미튜닝 기본값이다.
+None으로 둔 후보·호출 제한은 제한을 적용하지 않는다는 뜻이고 seed=0은 재현용 식별값이다.
+수식의 근거와 이 숫자들의 근거는 구분한다. 원문 §3.4의 segment 길이는 100회이며,
+§3.5의 초기 온도는 초기 해를 기준으로 계산하므로 현재 기본값을 원문 매개변수로 소개하지 않는다.
+N=3에서 removal_fraction=0.3이면 1개만 제거하므로 두 제거 방식의 차이가 작다.
+제거 방식 비교에서는 제거 수 2 이상인 설정도 함께 시험해야 한다.
+별도 pairwise 캐시는 없고 구간을 다시 합산한다. 따라서 큰 후보 풀은
+`candidate_limit`·`max_cost_calls`와 외부 거리 캐시를 사용해 계산량을 관리해야 한다.
+도로 겹침·Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
+
+### 논문과 노션의 적용 범위
+
+- [팀 ALNS 노션](https://app.notion.com/p/ALNS-3c7295569fdc8058ae14cea92dfcf83a)을 API로 조회하고
+  제공된 원문 세 편의 관련 절·수도 코드와 대조했다.
+- Paul Shaw (1998), *Using Constraint Programming and Local Search Methods to Solve Vehicle Routing Problems*,
+  §2: 제거·재삽입 LNS 구조를 참고했다. 관련도 제거, CP, branch-and-bound, LDS는 구현하지 않았다.
+- Røpke & Pisinger (2006), DOI `10.1287/trsc.1050.0135`, 제공 기술보고서 PDF 6, 9–11쪽:
+  Algorithm 1, §3.2.1 Greedy, §3.3–3.5 룰렛·segment 가중치·SA를 참고했다.
+  픽업/배송·시간 창·차량 제약, regret 삽입은 구현하지 않았다.
+  초기 온도는 원문의 초기 목적값 비례 계산 대신 m 단위 명시 입력을 받는다.
+  새로운 동점 해에도 1점을 주는 것은 본 구현의 선택이다.
+- Santini (2019), DOI `10.1016/j.eswa.2018.12.050`, PDF 6–9쪽 §4:
+  무작위·연속 구간 제거와 미선택 후보를 삽입하는 구조를 참고했다.
+  Random repair는 무작위 비율만큼 삽입하는 원문과 달리 N개까지 채우며, 삽입 위치는 목표 거리 오차로 정한다.
+  보상값·군집·시간 상한·Lin-RRT·매 반복 가중치 갱신·2OptFill 등은 구현하지 않았다.
+
+### 실행·검증·복구
+
+```bash
+./.venv/Scripts/python.exe -m pytest --noconftest tests/unit/test_waypoint_beam.py tests/unit/test_waypoint_alns.py -q
+./.venv/Scripts/python.exe -m benchmarks.runner.waypoint_beam --repeats 3
+./.venv/Scripts/python.exe -m benchmarks.runner.waypoint_alns --seeds 0 1 2
+```
+
+- 2026-08-30 Windows 로컬 Python 3.12.13 / pytest 8.4.2: Beam 72개 + ALNS 78개 = 150개 통과.
+- ALNS 테스트는 제거 개수·순서, 후보 교체, 실제 거리 재합산, SA, best 보존, segment 갱신,
+  seed 재현성·입력 보존, 실패 처리, 호출 한도, 작은 거리표 전수 비교를 포함한다.
+- 같은 날 실행기 이동 후 위 150개와 `benchmarks/tests/test_waypoint_runners.py` 7개,
+  합계 157개 통과. 공통 후보 재현·반복 시 캐시 초기화·설정 기록·실행 인자 오류를 추가 검증했다.
+- [ALNS 실행기](../../benchmarks/runner/waypoint_alns.py)는 실제 artifact에서 검증용 후보 12개를 골라
+  같은 Beam 초기 해를 seed마다 빈 거리 캐시로 개선한다. 거리 공급자는 NetworkX 최단거리와 최대 1024쌍 LRU다.
+  팀원 후보 생성 모듈·A* 구현과의 통합 테스트가 아니라 제한된 실제 거리 연결 검증이다.
+- [Beam 실행기](../../benchmarks/runner/waypoint_beam.py)는 Beam만 빈 거리 캐시에서 반복 측정한다.
+  두 실행기는 [공유 준비 코드](../../benchmarks/runner/_waypoint_common.py)로 같은 후보·거리 함수를 사용한다.
+  준비 시간은 측정에서 제외하며, ALNS 시간은 Beam 초기 해 생성 시간도 제외한다.
+  현재 실행기의 후보 준비는 순환 검증용이다. 알고리즘 자체의 편도 지원과 구분한다.
+  기존 `benchmarks.benchmark`는 실제 도로 노드열을 받으므로 이 실행기를 해당 registry에 등록하지 않았다.
+  경유지 순서를 도로 노드열로 간주하면 품질 지표가 잘못 계산된다.
+  ALNS 설정은 `--removal-fraction`, `--start-temperature-m`, `--cooling-rate`,
+  `--segment-length`, `--reaction-factor`, `--candidate-limit`로 변경하고 JSON 출력에도 기록한다.
+  설정을 바꾸지 않은 실행의 계산 규칙·기본 수치는 이전 scripts 실행기와 같다.
+- 해당 일자 로컬 관측: v2-2026-08-25 artifact(160197 노드 / 223693 엣지), 시작 ID 1,
+  목표 3000m, N=3, B=2, ALNS 30회, 호출 한도 20000. 초기 오차 23.524m에서
+  seed 0은 5.614m, seed 1·2는 23.524m였다. ALNS 시간은 약 0.19–0.28초로,
+  artifact 로드·후보 추출·Beam 생성 시간을 제외한다. 고정 기대값이나 전체 후보 풀 성능 보장이 아니다.
+- 미확인: 실제 팀원 모듈·GRASP·API 연결, 전체 후보 풀에서의 성능 및 서비스 품질.
+- 실패 시 이 독립 함수와 단위 테스트부터 확인한다. 데이터·API를 변경하지 않아 DB 복구는 필요 없다.
 
 ## Engine 반환 계약
 

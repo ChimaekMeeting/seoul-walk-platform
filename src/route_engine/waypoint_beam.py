@@ -2,31 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from heapq import nsmallest
 from math import inf, isfinite
-from typing import TypedDict
 
-
-class WaypointCandidate(TypedDict):
-    """경유지 후보 생성 단계에서 전달하는 그래프 노드 ID와 좌표."""
-
-    node_id: int
-    lat: float
-    lon: float
-
-
-CostFunction = Callable[[int, int], float]
-
-
-@dataclass(frozen=True)
-class WaypointOrder:
-    """출발·도착을 제외한 경유지 순서와 거리 평가 결과."""
-
-    waypoint_ids: tuple[int, ...]
-    distance_m: float
-    error_m: float
+from src.route_engine.waypoint_types import (
+    CostFunction,
+    WaypointCandidate,
+    WaypointOrder,
+)
 
 
 @dataclass(frozen=True)
