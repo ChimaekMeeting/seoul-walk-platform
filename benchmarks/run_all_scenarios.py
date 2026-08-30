@@ -22,9 +22,17 @@ from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 ONEWAY_ALGOS   = ["astar-oneway", "dijkstra-oneway", "bi-astar-oneway", "bi-dijkstra-oneway", "beam-oneway", "grasp-oneway", "alns-oneway", "rcsp-oneway", "plateau"]
-CIRCULAR_ALGOS = ["beam-circular", "grasp-circular", "alns-circular", "rcsp-circular"]
+CIRCULAR_ALGOS = [
+    "beam-circular", "grasp-circular", "alns-circular", "rcsp-circular",
+    "grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-wp-alns",
+]
 
 _POOL_GRAPH = None  # 워커 프로세스 전역 — 워커당 1번만 채워짐(그래프 재전송 없음)
+# 주의(2026-08-30): 이 전역은 워커가 처리하는 모든 태스크(여러 시나리오·algo 조합)가
+# 그대로 재사용한다 — benchmark.py::_run_single()과 달리 호출마다 pickle로 재격리되지
+# 않는다. 그래프를 변형하는 engine을 새로 등록한다면 그 engine이 자체적으로 G.copy()를
+# 하는지 반드시 확인할 것(자세한 규칙은 benchmark.py 모듈 docstring "그래프 공유·변형
+# 규칙" 참고) — 안 하면 그 변형이 이후 다른 태스크로 새어나가는 버그가 된다.
 
 
 def _pool_worker_init():
@@ -76,6 +84,24 @@ def _pool_worker_task(solver_key: str, start_node, target_node, params: dict) ->
         "spike_count": _count_spikes(result["paths"]),
         "edge_overlap_ratio": _compute_edge_overlap_ratio(result["paths"]),
         "find_path_sec": result.get("find_path_sec"),
+        "astar_calls": result.get("astar_calls"),
+        "cache_hits": result.get("cache_hits"),
+        "selection_status": result.get("selection_status"),
+        "feasible": result.get("feasible"),
+        "segment_p1_p2_m": result.get("segment_p1_p2_m"),
+        "segment_p2_p3_m": result.get("segment_p2_p3_m"),
+        "segment_p3_p1_m": result.get("segment_p3_p1_m"),
+        "waypoint_separation_m": result.get("waypoint_separation_m"),
+        "min_waypoint_separation_m": result.get("min_waypoint_separation_m"),
+        "repeated_edge_ratio": (
+            result.get("repeated_edge_ratio")
+            if result.get("repeated_edge_ratio") is not None
+            else _compute_edge_overlap_ratio(result["paths"])
+        ),
+        "waypoint_angle_diff_deg": result.get("waypoint_angle_diff_deg"),
+        "segment_balance_ratio": result.get("segment_balance_ratio"),
+        "is_degenerate_loop": result.get("is_degenerate_loop"),
+        "alns_operator_stats": result.get("alns_operator_stats"),
         "error": "",
     }
 
