@@ -49,3 +49,6 @@ restore_log.txt
 !src/infrastructure/cache/
 !src/infrastructure/cache/repository/
 !src/infrastructure/cache/repository/weather_cache_repository.py
+
+# test
+!tests/unit/test_waypoint_pool.py
