@@ -366,6 +366,81 @@ N=3에서 removal_fraction=0.3이면 1개만 제거하므로 두 제거 방식�
   반복 접근하는 구조라 캐시 히트율이 이보다 높을 가능성이 크지만, 조합 단계가 나와야
   실측 확인 가능하다(`benchmarks/runner/waypoint_pool_benchmark.py`로 재현 가능).
 
+## Planar 랜드마크 선택 독립 함수 (2026-08-30)
+
+ALT(A* + Landmark + Triangle inequality)의 Planar 랜드마크 선택법을 독립 함수로
+구현했다. 공용 인프라는 [landmark_shared.py](../../src/route_engine/landmark_shared.py),
+선택법 자체는 [landmark_planar.py](../../src/route_engine/landmark_planar.py)의
+`select_landmarks_planar()`이다. 어떤 엔진에도 연결하지 않았다 — 현재 프로덕션
+`OnewayAstarEngine`은 weight=length(거리 전용)로 바뀌면서 Haversine 휴리스틱만으로도
+admissible해 랜드마크 ALT 자체를 쓰지 않는다(2026-08-23, 아래 "oneway_shortest 엔진"
+절 참고). `precompute_landmarks()`/`_select_landmarks()`/`landmark_dist`가 그 때
+전부 제거된 뒤로 저장소에 ALT를 쓰는 프로덕션 코드는 없다.
+
+### 입력·출력과 공유 인프라
+
+- `LandmarkTable = dict[int, dict[int, float]]`(랜드마크 노드 ID → {노드 ID: 거리(m)})가
+  세 선택법(Random/Farthest/Planar)이 공유할 사전계산 표 구조다. 현재는 Planar만
+  구현했다.
+- `precompute_landmark_distances(G, landmarks, weight="length")`: 랜드마크별
+  `nx.single_source_dijkstra_path_length`로 전체 노드까지의 실제 도로망 거리를 구해
+  `LandmarkTable`을 만든다. 무방향 그래프 기준이라 `dist(L,u) == dist(u,L)`이며
+  정방향 표만으로 충분하다. 도달 불가 노드는 표에 아예 없다.
+- `alt_heuristic(landmark_dist, u, v)`: 삼각부등식 `h(u,v) = max_L |dist(L,u) - dist(L,v)|`.
+  랜드마크가 u 또는 v 중 하나에 도달 못 하면 그 랜드마크는 건너뛰고, 전부 건너뛰면
+  0.0(정보 없음이지만 여전히 admissible)을 반환한다.
+- `build_alt_heuristic(G, landmarks, weight="length")`: 위 두 함수를 묶어
+  `nx.astar_path(heuristic=...)`에 바로 넘길 수 있는 클로저와 `LandmarkTable`을
+  함께 반환한다.
+- `_largest_component_nodes(G)`: `PathUtils.find_nearest_node`와 동일하게 최대
+  연결요소로 후보를 제한한다 — 실제 탐색 시작점도 이 요소 안에서만 잡히므로,
+  랜드마크도 여기서 고르면 모든 탐색 쌍에 대해 도달 가능함을 보장할 수 있다.
+
+### `select_landmarks_planar(G, n_sectors)` 구현 규칙
+
+1. `_largest_component_nodes(G)`로 후보를 제한하고, 그 노드들의 (lat, lon)
+   산술평균을 centroid로 쓴다. 서울 시내 규모에서는 구면 곡률로 인한 오차가
+   무시할 만하다고 가정했고, 실측 검증은 하지 않았다.
+2. centroid 기준 각 노드의 각도를 `atan2(dlon, dlat)`로 구한다. dlon은
+   `cos(centroid 위도)`로 보정한 단순 등장방형(equirectangular) 근사다 —
+   정북 기준 시계방향 bearing과 같은 값이 나온다.
+3. `sector_width = 2π / n_sectors`로 섹터를 나누고, 섹터마다 centroid에서
+   Haversine 직선거리가 가장 먼 노드 1개만 남긴다(동률이면 먼저 순회된 노드 유지).
+4. 노드가 없는 섹터는 랜드마크를 내지 않는다 — **반환 개수가 `n_sectors`보다
+   적을 수 있다.** 좌표 분포에 따른 예상 동작이며 버그가 아니다.
+5. Farthest 선택법과 달리 도로망 거리 계산(SSSP)이 전혀 필요 없어 선택 자체는
+   훨씬 저렴하다(좌표만으로 계산).
+
+### 논문 대조
+
+- Goldberg & Harrelson, *Computing the Shortest Path: A\* Search Meets Landmarks*
+  (2005)의 Planar 선택법 설명(좌표 평면을 섹터로 나눠 섹터별 최원거리 노드를
+  선택)을 따랐다. 원 논문의 공간 분할(예: quadtree·space-filling curve) 대신
+  centroid 기준 각도 섹터로 단순화했다 — 이 단순화가 논문의 실제 성능 특성과
+  얼마나 가까운지는 확인하지 않았다.
+- Random/Farthest 선택법은 이번에 구현하지 않았다. 티켓이 요구한 "Random/Farthest
+  대비 h(n) 품질·탐색 노드 수 비교 벤치마크"는 그 두 선택법이 없어 아직 수행하지
+  못했다 — `landmark_shared.py`의 `LandmarkTable`/`verify_admissible` 등 공용
+  인터페이스는 이후 `landmark_random.py`/`landmark_farthest.py`를 같은 패턴으로
+  추가할 것을 가정하고 설계했다.
+
+### Admissibility 검증
+
+- `AdmissibilityReport`/`verify_admissible(G, landmark_dist, weight, pairs)`
+  (`landmark_shared.py`)는 호출자가 준 (u, v) 표본마다 `h_ALT(u,v) <= 실제
+  최단거리`와 `h_Haversine(u,v) <= 실제 최단거리`를 함께 검사하고, 위반 수·최대
+  위반량·평균 h 값(ALT/Haversine/실제)을 반환한다. 표본 생성은 이 함수의
+  책임이 아니다.
+- `alt_heuristic`의 admissibility는 삼각부등식으로 항상 증명되는 성질이다
+  (`landmark_dist`가 탐색과 같은 weight로 정확히 계산된 실제 최단거리인 한).
+  `verify_admissible`은 이 성질이 구현에서 실제로 깨지지 않는지 확인하는
+  회귀 검증 도구이지, 별도의 수학적 근거를 새로 세우는 것은 아니다.
+
+### 실행·검증·복구
+
+```bash
+./.venv/Scripts/python.exe -m pytest tests/unit/test_landmark_planar.py -q
+
 
 ## Waypoint(경유지) 조합 엔진
 
