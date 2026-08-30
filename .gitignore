@@ -26,6 +26,7 @@ package-lock.json
 /tests/unit/*
 !/tests/unit/test_waypoint_beam.py
 !/tests/unit/test_waypoint_alns.py
+!/tests/unit/test_waypoint_evaluation.py
 .claude/
 
 # 로컬 Poetry 환경 설정과 경로 API 테스트 결과는 버전 관리하지 않습니다.

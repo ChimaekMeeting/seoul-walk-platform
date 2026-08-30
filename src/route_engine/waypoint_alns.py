@@ -7,8 +7,10 @@ from dataclasses import dataclass
 from math import ceil, exp, inf, isfinite
 from random import Random
 
+from src.route_engine.waypoint_evaluation import WaypointObjective, attach_route_metrics
 from src.route_engine.waypoint_types import (
     CostFunction,
+    RouteEvaluation,
     WaypointCandidate,
     WaypointOrder,
 )
@@ -27,6 +29,9 @@ class ALNSConfig:
     candidate_limit: int | None = None  # None이면 복구 후보 풀을 줄이지 않는다.
     max_cost_calls: int | None = None  # None이면 callback 호출 횟수를 제한하지 않는다.
     seed: int = 0  # 같은 입력·설정에서 난수 선택을 재현하기 위한 값
+    start_temperature_score: float | None = (
+        None  # 재통행 모드의 무차원 온도. 명시 입력.
+    )
 
 
 @dataclass(frozen=True)
@@ -48,6 +53,7 @@ class ALNSResult:
     stop_reason: str
     destroy_stats: tuple[OperatorStats, ...]
     repair_stats: tuple[OperatorStats, ...]
+    route_evaluations: int = 0
 
 
 class _CostBudgetExhausted(Exception):
@@ -55,7 +61,16 @@ class _CostBudgetExhausted(Exception):
 
 
 class _Evaluator:
-    def __init__(self, cost, start_id, end_id, target_m, max_cost_calls):
+    def __init__(
+        self,
+        cost,
+        start_id,
+        end_id,
+        target_m,
+        max_cost_calls,
+        evaluate_route=None,
+        tolerance_ratio=None,
+    ):
         """거리 공급자와 평가 조건을 저장하고 측정 카운터를 초기화한다."""
         self.cost = cost
         self.start_id, self.end_id = start_id, end_id
@@ -63,9 +78,13 @@ class _Evaluator:
         self.max_cost_calls = max_cost_calls
         self.cost_calls = 0
         self.evaluated_orders = 0
+        self.objective = WaypointObjective(target_m, tolerance_ratio)
+        self.objective.validate_provider(evaluate_route)
+        self.evaluate_route = evaluate_route
+        self.route_evaluations = 0
 
     def evaluate(self, ids: tuple[int, ...]) -> WaypointOrder | None:
-        """출발·도착을 포함한 거리를 합산한다. 도달 불가이면 None을 반환한다."""
+        """출발·도착 포함 거리와 선택적 재통행을 평가한다. 도달 불가는 None이다."""
         self.evaluated_orders += 1
         stops = (self.start_id, *ids, self.end_id)
         total = 0.0
@@ -87,7 +106,13 @@ class _Evaluator:
         # 목표 거리와 비교하므로 cost의 합은 실제 이동 거리(m)여야 한다.
         # 선호 가중 비용으로 확장할 때는 선택한 구간의 실제 거리도 별도로 받아,
         # 목표 거리 오차와 선호 비용을 분리해 평가해야 한다.
-        return WaypointOrder(ids, total, abs(total - self.target_m))
+        order = WaypointOrder(ids, total, abs(total - self.target_m))
+        if self.evaluate_route is not None:
+            self.route_evaluations += 1
+            return attach_route_metrics(
+                order, self.evaluate_route, self.start_id, self.end_id
+            )
+        return order
 
 
 class _AdaptivePool:
@@ -140,8 +165,8 @@ def _destroy(ids, count, method, rng, circular):
 def _repair(partial, pool, count, method, evaluator, rng, candidate_limit):
     """미선택 후보를 삽입해 count개로 복구한다. 채우지 못하면 None을 반환한다.
 
-    greedy는 후보·위치 전체의 최소 오차 삽입을 고른다. random_order는
-    섞인 순서에서 첫 삽입 가능 후보를 골라 그 후보의 최저 오차 위치에 넣는다.
+    greedy는 후보·위치 전체에서 평가가 가장 좋은 삽입을 고른다. random_order는
+    섞인 순서에서 첫 삽입 가능 후보를 골라 그 후보의 가장 좋은 위치에 넣는다.
     """
     selected = set(partial)
     available = [node for node in pool if node not in selected]
@@ -159,11 +184,15 @@ def _repair(partial, pool, count, method, evaluator, rng, candidate_limit):
                 ids = partial[:position] + (node,) + partial[position:]
                 candidate = evaluator.evaluate(ids)
                 if candidate is not None and (
-                    best_position is None or _rank(candidate) < _rank(best_position)
+                    best_position is None
+                    or evaluator.objective.rank(candidate)
+                    < evaluator.objective.rank(best_position)
                 ):
                     best_position = candidate
             if best_position is not None:
-                if chosen is None or _rank(best_position) < _rank(chosen):
+                if chosen is None or evaluator.objective.rank(
+                    best_position
+                ) < evaluator.objective.rank(chosen):
                     chosen = best_position
                 if method == "random_order":
                     break
@@ -176,16 +205,11 @@ def _repair(partial, pool, count, method, evaluator, rng, candidate_limit):
     return order
 
 
-def _rank(order: WaypointOrder):
-    """목표 거리 오차로 비교하고, 동점은 경유지 ID 순서로 결정한다."""
-    return order.error_m, order.waypoint_ids
-
-
 def _accept(delta: float, temperature: float, rng: Random) -> bool:
-    """오차 증가량 delta가 양수이면 exp(-delta / T) 확률로 수락한다.
+    """주 평가값 증가량 delta가 양수이면 exp(-delta / T) 확률로 수락한다.
 
-    delta = 새 조합의 오차 - 현재 조합의 오차(m).
-    개선·동점은 수락하고, T=0이면 악화 해는 거절한다.
+    거리 전용은 m, 재통행 모드는 무차원 점수와 같은 단위의 온도를 사용한다.
+    주 점수 개선·동점은 수락하고, T=0이면 주 점수가 나빠진 해는 거절한다.
     악화 폭이 작거나 온도가 높을수록 수락 확률이 높다.
     """
     if delta <= 0:
@@ -232,6 +256,12 @@ def _validate(candidates, initial_ids, start_id, end_id, target_m, config):
         or config.start_temperature_m < 0
     ):
         raise ValueError("start_temperature_m은 유한한 0 이상의 값이어야 합니다.")
+    if config.start_temperature_score is not None and (
+        isinstance(config.start_temperature_score, bool)
+        or not isfinite(config.start_temperature_score)
+        or config.start_temperature_score < 0
+    ):
+        raise ValueError("start_temperature_score는 유한한 0 이상의 값이어야 합니다.")
     pool = set()
     for candidate in candidates:
         if not {"node_id", "lat", "lon"} <= candidate.keys():
@@ -267,18 +297,34 @@ def alns_search(
     end_id: int,
     target_m: float,
     config: ALNSConfig = ALNSConfig(),
+    tolerance_ratio: float | None = None,
+    evaluate_route: RouteEvaluation | None = None,
 ) -> ALNSResult:
     """초기 경유지 개수를 유지하며 선택·순서를 개선하고 역대 최적 조합을 반환한다.
 
     initial_ids에는 출발·도착을 넣지 않는다. cost는 고정 그래프의 대칭 거리(m)다.
     초기 해의 도달 불가는 ValueError, 탐색 중 복구 실패는 해당 시도만 폐기한다.
-    cost 내부 예외는 전달하며, 거리 캐시·후보 생성·도로 복원은 수행하지 않는다.
+    재통행 평가 시 허용 오차·경로 공급자·start_temperature_score를 함께 지정한다.
+    공급자 예외는 전달하며, 후보 생성·도로 경로 탐색은 외부에 위임한다.
     """
     initial_ids = tuple(initial_ids)
     pool, remove_count = _validate(
         candidates, initial_ids, start_id, end_id, target_m, config
     )
-    evaluator = _Evaluator(cost, start_id, end_id, target_m, config.max_cost_calls)
+    evaluator = _Evaluator(
+        cost,
+        start_id,
+        end_id,
+        target_m,
+        config.max_cost_calls,
+        evaluate_route,
+        tolerance_ratio,
+    )
+    objective = evaluator.objective
+    if (tolerance_ratio is None) != (config.start_temperature_score is None):
+        raise ValueError(
+            "재통행 모드에서만 start_temperature_score를 함께 지정해야 합니다."
+        )
     initial = evaluator.evaluate(initial_ids)
     if initial is None:
         raise ValueError("초기 경유지 순서에 도달 불가능한 구간이 있습니다.")
@@ -286,14 +332,20 @@ def alns_search(
     destroy = _AdaptivePool(("random", "sequence"))
     repair = _AdaptivePool(("greedy", "random_order"))
     rng = Random(config.seed)
-    temperature = config.start_temperature_m
+    temperature = (
+        config.start_temperature_m
+        if tolerance_ratio is None
+        else config.start_temperature_score
+    )
     seen = {initial_ids}
     attempts = accepted = failed = 0
     stop_reason = "iterations"
 
     for _ in range(config.iterations):
-        if best.error_m == 0:
-            stop_reason = "exact_target"
+        if objective.is_optimal(best):
+            stop_reason = (
+                "exact_target" if tolerance_ratio is None else "exact_target_no_overlap"
+            )
             break
         if (
             config.max_cost_calls is not None
@@ -327,8 +379,9 @@ def alns_search(
         if candidate is None:
             failed += 1
         else:
-            delta = candidate.error_m - current.error_m
-            new_best = candidate.error_m < best.error_m
+            delta = objective.score(candidate) - objective.score(current)
+            improved = objective.quality(candidate) < objective.quality(current)
+            new_best = objective.quality(candidate) < objective.quality(best)
             if new_best:
                 best = candidate
             # 완성 조합만 수락한다. 악화 해를 받아도 best는 별도로 보존한다.
@@ -336,7 +389,7 @@ def alns_search(
                 delta, temperature, rng
             ):
                 if candidate.waypoint_ids not in seen:
-                    reward = 6.0 if new_best else (3.0 if delta < 0 else 1.0)
+                    reward = 6.0 if new_best else (3.0 if improved else 1.0)
                 current = candidate
                 seen.add(candidate.waypoint_ids)
                 accepted += 1
@@ -347,8 +400,10 @@ def alns_search(
             repair.update(config.reaction_factor)
         temperature *= config.cooling_rate
 
-    if best.error_m == 0:
-        stop_reason = "exact_target"
+    if objective.is_optimal(best):
+        stop_reason = (
+            "exact_target" if tolerance_ratio is None else "exact_target_no_overlap"
+        )
     return ALNSResult(
         best,
         current,
@@ -360,4 +415,5 @@ def alns_search(
         stop_reason,
         destroy.snapshot(),
         repair.snapshot(),
+        evaluator.route_evaluations,
     )
