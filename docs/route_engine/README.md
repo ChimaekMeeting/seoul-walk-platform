@@ -16,6 +16,7 @@
 | Engine | `src/route_engine/engines/` | 순환·편도 경로 탐색 알고리즘 |
 | Waypoint Search | `src/route_engine/waypoint_beam.py` | 외부 후보·거리 함수로 경유지 선택 및 순서 탐색(API 미연결) |
 | Waypoint Improvement | `src/route_engine/waypoint_alns.py` | 외부 초기 경유지 순서를 받아 선택·순서를 개선(API 미연결) |
+| Waypoint Evaluation | `src/route_engine/waypoint_evaluation.py` | 도로 재통행 측정과 Beam·ALNS 공통 비교 기준 |
 
 ## 계약 문서
 
@@ -41,8 +42,8 @@ API에는 연결하지 않았으며, 아래 기존 Engine의 `run()` 반환 계�
   `beam_width`(B)를 명시적으로 받는다. 순환은 `end_id=start_id`로 호출한다.
   출발·도착은 후보 선택 대상에서 제외하고, 남은 후보 수가 N보다 작으면 거부한다.
   편도 후보 풀의 적절성은 제공자가 보장해야 하며, 순환용 cutoff 풀을 자동 전용하지 않는다.
-- 반환 `BeamResult.orders`: 최대 B개의 `WaypointOrder`, `(error_m, waypoint_ids)`
-  오름차순. `waypoint_ids`는 출발·도착을 제외한 정확히 N개의 중복 없는 ID 튜플이고,
+- 반환 `BeamResult.orders`: 최대 B개의 `WaypointOrder`. 기본 모드는 `(error_m, waypoint_ids)`
+  오름차순이며, 재통행 모드는 아래 공통 평가 기준을 사용한다. `waypoint_ids`는 출발·도착을 제외한 정확히 N개의 중복 없는 ID 튜플이고,
   `distance_m`는 출발부터 도착까지 구간 cost의 합, `error_m`는 목표와의 절대 차이다.
   이는 실제 도로 노드열이나 `WalkRouteResponse`가 아니다.
 - `evaluated_candidates`: 미선택 후보를 붙이려 시도한 횟수(inf로 제외된 시도 포함).
@@ -75,7 +76,8 @@ API에는 연결하지 않았으며, 아래 기존 Engine의 `run()` 반환 계�
   따라서 후보 풀이 크면 B가 작아도 거리 계산이 오래 걸릴 수 있다.
 - 경유지 중복 선택 금지는 실제 도로 구간 재방문 금지가 아니다.
   역방향 순환 순서도 별도 후보로 남을 수 있으므로 반환 개수가 경로 다양성을 보장하지 않는다.
-  목표 허용 오차는 호출자가 판정한다. 실제 도로 겹침·다양성 평가는 이 모듈의 구현 범위가 아니다.
+  기본 거리 전용 모드에서는 목표 허용 오차를 호출자가 판정한다.
+  재통행 모드는 별도 도로 평가 공급자를 통해 아래 공통 평가를 사용한다. 경로 다양성은 보장하지 않는다.
 
 ### 실행·검증·복구
 
@@ -116,15 +118,16 @@ Beam 알고리즘을 호출하지 않으며, 외부에서 완성한 초기 경�
 - [waypoint_types.py](../../src/route_engine/waypoint_types.py)에 `WaypointCandidate`,
   `CostFunction`, `WaypointOrder`를 모았다. Beam의 기존 import 경로에서도 해당 이름을 사용할 수 있다.
   이는 현재 두 모듈의 내부 공유 표현이며, 아직 팀원 GRASP의 실제 반환 계약과 합의·연동한 것은 아니다.
-- `ALNSResult.best`는 초기 해와 복구 완료 후보 중 최저 거리 오차의 조합이다.
-  `current`는 마지막 수락 조합이므로 best보다 나쁠 수 있다. 목표 오차가 같은 경우 best를 교체하지 않는다.
+- `ALNSResult.best`는 초기 해와 복구 완료 후보 중 설정된 품질 기준이 가장 좋은 조합이다.
+  `current`는 마지막 수락 조합이므로 best보다 나쁠 수 있다. 기본 모드는 최저 거리 오차,
+  재통행 모드는 아래 공통 평가를 사용하며 품질 동점에는 best를 교체하지 않는다.
 - `iterations`는 착수한 시도 수, `evaluated_orders`는 초기 해·중간 삽입을 포함한 평가 착수 수다.
   `cost_calls`는 실제 callback 호출 수이며 캐시 적중을 포함한다.
   `accepted_moves`, `failed_repairs`, 연산자별 전체 사용 횟수·현재 가중치도 반환한다.
-- 종료 이유는 `iterations`, `cost_budget`, `exact_target`이다. 오차 0을 찾으면 조기 종료한다.
-  목표 허용 오차 충족 여부는 별도 판정한다.
+- 종료 이유는 `iterations`, `cost_budget`, `exact_target`, `exact_target_no_overlap`이다.
+  기본 모드는 오차 0, 재통행 모드는 거리 오차와 재통행이 모두 0일 때만 조기 종료한다.
 
-### 구현 규칙
+### 기본 거리 전용 모드의 구현 규칙
 
 1. 제거 수는 `ceil(N * removal_fraction)`(최소 1)이다. 현재 해에서 무작위 제거 또는 연속 구간 제거를 한다.
    순환에서는 끝·처음 경유지를 연결한 구간도 허용하고, 편도에서는 끝을 넘어가지 않는다.
@@ -157,7 +160,8 @@ N=3에서 removal_fraction=0.3이면 1개만 제거하므로 두 제거 방식�
 제거 방식 비교에서는 제거 수 2 이상인 설정도 함께 시험해야 한다.
 별도 pairwise 캐시는 없고 구간을 다시 합산한다. 따라서 큰 후보 풀은
 `candidate_limit`·`max_cost_calls`와 외부 거리 캐시를 사용해 계산량을 관리해야 한다.
-도로 겹침·Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
+Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
+도로 재통행은 아래 선택적 공통 평가 모드에서 처리한다.
 
 ### 논문과 노션의 적용 범위
 
@@ -206,6 +210,169 @@ N=3에서 removal_fraction=0.3이면 1개만 제거하므로 두 제거 방식�
   artifact 로드·후보 추출·Beam 생성 시간을 제외한다. 고정 기대값이나 전체 후보 풀 성능 보장이 아니다.
 - 미확인: 실제 팀원 모듈·GRASP·API 연결, 전체 후보 풀에서의 성능 및 서비스 품질.
 - 실패 시 이 독립 함수와 단위 테스트부터 확인한다. 데이터·API를 변경하지 않아 DB 복구는 필요 없다.
+
+## Beam·ALNS 도로 재통행 평가 (#380, 2026-08-30)
+
+### 입력·출력과 경계
+
+- [공통 평가기](../../src/route_engine/waypoint_evaluation.py)의 `RouteEvaluator`는
+  `path(a, b) -> 노드 ID 열 | None`과 `edge_length(u, v) -> 거리(m)`를 외부에서 받는다.
+  path는 양 끝점을 포함하며, None은 도달 불가다. 기타 공급자 예외는 숨기지 않는다.
+- path와 기존 `cost(a, b)`는 **동일한 고정 무방향 단순 그래프와 거리 기준**을 사용해야 한다.
+  `attach_route_metrics()`는 구간 cost 합과 복원된 실제 거리의 일치를 검사한다
+  (부동소수점 비교 rel_tol=1e-9, abs_tol=1e-6m).
+  이 일치 검사는 단위 오류를 잡는 장치이며 그래프 버전의 동일성을 증명하지는 않는다.
+- 경유지 순서를 출발·도착 포함 `stops`로 만들어 평가한다. 역방향도 같은 도로로 정규화하고,
+  두 번째 이후 통행 거리만 누적한다. `RouteMetrics(distance_m, repeated_m)`와
+  `overlap_ratio = repeated_m / distance_m`를 반환한다. 이동 거리 0은 비율 0으로 정의한다.
+  단순 왕복은 50%, 재통행 없는 순환은 0%다.
+- 같은 노드 쌍의 경로는 낮은 ID에서 높은 ID로 한 번 정해 역방향에도 사용한다.
+  최단경로 동점 선택을 고정하기 위한 규칙이다. 지도에 최종 경로를 그리는 연결부도 같은
+  구간 선택 규칙을 사용해야 평가한 경로와 일치한다. API·렌더러에는 아직 연결하지 않았다.
+- 도로 식별자는 `(min(u,v), max(u,v))`다. 평행 도로를 가진 MultiGraph나
+  서로 다른 ID로 표현된 동일 지리 구간까지 식별하는 구현은 아니다.
+- 구간 LRU 기본 상한은 1024쌍이며 0으로 캐시를 끌 수 있다. 전체 후보 쌍을 미리 계산하지 않는다.
+  이것은 **항목 수 제한이지 메모리 바이트 제한이 아니다**. 긴 구간에는 더 많은 메모리가 든다.
+  그래프를 교체하면 평가기도 다시 만든다. 실행 중 그래프·가중치를 변경하지 않는다.
+- `WaypointOrder.route_metrics=None`은 평가하지 않음을 뜻한다. 재통행 0%로 간주하지 않는다.
+  기존 세 인자 생성과 거리 전용 Beam·ALNS 호출은 유지된다.
+- 재통행 모드는 `tolerance_ratio`와 `evaluate_route`를 함께 지정한다.
+  허용 오차 기본값은 없고 0 이상 1 미만의 비율을 명시적으로 받는다.
+  기존 `cost()` 반환 단위나 의미는 변경하지 않았다.
+
+### 공통 비교와 수락 기준
+
+목표 대비 거리 오차를 e, 재통행 비율을 r이라 할 때:
+
+| 조건 | 주 점수 (낮을수록 좋음) | 주 점수 동점 비교 |
+|---|---|---|
+| 거리 전용 | 거리 오차(m) | ID 순서 |
+| 허용 범위 안 | r | e, ID 순서 |
+| 허용 범위 밖 | 1 + e | r, ID 순서 |
+
+- 허용 범위는 `error_m <= target_m * tolerance_ratio`로 양 끝을 포함한다.
+  범위 안의 r은 0~1이고 밖의 점수는 1보다 커서, 범위 만족이 우선된다.
+  범위 안에서는 재통행 비율이 같을 때만 거리 정확도를 비교한다.
+  재통행 감소를 위해 거리 오차가 이전보다 늘어나는 결과도 의도된 동작이다.
+- 이 점수화·허용 범위 정책은 본 프로젝트의 설계이며 논문에서 가져온 공식이 아니다.
+  [Lewis·Corcoran(2024)](https://link.springer.com/article/10.1007/s42979-024-03223-3)의
+  거리 오차와 재통행 비율이라는 두 평가 대상을 참고했다. 논문의 Pareto 탐색은 구현하지 않았다.
+  공개 서비스 [RunWeather](https://www.runweather.org/)의 2.5%·7.5% 설정은 비교 구간의 참고 사례일 뿐
+  산책자의 만족도를 검증한 표준이 아니다. 5% 역시 실험 비교값이며 서비스 기본값으로 확정하지 않았다.
+- Beam은 **각 단계 Top-B 선정 전** 새 경유지 순서를 지금 도착지로 연결해 평가한다.
+  이전 단계의 임시 복귀 경로는 다음 단계에 누적하지 않는다.
+  부분 경로의 평가는 최종 결과의 예측 보장·하한이 아니므로 최적해를 버릴 수 있다.
+- ALNS는 중간 삽입 후보에도 같은 기준을 사용하고, N개 복구를 마친 조합만 현재/최적 해에 반영한다.
+  최적 해 갱신·개선 보상에는 주 점수와 동점 비교값을 함께 사용한다(ID만 바뀐 것은 개선 아님).
+- SA의 delta는 **주 점수 증가량**이다. delta<=0이면 수락하고, 양수이면 `exp(-delta/T)`를 쓴다.
+  주 점수 동점이면 보조 품질이 나빠져도 중립 이동으로 수락할 수 있으며 best는 별도로 유지한다.
+  이는 사전식 튜플 전체를 단일 실수로 바꾼 SA가 아니라 주 점수에 적용한 SA다.
+- 거리 전용의 `start_temperature_m`는 유지한다. 재통행 모드는 무차원
+  `start_temperature_score`를 반드시 별도로 지정한다. 아래 명령의 0.05는 실험값이다.
+  예를 들어 주 점수 증가 0.05, T=0.05이면 수락 확률은 exp(-1), 약 36.8%다.
+- 범위를 충족하고 재통행이 0이어도 거리 동점 비교를 더 개선할 수 있으므로, 재통행 모드는
+  **거리 오차=0 및 재통행=0을 동시에 달성한 경우에만** 조기 종료한다.
+- 목적함수 추가는 겹침 0% 보장이 아니다. 막다른 길에서는 반복이 필요할 수 있다.
+  최단 연결 자체에 방문 이력 페널티를 주거나 기존 서비스 엔진을 수정하지 않았다.
+
+### 재현·검증
+
+```bash
+./.venv/Scripts/python.exe -m pytest --noconftest tests/unit/test_waypoint_beam.py tests/unit/test_waypoint_alns.py tests/unit/test_waypoint_evaluation.py benchmarks/tests/test_waypoint_runners.py -q
+./.venv/Scripts/python.exe -m benchmarks.runner.waypoint_beam --start-id 1 --target-m 3000 --pool-size 12 --waypoint-count 3 --beam-width 2 --repeats 1 --tolerances 0.025 0.05 0.075
+./.venv/Scripts/python.exe -m benchmarks.runner.waypoint_alns --start-id 1 --target-m 3000 --pool-size 12 --waypoint-count 3 --beam-width 2 --iterations 30 --cost-budget 20000 --seeds 0 1 2 --tolerances 0.025 0.05 0.075 --start-temperature-score 0.05
+```
+
+- 2026-08-30 Windows 로컬 .venv Python 3.12.13 / pytest 8.4.2:
+  위 네 테스트 파일 210개 통과. 기본 동작 회귀, 왕복/순환/길이 가중/역방향,
+  허용 범위 경계, Beam 중간 가지치기, ALNS 수락·보상·종료·best 보존, 호출 한도,
+  공급자 불일치, 편도·순환 재현성과 비교 실행기의 초기 해 고정을 검증했다.
+- 두 실행기는 `--tolerances`를 주면 거리 전용 1개와 지정한 각 비율을 비교한다.
+  없으면 기존 거리 전용 실행이다. ALNS 비교에서는 모든 모드가 **같은 거리 전용 Beam 초기 해**를 쓴다.
+  `--initial-ids`로 외부 초기 순서를 주면 Beam을 호출하지 않는다. ID는 현재 검증 후보 풀에 속해야 한다.
+  팀원 GRASP·후보 생성 모듈과의 실제 연동을 완료했다는 뜻은 아니다.
+- 각 실행에서 거리 캐시와 경로 캐시를 초기화한다. 시간에는 탐색 중 재통행 평가가 포함되고
+  그래프 로드·후보 준비·ALNS 초기 해 생성·최종 사후 검증은 제외된다.
+  `shortest_path_calls`는 기존 거리 공급자 cache miss, `route_path_calls`는 도로 공급자 cache miss,
+  `total_search_path_calls`는 두 값의 합이다. `route_evaluations`는 전체 순서 평가 callback 횟수다.
+  사후 검증에서 발생한 별도 경로 호출은 `validation_path_calls`로 기록한다.
+- 같은 cost 호출 상한이 동일한 실행 시간을 뜻하지 않는다. 겹침 평가는 추가 경로 계산을 수행한다.
+  benchmark 출력의 시간과 두 종류의 실제 경로 호출 수를 함께 비교해야 한다.
+- 위 명령으로 v2-2026-08-25 artifact(160197 노드, 223693 엣지)의 고정 후보 12개를 사용한 로컬 관측:
+  Beam은 거리 전용과 모든 허용 비율에서 거리 3023.524m·재통행 약 3.809%로 같았다.
+  ALNS의 seed 0 거리 전용 결과는 2994.386m·재통행 약 8.857%였다.
+  2.5% 모드는 seed 0/1/2 모두 초기 해(3023.524m·3.809%)를 유지했고,
+  5%·7.5% 모드는 세 seed 모두 약 2908.362m·재통행 0%를 반환했다.
+  이는 한 시작점·작은 후보 풀의 관측으로, 일반 품질·최적 허용 비율을 확정하는 근거는 아니다.
+  두 실행기는 동시에 실행했으므로 이번 시간 관측을 단독 성능 기준값으로 사용하지 않는다.
+- 미검증: 전체 후보 풀의 성능·메모리, 다른 지역/거리에서의 품질, 실제 보행자 만족,
+  최종 지도 렌더링 경로의 일치, API Workflow, 팀원 GRASP 연동.
+- 복구 시작점: 신규 모드 인자(`tolerance_ratio`, `evaluate_route`,
+  `start_temperature_score`)를 함께 생략하면 기존 거리 전용 동작으로 돌아간다.
+  DB·artifact·외부 서비스는 변경하지 않았으므로 데이터 복구는 필요 없다.
+
+### 경복궁 시나리오 전수 비교 (2026-08-30)
+
+- 재현 실행기: [waypoint_overlap_audit.py](../../benchmarks/runner/waypoint_overlap_audit.py),
+  중간 상태 추적: [waypoint_overlap_diagnostics.py](../../benchmarks/runner/waypoint_overlap_diagnostics.py).
+- 보존한 관측 요약: [waypoint_overlap_20260830.json](../../benchmarks/results/waypoint_overlap_20260830.json).
+  그래프·코드 해시, 역 좌표와 스냅 ID, 후보 12개, 전수 최적값, 개별 실행 결과를 포함한다.
+  원본 도로 노드열·전수 1320개 품질·평가 이력은 실행 시 `tmp/waypoint_overlap_validation/run_<시각>/`에 생성한다.
+  중단된 실행과 대용량 임시 결과는 버전 관리에 포함하지 않는다.
+- Windows / Python 3.12.13 / NetworkX 3.6 / v2-2026-08-25 artifact에서 관측했다.
+  비용은 `length`만 사용하며 재방문 페널티·도로 삭제·왕복 가지 제거는 적용하지 않았다.
+- 좌표는 사용자가 제공한 이전 실험 화면에서 가져와 현재 artifact에 스냅했다.
+  경복궁 131971, 서대문 78002, 종각 86877이다. 독립적으로 역 출입구 위치를 검증한 것은 아니다.
+- 순환 4000m와 편도 3000m 각각 출발 기준 target/2 cutoff 영역을 거리·ID순으로 정렬해
+  12개를 균등 간격 표본추출했다. 편도 풀은 팀의 검증된 편도 후보 생성기가 아닌 새 진단 fixture다.
+  이전 모델의 편도 실행기·후보 ID 원본이 없어 이전 편도 실패의 재현이라고 설명하지 않는다.
+- 각 풀의 12P3=1320개 순서를 NetworkX `shortest_path`와 팀 `PathUtils.astar_path`로 각각 평가했다.
+  이번 두 풀에서 canonical 구간 노드열은 모두 일치했다. 다른 입력의 동점 최단경로까지 같다는 보장은 아니다.
+  총거리와 추가 통행 거리를 별도 Counter 계산으로 5280개 평가에서 대조했다.
+- Beam은 폭 2/8/1320 × 거리 전용/2.5%/5%/7.5%로 총24회 실행했다.
+  ALNS는 시나리오별 동일한 거리 전용 Beam(B=2) 초기 해, 200반복, cost 상한20000,
+  제거율0.3, T_m=100, T_score=0.05, 냉각0.99, segment20, 반영률0.2,
+  후보 제한 없음, seed0~9 × 4모드로 총80회 실행했다. 모두200반복을 완료했다.
+  실행 전 거리·경로 캐시를 비우고 그래프 준비·초기 해 생성 시간은 탐색 시간에서 제외했다.
+
+| 시나리오·설정 | 거리(m) | 재통행(%) |
+|---|---:|---:|
+| 경복궁→서대문 Dijkstra / A* | 1575.246 / 1575.246 | 최단거리 검증 |
+| 순환 거리 전용 Beam B2 | 3975.23 | 35.706 |
+| 순환 재통행5% Beam B2 / B8 | 4194.25 | 2.167 |
+| 순환 재통행5% 전수 최적 | 4098.939 | 0.656 |
+| 순환 재통행5% ALNS seed0 | 4181.339 | 29.458 |
+| 편도 재통행5% Beam B2 / B8 | 3084.957 | 0.633 |
+| 편도 재통행5% ALNS seed0~9 모두 | 2901.572 | 0 |
+| 편도 재통행5% 전수 최적 | 3032.243 | 0 |
+
+- 최단거리: 각3회 워밍업 후30회 번갈아 측정. Dijkstra p50/p95=9.003/10.665ms,
+  A* p50/p95=2.129/2.467ms. 해당 로컬 관측이며 탐색 노드 수는 계측하지 않았다.
+- 순환5% 허용 범위 안 조합은146개. ALNS 10seed 재통행은 최저0.656%, 중앙값1.412%,
+  최고29.458%였다. 단일 seed로 개선 성능을 확정할 수 없으며 5%가 서비스 최적값이라는 근거도 아니다.
+- 제품 함수를 변경하지 않고 실제 Beam 유지 목록을 추적했다. 순환5%에서 B2는 깊이1,
+  B8은 깊이2에서 전수 최적 조합으로 이어지는 접두 순서를 모두 탈락시켰다.
+  B1320에서는 전수 최적과 일치했다. 중간 평가 개선의 필요성을 조사할 근거이지
+  rollout 등 특정 대체 방법의 성능을 검증한 결과는 아니다.
+- 새 편도 풀에는5% 허용 범위 안 조합이19개 있었다. ALNS는10seed 모두 재통행0%를 찾았지만
+  거리 동점 비교까지 보면3032.243m가 더 좋아 전체 목적값의 전수 최적에는 도달하지 않았다.
+- 편도 B2/7.5%는3370.353m·재통행0%로 허용 범위를 벗어났다. 중간 순위와 가지치기가 달라져,
+  허용 범위를 넓힌다고 최종 결과가 항상 좋아지지는 않는다. 풀 안의 해 부재와 구분한다.
+- 실제 ALNS 반환 객체에서 best 보존 검사는 모두 통과했다. 순환5%/seed3의 별도 catalog 비교에는
+  덧셈 순서에 따른 약9e-13m 차이가 있어 원본값과 진단 플래그를 구분해 기록했다.
+- 전체 후보 풀 성능, GRASP→ALNS 연결, API Workflow, 실제 보행 만족도는 여전히 미검증이다.
+
+```bash
+./.venv/Scripts/python.exe -m benchmarks.runner.waypoint_overlap_audit
+```
+
+중간 상태를 확인하려면 위 실행이 출력한 **실제 결과 폴더 경로**를 다음 모듈의 인자로 전달한다.
+
+```bash
+./.venv/Scripts/python.exe -m benchmarks.runner.waypoint_overlap_diagnostics tmp/waypoint_overlap_validation/run_YYYYMMDD_HHMMSS
+```
+
+위 날짜 자리표시는 생성된 폴더명으로 바꾼다. 실행기는 기존 산출물을 덮어쓰지 않는다.
 
 ## Engine 반환 계약
 

@@ -7,6 +7,7 @@ from math import inf, isfinite
 import networkx as nx
 
 from src.repository.network.graph_artifact_repository import GraphArtifactRepository
+from src.route_engine.waypoint_evaluation import RouteEvaluator, WaypointObjective
 
 
 def argument_parser(description):
@@ -19,7 +20,65 @@ def argument_parser(description):
     parser.add_argument("--pool-size", type=int, default=12)
     parser.add_argument("--waypoint-count", type=int, default=3)
     parser.add_argument("--beam-width", type=int, default=2)
+    parser.add_argument(
+        "--tolerances",
+        type=float,
+        nargs="+",
+        help="거리 전용 실행과 비교할 허용 비율. 예: 0.025 0.05 0.075",
+    )
+    parser.add_argument("--path-cache-size", type=int, default=1024)
     return parser
+
+
+def evaluation_modes(args, parser):
+    """거리 전용과 명시한 허용 오차들을 비교 목록으로 반환한다."""
+    if args.path_cache_size < 0:
+        parser.error("path-cache-size는 0 이상이어야 합니다.")
+    tolerances = args.tolerances or []
+    try:
+        for value in tolerances:
+            WaypointObjective(args.target_m, value)
+    except ValueError as error:
+        parser.error(str(error))
+    return [None, *dict.fromkeys(tolerances)]
+
+
+def prepare_route_evaluator(graph, cache_size):
+    """동일한 artifact 그래프의 최단 도로 경로와 엣지 길이를 공급한다."""
+    if graph.is_multigraph():
+        raise ValueError(
+            "현재 도로 식별은 단순 그래프용입니다. 다중 엣지는 별도 키가 필요합니다."
+        )
+
+    def path(a, b):
+        """두 노드 사이의 length 최단경로를 반환하고 단절은 None으로 알린다."""
+        try:
+            return nx.shortest_path(graph, a, b, weight="length")
+        except nx.NetworkXNoPath:
+            return None
+
+    def edge_length(a, b):
+        """누락된 엣지·길이를 숨기지 않고 실제 도로 길이를 제공한다."""
+        return graph[a][b]["length"]
+
+    return RouteEvaluator(path, edge_length, cache_size=cache_size)
+
+
+def quality_fields(order, target_m, tolerance):
+    """결과의 거리·재통행과 해당 비교 설정에서의 허용 범위 충족을 기록한다."""
+    metrics = order.route_metrics
+    return dict(
+        mode="distance_only" if tolerance is None else "overlap_aware",
+        tolerance_ratio=tolerance,
+        within_tolerance=(
+            None
+            if tolerance is None
+            else WaypointObjective(target_m, tolerance).within_tolerance(order)
+        ),
+        error_ratio=order.error_m / target_m,
+        repeated_m=metrics.repeated_m,
+        overlap_ratio=metrics.overlap_ratio,
+    )
 
 
 def prepare_fixture(args, parser):
