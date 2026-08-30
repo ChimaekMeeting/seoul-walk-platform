@@ -28,6 +28,37 @@ CSV로 저장한다. 이 프로젝트의 실제 목적("적당한 시간 내에 
 계속 진행된다 (status/error 컬럼에 실패 사유가 기록됨). 타임아웃된 알고리즘은
 스레드가 아니라 별도 OS 프로세스로 실행되므로, 진짜로 kill되어 좀비로 남지 않는다.
 
+그래프 공유·변형 규칙(2026-08-30, G.copy() 필요 여부 재검토 이후 명시):
+    solver.solve(graph, ...)에 넘기는 graph 객체가 호출마다 새로 격리되는지는
+    실행 경로에 따라 다르다 — engine 구현자는 자기 engine이 어느 경로로 실행될지
+    가정하지 말고, 그래프를 변형(edge/node 속성 쓰기, add_*/remove_* 등)하는 engine은
+    항상 자기 __init__에서 스스로 G.copy()로 방어해야 한다.
+
+    - benchmark.py::_run_single(): 알고리즘 1회 실행마다 별도 OS 프로세스를 새로
+      띄우고, graph는 그 프로세스 경계를 넘어갈 때 pickle을 통해 자동으로 매번
+      독립된 복사본이 된다 — 이 경로만 쓰면 engine이 그래프를 변형해도 다른 호출로
+      새어나가지 않는다.
+    - run_all_scenarios.py / run_min_separation_validation.py / run_alns_validation.py /
+      run_geometry_validation.py(모두 multiprocessing.Pool 기반): _pool_worker_init()이
+      워커 프로세스당 그래프를 "1번만" 로드해 전역(_POOL_GRAPH)에 두고, 그 뒤 같은
+      워커가 처리하는 모든 태스크(여러 seed·start_node·target_km·algo 조합)가 그
+      "같은" 객체를 재사용한다 — 매 호출 재격리가 없다. 이 경로에서 그래프를 변형하는
+      engine을 새로 등록하면서 자체 G.copy() 없이 넘기면, 그 변형이 같은 워커의
+      이후 호출(전혀 다른 solver·조건)에 그대로 새어나가는 버그가 된다.
+
+    현재 SOLVER_REGISTRY 기준: circular_grasp.py/grasp_solver.py 계열(run_circular_engine()
+    경유, calculate_custom_score()로 그래프에 custom_score를 실제로 써넣음)은 자기
+    __init__에서 G.copy()를 한다 — 필요해서 하는 것이므로 지우면 안 된다. 반면
+    grasp_waypoint_common.py 기반 4종(Local/VND/VNS/ALNS, circular_grasp_waypoint_*.py)은
+    mode="distance" 전용이라 run_circular_engine_distance_only()를 쓰고
+    calculate_custom_score()를 아예 안 부르며, 이 파이프라인이 실제로 쓰는 것
+    (grasp_waypoint_common.py/waypoint_pool.py/PathUtils)은 전부 읽기 전용이라 __init__에서
+    G.copy()를 하지 않는다(16만 노드 기준 1회 약 1.7초 절약 — VNS는 예전에 내부적으로
+    VndEngine을 또 만들며 이 복사를 두 번 해서 그중 한 번은 즉시 버려졌었다). 새 engine을
+    추가할 때 그래프를 변형하는 코드가 하나라도 있으면, 어느 실행 경로를 타든 안전하도록
+    반드시 자체적으로 G.copy()를 넣어야 한다 — 위 풀 재사용 경로에서는 하네스가 그 실수를
+    막아주지 않는다.
+
 실행:
     python -m benchmarks.benchmark --list                  # 등록된 알고리즘 목록만 확인
     python -m benchmarks.benchmark --algo dummy-a           # 하나만 실행
@@ -51,6 +82,12 @@ from benchmarks.solvers.base_solver import BasePathSolver
 from benchmarks.solvers.beam_solver import CircularBeamSolver, OnewayBeamSolver
 from benchmarks.solvers.dummy_solver import DummySolver
 from benchmarks.solvers.grasp_solver import CircularGraspSolver, OnewayGraspSolver
+from benchmarks.solvers.grasp_waypoint_solver import (
+    CircularGraspWaypointAlnsSolver,
+    CircularGraspWaypointLocalSolver,
+    CircularGraspWaypointVndSolver,
+    CircularGraspWaypointVnsSolver,
+)
 from benchmarks.solvers.plateau_solver import PlateauSolver
 from benchmarks.solvers.rcsp_solver import CircularRcspSolver, OnewayRcspSolver
 from benchmarks.solvers.astar_solver import OnewayAstarSolver
@@ -67,6 +104,17 @@ RESULT_COLUMNS = [
     "distance_km", "target_km", "distance_deviation_km",
     "is_closed_loop", "spike_count", "edge_overlap_ratio",
     "find_path_sec",
+    "astar_calls", "cache_hits",  # 선택 필드(신규) — 기존 solver는 안 주면 None으로 채워짐
+    # P2-P3 최소거리 안전장치 검증용 선택 필드(신규, grasp-wp-* solver만 채움 — 요청서 §6).
+    # 기존 solver는 이 키들을 안 주므로 전부 None으로 채워지고 기존 동작은 불변이다.
+    "selection_status", "feasible",
+    "segment_p1_p2_m", "segment_p2_p3_m", "segment_p3_p1_m",
+    "waypoint_separation_m", "min_waypoint_separation_m",
+    # 원형성 진단 지표(신규, 2026-08-30 요청). repeated_edge_ratio는 모든 solver에
+    # 공통(edge_overlap_ratio와 같은 값 — 하네스가 paths에서 독립 계산). waypoint_angle_diff_deg/
+    # segment_balance_ratio/is_degenerate_loop는 P2/P3 개념이 있는 grasp-wp-* solver만 채운다.
+    "repeated_edge_ratio", "waypoint_angle_diff_deg", "segment_balance_ratio", "is_degenerate_loop",
+    "alns_operator_stats",  # grasp-wp-alns 전용 선택 필드(JSON 문자열) — 나머지는 None
     "error",
 ]
 REQUIRED_RESULT_KEYS = ("paths", "cost")
@@ -76,8 +124,12 @@ QUEUE_FLUSH_GRACE_SEC = 5.0  # 자식 프로세스 종료 후 큐에 결과가 �
 
 # 벤치마크 대상 알고리즘 등록 지점.
 SOLVER_REGISTRY: dict[str, BasePathSolver] = {
-    "grasp-circular": CircularGraspSolver(),    
+    "grasp-circular": CircularGraspSolver(),
     "grasp-oneway": OnewayGraspSolver(),
+    "grasp-wp-local": CircularGraspWaypointLocalSolver(),
+    "grasp-wp-vnd": CircularGraspWaypointVndSolver(),
+    "grasp-wp-vns": CircularGraspWaypointVnsSolver(),
+    "grasp-wp-alns": CircularGraspWaypointAlnsSolver(),
     "beam-circular": CircularBeamSolver(),
     "beam-oneway" : OnewayBeamSolver(),
     "alns-circular": CircularAlnsSolver(),
@@ -137,7 +189,51 @@ def _validate_solver_result(result) -> dict:
     if find_path_sec is not None and (not isinstance(find_path_sec, (int, float)) or isinstance(find_path_sec, bool)):
         raise TypeError(f"'find_path_sec'는 float여야 합니다 (실제 타입: {type(find_path_sec).__name__})")
 
-    return {"paths": result["paths"], "cost": result["cost"], "overlap_ratio": overlap_ratio, "find_path_sec": find_path_sec}
+    # astar_calls/cache_hits: 신규 grasp-wp-* solver가 보고하는 진단 지표. 선택 항목이며
+    # 기존 solver는 주지 않으므로 None으로 통과시킨다(기존 solver 동작 불변).
+    astar_calls = result.get("astar_calls")
+    if astar_calls is not None and (not isinstance(astar_calls, int) or isinstance(astar_calls, bool)):
+        raise TypeError(f"'astar_calls'는 int여야 합니다 (실제 타입: {type(astar_calls).__name__})")
+    cache_hits = result.get("cache_hits")
+    if cache_hits is not None and (not isinstance(cache_hits, int) or isinstance(cache_hits, bool)):
+        raise TypeError(f"'cache_hits'는 int여야 합니다 (실제 타입: {type(cache_hits).__name__})")
+
+    # P2-P3 최소거리 안전장치 검증용 선택 필드(신규). grasp-wp-* solver만 채워 보내고,
+    # 기존 solver는 안 주므로 전부 None으로 통과한다(기존 solver 동작 불변).
+    selection_status = result.get("selection_status")
+    if selection_status is not None and not isinstance(selection_status, str):
+        raise TypeError(f"'selection_status'는 str이어야 합니다 (실제 타입: {type(selection_status).__name__})")
+    feasible = result.get("feasible")
+    if feasible is not None and not isinstance(feasible, bool):
+        raise TypeError(f"'feasible'는 bool이어야 합니다 (실제 타입: {type(feasible).__name__})")
+
+    segment_fields = {}
+    for key in (
+        "segment_p1_p2_m", "segment_p2_p3_m", "segment_p3_p1_m",
+        "waypoint_separation_m", "min_waypoint_separation_m",
+        "repeated_edge_ratio", "waypoint_angle_diff_deg", "segment_balance_ratio",
+    ):
+        value = result.get(key)
+        if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool)):
+            raise TypeError(f"'{key}'는 float(또는 int)여야 합니다 (실제 타입: {type(value).__name__})")
+        segment_fields[key] = value
+
+    is_degenerate_loop = result.get("is_degenerate_loop")
+    if is_degenerate_loop is not None and not isinstance(is_degenerate_loop, bool):
+        raise TypeError(f"'is_degenerate_loop'는 bool이어야 합니다 (실제 타입: {type(is_degenerate_loop).__name__})")
+
+    alns_operator_stats = result.get("alns_operator_stats")
+    if alns_operator_stats is not None and not isinstance(alns_operator_stats, str):
+        raise TypeError(f"'alns_operator_stats'는 str(JSON)이어야 합니다 (실제 타입: {type(alns_operator_stats).__name__})")
+
+    return {
+        "paths": result["paths"], "cost": result["cost"], "overlap_ratio": overlap_ratio,
+        "find_path_sec": find_path_sec, "astar_calls": astar_calls, "cache_hits": cache_hits,
+        "selection_status": selection_status, "feasible": feasible,
+        "is_degenerate_loop": is_degenerate_loop,
+        "alns_operator_stats": alns_operator_stats,
+        **segment_fields,
+    }
 
 
 def _compute_route_distance_km(graph, paths) -> float | None:
@@ -223,6 +319,20 @@ def _failed_row(solver: BasePathSolver, status: str, elapsed_sec: float, error: 
         "spike_count": None,
         "edge_overlap_ratio": None,
         "find_path_sec": None,
+        "astar_calls": None,
+        "cache_hits": None,
+        "selection_status": None,
+        "feasible": None,
+        "segment_p1_p2_m": None,
+        "segment_p2_p3_m": None,
+        "segment_p3_p1_m": None,
+        "waypoint_separation_m": None,
+        "min_waypoint_separation_m": None,
+        "repeated_edge_ratio": None,
+        "waypoint_angle_diff_deg": None,
+        "segment_balance_ratio": None,
+        "is_degenerate_loop": None,
+        "alns_operator_stats": None,
         "error": error,
     }
 
@@ -317,6 +427,29 @@ def _run_single(
         "is_closed_loop": _is_closed_loop(result["paths"]),
         "spike_count": _count_spikes(result["paths"]),
         "edge_overlap_ratio": _compute_edge_overlap_ratio(result["paths"]),
+        "find_path_sec": result.get("find_path_sec"),
+        "astar_calls": result.get("astar_calls"),
+        "cache_hits": result.get("cache_hits"),
+        "selection_status": result.get("selection_status"),
+        "feasible": result.get("feasible"),
+        "segment_p1_p2_m": result.get("segment_p1_p2_m"),
+        "segment_p2_p3_m": result.get("segment_p2_p3_m"),
+        "segment_p3_p1_m": result.get("segment_p3_p1_m"),
+        "waypoint_separation_m": result.get("waypoint_separation_m"),
+        "min_waypoint_separation_m": result.get("min_waypoint_separation_m"),
+        # repeated_edge_ratio는 모든 solver에 공통(요청서: "모든 벤치마크 결과에 기록").
+        # grasp-wp-* solver는 route.repeated_edge_ratio를 직접 주므로 그 값을 우선 쓰고,
+        # 안 주는 solver는 하네스가 paths에서 독립 계산한 edge_overlap_ratio로 채운다
+        # (같은 정의의 값이라 두 경로 중 하나가 없어도 값이 빈다).
+        "repeated_edge_ratio": (
+            result.get("repeated_edge_ratio")
+            if result.get("repeated_edge_ratio") is not None
+            else _compute_edge_overlap_ratio(result["paths"])
+        ),
+        "waypoint_angle_diff_deg": result.get("waypoint_angle_diff_deg"),
+        "segment_balance_ratio": result.get("segment_balance_ratio"),
+        "is_degenerate_loop": result.get("is_degenerate_loop"),
+        "alns_operator_stats": result.get("alns_operator_stats"),
         "error": "",
     }
 
@@ -397,6 +530,13 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=None,
         help="스코어링 프로필 (default/nature/safe/flat/running/landmark/child/convenient/accessible). 미지정 시 default",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="params['seed']로 전달할 난수 시드. grasp-wp-* solver만 반영(params.get('seed'))하고, "
+             "기존 solver는 자체 고정 seed를 그대로 사용한다(다중 seed 비교는 신규 solver 대상).",
+    )
     return parser.parse_args(argv)
 
 
@@ -455,9 +595,11 @@ def main():
     target_node = args.end_node if args.end_node is not None else start_node  # 편도는 --end-node로 별도 지정
     params = {"target_km": args.target_km}
     if args.profile is not None:
-        params["profile"] = args.profile    
+        params["profile"] = args.profile
     if args.time_budget is not None:
         params["time_budget_sec"] = args.time_budget
+    if args.seed is not None:
+        params["seed"] = args.seed
 
     solvers = resolve_solvers(args.algo)
 
