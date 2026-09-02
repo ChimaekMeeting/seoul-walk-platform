@@ -33,6 +33,7 @@ from src.route_engine.engines.grasp_waypoint_common import (
     determine_selection_status,
     evaluate_route,
     format_optional,
+    format_optional_list,
 )
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.waypoint_pool import WaypointPoolGenerator, WaypointPoolResult
@@ -46,12 +47,12 @@ _MAX_SHAKE_LEVEL = 4
 
 class CircularGraspWaypointVnsEngine:
     """
-    GRASP으로 경유지(p2, p3)를 waypoint_pool.py가 만든 후보 풀 중에서 선택한 뒤, VND
-    (버전 B, CircularGraspWaypointVndEngine)를 지역탐색 단계로 그대로 재사용한다(중복
-    구현 금지). VND가 지역 최적에 도달하면 Shake로 임시 경로를 만들어 교란하고, 그
-    경로에 다시 VND를 실행한다. 교란 직후 결과가 즉시 더 좋아야 하는 것은 아니며, VND가
-    끝난 최종 결과가 기존 경로보다 좋아질 때만 현재 경로를 갱신한다(그렇지 않으면 나쁜
-    경로가 최종해로 채택된다).
+    GRASP으로 경유지(cfg.num_waypoints개)를 waypoint_pool.py가 만든 후보 풀 중에서
+    선택한 뒤, VND(버전 B, CircularGraspWaypointVndEngine)를 지역탐색 단계로 그대로
+    재사용한다(중복 구현 금지). VND가 지역 최적에 도달하면 Shake로 임시 경로를 만들어
+    교란하고, 그 경로에 다시 VND를 실행한다. 교란 직후 결과가 즉시 더 좋아야 하는 것은
+    아니며, VND가 끝난 최종 결과가 기존 경로보다 좋아질 때만 현재 경로를 갱신한다
+    (그렇지 않으면 나쁜 경로가 최종해로 채택된다).
 
     Shake level 1·2는 "넓은 후보 집합에서 무작위 교체"를 랭킹 없이 풀 전체에서 균등
     무작위로 뽑아 구현한다(구축 단계의 RCL보다 덜 그리디한 교란이 목적). Shake level 3은
@@ -97,7 +98,7 @@ class CircularGraspWaypointVnsEngine:
         self._vnd_engine.utils = self.utils
         self._vnd_engine.cost_cache = self.cost_cache
         self.last_selection_status: Optional[str] = None  # 벤치마크/로그 전용(요청서 §3.6, §6)
-        self.last_route: Optional[Route] = None  # 벤치마크가 d12/d23/d31 등을 재계산할 때 씀
+        self.last_route: Optional[Route] = None  # 벤치마크가 구간 거리 등을 재계산할 때 씀
         self.last_geometry_metrics: Optional[RouteGeometryMetrics] = None  # 원형성 진단 지표(2026-08-30)
 
     def run(self) -> list[WalkRouteResponse]:
@@ -172,10 +173,10 @@ class CircularGraspWaypointVnsEngine:
         gm = self.last_geometry_metrics
         logger.info(
             "GRASP+VNS 순환 경로 선택: 노드=%d개, 거리오차=%.0fm, 반복률=%.3f, selection_status=%s, "
-            "d12=%sm, d23=%sm, d31=%sm, 방위각차=%s도, 균형비=%s, 퇴화의심=%s",
+            "구간거리=%sm, 방위각차=%s도, 균형비=%s, 퇴화의심=%s",
             len(best_route.node_ids), best_obj.distance_error_m, best_obj.repeated_edge_ratio, self.last_selection_status,
-            format_optional(gm.segment_p1_p2_m), format_optional(gm.segment_p2_p3_m), format_optional(gm.segment_p3_p1_m),
-            format_optional(gm.waypoint_angle_diff_deg), format_optional(gm.segment_balance_ratio, 3), gm.is_degenerate_loop,
+            format_optional_list(gm.segment_lengths_m), format_optional_list(gm.waypoint_angle_diffs_deg, 2),
+            format_optional(gm.segment_balance_ratio, 3), gm.is_degenerate_loop,
         )
         return best_route.node_ids
 
@@ -217,31 +218,29 @@ class CircularGraspWaypointVnsEngine:
     def _shake_replace_one(
         self, route: Route, pool_result: WaypointPoolResult, start_node: int, rng: random.Random,
     ) -> Optional[Route]:
-        """waypoint2 또는 waypoint3 중 하나를 풀 전체에서 균등 무작위로 교체(구축 단계의
+        """경유지 하나(위치는 무작위로 고름)를 풀 전체에서 균등 무작위로 교체(구축 단계의
         그리디 RCL보다 훨씬 넓은 후보 집합에서 뽑는 게 목적이라 랭킹 없이 뽑는다)."""
-        if rng.random() < 0.5:
-            choices = [c for c in pool_result.pool_nodes if c not in (route.waypoint2, route.waypoint3)]
-            if not choices:
-                return None
-            return BuildCycleRoute(self.G, self.cost_cache, start_node, rng.choice(choices), route.waypoint3)
-
-        choices = [c for c in pool_result.pool_nodes if c not in (route.waypoint2, route.waypoint3)]
+        i = rng.randrange(len(route.waypoints))
+        choices = [c for c in pool_result.pool_nodes if c not in route.waypoints]
         if not choices:
             return None
-        return BuildCycleRoute(self.G, self.cost_cache, start_node, route.waypoint2, rng.choice(choices))
+        new_waypoints = list(route.waypoints)
+        new_waypoints[i] = rng.choice(choices)
+        return BuildCycleRoute(self.G, self.cost_cache, start_node, new_waypoints)
 
     def _shake_replace_both(
         self, pool_result: WaypointPoolResult, start_node: int, rng: random.Random,
     ) -> Optional[Route]:
-        """waypoint2와 waypoint3를 모두 풀 전체에서 균등 무작위로 교체."""
-        if len(pool_result.pool_nodes) < 2:
+        """모든 경유지를 풀 전체에서 균등 무작위로(중복 없이) 교체. rng.sample로 한 번에
+        N개를 뽑는다 — 기존(N=2 전용) 두 번의 rng.choice 방식과 결과 분포는 동일하지만
+        (둘 다 서로 다른 노드 쌍을 균등 무작위로 뽑음), N으로 일반화하면서 소비하는 난수
+        시퀀스 자체는 달라진다(시드 재현성이 깨지는 건 아니지만 이전 실행과 노드별 값이
+        정확히 일치하진 않는다)."""
+        n = self.config.num_waypoints
+        if len(pool_result.pool_nodes) < n:
             return None
-        p2 = rng.choice(pool_result.pool_nodes)
-        p3_choices = [c for c in pool_result.pool_nodes if c != p2]
-        if not p3_choices:
-            return None
-        p3 = rng.choice(p3_choices)
-        return BuildCycleRoute(self.G, self.cost_cache, start_node, p2, p3)
+        new_waypoints = rng.sample(pool_result.pool_nodes, n)
+        return BuildCycleRoute(self.G, self.cost_cache, start_node, new_waypoints)
 
     def _shake_reroute_segment(self, route: Route, start_node: int, rng: random.Random) -> Optional[Route]:
         """경로 위 엣지 하나를 무한대 비용으로 일시 차단하고 A*를 재실행해 대체 경로를
@@ -258,17 +257,14 @@ class CircularGraspWaypointVnsEngine:
             return None
         banned = frozenset({frozenset((u, v))})
 
-        path12 = self.cost_cache.astar_path_avoiding_edges(start_node, route.waypoint2, banned)
-        if path12 is None:
-            return None
-        path23 = self.cost_cache.astar_path_avoiding_edges(route.waypoint2, route.waypoint3, banned)
-        if path23 is None:
-            return None
-        path31 = self.cost_cache.astar_path_avoiding_edges(route.waypoint3, start_node, banned)
-        if path31 is None:
-            return None
+        stops = [start_node, *route.waypoints, start_node]
+        rerouted_nodes: list[int] = []
+        for a, b in zip(stops, stops[1:]):
+            leg = self.cost_cache.astar_path_avoiding_edges(a, b, banned)
+            if leg is None:
+                return None
+            rerouted_nodes = rerouted_nodes + leg[1:] if rerouted_nodes else leg
 
-        rerouted_nodes = path12 + path23[1:] + path31[1:]
         if len(rerouted_nodes) < 2:
             return None
         # BuildCycleRoute와 동일하게 왕복 가지를 미리 제거해 distance_m 기준을 통일한다.
@@ -277,8 +273,7 @@ class CircularGraspWaypointVnsEngine:
             return None
         return Route(
             node_ids=pruned,
-            waypoint2=route.waypoint2,
-            waypoint3=route.waypoint3,
+            waypoints=list(route.waypoints),
             distance_m=_sum_edge_length(self.G, pruned),
             repeated_edge_ratio=_edge_overlap_ratio(pruned),
         )

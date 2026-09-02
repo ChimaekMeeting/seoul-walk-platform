@@ -29,6 +29,7 @@ from src.route_engine.engines.grasp_waypoint_common import (
     determine_selection_status,
     evaluate_route,
     format_optional,
+    format_optional_list,
     waypoint_pair_replacement_neighbors,
     waypoint_replacement_neighbors,
 )
@@ -149,10 +150,10 @@ class CircularGraspWaypointVndEngine:
         gm = self.last_geometry_metrics
         logger.info(
             "GRASP+VND 순환 경로 선택: 노드=%d개, 거리오차=%.0fm, 반복률=%.3f, selection_status=%s, "
-            "d12=%sm, d23=%sm, d31=%sm, 방위각차=%s도, 균형비=%s, 퇴화의심=%s",
+            "구간거리=%sm, 방위각차=%s도, 균형비=%s, 퇴화의심=%s",
             len(best_route.node_ids), best_obj.distance_error_m, best_obj.repeated_edge_ratio, self.last_selection_status,
-            format_optional(gm.segment_p1_p2_m), format_optional(gm.segment_p2_p3_m), format_optional(gm.segment_p3_p1_m),
-            format_optional(gm.waypoint_angle_diff_deg), format_optional(gm.segment_balance_ratio, 3), gm.is_degenerate_loop,
+            format_optional_list(gm.segment_lengths_m), format_optional_list(gm.waypoint_angle_diffs_deg, 2),
+            format_optional(gm.segment_balance_ratio, 3), gm.is_degenerate_loop,
         )
         return best_route.node_ids
 
