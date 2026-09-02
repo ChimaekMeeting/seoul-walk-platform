@@ -8,7 +8,7 @@ src/route_engine/engines/circular_grasp_waypoint_alns.py
 완전히 다른 독립 구현)는 이 작업으로 수정하지 않는다 — 이름이 비슷하지만 다른 파일이다.
 
 경유지 후보 풀은 다른 3개 버전(Local/VND/VNS)과 동일하게 waypoint_pool.py::
-WaypointPoolGenerator를 쓰고, 초기 (p2,p3) 구축도 grasp_waypoint_common.py::
+WaypointPoolGenerator를 쓰고, 초기 경유지 구축도 grasp_waypoint_common.py::
 construct_initial_route를 그대로 재사용한다(같은 GRASP 구축 단계 공유 — 공정 비교
 조건, 다른 3개 버전과 동일한 grasp_iters/rcl_size/seed 사용). 지역탐색 단계만
 VND/VNS의 이웃 탐색 대신 waypoint_alns.py의 destroy-repair ALNS로 교체한다.
@@ -23,7 +23,7 @@ waypoint_alns.py는 그래프·A*를 전혀 모르는 순수 함수(외부 후�
     (waypoint_pool.py 설계상 p1은 pool_nodes에서 자기 자신이라 제외됨) pool_result.
     dist_from_p1으로 별도 처리하고, 도달 불가(None)는 ALNS 계약대로 inf로 변환한다
     (_make_cost_fn).
-  - ALNS가 고른 최종 (p2,p3)는 추상적인 거리 합만 보장하므로, 실제 노드열은 항상
+  - ALNS가 고른 최종 경유지 순서는 추상적인 거리 합만 보장하므로, 실제 노드열은 항상
     BuildCycleRoute(A*)로 다시 만든다(다른 3개 버전과 동일한 "raw 추정치 금지, 실제
     경로 합산" 원칙 — waypoint_alns.py 자신도 "실제 도로 겹침·다양성 평가는 이 모듈의
     구현 범위가 아니다"라고 명시).
@@ -33,6 +33,12 @@ Local/VND/VNS와 비슷한 규모로 제한한다 — 후보 풀 전체(target_k
 반복 평가하면 실행 시간이 감당할 수 없이 늘어난다(waypoint_alns.py 자신의 docstring도
 "큰 후보 풀은 candidate_limit·max_cost_calls와 외부 거리 캐시를 사용해 계산량을
 관리해야 한다"고 명시).
+
+경유지 n개 일반화(2026-09-02): waypoint_alns.py::alns_search는 애초에
+initial_ids: Sequence[int]를 받고 remove_count = ceil(len(initial_ids) * removal_fraction)로
+계산하는 등 경유지 개수에 이미 무관하게 동작한다(팀원 구현이 처음부터 N-제네릭) — 이
+파일의 어댑터 쪽만 route.waypoint2/waypoint3 2개 고정 접근을 route.waypoints(list)로
+바꾸면 된다.
 """
 
 import logging
@@ -58,6 +64,7 @@ from src.route_engine.engines.grasp_waypoint_common import (
     determine_selection_status,
     evaluate_route,
     format_optional,
+    format_optional_list,
     is_waypoint_pair_separated,
 )
 from src.route_engine.engines.path_utils import PathUtils
@@ -82,16 +89,18 @@ _ALNS_START_TEMPERATURE_M = 150.0  # GraspConfig.distance_tolerance_m 기본값�
 _ALNS_COOLING_RATE = 0.95
 _ALNS_SEGMENT_LENGTH = 10
 _ALNS_REACTION_FACTOR = 0.2
-_ALNS_REMOVAL_FRACTION = 0.3  # N=2(p2,p3)에서는 ceil(2*0.3)=1개만 제거됨(waypoint_alns.py 규칙)
+_ALNS_REMOVAL_FRACTION = 0.3  # cfg.num_waypoints=2(기본값)에서는 ceil(2*0.3)=1개만 제거됨
+                              # (waypoint_alns.py 규칙). num_waypoints를 늘리면 제거 개수도
+                              # 비례해 늘어난다(ceil(N*removal_fraction)).
 
 
 class CircularGraspWaypointAlnsEngine:
     """
-    GRASP으로 경유지(p2, p3)를 waypoint_pool.py가 만든 후보 풀 중에서 선택해 초기 해를
-    만든 뒤(construct_initial_route, 다른 3개 버전과 공유), 팀원의 독립 ALNS
-    (waypoint_alns.py::alns_search)로 그 (p2,p3) 선택·순서를 destroy-repair 방식으로
-    개선한다. ALNS는 그래프를 몰라 추상적인 (경유지 순서, 거리 합)만 반환하므로, 최종
-    Route는 항상 BuildCycleRoute(A*)로 다시 만든다.
+    GRASP으로 경유지(cfg.num_waypoints개)를 waypoint_pool.py가 만든 후보 풀 중에서
+    선택해 초기 해를 만든 뒤(construct_initial_route, 다른 3개 버전과 공유), 팀원의
+    독립 ALNS(waypoint_alns.py::alns_search)로 그 경유지 선택·순서를 destroy-repair
+    방식으로 개선한다. ALNS는 그래프를 몰라 추상적인 (경유지 순서, 거리 합)만 반환하므로,
+    최종 Route는 항상 BuildCycleRoute(A*)로 다시 만든다.
     """
 
     def __init__(
@@ -118,7 +127,7 @@ class CircularGraspWaypointAlnsEngine:
         self.cost_cache = _CostCache(self.G, mode=mode)
         self.pool_generator = WaypointPoolGenerator(self.G)
         self.last_selection_status: Optional[str] = None  # 벤치마크/로그 전용(요청서 §3.6, §6)
-        self.last_route: Optional[Route] = None  # 벤치마크가 d12/d23/d31 등을 재계산할 때 씀
+        self.last_route: Optional[Route] = None  # 벤치마크가 구간 거리 등을 재계산할 때 씀
         self.last_alns_stats: Optional[dict] = None  # destroy/repair operator 사용 통계(아래 참고)
         self.last_geometry_metrics: Optional[RouteGeometryMetrics] = None  # 원형성 진단 지표(2026-08-30)
 
@@ -223,10 +232,10 @@ class CircularGraspWaypointAlnsEngine:
         gm = self.last_geometry_metrics
         logger.info(
             "GRASP+ALNS 순환 경로 선택: 노드=%d개, 거리오차=%.0fm, 반복률=%.3f, selection_status=%s, "
-            "d12=%sm, d23=%sm, d31=%sm, 방위각차=%s도, 균형비=%s, 퇴화의심=%s",
+            "구간거리=%sm, 방위각차=%s도, 균형비=%s, 퇴화의심=%s",
             len(best_route.node_ids), best_obj.distance_error_m, best_obj.repeated_edge_ratio, self.last_selection_status,
-            format_optional(gm.segment_p1_p2_m), format_optional(gm.segment_p2_p3_m), format_optional(gm.segment_p3_p1_m),
-            format_optional(gm.waypoint_angle_diff_deg), format_optional(gm.segment_balance_ratio, 3), gm.is_degenerate_loop,
+            format_optional_list(gm.segment_lengths_m), format_optional_list(gm.waypoint_angle_diffs_deg, 2),
+            format_optional(gm.segment_balance_ratio, 3), gm.is_degenerate_loop,
         )
         return best_route.node_ids
 
@@ -239,8 +248,8 @@ class CircularGraspWaypointAlnsEngine:
         alns_config: ALNSConfig,
         target_m: float,
     ) -> tuple[Route, bool, Optional[ALNSResult]]:
-        """route.waypoint2/waypoint3를 초기 순서로 alns_search를 1회 실행하고, 결과로
-        나온 (p2,p3)를 BuildCycleRoute(A*)로 다시 연결해 실제 Route를 만든다.
+        """route.waypoints를 초기 순서로 alns_search를 1회 실행하고, 결과로 나온 경유지
+        순서를 BuildCycleRoute(A*)로 다시 연결해 실제 Route를 만든다.
         (개선된 route, ALNS 결과를 실제로 채택했는지, alns_search()의 원본 반환값 —
         연산자 통계 집계용, 실패 시 None)를 반환한다.
 
@@ -256,20 +265,21 @@ class CircularGraspWaypointAlnsEngine:
         조용히 무효화된다.
 
         better()만으로는 부족하다: better()는 feasible/repeated_edge_ratio/distance_error_m만
-        비교하고 P2-P3 최소거리는 아예 모른다. repair 연산은 알고리즘 특성상 pool_result.
+        비교하고 경유지 최소거리는 아예 모른다. repair 연산은 알고리즘 특성상 pool_result.
         pool_nodes 전체(거리 적합도만 봄, 방위각·최소거리 무관)에서 후보를 끌어오므로,
-        ALNS가 골라온 (p2,p3)가 better()로는 이겨도 최소거리 조건을 어길 수 있다 —
+        ALNS가 골라온 경유지 순서가 better()로는 이겨도 최소거리 조건을 어길 수 있다 —
         2026-08-30 다중 조건 검증(target_km=5.0)에서 실측으로 30건 중 3건이 위반됐다
         (그중 2건은 feasible로 최종 채택까지 됨, overlap_ratio 0.60짜리 포함). 그래서
-        better() 비교 전에 최소거리부터 별도로 검증한다 — construct_initial_route/
-        Local·VND·VNS는 _rank_p3_candidates가 이 조건을 후보 생성 단계에서 이미 걸러
-        구조적으로 위반이 불가능하지만, ALNS는 repair가 그 랭킹 함수를 거치지 않으므로
-        결과에서 사후 검증이 반드시 필요하다."""
+        better() 비교 전에 최소거리부터 별도로 검증한다(경유지 n개 일반화 이후에는 결과
+        경유지 순서의 모든 연속 쌍을 검사) — construct_initial_route/Local·VND·VNS는
+        _rank_next_waypoint_candidates가 이 조건을 후보 생성 단계에서 이미 걸러 구조적으로
+        위반이 불가능하지만, ALNS는 repair가 그 랭킹 함수를 거치지 않으므로 결과에서
+        사후 검증이 반드시 필요하다."""
         try:
             result = alns_search(
                 candidates=alns_candidates,
                 cost=cost_fn,
-                initial_ids=(route.waypoint2, route.waypoint3),
+                initial_ids=tuple(route.waypoints),
                 start_id=start_node,
                 end_id=start_node,
                 target_m=target_m,
@@ -279,20 +289,21 @@ class CircularGraspWaypointAlnsEngine:
             logger.warning("ALNS 실행 실패(%s) — 개선 없이 GRASP 초기 해를 그대로 씁니다.", e)
             return route, False, None
 
-        p2, p3 = result.best.waypoint_ids
-        if (p2, p3) == (route.waypoint2, route.waypoint3):
+        new_waypoints = list(result.best.waypoint_ids)
+        if new_waypoints == route.waypoints:
             return route, False, result  # ALNS가 개선하지 못함 — 불필요한 재연결 생략
 
         if self.config.min_waypoint_separation_ratio:
-            p2_p3_m = cost_fn(p2, p3)
-            if not is_waypoint_pair_separated(p2_p3_m, target_m, self.config):
-                logger.debug(
-                    "ALNS 결과가 P2-P3 최소거리 조건을 위반해 기각합니다: %.1fm < %.1fm",
-                    p2_p3_m, target_m * self.config.min_waypoint_separation_ratio,
-                )
-                return route, False, result
+            for a, b in zip(new_waypoints, new_waypoints[1:]):
+                pair_m = cost_fn(a, b)
+                if not is_waypoint_pair_separated(pair_m, target_m, self.config):
+                    logger.debug(
+                        "ALNS 결과가 경유지 최소거리 조건을 위반해 기각합니다: %.1fm < %.1fm",
+                        pair_m, target_m * self.config.min_waypoint_separation_ratio,
+                    )
+                    return route, False, result
 
-        improved = BuildCycleRoute(self.G, self.cost_cache, start_node, p2, p3)
+        improved = BuildCycleRoute(self.G, self.cost_cache, start_node, new_waypoints)
         if improved is None:
             return route, False, result
 
@@ -390,7 +401,8 @@ def _make_cost_fn(pool_result: WaypointPoolResult, start_node: int):
 
     p1(start_node)은 waypoint_pool.py 설계상 pool_nodes에 포함되지 않으므로(자기 자신
     이라 제외됨), pool_result.distance()에 직접 넘기면 ValueError가 난다 — p1이 관여
-    하는 두 구간(start→p2, p3→start)은 pool_result.dist_from_p1으로 따로 처리한다."""
+    하는 두 구간(start→첫 경유지, 마지막 경유지→start)은 pool_result.dist_from_p1으로
+    따로 처리한다."""
 
     def cost(a: int, b: int) -> float:
         if a == start_node:
