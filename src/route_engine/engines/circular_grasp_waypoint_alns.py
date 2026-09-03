@@ -109,6 +109,7 @@ class CircularGraspWaypointAlnsEngine:
         mode: str = "distance",
         seed: int = _SEED,
         config: GraspConfig = DEFAULT_CONFIG,
+        num_waypoints: Optional[int] = None,
     ):
         self.inp = inp
         # G.copy() 안 함(2026-08-30 재검토) — grasp_waypoint_common.py/waypoint_pool.py/
@@ -121,7 +122,7 @@ class CircularGraspWaypointAlnsEngine:
         self.G = G
         self.mode = mode
         self.seed = seed
-        self.config = config
+        self.config = config if num_waypoints is None else replace(config, num_waypoints=num_waypoints)
         self.utils = PathUtils(self.G)
         self.cost_cache = _CostCache(self.G, mode=mode)
         self.pool_generator = WaypointPoolGenerator(self.G)

@@ -10,6 +10,7 @@ src/route_engine/engines/circular_grasp_waypoint_vnd.py
 
 import logging
 import random
+from dataclasses import replace
 from typing import Optional
 
 import networkx as nx
@@ -62,6 +63,7 @@ class CircularGraspWaypointVndEngine:
         mode: str = "distance",
         seed: int = _SEED,
         config: GraspConfig = DEFAULT_CONFIG,
+        num_waypoints: Optional[int] = None,
     ):
         self.inp = inp
         # G.copy() 안 함(2026-08-30 재검토) — 이 클래스가 부르는 것(grasp_waypoint_common.py/
@@ -72,7 +74,7 @@ class CircularGraspWaypointVndEngine:
         self.G = G
         self.mode = mode
         self.seed = seed
-        self.config = config
+        self.config = config if num_waypoints is None else replace(config, num_waypoints=num_waypoints)
         self.utils = PathUtils(self.G)
         self.cost_cache = _CostCache(self.G, mode=mode)
         self.pool_generator = WaypointPoolGenerator(self.G)
