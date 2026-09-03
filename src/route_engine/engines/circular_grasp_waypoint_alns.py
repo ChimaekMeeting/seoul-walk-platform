@@ -85,7 +85,6 @@ _SEED = 42
 # 동일하게 명시).
 _ALNS_ITERATIONS = 30
 _ALNS_MAX_COST_CALLS = 3000
-_ALNS_START_TEMPERATURE_M = 150.0  # GraspConfig.distance_tolerance_m 기본값과 같은 스케일(m)
 _ALNS_COOLING_RATE = 0.95
 _ALNS_SEGMENT_LENGTH = 10
 _ALNS_REACTION_FACTOR = 0.2
@@ -181,7 +180,12 @@ class CircularGraspWaypointAlnsEngine:
         alns_config_template = ALNSConfig(
             iterations=_ALNS_ITERATIONS,
             removal_fraction=_ALNS_REMOVAL_FRACTION,
-            start_temperature_m=_ALNS_START_TEMPERATURE_M,
+            start_temperature_m=target_m * self.config.distance_tolerance_ratio,
+            # tolerance(evaluate_route에 쓰는 target_m*distance_tolerance_ratio)와 같은
+            # 스케일로 맞춘다(2026-09-03) — 이전에는 고정 150.0m 상수였는데, tolerance가
+            # target_m 비례 비율로 바뀌면서 target_m=3000이 아닌 호출에서는 "같은
+            # 스케일"이라는 원래 의도가 깨졌다. target_m이 이미 이 시점에 있으므로 같은
+            # 식으로 그때그때 계산한다.
             cooling_rate=_ALNS_COOLING_RATE,
             segment_length=_ALNS_SEGMENT_LENGTH,
             reaction_factor=_ALNS_REACTION_FACTOR,
@@ -212,7 +216,7 @@ class CircularGraspWaypointAlnsEngine:
             )
             stats.record(alns_result)
 
-            obj = evaluate_route(route, target_m, self.config.distance_tolerance_m)
+            obj = evaluate_route(route, target_m, target_m * self.config.distance_tolerance_ratio)
             if best_route is None or better(obj, best_obj):
                 best_obj, best_route = obj, route
                 stats.record_winner(alns_result, alns_accepted)
@@ -307,7 +311,7 @@ class CircularGraspWaypointAlnsEngine:
         if improved is None:
             return route, False, result
 
-        tolerance = self.config.distance_tolerance_m
+        tolerance = target_m * self.config.distance_tolerance_ratio
         if better(evaluate_route(improved, target_m, tolerance), evaluate_route(route, target_m, tolerance)):
             return improved, True, result
         return route, False, result  # ALNS 결과가 실제로는(반복률 포함) 더 나쁨 — 원래 GRASP 해 유지

@@ -34,10 +34,6 @@ _DEFAULT_SEED = 42
 
 
 def _segment_metrics(engine, start_node: int, target_km: float) -> dict:
-    """engine.last_geometry_metrics(있으면)로부터 원형성 진단 지표 전체와
-    selection_status를 CSV 행 형태로 옮겨 적는다. engine.last_route가 None이면
-    (선택된 경로가 끝내 없었던 경우) 전부 None으로 채운다 — 이 경우 selection_status
-    (feasible/fallback_distance/no_valid_waypoint_pair)만으로 원인을 구분한다."""
     status = getattr(engine, "last_selection_status", None)
     target_m = target_km * 1000
     min_separation_m = target_m * engine.config.min_waypoint_separation_ratio
@@ -47,18 +43,21 @@ def _segment_metrics(engine, start_node: int, target_km: float) -> dict:
         return round(value, digits) if value is not None else None
 
     if gm is None:
-        gm = RouteGeometryMetrics(None, None, None, None, None, None, None, False)
+        gm = RouteGeometryMetrics(None, None, None, None, None, False)
+
+    segments = gm.segment_lengths_m
+    angles = gm.waypoint_angle_diffs_deg
 
     return {
         "selection_status": status,
         "feasible": status == "feasible",
-        "segment_p1_p2_m": r(gm.segment_p1_p2_m),
-        "segment_p2_p3_m": r(gm.segment_p2_p3_m),
-        "segment_p3_p1_m": r(gm.segment_p3_p1_m),
-        "waypoint_separation_m": r(gm.waypoint_separation_m),  # P2-P3 실제 A* 거리
+        "segment_p1_p2_m": r(segments[0]) if segments else None,
+        "segment_p2_p3_m": r(segments[1]) if segments and len(segments) > 1 else None,
+        "segment_p3_p1_m": r(segments[-1]) if segments else None,
+        "waypoint_separation_m": r(gm.waypoint_separation_m),
         "min_waypoint_separation_m": round(min_separation_m, 4),
         "repeated_edge_ratio": r(gm.repeated_edge_ratio, 4),
-        "waypoint_angle_diff_deg": r(gm.waypoint_angle_diff_deg, 2),
+        "waypoint_angle_diff_deg": r(angles[0], 2) if angles else None,
         "segment_balance_ratio": r(gm.segment_balance_ratio, 4),
         "is_degenerate_loop": gm.is_degenerate_loop,
     }

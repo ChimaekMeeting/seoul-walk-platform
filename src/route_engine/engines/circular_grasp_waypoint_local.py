@@ -136,7 +136,7 @@ class CircularGraspWaypointLocalEngine:
             if route is None:
                 continue
             route = self._local_search(route, pool_result, start_node, target_m)
-            obj = evaluate_route(route, target_m, self.config.distance_tolerance_m)
+            obj = evaluate_route(route, target_m, target_m * self.config.distance_tolerance_ratio)
             if best_route is None or better(obj, best_obj):
                 best_obj, best_route = obj, route
 
@@ -166,7 +166,7 @@ class CircularGraspWaypointLocalEngine:
         """단순 지역개선: 개선이 없어질 때까지 WaypointReplacement 이웃에서
         best-improvement를 반복 채택한다."""
         current = route
-        current_obj = evaluate_route(current, target_m, self.config.distance_tolerance_m)
+        current_obj = evaluate_route(current, target_m, target_m * self.config.distance_tolerance_ratio)
         improved = True
         while improved:
             improved = False
@@ -174,7 +174,7 @@ class CircularGraspWaypointLocalEngine:
             for neighbor in waypoint_replacement_neighbors(
                 self.G, self.cost_cache, pool_result, start_node, current, target_m, self.config
             ):
-                neighbor_obj = evaluate_route(neighbor, target_m, self.config.distance_tolerance_m)
+                neighbor_obj = evaluate_route(neighbor, target_m, target_m * self.config.distance_tolerance_ratio)
                 if better(neighbor_obj, best_neighbor_obj):
                     best_neighbor, best_neighbor_obj = neighbor, neighbor_obj
             if better(best_neighbor_obj, current_obj):

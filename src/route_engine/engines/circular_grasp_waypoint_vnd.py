@@ -132,7 +132,7 @@ class CircularGraspWaypointVndEngine:
             if route is None:
                 continue
             route = self.vnd(route, pool_result, start_node, target_m)
-            obj = evaluate_route(route, target_m, self.config.distance_tolerance_m)
+            obj = evaluate_route(route, target_m, target_m * self.config.distance_tolerance_ratio)
             if best_route is None or better(obj, best_obj):
                 best_obj, best_route = obj, route
 
@@ -161,13 +161,13 @@ class CircularGraspWaypointVndEngine:
         """VND: 이웃 목록을 순서대로 검사하다가 개선을 찾으면 첫 이웃부터 다시 시작한다.
         VNS(circular_grasp_waypoint_vns.py)가 지역탐색 단계로 이 메서드를 그대로 재사용한다."""
         current = route
-        current_obj = evaluate_route(current, target_m, self.config.distance_tolerance_m)
+        current_obj = evaluate_route(current, target_m, target_m * self.config.distance_tolerance_ratio)
         idx = 0
         while idx < len(_NEIGHBORHOODS):
             neighborhood_fn = _NEIGHBORHOODS[idx]
             best_neighbor, best_neighbor_obj = current, current_obj
             for neighbor in neighborhood_fn(self.G, self.cost_cache, pool_result, start_node, current, target_m, self.config):
-                neighbor_obj = evaluate_route(neighbor, target_m, self.config.distance_tolerance_m)
+                neighbor_obj = evaluate_route(neighbor, target_m, target_m * self.config.distance_tolerance_ratio)
                 if better(neighbor_obj, best_neighbor_obj):
                     best_neighbor, best_neighbor_obj = neighbor, neighbor_obj
             if better(best_neighbor_obj, current_obj):
