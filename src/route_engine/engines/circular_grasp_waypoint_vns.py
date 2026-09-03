@@ -226,7 +226,7 @@ class CircularGraspWaypointVnsEngine:
             return None
         new_waypoints = list(route.waypoints)
         new_waypoints[i] = rng.choice(choices)
-        return BuildCycleRoute(self.G, self.cost_cache, start_node, new_waypoints)
+        return BuildCycleRoute(self.G, self.cost_cache.astar_path, start_node, new_waypoints)
 
     def _shake_replace_both(
         self, pool_result: WaypointPoolResult, start_node: int, rng: random.Random,
@@ -240,7 +240,7 @@ class CircularGraspWaypointVnsEngine:
         if len(pool_result.pool_nodes) < n:
             return None
         new_waypoints = rng.sample(pool_result.pool_nodes, n)
-        return BuildCycleRoute(self.G, self.cost_cache, start_node, new_waypoints)
+        return BuildCycleRoute(self.G, self.cost_cache.astar_path, start_node, new_waypoints)
 
     def _shake_reroute_segment(self, route: Route, start_node: int, rng: random.Random) -> Optional[Route]:
         """경로 위 엣지 하나를 무한대 비용으로 일시 차단하고 A*를 재실행해 대체 경로를

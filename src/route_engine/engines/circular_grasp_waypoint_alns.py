@@ -307,7 +307,7 @@ class CircularGraspWaypointAlnsEngine:
                     )
                     return route, False, result
 
-        improved = BuildCycleRoute(self.G, self.cost_cache, start_node, new_waypoints)
+        improved = BuildCycleRoute(self.G, self.cost_cache.astar_path, start_node, new_waypoints)
         if improved is None:
             return route, False, result
 
