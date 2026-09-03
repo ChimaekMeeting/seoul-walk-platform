@@ -169,7 +169,15 @@ class GraspConfig:
     grasp_iters: int = 24                # 기존 circular_grasp.py::_GRASP_ITERS와 동일(공정 비교 조건)
     rcl_size: int = 8                    # 기존 circular_grasp.py::_RCL_SIZE와 동일. 구축 RCL 크기이자
                                           # 지역개선 이웃 탐색 폭(BuildCycleRoute 호출 상한)으로도 재사용한다.
-    distance_tolerance_m: float = 150.0  # 최종 Route 평가(evaluate_route)의 허용 오차
+    distance_tolerance_ratio: float = 0.05
+    # 최종 Route 평가(evaluate_route)의 허용 오차 비율(2026-09-03, "Beam/GRASP 판단 기준
+    # 통일" 요청서 3번). 기존에는 target_m과 무관한 절대값(150.0m)이었으나, target_m이
+    # 3000이 아닌 호출(예: 5000m)에서 그대로 쓰면 실제 허용 비율이 target_m마다 달라지는
+    # 문제가 있어 비율로 바꿨다. 각 호출부는 evaluate_route(route, target_m, target_m *
+    # cfg.distance_tolerance_ratio)처럼 매번 target_m으로 다시 곱해 절대 허용치를 구한다.
+    # 기본값 0.05(5%)는 기존 150m 기본값을 GRASP·Beam 공통 비교 기준인 target_m=3000m에
+    # 대입한 값과 같고, Beam·ALNS 벤치마크가 이미 검증한 tolerance_ratio 값(README
+    # "--tolerances 0.025 0.05 0.075" 참고)과도 일치한다.
     pairwise_cache_rows: int = 256       # WaypointPoolGenerator.build_pool(pairwise_cache_rows=...)로 전달
     num_waypoints: int = 2
     # GRASP이 선택하는 경유지 개수(n). 기본값 2는 기존 p2·p3 2개 구성과 완전히 동일한
@@ -279,21 +287,32 @@ def _sum_edge_cost(G: nx.Graph, path: Optional[list[int]], mode: str, config=Non
     return total
 
 
-def _edge_overlap_ratio(path: list[int]) -> float:
-    """경로가 자기 자신의 구간을 재사용하는 비율(benchmark.py::_compute_edge_overlap_ratio와
-    동일한 정의 — 무방향 그래프이므로 (u,v)/(v,u)는 같은 구간으로 취급)."""
+def _edge_overlap_ratio(G: nx.Graph, path: list[int]) -> float:
+    """경로의 재통행 거리 비율(Beam·ALNS와 동일한 정의 — waypoint_evaluation.py::RouteEvaluator
+    참고). 도로 엣지 하나가 두 번째 이후 통행될 때만 그 구간의 실제 길이(length)를 repeated에
+    더한다(단순 재통행 횟수가 아니라 거리 가중). 무방향 그래프이므로 (u,v)/(v,u)는 같은 구간으로
+    취급한다. 단순 왕복(그대로 되돌아오는 경로)은 정확히 0.5, 재통행이 전혀 없는 순환은 0이다.
+
+    이전에는 benchmark.py::_compute_edge_overlap_ratio와 같은 "통행 횟수" 기준(2회 이상
+    통행된 구간은 그 통행 전부를 reused로 셈 — 단순 왕복이면 1.0)을 썼으나, Beam·GRASP의
+    재통행 판단 기준을 통일하기 위해(요청서 "재통행 판단 지표에서 Beam의 방식을 GRASP에
+    적용하기", 2026-09-02) Beam이 이미 쓰던 거리 가중 정의로 맞췄다. 이 변경으로
+    is_degenerate_loop_route의 0.50 임계값도 함께 재조정했다(아래 참고)."""
     if len(path) < 2:
         return 0.0
-    counts: dict[frozenset, int] = {}
+    seen: set[frozenset] = set()
+    total = repeated = 0.0
     for u, v in zip(path, path[1:]):
+        edge = G[u][v]
+        if _LENGTH_ATTR not in edge:
+            raise MissingEdgeAttributeError(f"엣지에 '{_LENGTH_ATTR}' 속성이 없습니다: {edge!r}")
+        length = edge[_LENGTH_ATTR]
         key = frozenset((u, v))
-        counts[key] = counts.get(key, 0) + 1
-    total = sum(counts.values())
-    if total == 0:
-        return 0.0
-    reused = sum(c for c in counts.values() if c > 1)
-    return reused / total
-
+        total += length
+        if key in seen:
+            repeated += length
+        seen.add(key)
+    return repeated / total if total else 0.0
 
 # ── A* 경로 캐시(최종 구간 연결 전용) ────────────────────────────────────
 
@@ -524,7 +543,7 @@ def BuildCycleRoute(
         return None
 
     distance_m = _sum_edge_length(G, pruned)
-    repeated_edge_ratio = _edge_overlap_ratio(pruned)
+    repeated_edge_ratio = _edge_overlap_ratio(G, pruned)
     return Route(
         node_ids=pruned,
         waypoints=list(waypoints),
@@ -585,6 +604,24 @@ class RouteGeometryMetrics:
     is_degenerate_loop: bool
 
 
+_DEGENERATE_REPEATED_EDGE_RATIO = 0.35
+# repeated_edge_ratio 판정 임계값(2026-09-02, "Beam·GRASP 재통행·거리허용 판단 기준 통일" 요청서).
+#
+# 기존 0.50은 _edge_overlap_ratio가 "재통행 횟수" 기준(구간이 2회 이상 통행되면 그 통행
+# 전부를 reused로 셈 — 단순 왕복이면 1.0)이던 시절 값이다. 이번에 _edge_overlap_ratio를
+# Beam·ALNS와 같은 거리 가중 정의(waypoint_evaluation.py::RouteEvaluator — 구간의 "두
+# 번째 이후 통행분"만 repeated에 더함)로 바꾸면서, 같은 "단순 왕복"의 값이 1.0에서 0.5로
+# 내려간다(RouteEvaluator 모듈 문서 "단순 왕복은 50%, 재통행 없는 순환은 0%" 참고).
+# 기존 0.50 임계값을 그대로 두면 가장 흔한 퇴화 형태인 단순 왕복이 정확히 경계값에 걸려
+# `repeated_edge_ratio > 0.50` 비교를 통과하지 못한다(퇴화로 잡히지 않는다) — 판정이
+# 사실상 무력화된다. 0.5보다 확실히 낮은 값이 필요해 0.35로 재조정했다: 단순 왕복(0.5)은
+# 여유를 두고 확실히 잡아내면서, 짧은 막다른 구간을 잠깐 오간 정도(낮은
+# repeated_edge_ratio)까지 과도하게 퇴화로 잡지는 않도록 하는 절충값이다.
+#
+# 이 값은 지표 정의 전환을 반영한 1차 재조정값이며, 요청서 ETC가 요구하는 실제 그래프
+# 변경 전/후 벤치마크 회귀 확인은 아직 하지 않았다 — 실측 후 이 상수와 주석을 함께 갱신할 것.
+
+
 def is_degenerate_loop_route(
     repeated_edge_ratio: float,
     waypoint_separation_m: Optional[float],
@@ -594,11 +631,11 @@ def is_degenerate_loop_route(
     """요청서 원문 그대로의 OR 조건(순수 함수로 분리 — compute_route_geometry_metrics와
     별개로 단위 테스트하기 위함). 값이 없는(None) 조건은 그 항목만 건너뛴다(예: 경유지가
     1개뿐이라 waypoint_separation_m을 못 구했다면 그 조건 없이 나머지 두 개로만 판정).
-        repeated_edge_ratio > 0.50
+        repeated_edge_ratio > _DEGENERATE_REPEATED_EDGE_RATIO(0.35, 재조정 근거는 위 상수 주석 참고)
         또는 waypoint_separation_m(내부 구간 최솟값) < target_m * 0.20
         또는 segment_balance_ratio < 0.25
     """
-    if repeated_edge_ratio > 0.50:
+    if repeated_edge_ratio > _DEGENERATE_REPEATED_EDGE_RATIO:
         return True
     if waypoint_separation_m is not None and target_m > 0 and waypoint_separation_m < target_m * 0.20:
         return True
@@ -607,16 +644,18 @@ def is_degenerate_loop_route(
     return False
 
 
+
 def compute_route_geometry_metrics(
     G: nx.Graph, cost_cache: _CostCache, start_node: int, route: Optional[Route], target_m: float,
 ) -> RouteGeometryMetrics:
     """route가 None이면 전부 None/False. 아니면 p1→w1→...→w_N→p1의 각 구간을
     cost_cache.astar_path()로 다시 조회해(이미 BuildCycleRoute가 계산해둔 경로라 캐시
     적중, 새 A* 호출 없음) 실제 거리로 segment_lengths_m을 구하고, 나머지 지표를 그
-    위에서 계산한다. is_degenerate_loop 판정 기준(요청서 원문 그대로, 하드코딩된 리터럴
+    위에서 계산한다.     is_degenerate_loop 판정 기준(요청서 원문 그대로, 하드코딩된 리터럴
     — GraspConfig.min_waypoint_separation_ratio 등 탐색용 설정과는 독립적인 별도 진단
-    임계값이다):
-        repeated_edge_ratio > 0.50
+    임계값이다. repeated_edge_ratio 임계값 재조정 근거는 _DEGENERATE_REPEATED_EDGE_RATIO
+    상수 주석 참고):
+        repeated_edge_ratio > _DEGENERATE_REPEATED_EDGE_RATIO(0.35)
         또는 waypoint_separation_m(내부 구간 최솟값) < target_m * 0.20
         또는 segment_balance_ratio < 0.25
     세 구간 균형(segment_balance_ratio)은 이번 단계에서 탐색을 막는 강한 조건이 아니라

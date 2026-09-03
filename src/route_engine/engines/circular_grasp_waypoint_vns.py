@@ -155,7 +155,7 @@ class CircularGraspWaypointVnsEngine:
             current = self._vnd_engine.vnd(current, pool_result, start_node, target_m)
             current = self._vns_loop(current, pool_result, start_node, target_m, rng)
 
-            obj = evaluate_route(current, target_m, self.config.distance_tolerance_m)
+            obj = evaluate_route(current, target_m, target_m * self.config.distance_tolerance_ratio)
             if best_route is None or better(obj, best_obj):
                 best_obj, best_route = obj, current
 
@@ -183,7 +183,7 @@ class CircularGraspWaypointVnsEngine:
     def _vns_loop(
         self, current: Route, pool_result: WaypointPoolResult, start_node: int, target_m: float, rng: random.Random,
     ) -> Route:
-        current_obj = evaluate_route(current, target_m, self.config.distance_tolerance_m)
+        current_obj = evaluate_route(current, target_m, target_m * self.config.distance_tolerance_ratio)
         shake_level = 1
         while shake_level <= _MAX_SHAKE_LEVEL:
             shaken = self._shake(current, pool_result, start_node, target_m, shake_level, rng)
@@ -192,7 +192,7 @@ class CircularGraspWaypointVnsEngine:
                 continue
 
             candidate = self._vnd_engine.vnd(shaken, pool_result, start_node, target_m)
-            candidate_obj = evaluate_route(candidate, target_m, self.config.distance_tolerance_m)
+            candidate_obj = evaluate_route(candidate, target_m, target_m * self.config.distance_tolerance_ratio)
 
             if better(candidate_obj, current_obj):
                 current, current_obj = candidate, candidate_obj
@@ -275,5 +275,5 @@ class CircularGraspWaypointVnsEngine:
             node_ids=pruned,
             waypoints=list(route.waypoints),
             distance_m=_sum_edge_length(self.G, pruned),
-            repeated_edge_ratio=_edge_overlap_ratio(pruned),
+            repeated_edge_ratio=_edge_overlap_ratio(self.G, pruned),
         )
