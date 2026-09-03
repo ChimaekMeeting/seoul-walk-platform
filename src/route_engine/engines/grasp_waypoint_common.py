@@ -50,6 +50,15 @@ waypoint_pool.py 모듈 docstring 참고, r_max 부등식 자체가 경유지 �
        mode="natural"을 켜더라도 풀 생성까지 자동으로 따라가지 않는다 — 그 경우 풀 생성
        쪽도 별도로 확장해야 한다는 점을 활성화 시점에 재확인할 것)
     8. 자연 모드 전용 테스트와 벤치마크 실행
+
+    Route/BuildCycleRoute 등 조립 계층의 이동(2026-09-03, "Beam/GRASP 공용 조립 계층과 어댑터"
+    이슈): 노드열 stitching → PathUtils.prune_dead_ends → 거리·재통행비율 재계산 로직은
+    GRASP 전용이 아니라 Beam도 같은 기준으로 써야 해서 waypoint_route_builder.py로 옮겼다.
+    이 파일은 Route/MissingEdgeAttributeError/BuildCycleRoute를 하위 호환을 위해 그대로
+    재-export한다 — 이 모듈 안의 다른 함수(EdgeCost, _CostCache 등 GRASP의 A* 탐색 비용
+    정책)는 옮기지 않았다. 그건 "조립"이 아니라 "탐색 비용 정책"이라 GRASP 전용으로 남아야
+    한다.
+
 """
 
 from __future__ import annotations
@@ -63,23 +72,19 @@ import networkx as nx
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.waypoint_pool import WaypointPoolResult
-
-_LENGTH_ATTR = "length"  # 그래프 엣지 거리 속성명(위 docstring 참고). 이 상수 하나로 통일.
-
-
-class MissingEdgeAttributeError(KeyError):
-    """엣지에 필수 속성(예: length)이 없을 때 던진다. 0으로 조용히 대체하지 않는다 —
-    그렇게 하면 모든 비용이 0으로 계산되는 오류가 숨겨질 수 있다."""
-
+from src.route_engine.waypoint_route_builder import (
+    MissingEdgeAttributeError,
+    Route,
+    _LENGTH_ATTR,
+    build_cycle_route as BuildCycleRoute,
+    edge_overlap_ratio as _edge_overlap_ratio,
+    sum_edge_length as _sum_edge_length,
+)
 
 # ── 데이터 구조 ──────────────────────────────────────────────────────────
+# Route/MissingEdgeAttributeError/_LENGTH_ATTR은 waypoint_route_builder.py로 옮겼다(위
+# docstring 참고). 이 파일에서는 하위 호환을 위해 그대로 재-export해서 쓴다.
 
-@dataclass
-class Route:
-    node_ids: list[int]
-    waypoints: list[int]  # p1 다음 정류점부터 순서대로, 길이 == cfg.num_waypoints
-    distance_m: float
-    repeated_edge_ratio: float
 
 
 @dataclass(frozen=True)
@@ -265,18 +270,6 @@ def EdgeCost(mode: str, edge_data: dict, config=None) -> float:
     raise ValueError(f"Unknown mode: {mode!r}")
 
 
-def _sum_edge_length(G: nx.Graph, path: list[int]) -> float:
-    """항상 실제 물리적 거리(length)만 합산한다 — mode와 무관. Route.distance_m /
-    목표거리 비교는 항상 이 값을 쓴다(탐색 비용이 mode에 따라 달라지더라도)."""
-    total = 0.0
-    for u, v in zip(path, path[1:]):
-        edge = G[u][v]
-        if _LENGTH_ATTR not in edge:
-            raise MissingEdgeAttributeError(f"엣지에 '{_LENGTH_ATTR}' 속성이 없습니다: {edge!r}")
-        total += edge[_LENGTH_ATTR]
-    return total
-
-
 def _sum_edge_cost(G: nx.Graph, path: Optional[list[int]], mode: str, config=None) -> float:
     """현재 mode 기준 탐색 비용 합산(A* 내부 비용 캐시용)."""
     if path is None:
@@ -286,33 +279,6 @@ def _sum_edge_cost(G: nx.Graph, path: Optional[list[int]], mode: str, config=Non
         total += EdgeCost(mode, G[u][v], config)
     return total
 
-
-def _edge_overlap_ratio(G: nx.Graph, path: list[int]) -> float:
-    """경로의 재통행 거리 비율(Beam·ALNS와 동일한 정의 — waypoint_evaluation.py::RouteEvaluator
-    참고). 도로 엣지 하나가 두 번째 이후 통행될 때만 그 구간의 실제 길이(length)를 repeated에
-    더한다(단순 재통행 횟수가 아니라 거리 가중). 무방향 그래프이므로 (u,v)/(v,u)는 같은 구간으로
-    취급한다. 단순 왕복(그대로 되돌아오는 경로)은 정확히 0.5, 재통행이 전혀 없는 순환은 0이다.
-
-    이전에는 benchmark.py::_compute_edge_overlap_ratio와 같은 "통행 횟수" 기준(2회 이상
-    통행된 구간은 그 통행 전부를 reused로 셈 — 단순 왕복이면 1.0)을 썼으나, Beam·GRASP의
-    재통행 판단 기준을 통일하기 위해(요청서 "재통행 판단 지표에서 Beam의 방식을 GRASP에
-    적용하기", 2026-09-02) Beam이 이미 쓰던 거리 가중 정의로 맞췄다. 이 변경으로
-    is_degenerate_loop_route의 0.50 임계값도 함께 재조정했다(아래 참고)."""
-    if len(path) < 2:
-        return 0.0
-    seen: set[frozenset] = set()
-    total = repeated = 0.0
-    for u, v in zip(path, path[1:]):
-        edge = G[u][v]
-        if _LENGTH_ATTR not in edge:
-            raise MissingEdgeAttributeError(f"엣지에 '{_LENGTH_ATTR}' 속성이 없습니다: {edge!r}")
-        length = edge[_LENGTH_ATTR]
-        key = frozenset((u, v))
-        total += length
-        if key in seen:
-            repeated += length
-        seen.add(key)
-    return repeated / total if total else 0.0
 
 # ── A* 경로 캐시(최종 구간 연결 전용) ────────────────────────────────────
 
@@ -506,51 +472,6 @@ def _prefix_distances_m(pool_result: WaypointPoolResult, start_node: int, waypoi
 
 
 # ── 순환 경로 구축 ───────────────────────────────────────────────────────
-
-def BuildCycleRoute(
-    G: nx.Graph,
-    cost_cache: _CostCache,
-    start_node: int,
-    waypoints: list[int],
-) -> Optional[Route]:
-    """p1→waypoints[0]→...→waypoints[-1]→p1 구간을 순서대로 실제 A*로 연결한다.
-    waypoints는 최소 1개 이상이어야 한다. 구간 중 하나라도 실패하면 None(FAIL).
-    distance_m은 반드시 반환된 실제 노드열의 엣지 길이 합산이며, 각 구간의 추정
-    비용을 단순히 더한 값이 아니다.
-
-    왕복 가지 제거(PathUtils.prune_dead_ends)를 여기서 미리 적용한다 — 그렇지 않으면
-    "잠깐 나갔다가 그대로 되돌아오는" 구간이 raw 거리 합산에는 그대로 두 번 반영되어
-    목표거리에 가까운 것처럼 보이지만, 실제로는 최종 표시 단계에서 똑같이 pruning되어
-    거리가 크게 줄어드는 경로를 GRASP가 잘못 선택하게 된다. distance_m/repeated_edge_ratio를
-    pruning 이후 기준으로 통일해 이 불일치를 없앤다.
-    """
-    if not waypoints:
-        raise ValueError("waypoints는 최소 1개 이상이어야 합니다")
-
-    stops = [start_node, *waypoints, start_node]
-    node_ids: list[int] = []
-    for a, b in zip(stops, stops[1:]):
-        leg = cost_cache.astar_path(a, b)
-        if leg is None:
-            return None
-        node_ids = node_ids + leg[1:] if node_ids else leg  # 구간 경계 중복 노드는 한 번만 남긴다
-
-    if len(node_ids) < 2:
-        return None
-
-    pruned = PathUtils(G).prune_dead_ends(node_ids)
-    if len(pruned) < 2:
-        return None
-
-    distance_m = _sum_edge_length(G, pruned)
-    repeated_edge_ratio = _edge_overlap_ratio(G, pruned)
-    return Route(
-        node_ids=pruned,
-        waypoints=list(waypoints),
-        distance_m=distance_m,
-        repeated_edge_ratio=repeated_edge_ratio,
-    )
-
 
 def format_optional(value: Optional[float], digits: int = 0) -> str:
     """로그 문자열용 헬퍼 — None이면 'n/a', 아니면 소수점 digits자리로 반올림한 문자열.
@@ -753,7 +674,7 @@ def construct_initial_route(
         waypoints.append(chosen)
         prev = chosen
 
-    route = BuildCycleRoute(G, cost_cache, start_node, waypoints)
+    route = BuildCycleRoute(G, cost_cache.astar_path, start_node, waypoints)
     return ConstructionResult(route=route, had_valid_waypoint_pair=True)
 
 
@@ -787,7 +708,7 @@ def waypoint_replacement_neighbors(
         )[: cfg.rcl_size]:
             new_waypoints = list(waypoints)
             new_waypoints[i] = c
-            candidate = BuildCycleRoute(G, cost_cache, start_node, new_waypoints)
+            candidate = BuildCycleRoute(G, cost_cache.astar_path, start_node, new_waypoints)
             if candidate is not None:
                 yield candidate
 
@@ -827,7 +748,7 @@ def waypoint_pair_replacement_neighbors(
                     continue
                 new_waypoints = list(waypoints)
                 new_waypoints[i], new_waypoints[i + 1] = a, b
-                candidate = BuildCycleRoute(G, cost_cache, start_node, new_waypoints)
+                candidate = BuildCycleRoute(G, cost_cache.astar_path, start_node, new_waypoints)
                 if candidate is not None:
                     yield candidate
 
