@@ -10,6 +10,7 @@ src/route_engine/engines/circular_grasp_waypoint_vns.py
 
 import logging
 import random
+from dataclasses import replace
 from typing import Optional
 
 import networkx as nx
@@ -69,6 +70,7 @@ class CircularGraspWaypointVnsEngine:
         mode: str = "distance",
         seed: int = _SEED,
         config: GraspConfig = DEFAULT_CONFIG,
+        num_waypoints: Optional[int] = None,
     ):
         self.inp = inp
         # G.copy() 안 함(2026-08-30 재검토) — grasp_waypoint_common.py/waypoint_pool.py/
@@ -84,7 +86,7 @@ class CircularGraspWaypointVnsEngine:
         self.G = G
         self.mode = mode
         self.seed = seed
-        self.config = config
+        self.config = config if num_waypoints is None else replace(config, num_waypoints=num_waypoints)
         self.utils = PathUtils(self.G)
         self.cost_cache = _CostCache(self.G, mode=mode)
         self.pool_generator = WaypointPoolGenerator(self.G)
@@ -93,7 +95,7 @@ class CircularGraspWaypointVnsEngine:
         # 실질적으로는 no-op이지만, utils/cost_cache는 VndEngine.__init__이 자기 몫으로
         # 새로 만든 인스턴스이므로 VNS의 것으로 실제로 교체해야 한다(GRASP 반복 전체에서
         # A* 캐시를 공유하기 위함 — 안 하면 VND 쪽 캐시가 매번 비어 시작한다).
-        self._vnd_engine = CircularGraspWaypointVndEngine(inp, self.G, mode=mode, seed=seed, config=config)
+        self._vnd_engine = CircularGraspWaypointVndEngine(inp, self.G, mode=mode, seed=seed, config=self.config)
         self._vnd_engine.G = self.G
         self._vnd_engine.utils = self.utils
         self._vnd_engine.cost_cache = self.cost_cache

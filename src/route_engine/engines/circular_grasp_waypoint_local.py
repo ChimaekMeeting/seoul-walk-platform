@@ -11,6 +11,7 @@ circular_grasp.py(엣지 단위로 전체 경로를 직접 구성하는 방식)�
 
 import logging
 import random
+from dataclasses import replace
 from typing import Optional
 
 import networkx as nx
@@ -61,6 +62,7 @@ class CircularGraspWaypointLocalEngine:
         mode: str = "distance",
         seed: int = _SEED,
         config: GraspConfig = DEFAULT_CONFIG,
+        num_waypoints: Optional[int] = None,
     ):
         self.inp = inp
         # G.copy() 안 함(기존 circular_grasp.py 관례와 다름, 2026-08-30 재검토) — 이 클래스와
@@ -76,7 +78,8 @@ class CircularGraspWaypointLocalEngine:
         self.G = G
         self.mode = mode
         self.seed = seed
-        self.config = config
+        # num_waypoints가 주어지면 config 전체를 새로 안 만들어도 이 필드만 덮어쓴다.
+        self.config = config if num_waypoints is None else replace(config, num_waypoints=num_waypoints)
         self.utils = PathUtils(self.G)
         self.cost_cache = _CostCache(self.G, mode=mode)
         self.pool_generator = WaypointPoolGenerator(self.G)
