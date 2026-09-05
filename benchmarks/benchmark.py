@@ -88,6 +88,7 @@ from benchmarks.solvers.grasp_waypoint_solver import (
     CircularGraspWaypointVndSolver,
     CircularGraspWaypointVnsSolver,
 )
+from benchmarks.solvers.beam_waypoint_solver import CircularBeamWaypointSolver
 from benchmarks.solvers.plateau_solver import PlateauSolver
 from benchmarks.solvers.rcsp_solver import CircularRcspSolver, OnewayRcspSolver
 from benchmarks.solvers.astar_solver import OnewayAstarSolver
@@ -130,6 +131,7 @@ SOLVER_REGISTRY: dict[str, BasePathSolver] = {
     "grasp-wp-vnd": CircularGraspWaypointVndSolver(),
     "grasp-wp-vns": CircularGraspWaypointVnsSolver(),
     "grasp-wp-alns": CircularGraspWaypointAlnsSolver(),
+    "beam-wp": CircularBeamWaypointSolver(),
     "beam-circular": CircularBeamSolver(),
     "beam-oneway" : OnewayBeamSolver(),
     "alns-circular": CircularAlnsSolver(),
