@@ -32,9 +32,9 @@ from src.route_engine.engines.grasp_waypoint_common import (
     evaluate_route,
     format_optional,
     format_optional_list,
-    waypoint_replacement_neighbors,
 )
 from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.engines.waypoint_local_search import local_search
 from src.route_engine.engines.waypoint_pool import WaypointPoolGenerator
 from src.schema.route_schema import CircularRouteInput
 
@@ -166,21 +166,10 @@ class CircularGraspWaypointLocalEngine:
 
 
     def _local_search(self, route: Route, pool_result, start_node: int, target_m: float) -> Route:
-        """단순 지역개선: 개선이 없어질 때까지 WaypointReplacement 이웃에서
-        best-improvement를 반복 채택한다."""
-        current = route
-        current_obj = evaluate_route(current, target_m, target_m * self.config.distance_tolerance_ratio)
-        improved = True
-        while improved:
-            improved = False
-            best_neighbor, best_neighbor_obj = current, current_obj
-            for neighbor in waypoint_replacement_neighbors(
-                self.G, self.cost_cache, pool_result, start_node, current, target_m, self.config
-            ):
-                neighbor_obj = evaluate_route(neighbor, target_m, target_m * self.config.distance_tolerance_ratio)
-                if better(neighbor_obj, best_neighbor_obj):
-                    best_neighbor, best_neighbor_obj = neighbor, neighbor_obj
-            if better(best_neighbor_obj, current_obj):
-                current, current_obj = best_neighbor, best_neighbor_obj
-                improved = True
-        return current
+        """waypoint_local_search.py::local_search()에 위임한다(2026-09-06, "Beam 재통행
+        인식 평가" 이슈 — beam_waypoint_solver.py와 로직을 공유하기 위해 독립 함수로
+        분리했다). 동작은 이전과 동일하다."""
+        route, _obj = local_search(
+            self.G, self.cost_cache, pool_result, start_node, route, target_m, self.config
+        )
+        return route
