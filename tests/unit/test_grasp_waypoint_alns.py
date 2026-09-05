@@ -168,7 +168,8 @@ def test_engine_sets_last_route_and_selection_status(grid_graph):
     )
     if engine.last_selection_status != SelectionStatus.NO_VALID_WAYPOINT_PAIR:
         assert engine.last_route is not None
-        assert engine.last_route.waypoint2 != engine.last_route.waypoint3
+        assert len(engine.last_route.waypoints) == 2
+        assert engine.last_route.waypoints[0] != engine.last_route.waypoints[1]
 
 
 def test_engine_exposes_alns_operator_stats(grid_graph):
@@ -243,7 +244,7 @@ def test_alns_result_violating_min_separation_is_rejected(grid_graph, monkeypatc
         construction = construct_initial_route(
             grid_graph, cost_cache, pool_result, start_node, _ENGINE_TEST_TARGET_M, rng, cfg,
         )
-        if construction.route is not None and {construction.route.waypoint2, construction.route.waypoint3} != set(too_close_pair):
+        if construction.route is not None and set(construction.route.waypoints) != set(too_close_pair):
             original_route = construction.route
             break
     assert original_route is not None, "24회 재시도 후에도 유효한 원래 GRASP 해를 못 만듦"
@@ -313,8 +314,8 @@ def test_alns_improvement_never_worsens_the_grasp_initial_route(grid_graph):
             construction.route, candidates, cost_fn, start_node, alns_config, target_m
         )
 
-        before = evaluate_route(construction.route, target_m, engine.config.distance_tolerance_m)
-        after = evaluate_route(improved, target_m, engine.config.distance_tolerance_m)
+        before = evaluate_route(construction.route, target_m, target_m * engine.config.distance_tolerance_ratio)
+        after = evaluate_route(improved, target_m, target_m * engine.config.distance_tolerance_ratio)
         assert not better(before, after)  # after가 before보다 나빠지면 안 됨(같거나 더 좋아야 함)
 
     assert checked >= 5  # 최소 절반 이상의 seed에서 실제로 초기 해가 만들어졌는지(테스트 자체의 유효성 확인)

@@ -74,6 +74,7 @@ from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.waypoint_pool import WaypointPoolResult
 from src.route_engine.waypoint_route_builder import (
     MissingEdgeAttributeError,
+    PathFinder,
     Route,
     _LENGTH_ATTR,
     build_cycle_route as BuildCycleRoute,
@@ -567,12 +568,17 @@ def is_degenerate_loop_route(
 
 
 def compute_route_geometry_metrics(
-    G: nx.Graph, cost_cache: _CostCache, start_node: int, route: Optional[Route], target_m: float,
+    G: nx.Graph, path_finder: PathFinder, start_node: int, route: Optional[Route], target_m: float,
 ) -> RouteGeometryMetrics:
     """route가 None이면 전부 None/False. 아니면 p1→w1→...→w_N→p1의 각 구간을
-    cost_cache.astar_path()로 다시 조회해(이미 BuildCycleRoute가 계산해둔 경로라 캐시
-    적중, 새 A* 호출 없음) 실제 거리로 segment_lengths_m을 구하고, 나머지 지표를 그
-    위에서 계산한다.     is_degenerate_loop 판정 기준(요청서 원문 그대로, 하드코딩된 리터럴
+    path_finder()로 다시 조회해(이미 BuildCycleRoute가 계산해둔 경로라 호출자가 같은
+    캐시를 넘겼다면 캐시 적중, 새 A* 호출 없음) 실제 거리로 segment_lengths_m을 구하고,
+    나머지 지표를 그 위에서 계산한다. path_finder는 GRASP 전용 _CostCache.astar_path
+    (bound method)뿐 아니라 waypoint_route_builder.py::DistancePathFinder.astar_path
+    등 PathFinder 계약(waypoint_route_builder.py::PathFinder)을 만족하는 어떤 콜러블도
+    받을 수 있다 — GRASP·Beam이 같은 함수로 CSV 지표를 채우기 위한 일반화(refactor/394).
+
+    is_degenerate_loop 판정 기준(요청서 원문 그대로, 하드코딩된 리터럴
     — GraspConfig.min_waypoint_separation_ratio 등 탐색용 설정과는 독립적인 별도 진단
     임계값이다. repeated_edge_ratio 임계값 재조정 근거는 _DEGENERATE_REPEATED_EDGE_RATIO
     상수 주석 참고):
@@ -587,7 +593,7 @@ def compute_route_geometry_metrics(
     stops = [start_node, *route.waypoints, start_node]
     segment_lengths_m: list[float] = []
     for a, b in zip(stops, stops[1:]):
-        path = cost_cache.astar_path(a, b)
+        path = path_finder(a, b)
         if path is None:
             # BuildCycleRoute가 이미 성공한 route라면 이론상 도달하지 않는 경로지만,
             # 캐시가 비어 있는 상태로 이 함수만 단독 호출된 경우까지 안전하게 처리한다.

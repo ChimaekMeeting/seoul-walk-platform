@@ -129,3 +129,55 @@ def build_cycle_route(
         distance_m=distance_m,
         repeated_edge_ratio=repeated_edge_ratio,
     )
+
+
+class DistancePathFinder:
+    """distance 전용 A* PathFinder + 경로 캐시. GraspConfig/EdgeCost와 무관한 최소
+    구현 — mode="distance"만 필요한 조립 계층(예: Beam)에서 GRASP 전용
+    _CostCache(engines/grasp_waypoint_common.py) 없이 build_cycle_route/
+    compute_route_geometry_metrics에 바로 넘길 수 있는 PathFinder를 만든다.
+
+    astar_path()는 _CostCache.astar_path()와 동일한 캐싱 전략(양방향 키 정규화,
+    실패도 캐시)과 astar_calls/cache_hits 카운터를 제공한다. _CostCache와 달리
+    mode별 비용(EdgeCost) 합산 캐시(_cost_cache)는 두지 않는다 — 원본에서도 그
+    값을 읽는 곳이 없었다.
+    """
+
+    def __init__(self, G: nx.Graph):
+        self.G = G
+        self._path_utils = PathUtils(G)
+        self._path_cache: dict[tuple[int, int], Optional[list[int]]] = {}
+        self.astar_calls = 0
+        self.cache_hits = 0
+
+    @staticmethod
+    def _weight(u, v, edge_data) -> float:
+        if _LENGTH_ATTR not in edge_data:
+            raise MissingEdgeAttributeError(f"엣지에 '{_LENGTH_ATTR}' 속성이 없습니다: {edge_data!r}")
+        return edge_data[_LENGTH_ATTR]
+
+    @staticmethod
+    def _key(a: int, b: int) -> tuple[int, int]:
+        return (a, b) if a <= b else (b, a)
+
+    def astar_path(self, a: int, b: int) -> Optional[list[int]]:
+        """실패 시 None. 반환 노드열은 항상 a에서 시작해 b에서 끝난다."""
+        key = self._key(a, b)
+        if key in self._path_cache:
+            self.cache_hits += 1
+            cached = self._path_cache[key]
+            if cached is None:
+                return None
+            return cached if cached[0] == a else list(reversed(cached))
+
+        if a == b:
+            path: Optional[list[int]] = [a]
+        else:
+            self.astar_calls += 1
+            try:
+                path = self._path_utils.astar_path(a, b, weight=self._weight)
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                path = None
+
+        self._path_cache[key] = path
+        return path

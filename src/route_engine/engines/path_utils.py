@@ -40,8 +40,19 @@ class PathUtils:
         """
         위경도에서 그래프상 가장 가까운 노드 ID를 반환합니다.
         max_dist_m 지정 시 해당 반경(m) 이내 노드만 탐색합니다.
+
+        후보를 최대 연결요소로 제한해, 서로 다른 호출(예: 출발점과 도착점)이 고른
+        노드끼리 항상 도달 가능함을 보장합니다(docs/route_engine/README.md의
+        `_largest_component_nodes` 설명 참고). 엣지가 하나도 없는 그래프(모든 노드가
+        독립된 성분)에서는 이 제한이 의미가 없으므로(성분 크기가 전부 동일해 어느
+        쪽을 골라도 더 "안전"하지 않음) 전체 노드를 후보로 씁니다. 빈 그래프는 None을
+        반환합니다.
         """
-        if self.G.is_directed():
+        if self.G.number_of_nodes() == 0:
+            return None
+        if self.G.number_of_edges() == 0:
+            largest_cc = set(self.G.nodes)
+        elif self.G.is_directed():
             largest_cc = max(nx.weakly_connected_components(self.G), key=len)
         else:
             largest_cc = max(nx.connected_components(self.G), key=len)
