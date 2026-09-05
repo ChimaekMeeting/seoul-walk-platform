@@ -163,7 +163,7 @@ class CircularGraspWaypointVnsEngine:
 
         self.last_selection_status = determine_selection_status(best_route, best_obj, had_valid_waypoint_pair)
         self.last_route = best_route
-        self.last_geometry_metrics = compute_route_geometry_metrics(self.G, self.cost_cache, start_node, best_route, target_m)
+        self.last_geometry_metrics = compute_route_geometry_metrics(self.G, self.cost_cache.astar_path, start_node, best_route, target_m)
 
         if best_route is None:
             logger.warning(
