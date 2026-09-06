@@ -48,6 +48,8 @@ class CSVSource:
     TAGS: list[tuple[str, str]] = [
         ("type", "protection_zone"),
         ("type", "streetlight"),
+        ("type", "streetlamp"),
+        ("type", "security_light"),
         ("type", "bike_road"),
         ("type", "bike_road_seoul"),
         ("type", "cctv"),
@@ -65,6 +67,8 @@ class CSVSource:
     V1_VALUES: tuple[str, ...] = (
         "protection_zone",
         "streetlight",
+        "streetlamp",
+        "security_light",
         "cctv",
         "running_park",
         "street_tree",
@@ -202,6 +206,8 @@ class CSVSource:
         dispatch = {
             "protection_zone": self._load_protection_zone,
             "streetlight":     self._load_streetlight,
+            "streetlamp":      self._load_streetlamp,
+            "security_light":  self._load_security_light,
             "bike_road":       self._load_bike_road,
             "bike_road_seoul": self._load_bike_road_seoul,
             "cctv":            self._load_cctv,
@@ -262,6 +268,26 @@ class CSVSource:
 
         #           lat,   lon,   name,     addr,        city,    end
         return df, "위도", "경도", None, "소재지도로명주소", "시도명", None, None
+
+    def _load_streetlamp(self):
+        """
+        서울특별시 가로등 위치 정보를 로드합니다.
+        열은 관리번호·위도·경도뿐이라 별도 정정 규칙이 없습니다.
+        """
+        df = self._read_csv("서울특별시_가로등 위치 정보_20221108.csv")
+        df.columns = [str(c).strip().lstrip("\ufeff") for c in df.columns]
+        #           lat,   lon,   name,      addr, city, end
+        return df, "위도", "경도", "관리번호", None, None, None, None
+
+    def _load_security_light(self):
+        """
+        서울시 보안등 위치 정보를 로드합니다.
+        `구` 열은 자치구명(예: 강동구)이라 city 필터(`서울`)로는 쓰지 않습니다.
+        """
+        df = self._read_csv("서울시_보안등_전처리.csv")
+        df.columns = [str(c).strip().lstrip("\ufeff") for c in df.columns]
+        #           lat,   lon,   name, addr, city, end
+        return df, "위도", "경도", None, None, None, None, None
 
     def _load_bike_road(self):
         """
