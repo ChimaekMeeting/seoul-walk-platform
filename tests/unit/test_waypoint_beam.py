@@ -269,3 +269,32 @@ def test_returned_order_is_immutable():
     best = run_search().orders[0]
     with pytest.raises(FrozenInstanceError):
         best.distance_m = 0.0
+
+
+def test_rank_penalty_breaks_distance_ties_towards_lower_penalty():
+    # 두 후보의 cost(거리)는 완전히 같지만 rank_penalty로 우선순위가 갈린다.
+    def cost(a, b):
+        return 0.0 if a == b else 5.0
+
+    def rank_penalty(a, b):
+        return {(0, 2): 1.0, (0, 3): 0.0}[(a, b)]
+
+    result = run_search(
+        candidates=candidates_for(2, 3), cost=cost, waypoint_count=1, beam_width=1,
+        target_m=10.0, rank_penalty=rank_penalty,
+    )
+    assert result.orders[0].waypoint_ids == (3,)
+    # 페널티는 랭킹에만 쓰이고 실제 거리(distance_m/error_m)에는 섞이지 않는다.
+    assert result.orders[0].distance_m == 10.0
+    assert result.orders[0].error_m == 0.0
+    assert result.penalty_calls == 2
+
+
+def test_rank_penalty_rejects_combination_with_tolerance_ratio():
+    with pytest.raises(ValueError, match="rank_penalty"):
+        run_search(rank_penalty=lambda a, b: 0.0, tolerance_ratio=0.05)
+
+
+def test_invalid_rank_penalty_values_are_rejected():
+    with pytest.raises(ValueError, match="rank_penalty"):
+        run_search(rank_penalty=lambda a, b: -1.0, waypoint_count=1)

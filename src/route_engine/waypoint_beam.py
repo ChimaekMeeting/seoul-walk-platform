@@ -28,6 +28,7 @@ class BeamResult:
     route_evaluations: int = (
         0  # 경로 평가 callback 호출 수. 구간 경로 계산 횟수와 다르다.
     )
+    penalty_calls: int = 0  # rank_penalty 호출 수(캐시 적중 포함 아님 — 콜러블 자체가 담당).
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class _State:
     partial_m: float  # 출발지부터 마지막 경유지까지의 누적 거리
     closed_m: float  # 지금 도착지까지 연결했을 때의 총거리
     route_metrics: RouteMetrics | None = None
+    penalty_so_far: float = 0.0  # 랭킹 전용 누적 보정항(예: 방향 다양성). 실제 거리에는 섞이지 않는다.
 
 
 def beam_search(
@@ -49,6 +51,7 @@ def beam_search(
     beam_width: int,
     tolerance_ratio: float | None = None,
     evaluate_route: RouteEvaluation | None = None,
+    rank_penalty: CostFunction | None = None,
 ) -> BeamResult:
     """외부 후보 풀에서 정확히 waypoint_count개의 경유지와 순서를 선택한다.
 
@@ -57,7 +60,23 @@ def beam_search(
     tolerance_ratio와 evaluate_route를 함께 지정하면 재통행 평가를 사용한다.
     미완성 순서는 지금 도착지로 연결한 경로로 평가하며 최종 품질을 보장하지 않는다.
     완성 조합을 찾지 못하면 orders는 비어 있다.
-    """
+
+    rank_penalty(prev_id, next_id)는 랭킹 전용 보정항이다(GRASP의
+    _rank_next_waypoint_candidates가 쓰는 "score = 거리오차 + 방향다양성 페널티"
+    구조와 동일하게, 페널티를 실제 거리(partial_m/closed_m, 따라서
+    WaypointOrder.distance_m/error_m)와 분리해서 관리한다 — 목표거리 비교는 항상
+    순수 실거리 기준으로 유지된다. 각 확장 단계에서 정확히 한 번(직전 경유지→다음
+    후보) 호출되며, 도착지로 닫는 임시 연결(next_id→end_id)에는 적용되지 않는다 —
+    GRASP도 폐합 구간에는 방향 페널티를 적용하지 않는다. 호출부가 첫 경유지 선택
+    (prev_id == start_id)에 페널티를 줄지 말지는 콜러블 자체가 정한다.
+    tolerance_ratio와 함께 쓸 수 없다 — WaypointObjective.quality()가 재통행
+    모드에서 반환하는 첫 성분은 무차원 비율(overlap)이라, 미터 단위인 페널티를
+    그대로 더하면 단위가 어긋난다. 이 훅은 아직 waypoint_alns.py::alns_search()에는
+    없다(의도적 — 두 함수의 계약을 항상 동시에 맞출 필요는 없다는 판단)."""
+    if rank_penalty is not None and tolerance_ratio is not None:
+        raise ValueError(
+            "rank_penalty는 tolerance_ratio와 함께 쓸 수 없습니다(단위가 다른 값을 더하게 됩니다)."
+        )
     objective = WaypointObjective(target_m, tolerance_ratio)
     objective.validate_provider(evaluate_route)
     if not isfinite(target_m) or target_m <= 0:
@@ -95,6 +114,7 @@ def beam_search(
     evaluated_candidates = 0
     cost_calls = 0
     route_evaluations = 0
+    penalty_calls = 0
 
     def distance(a: int, b: int) -> float:
         """거리 공급자 호출을 집계하고 거리값을 검사한다."""
@@ -105,6 +125,15 @@ def beam_search(
             return inf
         if not isfinite(value) or value < 0:
             raise ValueError("cost는 0 이상의 거리 또는 양의 inf여야 합니다.")
+        return value
+
+    def penalty(a: int, b: int) -> float:
+        """랭킹 전용 보정항 호출을 집계하고 값을 검사한다. 실제 거리에는 섞이지 않는다."""
+        nonlocal penalty_calls
+        penalty_calls += 1
+        value = float(rank_penalty(a, b))
+        if not isfinite(value) or value < 0:
+            raise ValueError("rank_penalty는 0 이상의 유한한 값이어야 합니다.")
         return value
 
     def as_order(state: _State) -> WaypointOrder:
@@ -120,8 +149,13 @@ def beam_search(
         )
 
     def rank(state: _State):
-        """거리 전용 또는 허용 범위 안 재통행 우선 기준으로 상태를 비교한다."""
-        return objective.rank(as_order(state))
+        """거리 전용 또는 허용 범위 안 재통행 우선 기준으로 상태를 비교하고,
+        rank_penalty가 있으면 그 값을 주 비교값에 더한다(실거리에는 반영하지 않음)."""
+        key = objective.rank(as_order(state))
+        if rank_penalty is None:
+            return key
+        primary, *rest = key
+        return (primary + state.penalty_so_far, *rest)
 
     def expand(states: Sequence[_State]) -> Iterator[_State]:
         """미선택 경유지를 붙이고 임시 도착 연결까지 평가한 상태를 생성한다."""
@@ -150,6 +184,11 @@ def beam_search(
                     waypoint_ids=state.waypoint_ids + (next_id,),
                     partial_m=partial_m,
                     closed_m=closed_m,
+                    penalty_so_far=(
+                        state.penalty_so_far + penalty(last_id, next_id)
+                        if rank_penalty is not None
+                        else 0.0
+                    ),
                 )
                 if evaluate_route is not None:
                     route_evaluations += 1
@@ -185,4 +224,5 @@ def beam_search(
         evaluated_candidates=evaluated_candidates,
         cost_calls=cost_calls,
         route_evaluations=route_evaluations,
+        penalty_calls=penalty_calls,
     )
