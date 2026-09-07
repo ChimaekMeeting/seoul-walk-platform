@@ -60,6 +60,9 @@ def _segment_metrics(engine, start_node: int, target_km: float) -> dict:
         "waypoint_angle_diff_deg": r(angles[0], 2) if angles else None,
         "segment_balance_ratio": r(gm.segment_balance_ratio, 4),
         "is_degenerate_loop": gm.is_degenerate_loop,
+        "num_waypoints_used": engine.config.num_waypoints,
+        "pool_cache_hits": getattr(engine.last_pool_result, "cache_hits", None),
+        "pool_cache_misses": getattr(engine.last_pool_result, "cache_misses", None),
     }
 
 
@@ -73,7 +76,10 @@ class CircularGraspWaypointLocalSolver(BasePathSolver):
         seed = params.get("seed", self.seed)
         inp = CircularRouteInput(start_lat=0.0, start_lon=0.0, target_km=target_km)
 
-        engine = CircularGraspWaypointLocalEngine(inp=inp, G=graph, mode="distance", seed=seed)
+        engine = CircularGraspWaypointLocalEngine(
+            inp=inp, G=graph, mode="distance", seed=seed,
+            num_waypoints=params.get("num_waypoints"),
+        )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 
         return {
@@ -96,7 +102,10 @@ class CircularGraspWaypointVndSolver(BasePathSolver):
         seed = params.get("seed", self.seed)
         inp = CircularRouteInput(start_lat=0.0, start_lon=0.0, target_km=target_km)
 
-        engine = CircularGraspWaypointVndEngine(inp=inp, G=graph, mode="distance", seed=seed)
+        engine = CircularGraspWaypointVndEngine(
+            inp=inp, G=graph, mode="distance", seed=seed,
+            num_waypoints=params.get("num_waypoints"),
+        )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 
         return {
@@ -119,7 +128,10 @@ class CircularGraspWaypointVnsSolver(BasePathSolver):
         seed = params.get("seed", self.seed)
         inp = CircularRouteInput(start_lat=0.0, start_lon=0.0, target_km=target_km)
 
-        engine = CircularGraspWaypointVnsEngine(inp=inp, G=graph, mode="distance", seed=seed)
+        engine = CircularGraspWaypointVnsEngine(
+            inp=inp, G=graph, mode="distance", seed=seed,
+            num_waypoints=params.get("num_waypoints"),
+        )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 
         return {
@@ -142,7 +154,10 @@ class CircularGraspWaypointAlnsSolver(BasePathSolver):
         seed = params.get("seed", self.seed)
         inp = CircularRouteInput(start_lat=0.0, start_lon=0.0, target_km=target_km)
 
-        engine = CircularGraspWaypointAlnsEngine(inp=inp, G=graph, mode="distance", seed=seed)
+        engine = CircularGraspWaypointAlnsEngine(
+            inp=inp, G=graph, mode="distance", seed=seed,
+            num_waypoints=params.get("num_waypoints"),
+        )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 
         return {

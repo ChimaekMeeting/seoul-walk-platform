@@ -245,6 +245,8 @@ class AlnsStatsAccumulator:
         self.total_cost_calls = 0
         self.destroy_uses: dict[str, int] = {}
         self.repair_uses: dict[str, int] = {}
+        self.stop_reason_counts: dict[str, int] = {}  # 24회 전체의 종료 사유 분포(신규)
+        self.remove_count_used: Optional[int] = None  # N 고정이라 실행 내내 같은 값(신규)
         self.accepted_alns_calls = 0
         self.winner_alns_result: Optional[ALNSResult] = None
         self.winner_alns_accepted: Optional[bool] = None
@@ -259,6 +261,10 @@ class AlnsStatsAccumulator:
         self.total_accepted_moves += result.accepted_moves
         self.total_failed_repairs += result.failed_repairs
         self.total_cost_calls += result.cost_calls
+        self.stop_reason_counts[result.stop_reason] = (
+            self.stop_reason_counts.get(result.stop_reason, 0) + 1
+        )
+        self.remove_count_used = result.remove_count
         for stat in result.destroy_stats:
             self.destroy_uses[stat.name] = self.destroy_uses.get(stat.name, 0) + stat.uses
         for stat in result.repair_stats:
@@ -280,6 +286,8 @@ class AlnsStatsAccumulator:
             "total_cost_calls": self.total_cost_calls,
             "destroy_operator_uses": dict(self.destroy_uses),
             "repair_operator_uses": dict(self.repair_uses),
+            "stop_reason_counts": dict(self.stop_reason_counts),
+            "remove_count_used": self.remove_count_used,
             "winning_iteration": {
                 "accepted": self.winner_alns_accepted,
                 "stop_reason": winner.stop_reason if winner else None,

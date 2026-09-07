@@ -72,6 +72,8 @@ class _BeamWaypointRefinementSolver(BasePathSolver):
             "overlap_ratio": 0.0,
             "astar_calls": engine.cost_cache.astar_calls,
             "cache_hits": engine.cost_cache.cache_hits,
+            # num_waypoints_used/pool_cache_hits/pool_cache_misses는 아래 _segment_metrics()가
+            # engine.config/engine.last_pool_result를 그대로 읽어 채운다(중복 안 함).
             **_segment_metrics(engine, start_node, target_km),
         }
         if self.refinement == "alns" and engine.last_alns_stats:

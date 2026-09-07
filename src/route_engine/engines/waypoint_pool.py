@@ -81,11 +81,29 @@ class WaypointPoolResult:
         self._weight = weight
         self._cache_rows = cache_rows
         self._row_cache: "OrderedDict[int, dict[int, float]]" = OrderedDict()
+        self._cache_hits = 0
+        self._cache_misses = 0
 
     @property
     def cached_row_count(self) -> int:
         """지금까지 캐시된 소스 노드(행) 개수 — 벤치마크/진단용."""
         return len(self._row_cache)
+
+    @property
+    def cache_hits(self) -> int:
+        """distance() 호출 중 이미 캐시된 행(정방향 또는 역방향)으로 응답한 횟수."""
+        return self._cache_hits
+
+    @property
+    def cache_misses(self) -> int:
+        """distance() 호출 중 새로 SSSP를 계산해야 했던 횟수(_DEFAULT_PAIRWISE_CACHE_ROWS 튜닝용)."""
+        return self._cache_misses
+
+    @property
+    def cache_hit_ratio(self) -> float | None:
+        """u == v로 즉시 반환된 호출은 분모에서 제외한다(캐시와 무관한 경로라서)."""
+        total = self._cache_hits + self._cache_misses
+        return round(self._cache_hits / total, 4) if total else None
 
     def distance(self, u: int, v: int) -> float | None:
         """
@@ -100,14 +118,17 @@ class WaypointPoolResult:
         row = self._row_cache.get(u)
         if row is not None:
             self._row_cache.move_to_end(u)
+            self._cache_hits += 1
             return row.get(v)
 
         # 무방향 그래프이므로 반대 방향 행이 이미 캐시돼 있으면 새로 계산하지 않고 재사용
         reverse_row = self._row_cache.get(v)
         if reverse_row is not None:
             self._row_cache.move_to_end(v)
+            self._cache_hits += 1
             return reverse_row.get(u)
 
+        self._cache_misses += 1
         row = self._compute_row(u)
         self._row_cache[u] = row
         self._evict_if_needed()

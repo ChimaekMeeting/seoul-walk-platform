@@ -100,6 +100,7 @@ class WaypointEngine:
         self.last_route: Optional[Route] = None
         self.last_geometry_metrics: Optional[RouteGeometryMetrics] = None
         self.last_alns_stats: Optional[dict] = None
+        self.last_pool_result = None  # 경유지 풀 pairwise 캐시 히트율 진단용(신규)
 
     def _label(self) -> str:
         return _LABELS.get((self.construction, self.refinement), f"{self.construction}+{self.refinement}")
@@ -142,6 +143,7 @@ class WaypointEngine:
             start_data.get("lat", 0.0), start_data.get("lon", 0.0), target_km,
             pairwise_cache_rows=self.config.pairwise_cache_rows,
         )
+        self.last_pool_result = pool_result  # None이어도 그대로 저장(풀 생성 실패 표시)
         if pool_result is None or not pool_result.pool_nodes:
             logger.warning("경유지 후보 풀을 만들지 못했습니다.")
             self.last_selection_status = SelectionStatus.NO_VALID_WAYPOINT_PAIR

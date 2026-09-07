@@ -122,6 +122,8 @@ RESULT_COLUMNS = [
     # segment_balance_ratio/is_degenerate_loop는 P2/P3 개념이 있는 grasp-wp-* solver만 채운다.
     "repeated_edge_ratio", "waypoint_angle_diff_deg", "segment_balance_ratio", "is_degenerate_loop",
     "alns_operator_stats",  # grasp-wp-alns 전용 선택 필드(JSON 문자열) — 나머지는 None
+    # 경유지 풀·N sweep 진단용 선택 필드(신규) — grasp-wp-*/beam-wp-* solver만 채움.
+    "num_waypoints_used", "pool_cache_hits", "pool_cache_misses",
     "error",
 ]
 REQUIRED_RESULT_KEYS = ("paths", "cost")
@@ -238,12 +240,27 @@ def _validate_solver_result(result) -> dict:
     if alns_operator_stats is not None and not isinstance(alns_operator_stats, str):
         raise TypeError(f"'alns_operator_stats'는 str(JSON)이어야 합니다 (실제 타입: {type(alns_operator_stats).__name__})")
 
+    # 경유지 풀·N sweep 진단용 선택 필드(신규). grasp-wp-*/beam-wp-* solver만 채워 보내고,
+    # 기존 solver는 안 주므로 전부 None으로 통과한다(기존 solver 동작 불변).
+    num_waypoints_used = result.get("num_waypoints_used")
+    if num_waypoints_used is not None and (not isinstance(num_waypoints_used, int) or isinstance(num_waypoints_used, bool)):
+        raise TypeError(f"'num_waypoints_used'는 int여야 합니다 (실제 타입: {type(num_waypoints_used).__name__})")
+    pool_cache_hits = result.get("pool_cache_hits")
+    if pool_cache_hits is not None and (not isinstance(pool_cache_hits, int) or isinstance(pool_cache_hits, bool)):
+        raise TypeError(f"'pool_cache_hits'는 int여야 합니다 (실제 타입: {type(pool_cache_hits).__name__})")
+    pool_cache_misses = result.get("pool_cache_misses")
+    if pool_cache_misses is not None and (not isinstance(pool_cache_misses, int) or isinstance(pool_cache_misses, bool)):
+        raise TypeError(f"'pool_cache_misses'는 int여야 합니다 (실제 타입: {type(pool_cache_misses).__name__})")
+
     return {
         "paths": result["paths"], "cost": result["cost"], "overlap_ratio": overlap_ratio,
         "find_path_sec": find_path_sec, "astar_calls": astar_calls, "cache_hits": cache_hits,
         "selection_status": selection_status, "feasible": feasible,
         "is_degenerate_loop": is_degenerate_loop,
         "alns_operator_stats": alns_operator_stats,
+        "num_waypoints_used": num_waypoints_used,
+        "pool_cache_hits": pool_cache_hits,
+        "pool_cache_misses": pool_cache_misses,
         **segment_fields,
     }
 
@@ -345,6 +362,9 @@ def _failed_row(solver: BasePathSolver, status: str, elapsed_sec: float, error: 
         "segment_balance_ratio": None,
         "is_degenerate_loop": None,
         "alns_operator_stats": None,
+        "num_waypoints_used": None,
+        "pool_cache_hits": None,
+        "pool_cache_misses": None,
         "error": error,
     }
 
@@ -462,6 +482,9 @@ def _run_single(
         "segment_balance_ratio": result.get("segment_balance_ratio"),
         "is_degenerate_loop": result.get("is_degenerate_loop"),
         "alns_operator_stats": result.get("alns_operator_stats"),
+        "num_waypoints_used": result.get("num_waypoints_used"),
+        "pool_cache_hits": result.get("pool_cache_hits"),
+        "pool_cache_misses": result.get("pool_cache_misses"),
         "error": "",
     }
 
@@ -549,6 +572,13 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="params['seed']로 전달할 난수 시드. grasp-wp-* solver만 반영(params.get('seed'))하고, "
              "기존 solver는 자체 고정 seed를 그대로 사용한다(다중 seed 비교는 신규 solver 대상).",
     )
+    parser.add_argument(
+        "--num-waypoints",
+        type=int,
+        default=None,
+        help="GRASP/Beam이 선택할 경유지 개수(N). 미지정 시 엔진 기본값(2) 사용 — "
+             "grasp-wp-*/beam-wp-* solver만 반영하며 removal_fraction 튜닝용 실험 축이다.",
+    )
     return parser.parse_args(argv)
 
 
@@ -612,6 +642,8 @@ def main():
         params["time_budget_sec"] = args.time_budget
     if args.seed is not None:
         params["seed"] = args.seed
+    if args.num_waypoints is not None:
+        params["num_waypoints"] = args.num_waypoints
 
     solvers = resolve_solvers(args.algo)
 
