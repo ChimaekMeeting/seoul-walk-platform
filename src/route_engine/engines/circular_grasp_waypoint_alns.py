@@ -130,6 +130,7 @@ class CircularGraspWaypointAlnsEngine:
         self.last_route: Optional[Route] = None  # 벤치마크가 구간 거리 등을 재계산할 때 씀
         self.last_alns_stats: Optional[dict] = None  # destroy/repair operator 사용 통계(아래 참고)
         self.last_geometry_metrics: Optional[RouteGeometryMetrics] = None  # 원형성 진단 지표(2026-08-30)
+        self.last_pool_result = None  # 경유지 풀 pairwise 캐시 히트율 진단용(신규)
 
     def run(self) -> list[WalkRouteResponse]:
         logger.info(
@@ -169,6 +170,7 @@ class CircularGraspWaypointAlnsEngine:
             start_data.get("lat", 0.0), start_data.get("lon", 0.0), target_km,
             pairwise_cache_rows=self.config.pairwise_cache_rows,
         )
+        self.last_pool_result = pool_result  # None이어도 그대로 저장(풀 생성 실패 표시)
         if pool_result is None or not pool_result.pool_nodes:
             logger.warning("경유지 후보 풀을 만들지 못했습니다.")
             self.last_selection_status = SelectionStatus.NO_VALID_WAYPOINT_PAIR
@@ -337,6 +339,8 @@ class _AlnsStatsAccumulator:
         self.total_cost_calls = 0
         self.destroy_uses: dict[str, int] = {}
         self.repair_uses: dict[str, int] = {}
+        self.stop_reason_counts: dict[str, int] = {}  # 24회 전체의 종료 사유 분포(신규)
+        self.remove_count_used: Optional[int] = None  # N 고정이라 실행 내내 같은 값(신규)
         self.accepted_alns_calls = 0  # find_path의 best_route 갱신 시점에 ALNS 결과가 실제 채택된 횟수
         self.winner_alns_result: Optional[ALNSResult] = None
         self.winner_alns_accepted: Optional[bool] = None
@@ -349,6 +353,10 @@ class _AlnsStatsAccumulator:
         self.total_accepted_moves += result.accepted_moves
         self.total_failed_repairs += result.failed_repairs
         self.total_cost_calls += result.cost_calls
+        self.stop_reason_counts[result.stop_reason] = (
+            self.stop_reason_counts.get(result.stop_reason, 0) + 1
+        )
+        self.remove_count_used = result.remove_count
         for stat in result.destroy_stats:
             self.destroy_uses[stat.name] = self.destroy_uses.get(stat.name, 0) + stat.uses
         for stat in result.repair_stats:
@@ -372,6 +380,8 @@ class _AlnsStatsAccumulator:
             "total_cost_calls": self.total_cost_calls,
             "destroy_operator_uses": dict(self.destroy_uses),
             "repair_operator_uses": dict(self.repair_uses),
+            "stop_reason_counts": dict(self.stop_reason_counts),
+            "remove_count_used": self.remove_count_used,
             # best_route를 만든 마지막 갱신 시점의 ALNS 실행(최종 채택된 경로와 가장
             # 직접적으로 연결된 단일 실행 — winner_alns_accepted=False면 이 실행의
             # 제안은 better()에 의해 기각되고 GRASP raw 구축 해가 최종 채택됐다는 뜻).
