@@ -7,19 +7,19 @@ WaypointEngine을 각자의 (construction="grasp", refinement=...) 조합으로 
 래퍼다 — 로직을 옮겼을 뿐 동작은 바뀌지 않아야 한다(같은 seed·설정에서
 node_ids/distance_m/repeated_edge_ratio가 리팩터 전과 일치하는지 회귀 확인 필요).
 
-circular_grasp_waypoint_alns.py::CircularGraspWaypointAlnsEngine은 이 모듈로 옮기지
-않았다 — waypoint_refinement.py 모듈 docstring의 monkeypatch 근거 참고. 이 모듈은
-construction="grasp", refinement="alns" 조합도 이론상 지원하지만(REFINEMENT_REGISTRY에
-"alns"가 있음), 그 경로는 waypoint_refinement.py::alns()(독립 재구현)를 타므로 기존
-ALNS 엔진과는 별개의 코드 경로다.
+circular_grasp_waypoint_alns.py::CircularGraspWaypointAlnsEngine도 같은 얇은 래퍼다
+("ALNS 정제 로직 이중화 해소" 이슈) — 예전에는 그 엔진이 자체 _improve_with_alns()/
+_AlnsStatsAccumulator를 들고 있어 정제 로직이 두 벌이었지만, 이제 GRASP+ALNS와
+Beam+ALNS가 waypoint_refinement.py::alns() 하나를 공유한다.
 """
 
 from __future__ import annotations
 
 import logging
 import random
+from collections.abc import Mapping
 from dataclasses import replace
-from typing import Optional
+from typing import Any, Optional
 
 import networkx as nx
 
@@ -52,6 +52,7 @@ _LABELS = {
     ("grasp", "local"): "GRASP+일반지역개선",
     ("grasp", "vnd"): "GRASP+VND",
     ("grasp", "vns"): "GRASP+VNS",
+    ("grasp", "alns"): "GRASP+ALNS",
     ("beam", "local"): "Beam+일반지역개선",
     ("beam", "vnd"): "Beam+VND",
     ("beam", "vns"): "Beam+VNS",
@@ -76,6 +77,7 @@ class WaypointEngine:
         num_waypoints: Optional[int] = None,
         construction: str = "grasp",
         refinement: str = "local",
+        refinement_options: Optional[Mapping[str, Any]] = None,
     ):
         if construction not in CONSTRUCTION_REGISTRY:
             raise ValueError(f"알 수 없는 construction: {construction!r}")
@@ -93,6 +95,10 @@ class WaypointEngine:
         self.config = config if num_waypoints is None else replace(config, num_waypoints=num_waypoints)
         self.construction = construction
         self.refinement = refinement
+        # 정제별 하이퍼파라미터 주입구(waypoint_refinement.py 모듈 docstring 참고).
+        # 현재 이 값을 읽는 정제는 alns()뿐이며, ALNSConfig 필드 이름을 키로 하는 부분
+        # override 매핑이다 — 나머지 정제는 받되 무시한다.
+        self.refinement_options = refinement_options
         self.utils = PathUtils(self.G)
         self.cost_cache = _CostCache(self.G, mode=mode)
         self.pool_generator = WaypointPoolGenerator(self.G)
@@ -164,7 +170,7 @@ class WaypointEngine:
                 continue
             route = refine_fn(
                 self.G, self.cost_cache, pool_result, start_node, route, target_m, self.config, rng,
-                stats=alns_stats,
+                stats=alns_stats, options=self.refinement_options,
             )
             obj = evaluate_route(route, target_m, target_m * self.config.distance_tolerance_ratio)
             if best_route is None or better(obj, best_obj):

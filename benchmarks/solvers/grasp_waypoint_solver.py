@@ -66,6 +66,23 @@ def _segment_metrics(engine, start_node: int, target_km: float) -> dict:
     }
 
 
+# 하이퍼파라미터 스윕용 ALNS 노브. GraspConfig에는 넣지 않는다 — VND의 이웃 목록·VNS의
+# 교란 레벨이 모듈 상수인 관례와 어긋나고 alns를 안 쓰는 조합까지 노브를 들고 다니게
+# 되므로, 정제 공통 주입구(WaypointEngine.refinement_options)로 보낸다.
+_ALNS_PARAM_KEYS = (
+    "iterations", "removal_fraction", "start_temperature_m", "cooling_rate",
+    "segment_length", "reaction_factor", "candidate_limit", "max_cost_calls", "seed",
+)
+
+
+def _alns_options_from_params(params: dict) -> Optional[dict]:
+    """params의 alns_* 키만 골라 ALNSConfig 필드 이름으로 되돌린다(ex) alns_iterations=60
+    → {"iterations": 60}). 하나도 없으면 None을 돌려 waypoint_refinement.py의 기본값을
+    그대로 쓰게 한다."""
+    options = {key: params[f"alns_{key}"] for key in _ALNS_PARAM_KEYS if f"alns_{key}" in params}
+    return options or None
+
+
 class CircularGraspWaypointLocalSolver(BasePathSolver):
     def __init__(self, name: str = "GRASP-Waypoint+Local", seed: int = _DEFAULT_SEED):
         super().__init__(name)
@@ -157,6 +174,7 @@ class CircularGraspWaypointAlnsSolver(BasePathSolver):
         engine = CircularGraspWaypointAlnsEngine(
             inp=inp, G=graph, mode="distance", seed=seed,
             num_waypoints=params.get("num_waypoints"),
+            alns_options=_alns_options_from_params(params),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 
