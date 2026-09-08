@@ -6,32 +6,41 @@ src/route_engine/engines/waypoint_refinement.py
 구축·정제 조립 분리" 이슈).
 
 공통 시그니처:
-    refine(G, cost_cache, pool_result, start_node, route, target_m, cfg, rng, stats=None) -> Route
+    refine(G, cost_cache, pool_result, start_node, route, target_m, cfg, rng,
+           stats=None, options=None) -> Route
 
 rng는 vns/alns처럼 무작위성이 필요한 정제만 실제로 쓴다(local/vnd/none은 인자를 받되
 무시한다 — 조립 루프가 모든 refinement를 같은 방식으로 호출할 수 있어야 하기 때문).
-stats는 alns 전용 부가 통계 수집 훅(AlnsStatsAccumulator)이며, 다른 정제 함수는 받되
+stats는 alns 전용 통계·1회분 상태 훅(AlnsStatsAccumulator)이며, 다른 정제 함수는 받되
 무시한다.
+
+options는 정제별 하이퍼파라미터 주입구다("ALNS 정제 로직 이중화 해소" 이슈). alns()에서는
+ALNSConfig 필드 이름을 키로 하는 부분 override 매핑이고(ex) {"iterations": 60,
+"cooling_rate": 0.9}), 나머지 정제는 받되 무시한다. GraspConfig를 넓히지 않은 이유는
+VND의 이웃 목록(_VND_NEIGHBORHOODS)·VNS의 교란 레벨(_MAX_SHAKE_LEVEL)이 모듈 상수인 현재
+관례와 어긋나고, 모든 조합이 쓰지도 않는 노브를 들고 다니게 되기 때문이다(ex) beam x local
+실행이 alns_cooling_rate를 보유).
 
 local()은 waypoint_local_search.py::local_search()를 그대로 감싼 것뿐이고(중복 구현
 아님), vnd()/vns()는 각각 circular_grasp_waypoint_vnd.py::vnd()/
 circular_grasp_waypoint_vns.py::_vns_loop 등을 이 모듈로 옮긴 것이다(로직은 그대로,
 self.G/self.cost_cache/self.config 등 인스턴스 상태를 인자로 명시했을 뿐).
 
-alns()는 예외다 — circular_grasp_waypoint_alns.py::CircularGraspWaypointAlnsEngine.
-_improve_with_alns()는 tests/unit/test_grasp_waypoint_alns.py가
-monkeypatch.setattr("...circular_grasp_waypoint_alns.alns_search", ...)로 그 모듈
-자신의 alns_search 심볼을 패치해 검증하므로, 그 메서드를 이 공용 모듈로 옮기면 monkeypatch가
-더 이상 적용되지 않아 테스트가 깨진다. 그래서 이 파일의 alns()는 같은 알고리즘을 별도로
-다시 구현한 독립 버전이며, 기존 GRASP-Waypoint+ALNS 엔진은 이 함수를 쓰지 않고 예전
-그대로 남아 있다 — 이 alns()는 새 Beam+ALNS 조합 전용이다.
+alns()도 같은 규칙을 따른다. 예전에는 circular_grasp_waypoint_alns.py::
+_improve_with_alns()와 별도로 다시 구현한 두 벌이었고(테스트가 그 모듈 자신의 alns_search
+심볼을 monkeypatch했기 때문), 그 결과 _ALNS_* 상수 6개와 최소거리 사후검증이 두 파일에
+복제돼 있었다 — 한쪽만 고치면 조용히 갈라지는 상태였다. 이제 이 파일이 유일한 구현이고
+circular_grasp_waypoint_alns.py는 다른 3종과 동일한 얇은 래퍼이며, 테스트는
+"...waypoint_refinement.alns_search"를 patch한다.
 """
 
 from __future__ import annotations
 
 import logging
 import random
-from typing import Optional
+from collections.abc import Mapping
+from dataclasses import replace
+from typing import Any, Optional
 
 import networkx as nx
 
@@ -58,14 +67,15 @@ logger = logging.getLogger(__name__)
 
 # ── none / local ─────────────────────────────────────────────────────────
 
-def none(G, cost_cache, pool_result, start_node, route: Route, target_m, cfg, rng=None, stats=None) -> Route:
+def none(G, cost_cache, pool_result, start_node, route: Route, target_m, cfg, rng=None,
+         stats=None, options=None) -> Route:
     """정제를 적용하지 않는다(구축 단계 결과를 그대로 채택) — construction 단독 성능을
     비교하고 싶을 때 쓴다."""
     return route
 
 
 def local(G, cost_cache, pool_result: WaypointPoolResult, start_node, route: Route, target_m, cfg,
-          rng=None, stats=None) -> Route:
+          rng=None, stats=None, options=None) -> Route:
     """waypoint_local_search.py::local_search()를 조립 모듈 공통 시그니처로 감싼다."""
     refined, _obj = local_search(G, cost_cache, pool_result, start_node, route, target_m, cfg)
     return refined
@@ -79,11 +89,11 @@ _VND_NEIGHBORHOODS = (waypoint_replacement_neighbors, waypoint_pair_replacement_
 
 
 def vnd(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
-        target_m: float, cfg: GraspConfig, rng=None, stats=None) -> Route:
+        target_m: float, cfg: GraspConfig, rng=None, stats=None, options=None) -> Route:
     """VND: 이웃 목록(WaypointReplacement→WaypointPairReplacement)을 순서대로 검사하다가
     개선을 찾으면 첫 이웃부터 다시 시작한다. 원래
     CircularGraspWaypointVndEngine.vnd()의 로직을 그대로 옮긴 것 — vns()가 지역탐색
-    단계로 그대로 재사용한다. rng/stats는 쓰지 않는다(결정적 함수)."""
+    단계로 그대로 재사용한다. rng/stats/options는 쓰지 않는다(결정적 함수)."""
     current = route
     current_obj = evaluate_route(current, target_m, target_m * cfg.distance_tolerance_ratio)
     idx = 0
@@ -194,7 +204,7 @@ def vns_loop(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_nod
 
 
 def vns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
-        target_m: float, cfg: GraspConfig, rng: random.Random, stats=None) -> Route:
+        target_m: float, cfg: GraspConfig, rng: random.Random, stats=None, options=None) -> Route:
     """vnd() → vns_loop() 순서로 조립한 공통 시그니처 정제 함수. 원래 GRASP+VNS 엔진의
     find_path() 안에서 `current = self._vnd_engine.vnd(...); current =
     self._vns_loop(...)`이던 두 호출과 rng 소비 순서가 완전히 동일하다."""
@@ -202,17 +212,47 @@ def vns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: in
     return vns_loop(G, cost_cache, pool_result, start_node, current, target_m, cfg, rng)
 
 
-# ── alns (Beam+ALNS 등 신규 조합 전용 — 위 모듈 docstring 참고) ─────────────
+# ── alns ─────────────────────────────────────────────────────────────────
+#
+# waypoint_alns.py::alns_search는 그래프·A*를 전혀 모르는 순수 함수다(외부 후보 풀 +
+# cost 콜백 + 초기 순서만 받음 — 2026-08-30 docs/route_engine/README.md "경유지 ALNS
+# 독립 함수" 절 참고). 아래 어댑터가 NetworkX 그래프·WaypointPoolResult와 그 함수 사이를
+# 잇는다:
+#   - candidates: pool_result.pool_nodes를 {node_id, lat, lon} dict로 변환.
+#   - cost(a, b): pool_result.distance()를 감싸되, p1(start_node)은 pool에 없으므로
+#     (waypoint_pool.py 설계상 자기 자신이라 제외됨) dist_from_p1으로 따로 처리하고,
+#     도달 불가(None)는 ALNS 계약대로 inf로 변환한다.
+#   - ALNS가 고른 최종 경유지 순서는 추상적인 거리 합만 보장하므로, 실제 노드열은 항상
+#     BuildCycleRoute(A*)로 다시 만든다(다른 정제와 동일한 "raw 추정치 금지, 실제 경로
+#     합산" 원칙).
+#
+# candidate_limit(=cfg.rcl_size)로 repair 단계가 매 반복 평가하는 후보 수를 Local/VND/VNS와
+# 비슷한 규모로 제한한다 — 후보 풀 전체(target_km에 따라 수천 개)를 매 반복 평가하면
+# 실행 시간이 감당할 수 없이 늘어난다(waypoint_alns.py 자신의 docstring도 "큰 후보 풀은
+# candidate_limit·max_cost_calls와 외부 거리 캐시를 사용해 계산량을 관리해야 한다"고 명시).
+#
+# 경유지 개수: alns_search는 initial_ids: Sequence[int]를 받고 remove_count =
+# ceil(len(initial_ids) * removal_fraction)으로 계산해 처음부터 N-제네릭이다.
 
+# ALNS 설정 기본값(하이퍼파라미터 튜닝 시작값이며 서비스 품질 보장값이 아니다).
+# waypoint_alns.py 자신의 기본값(iterations=200)을 구축 반복(grasp_iters=24)과 그대로
+# 곱하면 24*200회 destroy-repair가 되어 실행시간이 감당할 수 없이 늘어난다. 팀원 실행기
+# (benchmarks/runner/waypoint_alns.py) 기본값(iterations=30)에 맞춰 구축 1회당 ALNS는
+# 가볍게 개선만 담당하게 한다 — VND/VNS와 비슷한 자릿수의 실행시간을 노린 값이다.
+# 스윕은 이 상수를 고치지 말고 options로 덮어쓴다(위 모듈 docstring 참고).
 _ALNS_ITERATIONS = 30
 _ALNS_MAX_COST_CALLS = 3000
 _ALNS_COOLING_RATE = 0.95
 _ALNS_SEGMENT_LENGTH = 10
 _ALNS_REACTION_FACTOR = 0.2
-_ALNS_REMOVAL_FRACTION = 0.3
+_ALNS_REMOVAL_FRACTION = 0.3  # cfg.num_waypoints=2(기본값)에서는 ceil(2*0.3)=1개만 제거됨
+                              # (waypoint_alns.py 규칙). num_waypoints를 늘리면 제거 개수도
+                              # 비례해 늘어난다(ceil(N*removal_fraction)).
 
 
 def _alns_candidates_from_pool(G: nx.Graph, pool_result: WaypointPoolResult) -> list[dict]:
+    """pool_result.pool_nodes를 waypoint_alns.py가 요구하는 {node_id, lat, lon} dict
+    목록으로 변환한다(WaypointCandidate 계약, src/route_engine/waypoint_types.py 참고)."""
     return [
         {"node_id": node, "lat": G.nodes[node]["lat"], "lon": G.nodes[node]["lon"]}
         for node in pool_result.pool_nodes
@@ -220,6 +260,12 @@ def _alns_candidates_from_pool(G: nx.Graph, pool_result: WaypointPoolResult) -> 
 
 
 def _alns_cost_fn(pool_result: WaypointPoolResult, start_node: int):
+    """waypoint_alns.py::CostFunction 계약(대칭 거리 m, 도달 불가는 inf)에 맞춘 cost(a,b).
+
+    p1(start_node)은 waypoint_pool.py 설계상 pool_nodes에 포함되지 않으므로(자기 자신이라
+    제외됨), pool_result.distance()에 직접 넘기면 ValueError가 난다 — p1이 관여하는 두
+    구간(start→첫 경유지, 마지막 경유지→start)은 dist_from_p1으로 따로 처리한다."""
+
     def cost(a: int, b: int) -> float:
         if a == start_node:
             return pool_result.dist_from_p1.get(b, float("inf"))
@@ -231,11 +277,70 @@ def _alns_cost_fn(pool_result: WaypointPoolResult, start_node: int):
     return cost
 
 
+def _alns_adapter(G: nx.Graph, pool_result: WaypointPoolResult, start_node: int,
+                  stats: Optional["AlnsStatsAccumulator"]):
+    """(candidates, cost_fn)을 만들되, 조립 루프가 find_path 1회마다 새로 만드는 stats에
+    첫 호출 결과를 캐시한다 — 그 1회 동안 pool_result/start_node는 바뀌지 않으므로 구축
+    반복(기본 24회)마다 풀 크기만큼의 재구성을 되풀이할 이유가 없다(예전 GRASP+ALNS 엔진이
+    find_path 안에서 한 번만 만들던 것과 같은 효과). stats가 None인 직접 호출(단위 테스트
+    등)에서는 매번 새로 만든다 — 값 자체는 동일하다."""
+    if stats is not None and stats.adapter_cache is not None:
+        return stats.adapter_cache
+    adapter = (_alns_candidates_from_pool(G, pool_result), _alns_cost_fn(pool_result, start_node))
+    if stats is not None:
+        stats.adapter_cache = adapter
+    return adapter
+
+
+def _alns_config(target_m: float, cfg: GraspConfig, rng: random.Random,
+                 options: Optional[Mapping[str, Any]]) -> ALNSConfig:
+    """모듈 상수 + 호출 문맥(target_m/cfg/rng)으로 기본 ALNSConfig를 만들고, options에
+    들어온 필드만 덮어쓴다. options에 ALNSConfig가 갖지 않는 키가 있으면 replace()가
+    TypeError를 내며 즉시 실패한다(조용한 오타 방지).
+
+    seed는 options 유무와 상관없이 항상 rng에서 먼저 뽑는다 — options가 rng 소비 순서를
+    바꾸면 같은 seed의 재현성이 깨지기 때문이다(options["seed"]가 그 값을 덮어써도 소비는
+    이미 일어난 상태로 남는다).
+
+    ALNS는 alns_search() 내부에서 매번 Random(config.seed)를 새로 만든다(외부 rng를
+    공유받지 않는 순수 함수 설계 — waypoint_alns.py 참고). seed를 고정해두면 initial_ids만
+    다를 뿐 구축 반복 내내 destroy-repair 난수열 자체가 완전히 동일해져 탐색 다양성이
+    줄어든다(실측 확인, 2026-08-30) — 매 호출 새 seed를 뽑아 이 문제를 없앤다."""
+    base = ALNSConfig(
+        iterations=_ALNS_ITERATIONS,
+        removal_fraction=_ALNS_REMOVAL_FRACTION,
+        # tolerance(evaluate_route에 쓰는 target_m*distance_tolerance_ratio)와 같은
+        # 스케일로 맞춘다(2026-09-03) — 이전에는 고정 150.0m 상수였는데, tolerance가
+        # target_m 비례 비율로 바뀌면서 target_m=3000이 아닌 호출에서는 "같은 스케일"
+        # 이라는 원래 의도가 깨졌다.
+        start_temperature_m=target_m * cfg.distance_tolerance_ratio,
+        cooling_rate=_ALNS_COOLING_RATE,
+        segment_length=_ALNS_SEGMENT_LENGTH,
+        reaction_factor=_ALNS_REACTION_FACTOR,
+        candidate_limit=cfg.rcl_size,
+        max_cost_calls=_ALNS_MAX_COST_CALLS,
+        seed=rng.randrange(2**31),
+    )
+    if not options:
+        return base
+    return replace(base, **dict(options))
+
+
 class AlnsStatsAccumulator:
-    """circular_grasp_waypoint_alns.py::_AlnsStatsAccumulator과 동일한 집계 로직 —
-    조립 모듈(WaypointEngine)이 refinement="alns"일 때 매 grasp 반복 뒤
-    pending_result/pending_accepted을 읽어 best 갱신 시점에만 record_winner()를
-    호출한다(어떤 호출이 최종 best가 될지는 조립 루프만 알 수 있으므로)."""
+    """구축 반복(grasp_iters회)에 걸친 ALNS 호출들의 destroy/repair operator 통계를 모은다
+    (요청서 §4.4/§7 "operator별 사용 횟수·개선 횟수·수락 횟수·best 개선 횟수" 대응).
+
+    waypoint_alns.py::ALNSResult가 실제로 제공하는 값은 operator별 uses(사용 횟수)와 호출
+    종료 시점의 weight(적응형 가중치 — 그 자체가 누적 보상의 이동평균이라 "얼마나
+    성공적이었는지"의 대리 지표)뿐이다. operator별 개선 횟수·SA 수락 횟수는 ALNSResult가
+    분리해서 주지 않는다(accepted_moves/failed_repairs는 호출 전체 합계로만 제공됨) — 이
+    클래스는 모듈이 실제로 반환하는 값만 정직하게 집계하고, 반환하지 않는 값을 추정해서
+    채우지 않는다.
+
+    조립 모듈(WaypointEngine)은 refinement="alns"일 때 find_path 1회마다 이 객체를 하나
+    만들고, 매 구축 반복 뒤 pending_result/pending_accepted을 읽어 best 갱신 시점에만
+    record_winner()를 호출한다(어떤 호출이 최종 best가 될지는 조립 루프만 알 수 있다).
+    adapter_cache는 통계가 아니라 그 1회분 어댑터 캐시다(_alns_adapter 참고)."""
 
     def __init__(self):
         self.calls = 0
@@ -245,16 +350,17 @@ class AlnsStatsAccumulator:
         self.total_cost_calls = 0
         self.destroy_uses: dict[str, int] = {}
         self.repair_uses: dict[str, int] = {}
-        self.stop_reason_counts: dict[str, int] = {}  # 24회 전체의 종료 사유 분포(신규)
-        self.remove_count_used: Optional[int] = None  # N 고정이라 실행 내내 같은 값(신규)
-        self.accepted_alns_calls = 0
+        self.stop_reason_counts: dict[str, int] = {}  # 반복 전체의 종료 사유 분포
+        self.remove_count_used: Optional[int] = None  # N 고정이라 실행 내내 같은 값
+        self.accepted_alns_calls = 0  # best_route 갱신 시점에 ALNS 결과가 실제 채택된 횟수
         self.winner_alns_result: Optional[ALNSResult] = None
         self.winner_alns_accepted: Optional[bool] = None
         self.pending_result: Optional[ALNSResult] = None
         self.pending_accepted: bool = False
+        self.adapter_cache: Optional[tuple[list[dict], Any]] = None  # (candidates, cost_fn)
 
     def record(self, result: Optional[ALNSResult]) -> None:
-        if result is None:
+        if result is None:  # alns_search 자체가 실패(ValueError)했던 호출
             return
         self.calls += 1
         self.total_iterations += result.iterations
@@ -271,6 +377,8 @@ class AlnsStatsAccumulator:
             self.repair_uses[stat.name] = self.repair_uses.get(stat.name, 0) + stat.uses
 
     def record_winner(self, result: Optional[ALNSResult], accepted: bool) -> None:
+        """best_route가 이 구축 반복으로 갱신될 때마다 호출 — 최종적으로 채택된 경로를
+        만든(또는 시도했으나 기각된) ALNS 실행의 상세를 별도로 남긴다."""
         self.winner_alns_result = result
         self.winner_alns_accepted = accepted
         if accepted:
@@ -288,6 +396,9 @@ class AlnsStatsAccumulator:
             "repair_operator_uses": dict(self.repair_uses),
             "stop_reason_counts": dict(self.stop_reason_counts),
             "remove_count_used": self.remove_count_used,
+            # best_route를 만든 마지막 갱신 시점의 ALNS 실행(최종 채택된 경로와 가장
+            # 직접적으로 연결된 단일 실행 — winner_alns_accepted=False면 이 실행의 제안은
+            # better()에 의해 기각되고 구축 단계 raw 해가 최종 채택됐다는 뜻).
             "winning_iteration": {
                 "accepted": self.winner_alns_accepted,
                 "stop_reason": winner.stop_reason if winner else None,
@@ -301,33 +412,39 @@ class AlnsStatsAccumulator:
         }
 
 
+def _record_pending(stats: Optional[AlnsStatsAccumulator], result: Optional[ALNSResult],
+                    accepted: bool) -> None:
+    if stats is not None:
+        stats.pending_result, stats.pending_accepted = result, accepted
+
+
 def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
          target_m: float, cfg: GraspConfig, rng: random.Random,
-         stats: Optional[AlnsStatsAccumulator] = None) -> Route:
+         stats: Optional[AlnsStatsAccumulator] = None,
+         options: Optional[Mapping[str, Any]] = None) -> Route:
     """route.waypoints를 초기 순서로 alns_search()를 1회 실행하고, 결과 경유지 순서를
-    BuildCycleRoute(A*)로 다시 연결한다. accept 판정(최소거리 사후검증 + better() 비교)은
-    circular_grasp_waypoint_alns.py::_improve_with_alns와 동일한 규칙이다 — 다만 이
-    함수는 그 메서드를 대체하지 않는 독립 구현이다(모듈 docstring의 monkeypatch 근거
-    참고).
+    BuildCycleRoute(A*)로 다시 연결한다.
 
-    alns_candidates/cost_fn/alns_config는 이 호출 안에서 매번 새로 만든다 — pool_result가
-    이번 find_path 호출 동안 바뀌지 않으므로 값 자체는 매번 같지만(결정적), 예전 엔진처럼
-    GRASP 반복 밖에서 한 번만 만들어 재사용하지는 않는다(약간의 재계산 오버헤드는 있지만
-    정확성에는 영향 없다).
-    """
-    alns_candidates = _alns_candidates_from_pool(G, pool_result)
-    cost_fn = _alns_cost_fn(pool_result, start_node)
-    alns_config = ALNSConfig(
-        iterations=_ALNS_ITERATIONS,
-        removal_fraction=_ALNS_REMOVAL_FRACTION,
-        start_temperature_m=target_m * cfg.distance_tolerance_ratio,
-        cooling_rate=_ALNS_COOLING_RATE,
-        segment_length=_ALNS_SEGMENT_LENGTH,
-        reaction_factor=_ALNS_REACTION_FACTOR,
-        candidate_limit=cfg.rcl_size,
-        max_cost_calls=_ALNS_MAX_COST_CALLS,
-        seed=rng.randrange(2**31),
-    )
+    alns_search의 자체 수락 기준(_rank)은 distance_error_m만 본다 — repeated_edge_ratio도,
+    GraspConfig.angle_diversity_weight_m·min_waypoint_separation_ratio도 알지 못한다.
+    그래서 ALNS가 목표거리에는 더 가까우면서 왕복 퇴화에 가까운(반복률 높은) 조합을
+    "best"로 고를 수 있다 — 실측으로 확인됨(2026-08-30, target_km=3.0 seed=42: ALNS 결과를
+    그대로 쓰면 overlap_ratio=0.40까지 나빠짐). VND/VNS가 이웃/Shake 결과를 evaluate_route+
+    better()로 검증한 뒤에만 채택하는 것과 동일하게, 여기서도 ALNS 결과가 원래 구축 해보다
+    실제로 더 나을 때만(better()) 교체한다.
+
+    better()만으로는 부족하다: better()는 feasible/repeated_edge_ratio/distance_error_m만
+    비교하고 경유지 최소거리는 아예 모른다. repair 연산은 알고리즘 특성상 pool_nodes
+    전체(거리 적합도만 봄, 방위각·최소거리 무관)에서 후보를 끌어오므로, ALNS가 골라온
+    경유지 순서가 better()로는 이겨도 최소거리 조건을 어길 수 있다 — 2026-08-30 다중 조건
+    검증(target_km=5.0)에서 30건 중 3건이 위반됐다(그중 2건은 feasible로 최종 채택까지 됨,
+    overlap_ratio 0.60짜리 포함). 그래서 better() 비교 전에 최소거리부터 별도로 검증한다
+    (결과 경유지 순서의 모든 연속 쌍을 검사) — 구축 단계·Local/VND/VNS는
+    _rank_next_waypoint_candidates가 이 조건을 후보 생성 단계에서 이미 걸러 구조적으로
+    위반이 불가능하지만, ALNS는 repair가 그 랭킹 함수를 거치지 않으므로 사후 검증이
+    반드시 필요하다."""
+    alns_candidates, cost_fn = _alns_adapter(G, pool_result, start_node, stats)
+    alns_config = _alns_config(target_m, cfg, rng, options)
 
     try:
         result = alns_search(
@@ -341,8 +458,7 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
         )
     except ValueError as e:
         logger.warning("ALNS 실행 실패(%s) — 개선 없이 구축 단계 해를 그대로 씁니다.", e)
-        if stats is not None:
-            stats.pending_result, stats.pending_accepted = None, False
+        _record_pending(stats, None, False)
         return route
 
     if stats is not None:
@@ -350,29 +466,29 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
 
     new_waypoints = list(result.best.waypoint_ids)
     if new_waypoints == route.waypoints:
-        if stats is not None:
-            stats.pending_result, stats.pending_accepted = result, False
-        return route
+        _record_pending(stats, result, False)
+        return route  # ALNS가 개선하지 못함 — 불필요한 재연결 생략
 
     if cfg.min_waypoint_separation_ratio:
         for a, b in zip(new_waypoints, new_waypoints[1:]):
             pair_m = cost_fn(a, b)
             if not is_waypoint_pair_separated(pair_m, target_m, cfg):
-                if stats is not None:
-                    stats.pending_result, stats.pending_accepted = result, False
+                logger.debug(
+                    "ALNS 결과가 경유지 최소거리 조건을 위반해 기각합니다: %.1fm < %.1fm",
+                    pair_m, target_m * cfg.min_waypoint_separation_ratio,
+                )
+                _record_pending(stats, result, False)
                 return route
 
     improved = BuildCycleRoute(G, cost_cache.astar_path, start_node, new_waypoints)
     if improved is None:
-        if stats is not None:
-            stats.pending_result, stats.pending_accepted = result, False
+        _record_pending(stats, result, False)
         return route
 
     tolerance = target_m * cfg.distance_tolerance_ratio
     accepted = better(evaluate_route(improved, target_m, tolerance), evaluate_route(route, target_m, tolerance))
-    if stats is not None:
-        stats.pending_result, stats.pending_accepted = result, accepted
-    return improved if accepted else route
+    _record_pending(stats, result, accepted)
+    return improved if accepted else route  # 기각 시 원래 구축 해 유지
 
 
 REFINEMENT_REGISTRY = {

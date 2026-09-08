@@ -18,7 +18,7 @@ import json
 
 from benchmarks.solvers._circular_engine_common import run_circular_engine_distance_only
 from benchmarks.solvers.base_solver import BasePathSolver
-from benchmarks.solvers.grasp_waypoint_solver import _segment_metrics
+from benchmarks.solvers.grasp_waypoint_solver import _alns_options_from_params, _segment_metrics
 from src.route_engine.engines.grasp_waypoint_common import DEFAULT_CONFIG, GraspConfig
 from src.route_engine.engines.waypoint_engine_assembly import WaypointEngine
 from src.schema.route_schema import CircularRouteInput
@@ -63,6 +63,9 @@ class _BeamWaypointRefinementSolver(BasePathSolver):
         engine = WaypointEngine(
             inp=inp, G=graph, mode="distance", seed=seed, config=config,
             construction="beam", refinement=self.refinement,
+            refinement_options=(
+                _alns_options_from_params(params) if self.refinement == "alns" else None
+            ),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 
