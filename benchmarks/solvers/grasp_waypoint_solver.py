@@ -61,6 +61,7 @@ def _segment_metrics(engine, start_node: int, target_km: float) -> dict:
         "segment_balance_ratio": r(gm.segment_balance_ratio, 4),
         "is_degenerate_loop": gm.is_degenerate_loop,
         "num_waypoints_used": engine.config.num_waypoints,
+        "effective_waypoints_used": gm.effective_waypoint_count,
         "pool_cache_hits": getattr(engine.last_pool_result, "cache_hits", None),
         "pool_cache_misses": getattr(engine.last_pool_result, "cache_misses", None),
     }

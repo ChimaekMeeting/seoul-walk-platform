@@ -70,7 +70,7 @@ from typing import Optional
 
 import networkx as nx
 
-from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.engines.path_utils import PathUtils, PrunedBranch
 from src.route_engine.engines.waypoint_pool import WaypointPoolResult
 from src.route_engine.waypoint_route_builder import (
     MissingEdgeAttributeError,
@@ -381,6 +381,35 @@ def _angular_separation_rad(bearing_a: float, bearing_b: float) -> float:
     return min(diff, 2 * math.pi - diff)
 
 
+def _remaining_distance_estimate_m(
+    tail_lower_bound_m: float,
+    target_m: float,
+    remaining_legs: int,
+    total_legs: Optional[int],
+) -> float:
+    """후보 c를 고른 뒤 p1로 돌아갈 때까지 "남은 거리"의 추정값(2026-09-09 버그픽스).
+
+    remaining_legs는 c에서 p1까지 남은 구간 수(c가 마지막 경유지면 1), total_legs는
+    순환 전체 구간 수 N+1이다. tail_lower_bound_m은 dist(c, p1)이며, 남은 경로가 어떤
+    경유지를 더 거치든 삼각부등식상 이보다 짧아질 수 없으므로 항상 하한이다.
+
+    예전에는 이 하한을 그대로 추정값으로 썼다 — 즉 "지금 고르는 경유지가 마지막"이라고
+    가정해 남은 경유지들의 거리를 0으로 본 셈이다. 그 하한을 target_m에 맞추려 하면
+    앞쪽 구간이 예산을 전부 써버린다: 첫 단계에서 식이 |2·dist(p1,c) − target_m|로
+    축약되어 d = target_m/2 = r_max에서 최소가 되는데, 균형 잡힌 순환이라면 첫 구간은
+    target_m/(N+1)이어야 하므로 조준점이 (N+1)/2배 어긋난다(N=2에서도 1.5배).
+
+    remaining_legs == 1이면 남은 구간이 c→p1 하나뿐이라 하한이 곧 정확한 값이고 추정할
+    것이 없다 — 이때는 균형 가정값을 쓰지 않는다(정확한 값을 근사로 덮어쓰면 오히려
+    나빠진다). remaining_legs > 1일 때만 균형 순환 가정값(각 구간이 target_m/(N+1)씩
+    쓴다는 가정)을 쓰되, 그 가정값이 실제 하한보다 작아질 수 있으므로 max로 하한을
+    지킨다 — 하한을 깨면 "물리적으로 불가능한 총거리"를 조준하게 된다.
+    """
+    if remaining_legs <= 1 or not total_legs:
+        return tail_lower_bound_m
+    return max(tail_lower_bound_m, target_m * remaining_legs / total_legs)
+
+
 def _rank_next_waypoint_candidates(
     G: nx.Graph,
     pool_result: WaypointPoolResult,
@@ -390,26 +419,38 @@ def _rank_next_waypoint_candidates(
     target_m: float,
     cfg: GraspConfig,
     exclude: frozenset = frozenset(),
+    *,
+    remaining_legs: int = 1,
+    total_legs: Optional[int] = None,
 ) -> list[int]:
     """다음 경유지 후보를 "직전 경유지(prev) 기준" 결합 점수 오름차순으로 정렬한다
     (기존 _rank_p2_candidates/_rank_p3_candidates를 경유지 n개로 일반화한 단일 함수):
 
-        score = |cumulative_so_far_m + dist(prev,c) + dist(p1,c) − target_m|
+        score = |cumulative_so_far_m + dist(prev,c) + tail(c) − target_m|
                 + (prev != p1인 경우) cfg.angle_diversity_weight_m · |cos(각도차(p1→prev, p1→c))|
+        tail(c) = _remaining_distance_estimate_m(dist(p1,c), target_m, remaining_legs, total_legs)
 
     cumulative_so_far_m은 p1에서 prev까지 이미 확정된 경유지들을 실제로 거쳐온 누적
-    거리(m) — 호출부(construct_initial_route 등)가 매 단계 재계산해 넘긴다. dist(p1,c)는
-    "c가 이번에 고르는 경유지를 마지막으로 보고 곧장 p1로 돌아간다"고 가정한 근사
-    나머지 거리다: 실제로 더 고를 경유지가 남아 있다면 근사치일 뿐이고, 이번이 정말
-    마지막(N번째) 경유지라면 이 근사는 실제 나머지 거리와 정확히 같아진다. 매 단계
+    거리(m) — 호출부(construct_initial_route 등)가 매 단계 재계산해 넘긴다. 매 단계
     p1이 아니라 직전 경유지 기준으로 누적 거리를 다시 계산해야 GRASP의 적응성이
     유지된다 — 각 단계 그리디 점수가 이전 선택과 무관한 독립 샘플링이 되지 않도록 하기
     위함이다.
 
-    prev==p1(첫 경유지를 고르는 단계)이면 cumulative_so_far_m=0이고 dist(prev,c)는
-    dist(p1,c)와 같으므로, score의 첫 항은 |2·dist(p1,c) − target_m|로 자동 축약된다 —
-    기존 _rank_p2_candidates와 완전히 동일한 동작(candidate 혼자 왕복 턴어라운드
-    지점이라 가정한 근사 그리디 기준)이다. 이 단계에서는 비교할 '직전 방향'이 없으므로
+    remaining_legs/total_legs(2026-09-09 버그픽스): 예전에는 tail(c)가 항상 dist(p1,c),
+    즉 "c가 마지막 경유지라 곧장 p1로 돌아간다"는 가정이었다. 아직 고를 경유지가 남아
+    있으면 이 값은 최종 순환 길이의 하한일 뿐이고(남은 경유지들의 거리를 0으로 보는
+    셈), 그 하한을 target_m에 맞추려 하면 앞쪽 구간이 예산을 전부 써버린다. 이제
+    호출부가 "이 후보를 고른 뒤 p1까지 남은 구간 수(remaining_legs)"와 "순환 전체 구간
+    수 N+1(total_legs)"를 함께 넘겨, 남은 구간이 2개 이상이면 균형 가정값으로 조준점을
+    옮긴다(하한은 max로 지킴 — _remaining_distance_estimate_m 참고).
+
+    두 인자의 기본값(remaining_legs=1, total_legs=None)은 "이번 후보가 마지막 경유지"를
+    뜻하며, 이는 근사가 아니라 정확한 경우다(N=1 구성이거나 마지막 단계). 저장소 안의
+    호출부 3곳은 모두 값을 명시적으로 넘긴다.
+
+    prev==p1(첫 경유지를 고르는 단계)이고 remaining_legs==1이면 cumulative_so_far_m=0,
+    dist(prev,c)==dist(p1,c)이므로 score의 첫 항이 |2·dist(p1,c) − target_m|로 축약된다 —
+    경유지가 1개뿐인 순환의 정확한 기준이다. 이 단계에서는 비교할 '직전 방향'이 없으므로
     각도 다양성 페널티를 적용하지 않는다(bearing_prev가 정의되지 않음).
 
     cfg.min_waypoint_separation_ratio > 0이고 prev != p1이면, prev-c 실제 A* 거리
@@ -442,7 +483,10 @@ def _rank_next_waypoint_candidates(
         if prev != p1 and cfg.min_waypoint_separation_ratio and not is_waypoint_pair_separated(d_prev_c, target_m, cfg):
             continue  # 직전 경유지와 후보가 실제 도보상 너무 가까움 — 왕복 퇴화 위험이 있는 조합이라 제외
 
-        total = cumulative_so_far_m + d_prev_c + pool_result.dist_from_p1[c]
+        tail_m = _remaining_distance_estimate_m(
+            pool_result.dist_from_p1[c], target_m, remaining_legs, total_legs,
+        )
+        total = cumulative_so_far_m + d_prev_c + tail_m
         distance_error = abs(total - target_m)
 
         if bearing_prev is not None:
@@ -526,6 +570,63 @@ def format_optional_list(values: Optional[list[float]], digits: int = 0) -> str:
 # _CostCache를 재사용하므로 추가 A* 호출이 생기지 않는다.
 
 @dataclass(frozen=True)
+class PruneDiagnostics:
+    """최종 채택된 경로 하나에 대해, prune_dead_ends가 무엇을 잘라냈는지 집계한 값
+    (2026-09-09 계측 추가). 탐색에는 전혀 쓰지 않는다.
+
+    목적은 "겹침 제거 로직을 겹침 기준으로 바꿀지, 아예 뺄지"를 나중에 데이터로 판단하는
+    것이다. 현재 규칙은 중복 노드 사이 구간을 길이만 보고 지우므로 되짚어 온 길과 한 바퀴
+    돌아온 길을 구분하지 못하는데, clean_* 필드가 후자의 몫을 따로 센다.
+
+    clean(재통행률 0.0)은 "겹침 기준으로 바꾸면 살아남을 구간"이고, repeated(재통행률
+    0 초과)는 "어떤 기준에서도 지워질 구간"이다. waypoints_lost_clean이 크면 기준 전환만으로
+    경유지 소실이 줄어든다는 뜻이고, waypoints_lost_repeated가 지배적이면 기준을 바꿔도
+    (B)는 그대로 남는다는 뜻이다.
+
+    구간 재구성은 compute_route_geometry_metrics가 이미 구간 길이를 재려고 다시 걸어본
+    노드열을 그대로 쓰므로 추가 A* 호출이 생기지 않는다. 다만 그 path_finder가 Route를
+    만들 때와 다른 캐시라면 A* 동점 처리에 따라 구간이 미묘하게 달라질 수 있어, 이 값은
+    최종 node_ids의 완전한 재현이 아니라 근사 진단이다.
+    """
+    branch_count: int              # 잘라낸 구간 수
+    branch_length_m: float         # 잘라낸 총 길이
+    clean_branch_count: int        # 그중 재통행률 0.0인 구간 수
+    clean_branch_length_m: float   # 그 구간들의 총 길이
+    waypoints_lost_clean: int      # 재통행 없는 구간에 휩쓸려 사라진 선언 경유지 수
+    waypoints_lost_repeated: int   # 재통행 구간과 함께 사라진 선언 경유지 수
+
+
+def compute_prune_diagnostics(G: nx.Graph, raw_nodes: list[int], waypoints: list[int]) -> PruneDiagnostics:
+    """구간을 이어붙인(아직 자르지 않은) 노드열에 prune_dead_ends를 sink와 함께 걸어,
+    무엇이 왜 잘렸는지 집계한다. 반환되는 pruned 결과 자체는 버린다 — 이 함수는 오직
+    진단값만 만든다.
+
+    사라진 경유지는 "최종 결과에 없는 선언 경유지"로 정의하고, 그것이 어느 유형의 구간
+    interior에 들어 있었는지로 귀속시킨다. 한 경유지가 clean 구간과 repeated 구간 양쪽
+    interior에 걸쳐 있으면 repeated로 센다 — 겹침 기준으로 바꿔도 살아나지 않을 쪽으로
+    보수적으로 분류해야 기준 전환의 기대 효과를 부풀리지 않는다."""
+    sink: list[PrunedBranch] = []
+    pruned = PathUtils(G).prune_dead_ends(raw_nodes, sink=sink)
+
+    lost = {w for w in waypoints if w not in set(pruned)}
+    clean_branches = [b for b in sink if b.overlap_ratio == 0.0]
+    repeated_interior = {n for b in sink if b.overlap_ratio > 0.0 for n in b.interior}
+    clean_interior = {n for b in clean_branches for n in b.interior}
+
+    lost_repeated = lost & repeated_interior
+    lost_clean = (lost & clean_interior) - lost_repeated
+
+    return PruneDiagnostics(
+        branch_count=len(sink),
+        branch_length_m=sum(b.length_m for b in sink),
+        clean_branch_count=len(clean_branches),
+        clean_branch_length_m=sum(b.length_m for b in clean_branches),
+        waypoints_lost_clean=len(lost_clean),
+        waypoints_lost_repeated=len(lost_repeated),
+    )
+
+
+@dataclass(frozen=True)
 class RouteGeometryMetrics:
     """경유지 n개 일반화 이후 리스트 기반으로 재설계한 원형성 진단 지표. Route가
     없으면(폴백 등) 전부 None/False로 채운다 — CSV/로그 어느 쪽에서도 그대로 옮겨 적을
@@ -542,6 +643,8 @@ class RouteGeometryMetrics:
         N-1. N=2에서는 원소 1개짜리 리스트가 되어 기존 waypoint_angle_diff_deg(스칼라)와
         같은 값을 담는다. 경유지가 1개뿐이면 빈 리스트.
     segment_balance_ratio: min(segment_lengths_m) / max(segment_lengths_m), 0~1.
+    effective_waypoint_count: Route.effective_waypoints의 개수 — 선언한 N과 다르면
+        pruning이 경유지를 지웠다는 뜻이다(진단 전용, 탐색 기준에는 쓰지 않는다).
     """
     segment_lengths_m: Optional[list[float]]
     repeated_edge_ratio: Optional[float]
@@ -549,6 +652,13 @@ class RouteGeometryMetrics:
     waypoint_angle_diffs_deg: Optional[list[float]]
     segment_balance_ratio: Optional[float]
     is_degenerate_loop: bool
+    effective_waypoint_count: Optional[int] = None
+    # pruning 이후 실제로 남은 경유지 수(Route.effective_waypoints, 2026-09-09 버그픽스).
+    # len(route.waypoints)와 다르면 선언한 경유지 중 일부가 왕복 가지 제거로 사라졌다는 뜻이다.
+    # Route가 없으면 None. 기존 6개 위치인자 생성부와의 호환을 위해 기본값을 둔다.
+    prune_diagnostics: Optional["PruneDiagnostics"] = None
+    # prune_dead_ends가 이 경로에서 무엇을 왜 잘라냈는지(진단 전용, PruneDiagnostics 참고).
+    # 구간 거리를 못 구한 경우(path_finder 실패)에는 채우지 않는다.
 
 
 _DEGENERATE_REPEATED_EDGE_RATIO = 0.35
@@ -613,17 +723,23 @@ def compute_route_geometry_metrics(
     세 구간 균형(segment_balance_ratio)은 이번 단계에서 탐색을 막는 강한 조건이 아니라
     이 진단 플래그에서만 쓰인다 — 요청서가 명시적으로 요구한 제약이다."""
     if route is None:
-        return RouteGeometryMetrics(None, None, None, None, None, False)
+        return RouteGeometryMetrics(None, None, None, None, None, False, None)
 
     stops = [start_node, *route.waypoints, start_node]
     segment_lengths_m: list[float] = []
+    raw_nodes: list[int] = []  # 아직 자르지 않은 stitching 결과 — prune 진단용(추가 A* 호출 없음)
     for a, b in zip(stops, stops[1:]):
         path = path_finder(a, b)
         if path is None:
             # BuildCycleRoute가 이미 성공한 route라면 이론상 도달하지 않는 경로지만,
             # 캐시가 비어 있는 상태로 이 함수만 단독 호출된 경우까지 안전하게 처리한다.
-            return RouteGeometryMetrics(None, route.repeated_edge_ratio, None, None, None, False)
+            return RouteGeometryMetrics(
+                None, route.repeated_edge_ratio, None, None, None, False,
+                route.effective_waypoint_count,
+            )
         segment_lengths_m.append(_sum_edge_length(G, path))
+        leg = list(path)
+        raw_nodes = raw_nodes + leg[1:] if raw_nodes else leg  # 구간 경계 중복 노드는 한 번만
 
     have_coords = all(
         "lat" in G.nodes[n] and "lon" in G.nodes[n] for n in (start_node, *route.waypoints)
@@ -655,6 +771,8 @@ def compute_route_geometry_metrics(
         waypoint_angle_diffs_deg=angle_diffs_deg,
         segment_balance_ratio=balance_ratio,
         is_degenerate_loop=degenerate,
+        effective_waypoint_count=route.effective_waypoint_count,
+        prune_diagnostics=compute_prune_diagnostics(G, raw_nodes, route.waypoints),
     )
 
 
@@ -690,11 +808,16 @@ def construct_initial_route(
     waypoints: list[int] = []
     prev = start_node
     cumulative_m = 0.0
+    n = cfg.num_waypoints
+    total_legs = n + 1  # p1→w1, w1→w2, ..., w_N→p1
 
-    for _ in range(cfg.num_waypoints):
+    for i in range(n):
+        # i번째(0-based) 경유지를 고르면 그 뒤로 남는 구간은 w_i→w_{i+1} ... w_N→p1의
+        # n - i개다. 마지막 단계(i == n-1)에서는 1이 되어 추정 없이 정확한 dist(c,p1)를 쓴다.
         rcl = _rank_next_waypoint_candidates(
             G, pool_result, start_node, prev, cumulative_m, target_m, cfg,
             exclude=frozenset(waypoints),
+            remaining_legs=n - i, total_legs=total_legs,
         )[: cfg.rcl_size]
         if not rcl:
             return ConstructionResult(route=None, had_valid_waypoint_pair=False)
@@ -735,8 +858,10 @@ def waypoint_replacement_neighbors(
     waypoints = route.waypoints
     cum = _prefix_distances_m(pool_result, start_node, waypoints)
     fixed_exclude_all = frozenset(waypoints)
+    n = len(waypoints)
+    total_legs = n + 1
 
-    for i in range(len(waypoints)):
+    for i in range(n):
         cumulative_m = cum[i]
         if cumulative_m is None:
             continue  # 앞 구간이 도달 불가라 이 위치의 누적 거리를 정의할 수 없음
@@ -744,6 +869,7 @@ def waypoint_replacement_neighbors(
         for c in _rank_next_waypoint_candidates(
             G, pool_result, start_node, prev, cumulative_m, target_m, cfg,
             exclude=fixed_exclude_all,
+            remaining_legs=n - i, total_legs=total_legs,
         )[: cfg.rcl_size]:
             new_waypoints = list(waypoints)
             new_waypoints[i] = c
@@ -771,8 +897,10 @@ def waypoint_pair_replacement_neighbors(
     waypoint_replacement_neighbors와 같은 이유다."""
     waypoints = route.waypoints
     cum = _prefix_distances_m(pool_result, start_node, waypoints)
+    n = len(waypoints)
+    total_legs = n + 1
 
-    for i in range(len(waypoints) - 1):
+    for i in range(n - 1):
         cumulative_m = cum[i]
         if cumulative_m is None:
             continue  # 앞 구간이 도달 불가라 이 쌍의 누적 거리를 정의할 수 없음
@@ -781,6 +909,7 @@ def waypoint_pair_replacement_neighbors(
 
         for a in _rank_next_waypoint_candidates(
             G, pool_result, start_node, prev, cumulative_m, target_m, cfg, exclude=fixed_exclude,
+            remaining_legs=n - i, total_legs=total_legs,
         )[: cfg.rcl_size]:
             # a는 방금 랭킹을 통과한 후보라 prev와의 거리가 None일 수 없다
             # (prev == start_node면 dist_from_p1, 아니면 랭킹이 None 후보를 이미 제외).
@@ -790,6 +919,7 @@ def waypoint_pair_replacement_neighbors(
             for b in _rank_next_waypoint_candidates(
                 G, pool_result, start_node, a, cum_a, target_m, cfg,
                 exclude=fixed_exclude | {a},
+                remaining_legs=n - i - 1, total_legs=total_legs,
             )[: cfg.rcl_size]:
                 if a == waypoints[i] and b == waypoints[i + 1]:
                     continue

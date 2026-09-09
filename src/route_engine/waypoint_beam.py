@@ -38,6 +38,11 @@ class _State:
     closed_m: float  # 지금 도착지까지 연결했을 때의 총거리
     route_metrics: RouteMetrics | None = None
     penalty_so_far: float = 0.0  # 랭킹 전용 누적 보정항(예: 방향 다양성). 실제 거리에는 섞이지 않는다.
+    rank_m: float = 0.0
+    # 랭킹 전용 추정 총거리(2026-09-09 버그픽스). 아직 고를 경유지가 남아 있으면 closed_m은
+    # 남은 경유지들의 거리를 0으로 본 하한이라, 그 값을 target_m에 맞추려 하면 앞쪽 구간이
+    # 예산을 전부 써버린다. 마지막 단계에서는 rank_m == closed_m이므로, 최종 완성 조합끼리의
+    # 비교 기준은 바뀌지 않는다. WaypointOrder.distance_m/error_m에는 절대 쓰지 않는다.
 
 
 def beam_search(
@@ -58,7 +63,9 @@ def beam_search(
     cost는 동일한 그래프의 대칭 거리(m)를 반환하며, 도달 불가는 inf이다.
     순환 경로는 end_id=start_id로 지정한다.
     tolerance_ratio와 evaluate_route를 함께 지정하면 재통행 평가를 사용한다.
-    미완성 순서는 지금 도착지로 연결한 경로로 평가하며 최종 품질을 보장하지 않는다.
+    미완성 순서는 남은 구간 수를 반영한 추정 총거리로 랭킹하며(_State.rank_m), 반환되는
+    orders의 distance_m은 도착지로 임시 연결한 실거리(closed_m)다. 어느 쪽도 최종 품질을
+    보장하지 않는다.
     완성 조합을 찾지 못하면 orders는 비어 있다.
 
     rank_penalty(prev_id, next_id)는 랭킹 전용 보정항이다(GRASP의
@@ -148,10 +155,21 @@ def beam_search(
             state.route_metrics,
         )
 
+    def as_rank_order(state: _State) -> WaypointOrder:
+        """랭킹 전용 변환 — 미완성 순서에서는 closed_m 대신 rank_m(남은 구간을 반영한
+        추정 총거리)을 쓴다. 반환되는 BeamResult.orders는 as_order()가 만들므로 실제
+        거리 보고값은 그대로다."""
+        return WaypointOrder(
+            state.waypoint_ids,
+            state.rank_m,
+            abs(state.rank_m - target_m),
+            state.route_metrics,
+        )
+
     def rank(state: _State):
         """거리 전용 또는 허용 범위 안 재통행 우선 기준으로 상태를 비교하고,
         rank_penalty가 있으면 그 값을 주 비교값에 더한다(실거리에는 반영하지 않음)."""
-        key = objective.rank(as_order(state))
+        key = objective.rank(as_rank_order(state))
         if rank_penalty is None:
             return key
         primary, *rest = key
@@ -180,6 +198,23 @@ def beam_search(
                 if not isfinite(closed_m):
                     raise ValueError("누적 거리 계산이 유한 범위를 넘었습니다.")
 
+                # 남은 경유지를 0m로 보지 않는다(2026-09-09 버그픽스). next_id를 붙이면
+                # 경유지가 chosen개가 되고, 거기서 도착지까지 남는 구간은
+                # w_chosen→w_{chosen+1} ... w_N→end의 waypoint_count - chosen + 1개다.
+                # 2개 이상 남았으면 tail_m(=dist(next_id, end), 삼각부등식상 하한)을
+                # 균형 순환 가정값 target_m*(남은 구간 수)/(N+1)로 끌어올려 조준점을 옮기되,
+                # max로 하한은 깨지 않는다. 마지막 단계(남은 구간 1개)에서는 tail_m이 곧
+                # 정확한 값이므로 rank_m == closed_m이 되어 기존 동작과 같다.
+                # (GRASP의 grasp_waypoint_common.py::_remaining_distance_estimate_m와 동일한 식 —
+                # 두 구축의 공정 비교 조건을 유지하려면 한쪽만 고칠 수 없다.)
+                chosen = len(state.waypoint_ids) + 1
+                remaining_legs = waypoint_count - chosen + 1
+                if remaining_legs > 1:
+                    balanced_tail_m = target_m * remaining_legs / (waypoint_count + 1)
+                    rank_m = partial_m + max(tail_m, balanced_tail_m)
+                else:
+                    rank_m = closed_m
+
                 next_state = _State(
                     waypoint_ids=state.waypoint_ids + (next_id,),
                     partial_m=partial_m,
@@ -189,6 +224,7 @@ def beam_search(
                         if rank_penalty is not None
                         else 0.0
                     ),
+                    rank_m=rank_m,
                 )
                 if evaluate_route is not None:
                     route_evaluations += 1
@@ -206,6 +242,7 @@ def beam_search(
                         partial_m,
                         closed_m,
                         order.route_metrics,
+                        rank_m=rank_m,
                     )
                 yield next_state
 

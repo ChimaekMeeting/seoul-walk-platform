@@ -123,7 +123,9 @@ RESULT_COLUMNS = [
     "repeated_edge_ratio", "waypoint_angle_diff_deg", "segment_balance_ratio", "is_degenerate_loop",
     "alns_operator_stats",  # grasp-wp-alns 전용 선택 필드(JSON 문자열) — 나머지는 None
     # 경유지 풀·N sweep 진단용 선택 필드(신규) — grasp-wp-*/beam-wp-* solver만 채움.
-    "num_waypoints_used", "pool_cache_hits", "pool_cache_misses",
+    # effective_waypoints_used는 pruning 이후 실제로 지난 경유지 수(2026-09-09 버그픽스).
+    # num_waypoints_used(선언값)와 다르면 왕복 가지 제거가 경유지를 지웠다는 뜻이다.
+    "num_waypoints_used", "effective_waypoints_used", "pool_cache_hits", "pool_cache_misses",
     "error",
 ]
 REQUIRED_RESULT_KEYS = ("paths", "cost")
@@ -245,6 +247,13 @@ def _validate_solver_result(result) -> dict:
     num_waypoints_used = result.get("num_waypoints_used")
     if num_waypoints_used is not None and (not isinstance(num_waypoints_used, int) or isinstance(num_waypoints_used, bool)):
         raise TypeError(f"'num_waypoints_used'는 int여야 합니다 (실제 타입: {type(num_waypoints_used).__name__})")
+    effective_waypoints_used = result.get("effective_waypoints_used")
+    if effective_waypoints_used is not None and (
+        not isinstance(effective_waypoints_used, int) or isinstance(effective_waypoints_used, bool)
+    ):
+        raise TypeError(
+            f"'effective_waypoints_used'는 int여야 합니다 (실제 타입: {type(effective_waypoints_used).__name__})"
+        )
     pool_cache_hits = result.get("pool_cache_hits")
     if pool_cache_hits is not None and (not isinstance(pool_cache_hits, int) or isinstance(pool_cache_hits, bool)):
         raise TypeError(f"'pool_cache_hits'는 int여야 합니다 (실제 타입: {type(pool_cache_hits).__name__})")
@@ -259,6 +268,7 @@ def _validate_solver_result(result) -> dict:
         "is_degenerate_loop": is_degenerate_loop,
         "alns_operator_stats": alns_operator_stats,
         "num_waypoints_used": num_waypoints_used,
+        "effective_waypoints_used": effective_waypoints_used,
         "pool_cache_hits": pool_cache_hits,
         "pool_cache_misses": pool_cache_misses,
         **segment_fields,
@@ -363,6 +373,7 @@ def _failed_row(solver: BasePathSolver, status: str, elapsed_sec: float, error: 
         "is_degenerate_loop": None,
         "alns_operator_stats": None,
         "num_waypoints_used": None,
+        "effective_waypoints_used": None,
         "pool_cache_hits": None,
         "pool_cache_misses": None,
         "error": error,
@@ -483,6 +494,7 @@ def _run_single(
         "is_degenerate_loop": result.get("is_degenerate_loop"),
         "alns_operator_stats": result.get("alns_operator_stats"),
         "num_waypoints_used": result.get("num_waypoints_used"),
+        "effective_waypoints_used": result.get("effective_waypoints_used"),
         "pool_cache_hits": result.get("pool_cache_hits"),
         "pool_cache_misses": result.get("pool_cache_misses"),
         "error": "",
