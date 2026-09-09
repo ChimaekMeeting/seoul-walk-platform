@@ -458,16 +458,41 @@ def _rank_next_waypoint_candidates(
     return [c for _, c in ranked]
 
 
-def _prefix_distances_m(pool_result: WaypointPoolResult, start_node: int, waypoints: list[int]) -> list[float]:
+def _prefix_distances_m(
+    pool_result: WaypointPoolResult, start_node: int, waypoints: list[int],
+) -> list[Optional[float]]:
     """waypoints[i]를 고르기 직전까지의 실제 누적 거리(m) 목록(길이 == len(waypoints)) —
     construct_initial_route가 선택 단계마다 계산하는 cumulative_so_far_m과 동일한 정의를,
     이미 확정된 경유지 순서로부터 사후에 재계산한다. 지역탐색 이웃 함수들이 특정 위치의
-    경유지만 바꿔치기할 때, 그 위치의 '직전까지 누적 거리'를 다시 구하기 위해 쓴다."""
-    cum = [0.0]
+    경유지만 바꿔치기할 때, 그 위치의 '직전까지 누적 거리'를 다시 구하기 위해 쓴다.
+
+    도달 불가 구간은 None으로 표시한다(2026-09-09 버그픽스). WaypointPoolResult.distance()는
+    두 경유지 사이 거리가 r_max(=target_m/2)를 넘으면 None을 돌려주는데, 예전에는 그 값을
+    그대로 더해 TypeError로 죽었다. 경유지가 2개일 때는 waypoints[:-1]이 1개뿐이고 그 하나가
+    항상 prev == start_node 분기(dist_from_p1, None 없음)를 타서 드러나지 않았고, 3개
+    이상이 되어야 경유지-경유지 구간이 생기면서 노출됐다.
+
+    None은 이상 상태가 아니라 "이 두 경유지를 같이 쓰면 목표거리를 반드시 넘는다"는 판정이다
+    (닫힌 순환의 총 길이 L 위에 놓인 두 정류점 사이 최단거리는 둘러 가는 두 방향 중 짧은
+    쪽이라 L/2 이하 — 대우로, r_max를 넘는 쌍은 길이 target_m 이하 순환에 함께 들어갈 수
+    없다. 2026-09-09 합성 격자에서 반례 0건 확인). 구축 단계는 이런 쌍을 후보 랭킹에서 이미
+    걸러내지만, 지역개선이 위치 i의 경유지만 바꾸면 그 뒤 구간(새 경유지 → waypoints[i+1])은
+    검사되지 않고, VNS Shake(_shake_replace_one/_shake_replace_both)는 아예 풀에서 무작위로
+    뽑기 때문에 정상적으로 발생한다.
+
+    한 구간이 끊기면 그 뒤의 누적 거리는 전부 정의할 수 없으므로 None이 뒤로 전파된다.
+    inf로 대체하지 않는 이유: cumulative가 inf면 _rank_next_waypoint_candidates의
+    distance_error가 모든 후보에서 inf로 동점이 되어 랭킹이 pool_nodes 입력 순서로
+    퇴화하고, 그 무의미한 상위 rcl_size개마다 BuildCycleRoute(A* N+1회)를 부르게 된다.
+    호출부는 None인 위치의 이웃 생성을 통째로 건너뛴다 — cum[0](항상 0.0)과 cum[1](항상
+    prev == start_node 분기)은 구조적으로 None이 될 수 없으므로 이웃 집합이 완전히 비지는
+    않고, 끊김을 만든 경유지 자리 자체는 계속 교체 대상으로 남아 탈출이 가능하다."""
+    cum: list[Optional[float]] = [0.0]
     prev = start_node
     for w in waypoints[:-1]:
         step = pool_result.dist_from_p1[w] if prev == start_node else pool_result.distance(prev, w)
-        cum.append(cum[-1] + step)
+        previous = cum[-1]
+        cum.append(None if previous is None or step is None else previous + step)
         prev = w
     return cum
 
@@ -701,15 +726,23 @@ def waypoint_replacement_neighbors(
     후보를 다시 매긴다. 각 위치 모두 상위 rcl_size개 후보로 탐색 폭을 제한한다(랭킹
     자체는 저렴하지만, 각 후보마다 BuildCycleRoute의 실제 A* N+1회는 비용이 있으므로
     그 호출 횟수를 제한). N=2(경유지 2개)에서는 위치가 정확히 2개(waypoint2, waypoint3
-    자리)라 기존 동작과 완전히 같다."""
+    자리)라 기존 동작과 완전히 같다.
+
+    그 자리까지의 누적 거리를 구할 수 없는 위치(_prefix_distances_m이 None을 준 위치 — 앞
+    구간 중 하나가 r_max를 넘어 도달 불가)는 랭킹 기준 자체가 없으므로 이웃을 만들지
+    않는다. 위치 0·1은 구조적으로 항상 누적 거리가 정의되므로 이웃 집합이 통째로 비지는
+    않는다(_prefix_distances_m 참고)."""
     waypoints = route.waypoints
     cum = _prefix_distances_m(pool_result, start_node, waypoints)
     fixed_exclude_all = frozenset(waypoints)
 
     for i in range(len(waypoints)):
+        cumulative_m = cum[i]
+        if cumulative_m is None:
+            continue  # 앞 구간이 도달 불가라 이 위치의 누적 거리를 정의할 수 없음
         prev = start_node if i == 0 else waypoints[i - 1]
         for c in _rank_next_waypoint_candidates(
-            G, pool_result, start_node, prev, cum[i], target_m, cfg,
+            G, pool_result, start_node, prev, cumulative_m, target_m, cfg,
             exclude=fixed_exclude_all,
         )[: cfg.rcl_size]:
             new_waypoints = list(waypoints)
@@ -732,19 +765,27 @@ def waypoint_pair_replacement_neighbors(
     N=2(경유지 2개)일 때는 유일한 인접 쌍이 곧 waypoint2·waypoint3라 기존 동작과 완전히
     같다. N>2로 확장되면 가능한 모든 인접 쌍(위치)을 순회한다 — 전체 조합(경유지 전부를
     동시에 바꾸는 O(rcl^N))은 비용이 감당 안 되므로 인접 두 자리로만 제한하고, 각 쌍
-    탐색은 기존과 동일하게 양쪽 rcl_size로 제한한 O(rcl×rcl)로 유지한다."""
+    탐색은 기존과 동일하게 양쪽 rcl_size로 제한한 O(rcl×rcl)로 유지한다.
+
+    누적 거리를 구할 수 없는 쌍(_prefix_distances_m이 None을 준 위치 i)은 건너뛴다 —
+    waypoint_replacement_neighbors와 같은 이유다."""
     waypoints = route.waypoints
     cum = _prefix_distances_m(pool_result, start_node, waypoints)
 
     for i in range(len(waypoints) - 1):
+        cumulative_m = cum[i]
+        if cumulative_m is None:
+            continue  # 앞 구간이 도달 불가라 이 쌍의 누적 거리를 정의할 수 없음
         prev = start_node if i == 0 else waypoints[i - 1]
         fixed_exclude = frozenset(waypoints) - {waypoints[i], waypoints[i + 1]}
 
         for a in _rank_next_waypoint_candidates(
-            G, pool_result, start_node, prev, cum[i], target_m, cfg, exclude=fixed_exclude,
+            G, pool_result, start_node, prev, cumulative_m, target_m, cfg, exclude=fixed_exclude,
         )[: cfg.rcl_size]:
+            # a는 방금 랭킹을 통과한 후보라 prev와의 거리가 None일 수 없다
+            # (prev == start_node면 dist_from_p1, 아니면 랭킹이 None 후보를 이미 제외).
             step_a = pool_result.dist_from_p1[a] if prev == start_node else pool_result.distance(prev, a)
-            cum_a = cum[i] + step_a
+            cum_a = cumulative_m + step_a
 
             for b in _rank_next_waypoint_candidates(
                 G, pool_result, start_node, a, cum_a, target_m, cfg,
