@@ -206,12 +206,24 @@ class WaypointEngine:
             return [start_node]
 
         gm = self.last_geometry_metrics
+        if gm.prune_diagnostics is not None:
+            # 겹침 제거 로직을 겹침 기준으로 바꿀지·뺄지 판단하기 위한 계측(2026-09-09).
+            # clean은 재통행이 전혀 없는데도 잘려나간 구간이다 — 기준을 바꾸면 살아남는다.
+            pd = gm.prune_diagnostics
+            logger.info(
+                "%s 가지치기 내역: 구간=%d개(%.0fm), 그중 재통행0=%d개(%.0fm), "
+                "경유지 소실=재통행0 %d개 / 재통행 %d개",
+                self._label(), pd.branch_count, pd.branch_length_m,
+                pd.clean_branch_count, pd.clean_branch_length_m,
+                pd.waypoints_lost_clean, pd.waypoints_lost_repeated,
+            )
         logger.info(
             "%s 순환 경로 선택: 노드=%d개, 거리오차=%.0fm, 반복률=%.3f, selection_status=%s, "
-            "구간거리=%sm, 방위각차=%s도, 균형비=%s, 퇴화의심=%s",
+            "구간거리=%sm, 방위각차=%s도, 균형비=%s, 퇴화의심=%s, 실효경유지=%d/%d",
             self._label(), len(best_route.node_ids), best_obj.distance_error_m, best_obj.repeated_edge_ratio,
             self.last_selection_status,
             format_optional_list(gm.segment_lengths_m), format_optional_list(gm.waypoint_angle_diffs_deg, 2),
             format_optional(gm.segment_balance_ratio, 3), gm.is_degenerate_loop,
+            best_route.effective_waypoint_count, len(best_route.waypoints),
         )
         return best_route.node_ids

@@ -17,11 +17,13 @@ tests/unit/test_grasp_waypoint.py
 
 import math
 import random
+from types import SimpleNamespace
 
 import networkx as nx
 import pytest
 
 from src.interfaces.schema.walk_schema import WalkMode
+import src.route_engine.engines.grasp_waypoint_common as _gwc  # monkeypatch 대상 모듈 네임스페이스
 from src.route_engine.engines.grasp_waypoint_common import (
     BuildCycleRoute,
     GraspConfig,
@@ -35,6 +37,7 @@ from src.route_engine.engines.grasp_waypoint_common import (
     _bearing_rad,
     _prefix_distances_m,
     _rank_next_waypoint_candidates,
+    _remaining_distance_estimate_m,
     better,
     compute_route_geometry_metrics,
     construct_initial_route,
@@ -388,6 +391,111 @@ def test_rank_next_waypoint_candidates_separation_filter_disabled_when_ratio_zer
     cfg = GraspConfig(angle_diversity_weight_m=0.0, min_waypoint_separation_ratio=0.0)
     ranked = _rank_next_waypoint_candidates(G, pool, 1, 2, pool.dist_from_p1[2], 5000.0, cfg)
     assert ranked == [4]
+
+
+# ── 남은 구간 수를 반영한 나머지 거리 추정(2026-09-09 버그픽스) ──────────
+#
+# 이전 추정식은 "지금 고르는 경유지가 마지막"이라고 가정해 남은 경유지들의 거리를 0으로
+# 봤다. 그 하한을 target_m에 맞추려 하면 앞쪽 구간이 예산을 전부 써버려, 첫 단계 조준점이
+# 균형값 target_m/(N+1)이 아니라 target_m/2(=r_max)가 된다(N=2에서도 1.5배 어긋남).
+
+def test_remaining_distance_estimate_is_exact_when_one_leg_remains():
+    """남은 구간이 1개면 dist(c,p1)가 곧 정확한 값이므로 균형 가정값으로 덮어쓰지 않는다."""
+    assert _remaining_distance_estimate_m(500.0, 3000.0, remaining_legs=1, total_legs=3) == 500.0
+    # total_legs를 모르면(호출부가 안 넘기면) 추정을 시도하지 않는다 — 이전 동작과 동일.
+    assert _remaining_distance_estimate_m(500.0, 3000.0, remaining_legs=2, total_legs=None) == 500.0
+
+
+def test_remaining_distance_estimate_uses_balanced_share_but_keeps_lower_bound():
+    """남은 구간이 2개 이상이면 균형 가정값 target_m*(남은 구간)/(N+1)을 쓰되,
+    실제 하한 dist(c,p1)보다 작아지면 하한을 지킨다(하한을 깨면 물리적으로 불가능한
+    총거리를 조준하게 된다)."""
+    # 균형 가정값 = 3000 * 2/3 = 2000 > 하한 500 → 균형 가정값 채택
+    assert _remaining_distance_estimate_m(500.0, 3000.0, remaining_legs=2, total_legs=3) == 2000.0
+    # 하한 2500 > 균형 가정값 2000 → 하한 유지
+    assert _remaining_distance_estimate_m(2500.0, 3000.0, remaining_legs=2, total_legs=3) == 2500.0
+
+
+def test_rank_next_waypoint_candidates_aims_at_balanced_first_leg_when_waypoints_remain():
+    """N=2의 첫 경유지 선택에서, 조준점이 target_m/2(=r_max)가 아니라 균형값
+    target_m/(N+1)로 옮겨졌는지 확인한다.
+
+    후보 10은 target_m/3(=1000m, 균형값), 후보 20은 target_m/2(=1500m, 이전 추정식의
+    최적점)에 있다. 남은 구간 수를 안 넘기면(이전 동작) 20이 먼저 오고, 넘기면 10이
+    먼저 와야 한다."""
+    G = nx.Graph()
+    G.add_node(1, lat=0.0, lon=0.0)    # p1
+    G.add_node(10, lat=0.0, lon=1.0)
+    G.add_node(20, lat=0.0, lon=1.5)
+
+    pool = _FakePoolResult(
+        pool_nodes=[10, 20], dist_from_p1={10: 1000.0, 20: 1500.0}, pairwise={},
+    )
+    target_m = 3000.0
+    cfg = GraspConfig(angle_diversity_weight_m=0.0, min_waypoint_separation_ratio=0.0)
+
+    # 이전 동작(남은 구간을 0으로 봄): |2d − target| → d=1500(r_max)이 최적
+    ranked_old = _rank_next_waypoint_candidates(G, pool, 1, 1, 0.0, target_m, cfg)
+    assert ranked_old[0] == 20
+
+    # 수정 후: tail = max(d, 3000*2/3=2000) → 후보 10은 1000+2000=3000(오차 0),
+    # 후보 20은 1500+2000=3500(오차 500)
+    ranked_new = _rank_next_waypoint_candidates(
+        G, pool, 1, 1, 0.0, target_m, cfg, remaining_legs=2, total_legs=3,
+    )
+    assert ranked_new[0] == 10
+
+
+def test_construct_initial_route_passes_decreasing_remaining_legs(monkeypatch):
+    """구축 단계가 매 선택마다 '남은 구간 수'를 n, n-1, ..., 1로 줄여 넘기고 total_legs는
+    n+1로 고정하는지 확인한다 — 마지막 단계가 1이어야 추정 없이 정확한 dist(c,p1)를 쓴다."""
+    calls: list[tuple] = []
+
+    def fake_rank(G, pool_result, p1, prev, cumulative_so_far_m, target_m, cfg,
+                  exclude=frozenset(), *, remaining_legs=1, total_legs=None):
+        calls.append((remaining_legs, total_legs))
+        return [11 + len(calls) - 1]
+
+    monkeypatch.setattr(_gwc, "_rank_next_waypoint_candidates", fake_rank)
+    monkeypatch.setattr(_gwc, "BuildCycleRoute", lambda *args, **kwargs: None)
+
+    pool = _FakePoolResult(
+        pool_nodes=[11, 12, 13],
+        dist_from_p1={11: 500.0, 12: 500.0, 13: 500.0},
+        pairwise={(11, 12): 500.0, (12, 13): 500.0},
+    )
+    stub_cost_cache = SimpleNamespace(astar_path=lambda a, b: None)
+    _gwc.construct_initial_route(
+        nx.Graph(), stub_cost_cache, pool, 1, 3000.0, random.Random(0),
+        GraspConfig(num_waypoints=3),
+    )
+    assert calls == [(3, 4), (2, 4), (1, 4)]
+
+
+def test_waypoint_replacement_neighbors_passes_position_aware_remaining_legs(monkeypatch, grid_graph):
+    """지역개선의 위치별 이웃 생성도 같은 기준(위치 i → 남은 구간 n-i)을 쓰는지 확인한다 —
+    구축과 정제가 다른 조준점을 쓰면 개선이 구축 결과를 도로 밀어낸다."""
+    calls: list[tuple] = []
+
+    def fake_rank(G, pool_result, p1, prev, cumulative_so_far_m, target_m, cfg,
+                  exclude=frozenset(), *, remaining_legs=1, total_legs=None):
+        calls.append((remaining_legs, total_legs))
+        return []
+
+    monkeypatch.setattr(_gwc, "_rank_next_waypoint_candidates", fake_rank)
+
+    pool = _FakePoolResult(
+        pool_nodes=[11, 12, 13],
+        dist_from_p1={11: 500.0, 12: 500.0, 13: 500.0},
+        pairwise={(11, 12): 500.0, (12, 13): 500.0},
+    )
+    route = Route(node_ids=[1, 11, 12, 13, 1], waypoints=[11, 12, 13],
+                  distance_m=3000.0, repeated_edge_ratio=0.0)
+
+    list(waypoint_replacement_neighbors(
+        grid_graph, object(), pool, 1, route, 3000.0, GraspConfig(num_waypoints=3),
+    ))
+    assert calls == [(3, 4), (2, 4), (1, 4)]
 
 
 # ── selection_status(feasible / fallback_distance / no_valid_waypoint_pair) ──

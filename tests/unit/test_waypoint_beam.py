@@ -42,6 +42,21 @@ def route_distance(ids, cost, start, end):
     return sum(cost(a, b) for a, b in zip(stops, stops[1:]))
 
 
+def rank_distance(ids, cost, start, end, target_m, waypoint_count):
+    """beam_search가 미완성 순서에 쓰는 랭킹 전용 추정 총거리(_State.rank_m)의 독립 재구현
+    (2026-09-09 버그픽스). 남은 구간이 2개 이상이면 도착 연결 거리(하한)를 균형 순환
+    가정값 target_m*(남은 구간 수)/(N+1)로 끌어올린다 — 남은 경유지들의 거리를 0으로 보던
+    이전 기준으로는 앞쪽 구간이 예산을 전부 써버렸다. 마지막 층에서는 route_distance와
+    같아지므로, 반환되는 orders의 정렬 기준은 이전과 동일하다."""
+    stops = (start, *ids)
+    partial_m = sum(cost(a, b) for a, b in zip(stops, stops[1:]))
+    tail_m = cost(ids[-1], end)
+    remaining_legs = waypoint_count - len(ids) + 1
+    if remaining_legs > 1:
+        return partial_m + max(tail_m, target_m * remaining_legs / (waypoint_count + 1))
+    return partial_m + tail_m
+
+
 @pytest.mark.parametrize("end_id", [0, 4])
 @pytest.mark.parametrize("waypoint_count", [1, 2, 3])
 def test_wide_beam_matches_exhaustive_search(end_id, waypoint_count):
@@ -60,6 +75,8 @@ def test_wide_beam_matches_exhaustive_search(end_id, waypoint_count):
 @pytest.mark.parametrize("end_id", [0, 4])
 def test_streaming_top_b_matches_batch_reference(beam_width, waypoint_count, end_id):
     # 독립 기준 구현: 모든 확장 순서를 리스트로 모으고 매번 거리를 재합산.
+    # 층별 가지치기 기준은 rank_distance(랭킹 전용 추정 총거리)다 — 마지막 층에서는
+    # route_distance와 같아지므로 최종 결과의 정렬 기준은 실거리 그대로다.
     orders = [()]
     for _ in range(waypoint_count):
         expanded = [
@@ -69,7 +86,10 @@ def test_streaming_top_b_matches_batch_reference(beam_width, waypoint_count, end
             if node_id not in ids
         ]
         expanded.sort(
-            key=lambda ids: (abs(route_distance(ids, line_cost, 0, end_id) - 10.0), ids)
+            key=lambda ids: (
+                abs(rank_distance(ids, line_cost, 0, end_id, 10.0, waypoint_count) - 10.0),
+                ids,
+            )
         )
         orders = expanded[:beam_width]
 
@@ -80,6 +100,39 @@ def test_streaming_top_b_matches_batch_reference(beam_width, waypoint_count, end
     )
     assert [order.waypoint_ids for order in result.orders] == orders
     assert len(result.orders) <= beam_width
+
+
+def test_partial_ranking_does_not_treat_remaining_waypoints_as_zero():
+    """미완성 순서의 랭킹이 "남은 경유지 거리를 0으로 본" 하한을 쓰지 않는지 확인한다
+    (2026-09-09 버그픽스).
+
+    출발지(0) 중심의 별 모양 거리표라 첫 구간 거리는 곧 그 후보의 spoke 길이다. B=1이라
+    첫 층에서 하나만 살아남는다. 노드 1은 spoke 3000m(=target/2, 이전 추정식의 최적점 —
+    임시 폐합 거리가 정확히 6000m라 오차 0), 노드 2는 spoke 2000m(=target/3, 균형값)에
+    있다. 남은 구간 2개를 반영하면 조준점이 target/3으로 옮겨져 2가 살아남아야 한다."""
+    spokes = {0: 0.0, 1: 3000.0, 2: 2000.0, 3: 2000.0}
+
+    def cost(a, b):
+        return 0.0 if a == b else spokes[a] + spokes[b]
+
+    result = run_search(
+        candidates=candidates_for(1, 2, 3),
+        cost=cost,
+        target_m=6000.0,
+        waypoint_count=2,
+        beam_width=1,
+    )
+    assert result.orders[0].waypoint_ids[0] == 2
+
+
+def test_returned_orders_report_real_closed_distance_not_the_rank_estimate():
+    """랭킹 추정값(rank_m)이 반환값의 distance_m/error_m으로 새지 않는지 확인한다 —
+    목표거리 비교는 항상 순수 실거리 기준으로 유지돼야 한다."""
+    result = run_search(waypoint_count=2, beam_width=6)
+    for order in result.orders:
+        expected = route_distance(order.waypoint_ids, line_cost, 0, 0)
+        assert order.distance_m == pytest.approx(expected)
+        assert order.error_m == pytest.approx(abs(expected - 10.0))
 
 
 def test_global_top_b_can_keep_two_children_of_the_same_parent():
