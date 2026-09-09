@@ -16,6 +16,7 @@ tests/unit/test_grasp_waypoint.py
 """
 
 import math
+import random
 
 import networkx as nx
 import pytest
@@ -46,6 +47,11 @@ from src.route_engine.engines.circular_grasp_waypoint_vnd import CircularGraspWa
 from src.route_engine.engines.circular_grasp_waypoint_vns import CircularGraspWaypointVnsEngine
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.waypoint_pool import WaypointPoolGenerator
+from src.route_engine.engines.waypoint_refinement import (
+    _MAX_SHAKE_LEVEL,
+    vnd as _vnd_refine,
+    vns as _vns_refine,
+)
 from src.schema.route_schema import CircularRouteInput
 
 _LAT_STEP = 0.0015  # 약 167m/step
@@ -635,6 +641,102 @@ def test_vns_does_not_accept_worse_route_after_shake(grid_graph):
     obj_before = evaluate_route(vnd_result, target_m, target_m * engine.config.distance_tolerance_ratio)
     obj_after = evaluate_route(after_vns, target_m, target_m * engine.config.distance_tolerance_ratio)
     assert not better(obj_before, obj_after)  # VNS 결과가 VND 단독 결과보다 나빠지지 않음
+
+
+# ── VNS options 주입(max_shake_level) ────────────────────────────────────
+
+def _first_initial_route(engine, pool_result, start_node, target_m):
+    """실제 엔진과 같은 방식으로 seed를 순서대로 재시도해 초기 해 하나를 얻는다."""
+    for attempt_seed in range(24):
+        construction = construct_initial_route(
+            engine.G, engine.cost_cache, pool_result, start_node, target_m,
+            random.Random(attempt_seed), engine.config,
+        )
+        if construction.route is not None:
+            return construction.route
+    return None
+
+
+def test_vns_explicit_default_max_shake_level_matches_no_options(grid_graph):
+    """options로 기본값을 그대로 주입한 실행은 주입하지 않은 실행과 완전히 같아야 한다 —
+    주입구가 기존 동작을 바꾸지 않는다는 회귀 보호."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    args = (engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config)
+    without = _vns_refine(*args, random.Random(7))
+    with_default = _vns_refine(*args, random.Random(7), options={"max_shake_level": _MAX_SHAKE_LEVEL})
+    assert with_default.node_ids == without.node_ids
+    assert with_default.distance_m == pytest.approx(without.distance_m)
+
+
+def test_vns_lower_max_shake_level_still_never_worsens_vnd_result(grid_graph):
+    """교란 상한을 낮춰도 VNS는 VND 단독 결과보다 나빠지지 않아야 한다(채택 규칙은 그대로)."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    tolerance = target_m * engine.config.distance_tolerance_ratio
+    vnd_only = _vnd_refine(engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config)
+    obj_vnd = evaluate_route(vnd_only, target_m, tolerance)
+
+    for level in (1, 2, 3):
+        result = _vns_refine(
+            engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config,
+            random.Random(7), options={"max_shake_level": level},
+        )
+        assert not better(obj_vnd, evaluate_route(result, target_m, tolerance))
+
+
+def test_vns_options_reject_unknown_key(grid_graph):
+    """alns 노브를 vns에 잘못 실어 보내는 식의 오타는 조용히 무시되지 않고 즉시 실패한다."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    with pytest.raises(TypeError, match="iterations"):
+        _vns_refine(
+            engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config,
+            random.Random(7), options={"iterations": 30},
+        )
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 2.5, "3", None])
+def test_vns_options_reject_invalid_max_shake_level(grid_graph, bad):
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    with pytest.raises(ValueError, match="max_shake_level"):
+        _vns_refine(
+            engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config,
+            random.Random(7), options={"max_shake_level": bad},
+        )
 
 
 # ── 3버전 공정 비교 ──────────────────────────────────────────────────────
