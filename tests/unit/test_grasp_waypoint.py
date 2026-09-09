@@ -33,6 +33,7 @@ from src.route_engine.engines.grasp_waypoint_common import (
     EdgeCost,
     _angular_separation_rad,
     _bearing_rad,
+    _prefix_distances_m,
     _rank_next_waypoint_candidates,
     better,
     compute_route_geometry_metrics,
@@ -41,7 +42,10 @@ from src.route_engine.engines.grasp_waypoint_common import (
     evaluate_route,
     is_degenerate_loop_route,
     is_waypoint_pair_separated,
+    waypoint_pair_replacement_neighbors,
+    waypoint_replacement_neighbors,
 )
+from src.route_engine.engines.circular_grasp_waypoint_alns import CircularGraspWaypointAlnsEngine
 from src.route_engine.engines.circular_grasp_waypoint_local import CircularGraspWaypointLocalEngine
 from src.route_engine.engines.circular_grasp_waypoint_vnd import CircularGraspWaypointVndEngine
 from src.route_engine.engines.circular_grasp_waypoint_vns import CircularGraspWaypointVnsEngine
@@ -768,6 +772,108 @@ def test_three_engines_use_same_mode_and_are_comparable_with_same_evaluate_route
             target_distance_m=_ENGINE_TEST_TARGET_M,
             distance_tolerance_m=_ENGINE_TEST_TARGET_M * e.config.distance_tolerance_ratio,
         )
+
+
+# ── 경유지 3개 이상 + 도달 불가 쌍(2026-09-09 버그픽스) ───────────────────
+#
+# 구축 단계는 연속 경유지 쌍의 도달 가능성을 보장하지만, 지역개선이 위치 i만 바꾸면 그
+# 뒤 구간(새 경유지 → waypoints[i+1])은 검사되지 않고, VNS Shake는 아예 풀에서 무작위로
+# 뽑는다. 그래서 경유지가 3개 이상이면 WaypointPoolResult.distance()가 None인 연속 쌍이
+# 실제로 만들어지고, 예전 _prefix_distances_m은 그 None을 그대로 더해 TypeError로 죽었다
+# (local/vnd/vns 3종. alns는 자체 cost_fn이 None을 inf로 바꿔 영향받지 않았다).
+
+_PREFIX_TEST_CFG = GraspConfig(angle_diversity_weight_m=0.0, min_waypoint_separation_ratio=0.0)
+
+
+def test_prefix_distances_m_marks_unreachable_prefix_as_none():
+    """도달 불가 구간(distance()가 None)을 만나면 그 지점부터의 누적 거리는 정의할 수
+    없으므로 None으로 표시된다 — 예전에는 여기서 TypeError가 났다."""
+    pool = _FakePoolResult(
+        pool_nodes=[10, 11, 12],
+        dist_from_p1={10: 400.0, 11: 500.0, 12: 600.0},
+        pairwise={(11, 12): 700.0},  # (10, 11)이 없어 두 번째 구간이 도달 불가
+    )
+    assert _prefix_distances_m(pool, start_node=1, waypoints=[10, 11, 12]) == [0.0, 400.0, None]
+
+
+def test_prefix_distances_m_never_yields_none_for_two_waypoints():
+    """경유지 2개에서는 유일한 구간이 항상 prev == start_node 분기(dist_from_p1)를 타므로
+    None이 생길 수 없다 — 이 수정이 기존 기본값(num_waypoints=2) 동작을 전혀 바꾸지
+    않는다는 보장."""
+    pool = _FakePoolResult(pool_nodes=[10, 11], dist_from_p1={10: 400.0, 11: 500.0}, pairwise={})
+    assert _prefix_distances_m(pool, start_node=1, waypoints=[10, 11]) == [0.0, 400.0]
+
+
+def test_waypoint_replacement_neighbors_skips_positions_with_unknown_prefix(grid_graph):
+    """누적 거리를 못 구하는 위치(여기서는 위치 2)는 이웃을 만들지 않고, 누적 거리가
+    정의된 위치(0·1)는 정상적으로 이웃을 만든다."""
+    start = _node_id(2, 2)
+    w0, w1, w2, cand = _node_id(0, 0), _node_id(0, 4), _node_id(4, 4), _node_id(4, 0)
+    pool = _FakePoolResult(
+        pool_nodes=[w0, w1, w2, cand],
+        dist_from_p1={w0: 480.0, w1: 480.0, w2: 480.0, cand: 480.0},
+        pairwise={(w0, cand): 600.0},  # (w0, w1)이 없어 cum[2]가 None이 된다
+    )
+    cost_cache = _CostCache(grid_graph, mode="distance")
+    route = BuildCycleRoute(grid_graph, cost_cache.astar_path, start, [w0, w1, w2])
+    assert route is not None
+
+    neighbors = list(waypoint_replacement_neighbors(
+        grid_graph, cost_cache, pool, start, route, _ENGINE_TEST_TARGET_M, _PREFIX_TEST_CFG,
+    ))
+    assert neighbors  # 살아 있는 위치가 있으므로 이웃 집합이 통째로 비지 않는다
+    assert all(n.waypoints[2] == w2 for n in neighbors)   # 위치 2는 한 번도 교체되지 않음
+    assert any(n.waypoints[1] == cand for n in neighbors)  # 위치 1은 정상 교체됨
+
+
+def test_waypoint_pair_replacement_neighbors_skips_pairs_with_unknown_prefix(grid_graph):
+    """쌍 교체도 같은 규칙을 따른다 — cum[2]가 None이면 쌍 (2,3)은 만들어지지 않으므로
+    마지막 자리는 어떤 이웃에서도 바뀌지 않는다."""
+    start = _node_id(2, 2)
+    w0, w1, w2, w3 = _node_id(0, 0), _node_id(0, 4), _node_id(4, 4), _node_id(4, 0)
+    cand = _node_id(4, 2)
+    pool = _FakePoolResult(
+        pool_nodes=[w0, w1, w2, w3, cand],
+        dist_from_p1={w0: 480.0, w1: 480.0, w2: 480.0, w3: 480.0, cand: 480.0},
+        pairwise={(w0, cand): 600.0, (cand, w1): 600.0, (w0, w2): 600.0, (cand, w2): 600.0},
+    )
+    cost_cache = _CostCache(grid_graph, mode="distance")
+    route = BuildCycleRoute(grid_graph, cost_cache.astar_path, start, [w0, w1, w2, w3])
+    assert route is not None
+
+    neighbors = list(waypoint_pair_replacement_neighbors(
+        grid_graph, cost_cache, pool, start, route, _ENGINE_TEST_TARGET_M, _PREFIX_TEST_CFG,
+    ))
+    assert neighbors
+    assert all(n.waypoints[3] == w3 for n in neighbors)
+
+
+_WAYPOINT_ENGINE_CLASSES = (
+    CircularGraspWaypointLocalEngine,
+    CircularGraspWaypointVndEngine,
+    CircularGraspWaypointVnsEngine,
+    CircularGraspWaypointAlnsEngine,
+)
+
+
+@pytest.mark.parametrize("engine_cls", _WAYPOINT_ENGINE_CLASSES)
+@pytest.mark.parametrize("num_waypoints", [2, 3, 4])
+def test_engines_complete_for_two_three_and_four_waypoints(grid_graph, engine_cls, num_waypoints):
+    """4종 x N=2·3·4 완주 확인. 이 격자(5x5, target_km=1.2, r_max=600m)는 풀 안 190쌍 중
+    76쌍(40%)이 r_max를 넘어 distance()가 None이므로, 수정 전에는 N>=3에서 local/vnd/vns가
+    전부 TypeError로 죽었다(2026-09-09 확인. 이슈 재현 조건인 9x9 격자·target_km=2.4에서도
+    동일하게 재현되지만, 이 파일의 기존 fixture로 충분하다)."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = engine_cls(inp=inp, G=grid_graph, seed=42, num_waypoints=num_waypoints)
+    start_node = _node_id(2, 2)
+
+    nodes = engine.find_path(start_node, target_km=_ENGINE_TEST_TARGET_KM)
+
+    assert nodes[0] == start_node
+    assert nodes[-1] == start_node
+    assert len(nodes) > 2  # 퇴화 폴백이 아니라 실제 순환 경로
+    assert engine.last_route is not None
+    assert len(engine.last_route.waypoints) == num_waypoints
 
 
 # ── 프로덕션 배선 보호 ────────────────────────────────────────────────────
