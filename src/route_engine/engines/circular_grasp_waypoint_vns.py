@@ -16,7 +16,8 @@ test_vns_does_not_accept_worse_route_after_shake가 find_path()를 거치지 않
 from __future__ import annotations
 
 import random
-from typing import Optional
+from collections.abc import Mapping
+from typing import Any, Optional
 
 import networkx as nx
 
@@ -38,10 +39,14 @@ class CircularGraspWaypointVnsEngine(WaypointEngine):
         seed: int = _SEED,
         config: GraspConfig = DEFAULT_CONFIG,
         num_waypoints: Optional[int] = None,
+        vns_options: Optional[Mapping[str, Any]] = None,
     ):
+        """vns_options는 {"max_shake_level": N} 형태의 정제 설정 주입구다(기본값은
+        waypoint_refinement.py의 _MAX_SHAKE_LEVEL). 하이퍼파라미터 스윕 전용이며 서비스
+        경로는 None이다 — alns_options와 같은 관례."""
         super().__init__(
             inp, G, mode=mode, seed=seed, config=config, num_waypoints=num_waypoints,
-            construction="grasp", refinement="vns",
+            construction="grasp", refinement="vns", refinement_options=vns_options,
         )
         self._vnd_engine = self  # 하위 호환: engine._vnd_engine.vnd(...) 호출부용
 

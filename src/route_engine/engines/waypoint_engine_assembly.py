@@ -42,7 +42,11 @@ from src.route_engine.engines.grasp_waypoint_common import (
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.waypoint_construction import CONSTRUCTION_REGISTRY
 from src.route_engine.engines.waypoint_pool import WaypointPoolGenerator
-from src.route_engine.engines.waypoint_refinement import AlnsStatsAccumulator, REFINEMENT_REGISTRY
+from src.route_engine.engines.waypoint_refinement import (
+    AlnsStatsAccumulator,
+    OPTIONS_AWARE_REFINEMENTS,
+    REFINEMENT_REGISTRY,
+)
 from src.schema.route_schema import CircularRouteInput
 
 logger = logging.getLogger(__name__)
@@ -83,6 +87,15 @@ class WaypointEngine:
             raise ValueError(f"알 수 없는 construction: {construction!r}")
         if refinement not in REFINEMENT_REGISTRY:
             raise ValueError(f"알 수 없는 refinement: {refinement!r}")
+        if refinement_options and refinement not in OPTIONS_AWARE_REFINEMENTS:
+            # find_path()는 refinement 종류와 무관하게 options를 넘기지만, 실제로 그것을
+            # 읽는 정제는 OPTIONS_AWARE_REFINEMENTS뿐이다. 나머지에 넘기면 값이 조용히
+            # 무시돼 "노브를 바꿨는데 결과가 그대로"가 되므로 생성 시점에 막는다.
+            # (ex) 스윕 스크립트가 beam×vns 조합에 alns 노브를 실어 보내는 실수)
+            raise ValueError(
+                f"refinement={refinement!r}는 아직 options를 해석하지 않습니다 — "
+                f"현재 주입 가능한 정제: {sorted(OPTIONS_AWARE_REFINEMENTS)}"
+            )
 
         self.inp = inp
         # G.copy() 안 함 — 이 클래스가 부르는 것(grasp_waypoint_common.py/waypoint_pool.py/

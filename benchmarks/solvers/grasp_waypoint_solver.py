@@ -66,20 +66,29 @@ def _segment_metrics(engine, start_node: int, target_km: float) -> dict:
     }
 
 
-# 하이퍼파라미터 스윕용 ALNS 노브. GraspConfig에는 넣지 않는다 — VND의 이웃 목록·VNS의
-# 교란 레벨이 모듈 상수인 관례와 어긋나고 alns를 안 쓰는 조합까지 노브를 들고 다니게
-# 되므로, 정제 공통 주입구(WaypointEngine.refinement_options)로 보낸다.
-_ALNS_PARAM_KEYS = (
-    "iterations", "removal_fraction", "start_temperature_m", "cooling_rate",
-    "segment_length", "reaction_factor", "candidate_limit", "max_cost_calls", "seed",
-)
+# 하이퍼파라미터 스윕용 정제 노브. GraspConfig에는 넣지 않는다 — 정제별 설정이라 모든
+# 조합이 쓰지도 않는 노브를 들고 다니게 되므로, 정제 공통 주입구
+# (WaypointEngine.refinement_options)로 보낸다. 여기 등록된 정제는
+# waypoint_refinement.OPTIONS_AWARE_REFINEMENTS와 일치해야 한다 — 그렇지 않은 정제에
+# 값을 실어 보내면 엔진 생성자가 ValueError로 막는다.
+_REFINEMENT_PARAM_KEYS = {
+    "alns": (  # ALNSConfig 필드 이름
+        "iterations", "removal_fraction", "start_temperature_m", "cooling_rate",
+        "segment_length", "reaction_factor", "candidate_limit", "max_cost_calls", "seed",
+    ),
+    "vns": ("max_shake_level",),
+}
 
 
-def _alns_options_from_params(params: dict) -> Optional[dict]:
-    """params의 alns_* 키만 골라 ALNSConfig 필드 이름으로 되돌린다(ex) alns_iterations=60
-    → {"iterations": 60}). 하나도 없으면 None을 돌려 waypoint_refinement.py의 기본값을
+def _refinement_options_from_params(refinement: str, params: dict) -> Optional[dict]:
+    """params의 <refinement>_* 키만 골라 정제가 아는 이름으로 되돌린다
+    (ex) alns_iterations=60 → {"iterations": 60}, vns_max_shake_level=2 →
+    {"max_shake_level": 2}). 하나도 없으면 None을 돌려 waypoint_refinement.py의 기본값을
     그대로 쓰게 한다."""
-    options = {key: params[f"alns_{key}"] for key in _ALNS_PARAM_KEYS if f"alns_{key}" in params}
+    keys = _REFINEMENT_PARAM_KEYS.get(refinement)
+    if not keys:
+        return None
+    options = {key: params[f"{refinement}_{key}"] for key in keys if f"{refinement}_{key}" in params}
     return options or None
 
 
@@ -148,6 +157,7 @@ class CircularGraspWaypointVnsSolver(BasePathSolver):
         engine = CircularGraspWaypointVnsEngine(
             inp=inp, G=graph, mode="distance", seed=seed,
             num_waypoints=params.get("num_waypoints"),
+            vns_options=_refinement_options_from_params("vns", params),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 
@@ -174,7 +184,7 @@ class CircularGraspWaypointAlnsSolver(BasePathSolver):
         engine = CircularGraspWaypointAlnsEngine(
             inp=inp, G=graph, mode="distance", seed=seed,
             num_waypoints=params.get("num_waypoints"),
-            alns_options=_alns_options_from_params(params),
+            alns_options=_refinement_options_from_params("alns", params),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 

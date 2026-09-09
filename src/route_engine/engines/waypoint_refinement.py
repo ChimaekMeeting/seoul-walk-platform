@@ -19,7 +19,9 @@ ALNSConfig 필드 이름을 키로 하는 부분 override 매핑이고(ex) {"ite
 "cooling_rate": 0.9}), 나머지 정제는 받되 무시한다. GraspConfig를 넓히지 않은 이유는
 VND의 이웃 목록(_VND_NEIGHBORHOODS)·VNS의 교란 레벨(_MAX_SHAKE_LEVEL)이 모듈 상수인 현재
 관례와 어긋나고, 모든 조합이 쓰지도 않는 노브를 들고 다니게 되기 때문이다(ex) beam x local
-실행이 alns_cooling_rate를 보유).
+실행이 alns_cooling_rate를 보유). 어떤 정제가 options를 실제로 해석하는지는 이 파일의
+OPTIONS_AWARE_REFINEMENTS가 단일 기준이며, 조립 계층이 그 밖의 정제에 주입이 들어오면
+거부한다.
 
 local()은 waypoint_local_search.py::local_search()를 그대로 감싼 것뿐이고(중복 구현
 아님), vnd()/vns()는 각각 circular_grasp_waypoint_vnd.py::vnd()/
@@ -180,15 +182,20 @@ def _shake(G, cost_cache, pool_result: WaypointPoolResult, start_node: int, rout
 
 
 def vns_loop(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
-             target_m: float, cfg: GraspConfig, rng: random.Random) -> Route:
-    """이미 지역최적(VND 적용 완료)인 route를 받아 Shake(레벨 1~4)로 교란·재개선을
-    반복한다. 원래 CircularGraspWaypointVnsEngine._vns_loop의 로직을 그대로 옮긴 것 —
-    최초 vnd() 호출은 포함하지 않는다(호출부가 먼저 vnd()를 적용한 뒤 이 함수에 넘겨야
-    한다 — vns()가 그 순서를 대신 조립해준다)."""
+             target_m: float, cfg: GraspConfig, rng: random.Random,
+             max_shake_level: int = _MAX_SHAKE_LEVEL) -> Route:
+    """이미 지역최적(VND 적용 완료)인 route를 받아 Shake(레벨 1~max_shake_level)로 교란·
+    재개선을 반복한다. 원래 CircularGraspWaypointVnsEngine._vns_loop의 로직을 그대로 옮긴
+    것 — 최초 vnd() 호출은 포함하지 않는다(호출부가 먼저 vnd()를 적용한 뒤 이 함수에 넘겨야
+    한다 — vns()가 그 순서를 대신 조립해준다).
+
+    max_shake_level은 하위 호환을 위해 기본값 _MAX_SHAKE_LEVEL을 갖는 키워드 인자다 —
+    circular_grasp_waypoint_vns.py::_vns_loop처럼 이 값을 넘기지 않는 기존 호출부는 동작이
+    바뀌지 않는다."""
     current = route
     current_obj = evaluate_route(current, target_m, target_m * cfg.distance_tolerance_ratio)
     shake_level = 1
-    while shake_level <= _MAX_SHAKE_LEVEL:
+    while shake_level <= max_shake_level:
         shaken = _shake(G, cost_cache, pool_result, start_node, current, target_m, cfg, shake_level, rng)
         if shaken is None:
             shake_level += 1
@@ -203,13 +210,48 @@ def vns_loop(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_nod
     return current
 
 
+_VNS_OPTION_KEYS = frozenset({"max_shake_level"})
+
+
+def _vns_max_shake_level(options: Optional[Mapping[str, Any]]) -> int:
+    """options에서 교란 레벨 상한을 읽는다. 모르는 키는 즉시 실패시킨다 — alns 쪽에서
+    dataclasses.replace()가 해주던 역할을 여기서는 직접 한다(VNS에는 대응하는 설정
+    dataclass가 없다). bool을 int로 통과시키지 않는 것은 waypoint_alns.py의 설정 검증
+    관례와 같다."""
+    if not options:
+        return _MAX_SHAKE_LEVEL
+    unknown = set(options) - _VNS_OPTION_KEYS
+    if unknown:
+        raise TypeError(
+            f"vns가 모르는 options 키: {sorted(unknown)} — 사용 가능: {sorted(_VNS_OPTION_KEYS)}"
+        )
+    level = options.get("max_shake_level", _MAX_SHAKE_LEVEL)
+    if isinstance(level, bool) or not isinstance(level, int) or level < 1:
+        raise ValueError(f"max_shake_level은 1 이상의 정수여야 합니다: {level!r}")
+    return level
+
+
 def vns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
-        target_m: float, cfg: GraspConfig, rng: random.Random, stats=None, options=None) -> Route:
+        target_m: float, cfg: GraspConfig, rng: random.Random, stats=None,
+        options: Optional[Mapping[str, Any]] = None) -> Route:
     """vnd() → vns_loop() 순서로 조립한 공통 시그니처 정제 함수. 원래 GRASP+VNS 엔진의
     find_path() 안에서 `current = self._vnd_engine.vnd(...); current =
-    self._vns_loop(...)`이던 두 호출과 rng 소비 순서가 완전히 동일하다."""
+    self._vns_loop(...)`이던 두 호출과 rng 소비 순서가 완전히 동일하다.
+
+    options는 {"max_shake_level": N} 하나만 받는다(기본 _MAX_SHAKE_LEVEL=4). 내부 vnd()
+    호출에는 아무것도 전달하지 않는다 — vnd는 아직 options를 해석하지 않으므로 이름 공간을
+    나눌 필요가 없다(OPTIONS_AWARE_REFINEMENTS 참고).
+
+    레벨 의미에 주의한다: _shake()가 분기하는 것은 1(경유지 1개 교체)·2(전체 재추출)·
+    3(구간 우회)뿐이고 4 이상은 전부 else로 떨어져 construct_initial_route 전체 재구축이
+    된다. 따라서 4를 넘는 값은 "새로운 교란 단계"가 아니라 "전체 재구축을 몇 번 더
+    시도하는가"로 동작한다(매번 rng가 다르므로 다중 재시작 효과는 있다)."""
+    max_shake_level = _vns_max_shake_level(options)
     current = vnd(G, cost_cache, pool_result, start_node, route, target_m, cfg)
-    return vns_loop(G, cost_cache, pool_result, start_node, current, target_m, cfg, rng)
+    return vns_loop(
+        G, cost_cache, pool_result, start_node, current, target_m, cfg, rng,
+        max_shake_level=max_shake_level,
+    )
 
 
 # ── alns ─────────────────────────────────────────────────────────────────
@@ -498,3 +540,19 @@ REFINEMENT_REGISTRY = {
     "vns": vns,
     "alns": alns,
 }
+
+# options를 실제로 해석하는 정제. 나머지는 시그니처상 받기만 하고 본문에서 쓰지 않으므로,
+# 조립 계층(waypoint_engine_assembly.py)이 이 집합으로 "조용히 무시되는 주입"을 막는다 —
+# 설정을 바꿨는데 결과가 그대로인 상황은 스윕 중 가장 찾기 어려운 실수다.
+#
+# 새 정제에 노브를 열게 되면, 해당 함수 본문이 options를 읽도록 고친 뒤 여기에 이름을
+# 추가한다. 이 집합이 "지금 주입이 실제로 먹히는 정제"의 단일 기준이며, 조립 계층은 정제
+# 이름을 직접 하드코딩하지 않는다.
+#
+# vnd(_VND_NEIGHBORHOODS)는 일부러 열지 않았다 — 3번째 이웃 AlternativeSegment가
+# NotImplementedError라 만들 수 있는 조합이 (replacement,)와 (replacement,
+# pair_replacement) 둘뿐인데, 앞의 것은 local()과 완전히 같은 실행이다(둘 다 같은 이웃에
+# best-improvement를 개선이 멈출 때까지 반복). 즉 이미 refinement="local"로 존재하는
+# 설정을 두 번째 경로로 만드는 셈이라, AlternativeSegment가 구현된 뒤에 열어야 한다.
+# local()은 모듈 상수가 없어 열 것 자체가 없다(탐색 폭은 GraspConfig.rcl_size).
+OPTIONS_AWARE_REFINEMENTS = frozenset({"alns", "vns"})
