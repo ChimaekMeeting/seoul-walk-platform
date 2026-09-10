@@ -20,6 +20,7 @@ import pandas as pd
 from benchmarks.benchmark import _load_default_graph, SOLVER_REGISTRY
 from benchmarks.config import BENCHMARK_SEEDS, DEFAULT_TIME_BUDGET_SEC
 from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
+from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 SEEDS = BENCHMARK_SEEDS  # 러너 공용 (구 [42, 7, 123] — 분산 추정 표본 부족으로 10개로 확대)
@@ -105,9 +106,15 @@ def main():
     result_df = pd.DataFrame(rows, columns=["seed", "start_node", *RESULT_COLUMNS])
     out_path = "benchmarks/geometry_validation_results.csv"
     result_df.to_csv(out_path, index=False)
+    meta_path = save_run_metadata(
+        out_path, runner="run_geometry_validation",
+        seeds=SEEDS, target_kms=TARGET_KMS, start_nodes=START_NODES, algos=ALGOS,
+        workers=6, timeout_sec=TIMEOUT_SEC,
+    )
 
     print(f"\n전체 소요 시간: {time.perf_counter() - t_start:.1f}초")
-    print(f"결과 저장 완료: {out_path}\n")
+    print(f"결과 저장 완료: {out_path}")
+    print(f"메타데이터 저장 완료: {meta_path}\n")
 
     print("=== 엔진별 원형성 집계 ===")
     summary = result_df.groupby("algorithm").agg(

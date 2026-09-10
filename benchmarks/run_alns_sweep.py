@@ -29,6 +29,7 @@ import pandas as pd
 from benchmarks.benchmark import _load_default_graph, SOLVER_REGISTRY
 from benchmarks.config import BENCHMARK_SEEDS, DEFAULT_TIME_BUDGET_SEC
 from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
+from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 ALGO = "grasp-wp-alns"
@@ -127,9 +128,16 @@ def main():
 
     result_df = pd.DataFrame(rows, columns=columns)
     result_df.to_csv(out_path, index=False)
+    meta_path = save_run_metadata(
+        out_path, runner="run_alns_sweep",
+        algo=ALGO, sweep_grid=SWEEP_GRID, seeds=BENCHMARK_SEEDS,
+        target_kms=TARGET_KMS, start_nodes=START_NODES,
+        time_budget_sec=DEFAULT_TIME_BUDGET_SEC, workers=6, timeout_sec=TIMEOUT_SEC,
+    )
 
     print(f"\n전체 소요 시간: {time.perf_counter() - t_start:.1f}초")
-    print(f"결과 저장 완료: {out_path}\n")
+    print(f"결과 저장 완료: {out_path}")
+    print(f"메타데이터 저장 완료: {meta_path}\n")
 
     print("=== 설정별 요약(참고용 — 정식 집계는 별도 스크립트) ===")
     summary = result_df.groupby(knob_columns).agg(

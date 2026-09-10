@@ -14,6 +14,7 @@ from benchmarks.config import (
 )
 from benchmarks.benchmark import _load_default_graph, SEED_SENSITIVE_SOLVERS, SOLVER_REGISTRY
 from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
+from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
@@ -160,9 +161,17 @@ def main():
     result_df = pd.concat(all_rows, ignore_index=True)
     out_path = "all_scenarios_results.csv"
     result_df.to_csv(out_path, index=False)
+    meta_path = save_run_metadata(
+        out_path, runner="run_all_scenarios",
+        seeds=BENCHMARK_SEEDS, scenarios=len(scenarios),
+        oneway_algos=ONEWAY_ALGOS, circular_algos=CIRCULAR_ALGOS,
+        circular_profile=CIRCULAR_BENCHMARK_PROFILE,
+        time_budget_sec=DEFAULT_TIME_BUDGET_SEC, workers=6, timeout_sec=30.0,
+    )
 
     print(f"\n전체 소요 시간: {time.perf_counter() - t_start:.1f}초")
-    print(f"결과 저장 완료: {out_path}\n")
+    print(f"결과 저장 완료: {out_path}")
+    print(f"메타데이터 저장 완료: {meta_path}\n")
 
     print("=== 알고리즘별 요약 ===")
     summary = result_df.groupby("algorithm").agg(
