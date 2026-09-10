@@ -1,7 +1,7 @@
 """
 benchmarks/benchmark.py
 
-순환 길찾기 알고리즘 성능 비교를 위한 공통 벤치마크 실행기.
+경유지 구축·정제 알고리즘 성능 비교를 위한 공통 벤치마크 실행기.
 BasePathSolver를 상속받은 알고리즘(Strategy)들을 SOLVER_REGISTRY에 등록해두고,
 CLI에서 --algo로 원하는 것만 골라 실행한다 (전체를 매번 순차 실행하지 않음).
 동일한 입력(graph, start_node, target_node, params)으로 실행하고, 결과를 표로 출력 및
@@ -98,11 +98,7 @@ from benchmarks.results import (
     failed_row,
     validate_solver_result,
 )
-from benchmarks.solvers.alns_solver import CircularAlnsSolver, OnewayAlnsSolver
 from benchmarks.solvers.base_solver import BasePathSolver
-from benchmarks.solvers.beam_solver import CircularBeamSolver, OnewayBeamSolver
-from benchmarks.solvers.dummy_solver import DummySolver
-from benchmarks.solvers.grasp_solver import CircularGraspSolver, OnewayGraspSolver
 from benchmarks.solvers.grasp_waypoint_solver import (
     CircularGraspWaypointAlnsSolver,
     CircularGraspWaypointLocalSolver,
@@ -116,12 +112,6 @@ from benchmarks.solvers.beam_waypoint_refinement_solver import (
     CircularBeamWaypointVndSolver,
     CircularBeamWaypointVnsSolver,
 )
-from benchmarks.solvers.plateau_solver import PlateauSolver
-from benchmarks.solvers.rcsp_solver import CircularRcspSolver, OnewayRcspSolver
-from benchmarks.solvers.astar_solver import OnewayAstarSolver
-from benchmarks.solvers.dijkstra_solver import OnewayDijkstraSolver
-from benchmarks.solvers.bi_astar_solver import OnewayBidirectionalAstarSolver
-from benchmarks.solvers.bi_dijkstra_solver import OnewayBidirectionalDijkstraSolver
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 logger = logging.getLogger(__name__)
@@ -130,10 +120,8 @@ DEFAULT_TIMEOUT_SEC = 30.0
 KILL_GRACE_SEC = 2.0  # terminate(SIGTERM) 후 kill(SIGKILL)로 넘어가기 전 대기 시간
 QUEUE_FLUSH_GRACE_SEC = 5.0  # 자식 프로세스 종료 후 큐에 결과가 도착할 때까지 대기 시간
 
-# 벤치마크 대상 알고리즘 등록 지점.
+# 벤치마크 대상 알고리즘 등록 지점 (경유지 구축·정제 알고리즘만 포함).
 SOLVER_REGISTRY: dict[str, BasePathSolver] = {
-    "grasp-circular": CircularGraspSolver(),
-    "grasp-oneway": OnewayGraspSolver(),
     "grasp-wp-local": CircularGraspWaypointLocalSolver(),
     "grasp-wp-vnd": CircularGraspWaypointVndSolver(),
     "grasp-wp-vns": CircularGraspWaypointVnsSolver(),
@@ -143,19 +131,6 @@ SOLVER_REGISTRY: dict[str, BasePathSolver] = {
     "beam-wp-vnd": CircularBeamWaypointVndSolver(),
     "beam-wp-vns": CircularBeamWaypointVnsSolver(),
     "beam-wp-alns": CircularBeamWaypointAlnsSolver(),
-    "beam-circular": CircularBeamSolver(),
-    "beam-oneway" : OnewayBeamSolver(),
-    "alns-circular": CircularAlnsSolver(),
-    "alns-oneway": OnewayAlnsSolver(),
-    "rcsp-circular": CircularRcspSolver(),
-    "rcsp-oneway": OnewayRcspSolver(),
-    "plateau": PlateauSolver(),
-    "astar-oneway": OnewayAstarSolver(),
-    "bi-astar-oneway": OnewayBidirectionalAstarSolver(),
-    "dijkstra-oneway" : OnewayDijkstraSolver(),
-    "bi-dijkstra-oneway": OnewayBidirectionalDijkstraSolver(),
-    "dummy-a": DummySolver(name="DummySolver-A", fake_delay_sec=0.05),
-    "dummy-b": DummySolver(name="DummySolver-B", fake_delay_sec=0.1),
 }
 
 # params["seed"]를 실제로 읽는 solver (2026-09-10 코드 확인 — grasp_waypoint_solver.py와
@@ -169,7 +144,7 @@ SOLVER_REGISTRY: dict[str, BasePathSolver] = {
 SEED_SENSITIVE_SOLVERS = frozenset({
     "grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-wp-alns",
     "beam-wp-local", "beam-wp-vnd", "beam-wp-vns", "beam-wp-alns",
-})
+})  # 현재 registry의 모든 알고리즘
 
 
 def _child_worker(solver, graph, start_node, target_node, params, result_queue) -> None:
