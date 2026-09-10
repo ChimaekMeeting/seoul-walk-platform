@@ -29,6 +29,8 @@ from src.route_engine.waypoint_beam import beam_search
 from src.route_engine.waypoint_evaluation import RouteEvaluator, WaypointObjective
 from src.route_engine.waypoint_types import WaypointOrder
 
+from benchmarks.stats import percentile  # 정의는 benchmarks/stats.py 한 곳에만 둔다
+
 TOLS = (None, 0.025, 0.05, 0.075)
 STATIONS = {
     "gyeongbokgung": (37.57567, 126.97358),
@@ -47,11 +49,6 @@ def digest(path):
     """재현에 사용한 파일 내용을 SHA256으로 식별한다."""
     with path.open("rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
-
-
-def percentile(values, fraction):
-    """정렬된 측정값에서 nearest-rank 분위수를 구한다."""
-    return sorted(values)[max(0, math.ceil(len(values) * fraction) - 1)]
 
 
 def sample_pool(graph, start, end, target):
