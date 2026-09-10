@@ -58,6 +58,7 @@ docs/                              // 프로젝트 문서
 │   ├── backend_runtime.md         // 팀 공통 백엔드 실행 환경
 │   ├── data_ingestion.md          // 데이터 적재 절차
 │   ├── data_rebuild.md            // V1 전체 재구축·검증·복구
+│   ├── algorithm_visualization.md // 도보망·알고리즘 탐색 재생과 검증
 │   └── testing.md                 // 테스트 작성 구조
 ├── deployment/                    // Cloud Run 배포 영역
 │   └── README.md                  // Docker·cloudbuild·시크릿·마이그레이션 계약
@@ -90,6 +91,7 @@ docs/                              // 프로젝트 문서
 
 - [백엔드 실행 환경](operations/backend_runtime.md)
 - [데이터 적재](operations/data_ingestion.md) · [V1 재구축](operations/data_rebuild.md) · [테스트](operations/testing.md)
+- [알고리즘 시각화](operations/algorithm_visualization.md)
 
 통합·문서 관리:
 
