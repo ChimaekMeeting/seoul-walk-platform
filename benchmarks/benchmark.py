@@ -7,11 +7,14 @@ CLI에서 --algo로 원하는 것만 골라 실행한다 (전체를 매번 순�
 동일한 입력(graph, start_node, target_node, params)으로 실행하고, 결과를 표로 출력 및
 CSV로 저장한다. 이 프로젝트의 실제 목적("적당한 시간 내에 사용자가 원하는 순환 경로가
 나오는가")에 맞춰, solver의 자기 신고(cost)를 그대로 믿지 않고 하네스가 paths/graph에서
-독립적으로 재계산한 품질 지표를 함께 기록한다. 단 overlap_ratio는 예외로, solver가
-공용 헬퍼(_oneway_engine_common.base_shortest_path_overlap_ratio)로 직접 계산해
-보고한 값을 그대로 신뢰한다 
+독립적으로 재계산한 품질 지표를 함께 기록한다.
 
-모든 oneway solver가 같은 헬퍼를 쓰므로 solver 간 비교 일관성은 유지됨:
+결과 행의 스키마(RESULT_COLUMNS)와 지표 계산 본체는 benchmarks/results.py에 있다 —
+이 파일과 러너 4종이 같은 함수를 쓰게 해서 컬럼 누락을 구조적으로 막기 위함(2026-09-10).
+
+하네스가 독립 계산하는 지표(전부 최종 경로 paths[0]와 graph만 본다 — 경유지 분해에
+의존하지 않으므로 pruning이 경유지를 지웠는지와 무관하게 "실제로 전달되는 경로"를
+서술한다):
 
   - within_time_budget : params['time_budget_sec'](사용자 체감 허용시간) 이내에 끝났는지.
                           timeout_sec(하드 킬 기준)과는 별개로, "기술적으로는 성공했지만
@@ -21,8 +24,20 @@ CSV로 저장한다. 이 프로젝트의 실제 목적("적당한 시간 내에 
                           params['target_km'](목표 거리) 사이의 편차.
   - is_closed_loop     : 대표 경로(paths[0])의 시작=끝 노드 여부 (순환이 실제로 닫혔는지).
   - spike_count        : 'A→B→A'처럼 갔다가 바로 되돌아오는 잔가시(삐죽 나온 길) 개수.
-  - edge_overlap_ratio : 경로가 자기 자신의 구간을 재사용하는 비율 (왕복 시 같은 길을
-                          그대로 공유하는 문제 검출).
+  - repeated_edge_ratio: 경로가 자기 구간을 재사용하는 거리 비율(거리 가중 — 구간의 두
+                          번째 이후 통행분만 가산). 엔진(waypoint_route_builder.
+                          edge_overlap_ratio)과 같은 함수를 쓴다. 예전 edge_overlap_ratio
+                          (통행 횟수 기준)는 2026-09-02 엔진 이행 이후 정의가 어긋나
+                          있어 제거했다.
+  - circularity_q      : 등주 지수 4π·A/P². 완전한 원이면 1, 단순 왕복이면 0.
+                          경유지와 무관한 원형성 기준값.
+
+solver 자기 신고이며 알고리즘 간 비교에 쓰면 안 되는 컬럼:
+  - cost               : wp 계열은 거리(m), 레거시 순환 계열은 누적 custom_score.
+  - overlap_ratio      : 베이스 최단경로와의 겹침 비율(_oneway_engine_common.
+                          base_shortest_path_overlap_ratio)로 편도 전용이다. 모든 oneway
+                          solver가 같은 헬퍼를 쓰므로 그들 사이의 비교 일관성은 유지되고,
+                          순환 solver는 이 값을 보고하지 않으므로 None이다.
 
 알고리즘 하나가 예외를 던지거나 타임아웃되어도 나머지 알고리즘 실행과 CSV 저장은
 계속 진행된다 (status/error 컬럼에 실패 사유가 기록됨). 타임아웃된 알고리즘은
@@ -77,6 +92,12 @@ import networkx as nx
 import pandas as pd
 
 from benchmarks.config import BENCH_DIR, ROUTE_EDGES_PARQUET, ROUTE_NODES_PARQUET
+from benchmarks.results import (
+    RESULT_COLUMNS,
+    build_result_row,
+    failed_row,
+    validate_solver_result,
+)
 from benchmarks.solvers.alns_solver import CircularAlnsSolver, OnewayAlnsSolver
 from benchmarks.solvers.base_solver import BasePathSolver
 from benchmarks.solvers.beam_solver import CircularBeamSolver, OnewayBeamSolver
@@ -105,30 +126,6 @@ from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 logger = logging.getLogger(__name__)
 
-RESULT_COLUMNS = [
-    "algorithm", "status", "elapsed_sec", "within_time_budget",
-    "cost", "overlap_ratio",
-    "distance_km", "target_km", "distance_deviation_km",
-    "is_closed_loop", "spike_count", "edge_overlap_ratio",
-    "find_path_sec",
-    "astar_calls", "cache_hits",  # 선택 필드(신규) — 기존 solver는 안 주면 None으로 채워짐
-    # P2-P3 최소거리 안전장치 검증용 선택 필드(신규, grasp-wp-* solver만 채움 — 요청서 §6).
-    # 기존 solver는 이 키들을 안 주므로 전부 None으로 채워지고 기존 동작은 불변이다.
-    "selection_status", "feasible",
-    "segment_p1_p2_m", "segment_p2_p3_m", "segment_p3_p1_m",
-    "waypoint_separation_m", "min_waypoint_separation_m",
-    # 원형성 진단 지표(신규, 2026-08-30 요청). repeated_edge_ratio는 모든 solver에
-    # 공통(edge_overlap_ratio와 같은 값 — 하네스가 paths에서 독립 계산). waypoint_angle_diff_deg/
-    # segment_balance_ratio/is_degenerate_loop는 P2/P3 개념이 있는 grasp-wp-* solver만 채운다.
-    "repeated_edge_ratio", "waypoint_angle_diff_deg", "segment_balance_ratio", "is_degenerate_loop",
-    "alns_operator_stats",  # grasp-wp-alns 전용 선택 필드(JSON 문자열) — 나머지는 None
-    # 경유지 풀·N sweep 진단용 선택 필드(신규) — grasp-wp-*/beam-wp-* solver만 채움.
-    # effective_waypoints_used는 pruning 이후 실제로 지난 경유지 수(2026-09-09 버그픽스).
-    # num_waypoints_used(선언값)와 다르면 왕복 가지 제거가 경유지를 지웠다는 뜻이다.
-    "num_waypoints_used", "effective_waypoints_used", "pool_cache_hits", "pool_cache_misses",
-    "error",
-]
-REQUIRED_RESULT_KEYS = ("paths", "cost")
 DEFAULT_TIMEOUT_SEC = 30.0
 KILL_GRACE_SEC = 2.0  # terminate(SIGTERM) 후 kill(SIGKILL)로 넘어가기 전 대기 시간
 QUEUE_FLUSH_GRACE_SEC = 5.0  # 자식 프로세스 종료 후 큐에 결과가 도착할 때까지 대기 시간
@@ -178,208 +175,6 @@ def _child_worker(solver, graph, start_node, target_node, params, result_queue) 
         result_queue.put(("error", elapsed, repr(e)))
 
 
-def _validate_solver_result(result) -> dict:
-    """solve() 반환값이 BasePathSolver 규격을 지키는지 검증한다.
-
-    규격 위반은 알고리즘 버그로 간주해 예외를 던지고, 호출부(_run_single)의
-    except 절에서 다른 solver를 중단시키지 않는 '실패' 행으로 변환한다.
-    """
-    if not isinstance(result, dict):
-        raise TypeError(f"solve()는 dict를 반환해야 합니다 (실제 타입: {type(result).__name__})")
-
-    missing = [key for key in REQUIRED_RESULT_KEYS if key not in result]
-    if missing:
-        raise ValueError(f"solve() 반환값에 필수 키 누락: {missing}")
-
-    if not isinstance(result["paths"], list):
-        raise TypeError(f"'paths'는 list여야 합니다 (실제 타입: {type(result['paths']).__name__})")
-
-    if not isinstance(result["cost"], (int, float)) or isinstance(result["cost"], bool):
-        raise TypeError(f"'cost'는 float(또는 int)여야 합니다 (실제 타입: {type(result['cost']).__name__})")
-
-    overlap_ratio = result.get("overlap_ratio", 0.0)  # 명세상 기본값 0.0
-    if not isinstance(overlap_ratio, (int, float)) or isinstance(overlap_ratio, bool):
-        raise TypeError(f"'overlap_ratio'는 float여야 합니다 (실제 타입: {type(overlap_ratio).__name__})")
-
-    find_path_sec = result.get("find_path_sec")  # solver가 안 주면 None (선택 항목)
-    if find_path_sec is not None and (not isinstance(find_path_sec, (int, float)) or isinstance(find_path_sec, bool)):
-        raise TypeError(f"'find_path_sec'는 float여야 합니다 (실제 타입: {type(find_path_sec).__name__})")
-
-    # astar_calls/cache_hits: 신규 grasp-wp-* solver가 보고하는 진단 지표. 선택 항목이며
-    # 기존 solver는 주지 않으므로 None으로 통과시킨다(기존 solver 동작 불변).
-    astar_calls = result.get("astar_calls")
-    if astar_calls is not None and (not isinstance(astar_calls, int) or isinstance(astar_calls, bool)):
-        raise TypeError(f"'astar_calls'는 int여야 합니다 (실제 타입: {type(astar_calls).__name__})")
-    cache_hits = result.get("cache_hits")
-    if cache_hits is not None and (not isinstance(cache_hits, int) or isinstance(cache_hits, bool)):
-        raise TypeError(f"'cache_hits'는 int여야 합니다 (실제 타입: {type(cache_hits).__name__})")
-
-    # P2-P3 최소거리 안전장치 검증용 선택 필드(신규). grasp-wp-* solver만 채워 보내고,
-    # 기존 solver는 안 주므로 전부 None으로 통과한다(기존 solver 동작 불변).
-    selection_status = result.get("selection_status")
-    if selection_status is not None and not isinstance(selection_status, str):
-        raise TypeError(f"'selection_status'는 str이어야 합니다 (실제 타입: {type(selection_status).__name__})")
-    feasible = result.get("feasible")
-    if feasible is not None and not isinstance(feasible, bool):
-        raise TypeError(f"'feasible'는 bool이어야 합니다 (실제 타입: {type(feasible).__name__})")
-
-    segment_fields = {}
-    for key in (
-        "segment_p1_p2_m", "segment_p2_p3_m", "segment_p3_p1_m",
-        "waypoint_separation_m", "min_waypoint_separation_m",
-        "repeated_edge_ratio", "waypoint_angle_diff_deg", "segment_balance_ratio",
-    ):
-        value = result.get(key)
-        if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool)):
-            raise TypeError(f"'{key}'는 float(또는 int)여야 합니다 (실제 타입: {type(value).__name__})")
-        segment_fields[key] = value
-
-    is_degenerate_loop = result.get("is_degenerate_loop")
-    if is_degenerate_loop is not None and not isinstance(is_degenerate_loop, bool):
-        raise TypeError(f"'is_degenerate_loop'는 bool이어야 합니다 (실제 타입: {type(is_degenerate_loop).__name__})")
-
-    alns_operator_stats = result.get("alns_operator_stats")
-    if alns_operator_stats is not None and not isinstance(alns_operator_stats, str):
-        raise TypeError(f"'alns_operator_stats'는 str(JSON)이어야 합니다 (실제 타입: {type(alns_operator_stats).__name__})")
-
-    # 경유지 풀·N sweep 진단용 선택 필드(신규). grasp-wp-*/beam-wp-* solver만 채워 보내고,
-    # 기존 solver는 안 주므로 전부 None으로 통과한다(기존 solver 동작 불변).
-    num_waypoints_used = result.get("num_waypoints_used")
-    if num_waypoints_used is not None and (not isinstance(num_waypoints_used, int) or isinstance(num_waypoints_used, bool)):
-        raise TypeError(f"'num_waypoints_used'는 int여야 합니다 (실제 타입: {type(num_waypoints_used).__name__})")
-    effective_waypoints_used = result.get("effective_waypoints_used")
-    if effective_waypoints_used is not None and (
-        not isinstance(effective_waypoints_used, int) or isinstance(effective_waypoints_used, bool)
-    ):
-        raise TypeError(
-            f"'effective_waypoints_used'는 int여야 합니다 (실제 타입: {type(effective_waypoints_used).__name__})"
-        )
-    pool_cache_hits = result.get("pool_cache_hits")
-    if pool_cache_hits is not None and (not isinstance(pool_cache_hits, int) or isinstance(pool_cache_hits, bool)):
-        raise TypeError(f"'pool_cache_hits'는 int여야 합니다 (실제 타입: {type(pool_cache_hits).__name__})")
-    pool_cache_misses = result.get("pool_cache_misses")
-    if pool_cache_misses is not None and (not isinstance(pool_cache_misses, int) or isinstance(pool_cache_misses, bool)):
-        raise TypeError(f"'pool_cache_misses'는 int여야 합니다 (실제 타입: {type(pool_cache_misses).__name__})")
-
-    return {
-        "paths": result["paths"], "cost": result["cost"], "overlap_ratio": overlap_ratio,
-        "find_path_sec": find_path_sec, "astar_calls": astar_calls, "cache_hits": cache_hits,
-        "selection_status": selection_status, "feasible": feasible,
-        "is_degenerate_loop": is_degenerate_loop,
-        "alns_operator_stats": alns_operator_stats,
-        "num_waypoints_used": num_waypoints_used,
-        "effective_waypoints_used": effective_waypoints_used,
-        "pool_cache_hits": pool_cache_hits,
-        "pool_cache_misses": pool_cache_misses,
-        **segment_fields,
-    }
-
-
-def _compute_route_distance_km(graph, paths) -> float | None:
-    """paths(노드 리스트들)를 따라 graph의 edge 'length'(미터)를 합산해 km로 반환한다.
-
-    solver가 자체 신고하는 값을 그대로 믿지 않고, 하네스가 그래프 위에서 독립적으로
-    재계산한다 — solver가 실제로 그래프를 따라가는 타당한 경로를 반환했는지와 무관하게
-    객관적인 거리를 얻기 위함. 단위는 src/route_engine/engines/circular_rcsp.py의
-    total_m / 1000 관례를 그대로 따른다(그래프 edge length는 미터, target_km은 km).
-
-    graph에 접근할 수 없거나(None) edge에 'length'가 없으면 계산을 포기하고 None을
-    반환한다 — solve() 자체는 성공했으므로 이 부가 지표 계산 실패로 전체를 실패
-    처리하지는 않는다.
-    """
-    if graph is None or not paths:
-        return None
-    try:
-        total_m = 0.0
-        for path in paths:
-            for u, v in zip(path, path[1:]):
-                total_m += graph[u][v]["length"]
-        return round(total_m / 1000, 4)
-    except Exception:
-        return None
-
-
-def _is_closed_loop(paths) -> bool | None:
-    """대표 경로(paths[0])의 시작 노드와 끝 노드가 같은지 — 순환이 실제로 닫혔는지의 최소 기준."""
-    if not paths or len(paths[0]) < 2:
-        return None
-    primary_path = paths[0]
-    return primary_path[0] == primary_path[-1]
-
-
-def _count_spikes(paths) -> int | None:
-    """대표 경로(paths[0])에서 'A→B→A'처럼 갔다가 바로 되돌아오는 잔가시(삐죽 나온 길) 개수.
-
-    사용자 산책 경로가 막다른 길을 갔다가 되돌아 나오는 구간은 실제로 자주 지적되는
-    품질 문제라, 경로 모양을 정량화하는 핵심 지표 중 하나로 둔다.
-    """
-    if not paths or len(paths[0]) < 3:
-        return 0
-    primary_path = paths[0]
-    return sum(1 for i in range(len(primary_path) - 2) if primary_path[i] == primary_path[i + 2])
-
-
-def _compute_edge_overlap_ratio(paths) -> float | None:
-    """대표 경로(paths[0])가 자기 자신의 엣지(구간)를 얼마나 재사용하는지의 비율.
-
-    '갈 때와 돌아올 때 같은 길을 그대로 공유'하는 문제를 solver의 자기 신고
-    (overlap_ratio)에 기대지 않고 하네스가 paths에서 직접 재계산한다. 무방향
-    그래프이므로 (u, v)와 (v, u)는 같은 구간으로 취급한다.
-
-    반환값 = (2회 이상 지나간 구간의 총 통행 횟수) / (전체 구간 통행 횟수).
-    """
-    if not paths or len(paths[0]) < 2:
-        return None
-    primary_path = paths[0]
-    edge_counts: dict[frozenset, int] = {}
-    for u, v in zip(primary_path, primary_path[1:]):
-        key = frozenset((u, v))
-        edge_counts[key] = edge_counts.get(key, 0) + 1
-
-    total_traversals = sum(edge_counts.values())
-    if total_traversals == 0:
-        return 0.0
-    reused_traversals = sum(count for count in edge_counts.values() if count > 1)
-    return round(reused_traversals / total_traversals, 4)
-
-
-def _failed_row(solver: BasePathSolver, status: str, elapsed_sec: float, error: str, target_km=None) -> dict:
-    return {
-        "algorithm": solver.name,
-        "status": status,
-        "elapsed_sec": round(elapsed_sec, 6),
-        "within_time_budget": None,
-        "cost": None,
-        "overlap_ratio": None,
-        "distance_km": None,
-        "target_km": target_km,
-        "distance_deviation_km": None,
-        "is_closed_loop": None,
-        "spike_count": None,
-        "edge_overlap_ratio": None,
-        "find_path_sec": None,
-        "astar_calls": None,
-        "cache_hits": None,
-        "selection_status": None,
-        "feasible": None,
-        "segment_p1_p2_m": None,
-        "segment_p2_p3_m": None,
-        "segment_p3_p1_m": None,
-        "waypoint_separation_m": None,
-        "min_waypoint_separation_m": None,
-        "repeated_edge_ratio": None,
-        "waypoint_angle_diff_deg": None,
-        "segment_balance_ratio": None,
-        "is_degenerate_loop": None,
-        "alns_operator_stats": None,
-        "num_waypoints_used": None,
-        "effective_waypoints_used": None,
-        "pool_cache_hits": None,
-        "pool_cache_misses": None,
-        "error": error,
-    }
-
-
 def _run_single(
     solver: BasePathSolver,
     graph,
@@ -398,9 +193,12 @@ def _run_single(
     부수 효과로, graph는 프로세스 경계를 넘어갈 때 pickle을 통해 자동으로 각
     프로세스마다 독립된 복사본이 되므로, solver 간 mutation 전파 문제도 별도
     처리 없이 함께 해결된다.
+
+    행 자체를 만드는 일은 results.py::build_result_row()/failed_row()에 맡긴다 —
+    이 함수가 results.py::run_solver_task()를 쓰지 않는 이유는 위 하드킬 구조 때문이며,
+    "어떤 컬럼을 어떻게 채우는가"는 러너 4종과 완전히 동일하게 공유한다.
     """
     target_km = params.get("target_km")
-    time_budget_sec = params.get("time_budget_sec")
 
     ctx = multiprocessing.get_context("spawn")
     result_queue = ctx.Queue()
@@ -415,7 +213,7 @@ def _run_single(
     except Exception as e:
         # solver/graph/params가 pickle이 안 되는 경우 등, 프로세스 생성 자체가 실패
         logger.warning("[%s] 프로세스 생성 실패: %s — 실패 처리 후 계속 진행", solver.name, e)
-        return _failed_row(solver, "failed", time.perf_counter() - wall_start, f"process spawn failed: {e!r}", target_km)
+        return failed_row(solver, "failed", time.perf_counter() - wall_start, f"process spawn failed: {e!r}", target_km)
 
     process.join(timeout=timeout_sec)
 
@@ -426,7 +224,7 @@ def _run_single(
         if process.is_alive():
             process.kill()  # SIGKILL — 그래도 안 죽으면 강제로
             process.join()
-        return _failed_row(
+        return failed_row(
             solver, "timeout", time.perf_counter() - wall_start,
             f"timeout after {timeout_sec}s (process killed)", target_km,
         )
@@ -436,69 +234,22 @@ def _run_single(
     except queue.Empty:
         # 프로세스는 끝났는데(예: 세그폴트) 결과가 큐에 없는 경우
         logger.warning("[%s] 프로세스가 결과 없이 종료됨 (exitcode=%s)", solver.name, process.exitcode)
-        return _failed_row(
+        return failed_row(
             solver, "failed", time.perf_counter() - wall_start,
             f"child process exited (code={process.exitcode}) without producing a result", target_km,
         )
 
     if status == "error":
         logger.warning("[%s] 실행 실패: %s — 실패 처리 후 계속 진행", solver.name, payload)
-        return _failed_row(solver, "failed", child_elapsed, payload, target_km)
+        return failed_row(solver, "failed", child_elapsed, payload, target_km)
 
     try:
-        result = _validate_solver_result(payload)
+        result = validate_solver_result(payload)
     except Exception as e:
         logger.warning("[%s] 반환값 규격 위반: %s — 실패 처리 후 계속 진행", solver.name, e)
-        return _failed_row(solver, "failed", child_elapsed, str(e), target_km)
+        return failed_row(solver, "failed", child_elapsed, str(e), target_km)
 
-    distance_km = _compute_route_distance_km(graph, result["paths"])
-    distance_deviation_km = (
-        round(abs(distance_km - target_km), 4) if distance_km is not None and target_km is not None else None
-    )
-    within_time_budget = child_elapsed <= time_budget_sec if time_budget_sec is not None else None
-
-    return {
-        "algorithm": solver.name,
-        "status": "ok",
-        "elapsed_sec": round(child_elapsed, 6),
-        "within_time_budget": within_time_budget,
-        "cost": result["cost"],
-        "overlap_ratio": result["overlap_ratio"],
-        "distance_km": distance_km,
-        "target_km": target_km,
-        "distance_deviation_km": distance_deviation_km,
-        "is_closed_loop": _is_closed_loop(result["paths"]),
-        "spike_count": _count_spikes(result["paths"]),
-        "edge_overlap_ratio": _compute_edge_overlap_ratio(result["paths"]),
-        "find_path_sec": result.get("find_path_sec"),
-        "astar_calls": result.get("astar_calls"),
-        "cache_hits": result.get("cache_hits"),
-        "selection_status": result.get("selection_status"),
-        "feasible": result.get("feasible"),
-        "segment_p1_p2_m": result.get("segment_p1_p2_m"),
-        "segment_p2_p3_m": result.get("segment_p2_p3_m"),
-        "segment_p3_p1_m": result.get("segment_p3_p1_m"),
-        "waypoint_separation_m": result.get("waypoint_separation_m"),
-        "min_waypoint_separation_m": result.get("min_waypoint_separation_m"),
-        # repeated_edge_ratio는 모든 solver에 공통(요청서: "모든 벤치마크 결과에 기록").
-        # grasp-wp-* solver는 route.repeated_edge_ratio를 직접 주므로 그 값을 우선 쓰고,
-        # 안 주는 solver는 하네스가 paths에서 독립 계산한 edge_overlap_ratio로 채운다
-        # (같은 정의의 값이라 두 경로 중 하나가 없어도 값이 빈다).
-        "repeated_edge_ratio": (
-            result.get("repeated_edge_ratio")
-            if result.get("repeated_edge_ratio") is not None
-            else _compute_edge_overlap_ratio(result["paths"])
-        ),
-        "waypoint_angle_diff_deg": result.get("waypoint_angle_diff_deg"),
-        "segment_balance_ratio": result.get("segment_balance_ratio"),
-        "is_degenerate_loop": result.get("is_degenerate_loop"),
-        "alns_operator_stats": result.get("alns_operator_stats"),
-        "num_waypoints_used": result.get("num_waypoints_used"),
-        "effective_waypoints_used": result.get("effective_waypoints_used"),
-        "pool_cache_hits": result.get("pool_cache_hits"),
-        "pool_cache_misses": result.get("pool_cache_misses"),
-        "error": "",
-    }
+    return build_result_row(solver, graph, params, child_elapsed, result)
 
 
 def run_benchmark(

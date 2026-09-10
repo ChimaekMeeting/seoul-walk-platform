@@ -70,7 +70,6 @@ class _BeamWaypointRefinementSolver(BasePathSolver):
         result = {
             "paths": [path],
             "cost": cost,
-            "overlap_ratio": 0.0,
             "astar_calls": engine.cost_cache.astar_calls,
             "cache_hits": engine.cost_cache.cache_hits,
             # num_waypoints_used/pool_cache_hits/pool_cache_misses는 아래 _segment_metrics()가

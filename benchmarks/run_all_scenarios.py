@@ -7,17 +7,8 @@ import time
 import pandas as pd
 
 from benchmarks.config import ROUTE_ENGINE_DATASET
-from benchmarks.benchmark import (
-    _load_default_graph,
-    _failed_row,
-    _validate_solver_result,
-    _compute_route_distance_km,
-    _is_closed_loop,
-    _count_spikes,
-    _compute_edge_overlap_ratio,
-    RESULT_COLUMNS,
-    SOLVER_REGISTRY,
-)
+from benchmarks.benchmark import _load_default_graph, SOLVER_REGISTRY
+from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
@@ -25,6 +16,9 @@ ONEWAY_ALGOS   = ["astar-oneway", "dijkstra-oneway", "bi-astar-oneway", "bi-dijk
 CIRCULAR_ALGOS = [
     "beam-circular", "grasp-circular", "alns-circular", "rcsp-circular",
     "grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-wp-alns",
+    # Beam 계열(2026-09-10 추가): SOLVER_REGISTRY에는 등록돼 있었는데 이 격자에만 빠져
+    # 있어서 GRASP과 같은 조건에서 비교할 수 없었다.
+    "beam-wp", "beam-wp-local", "beam-wp-vnd", "beam-wp-vns", "beam-wp-alns",
 ]
 
 _POOL_GRAPH = None  # 워커 프로세스 전역 — 워커당 1번만 채워짐(그래프 재전송 없음)
@@ -43,67 +37,14 @@ def _pool_worker_init():
 
 
 def _pool_worker_task(solver_key: str, start_node, target_node, params: dict) -> dict:
+    """태스크마다 실행. solver 인스턴스·그래프를 매번 안 받고, solver_key로
+    SOLVER_REGISTRY에서 찾고 그래프는 워커 전역(_POOL_GRAPH)을 그대로 쓴다.
+
+    결과 행 생성은 benchmarks/results.py::run_solver_task()가 전담한다 — 예전에는 이
+    함수가 dict 리터럴을 직접 들고 있어서, 컬럼이 추가될 때마다 여기가 빠졌다
+    (num_waypoints_used / effective_waypoints_used / pool_cache_* 4종이 실제로 누락).
     """
-    태스크마다 실행. solver 인스턴스·그래프를 매번 안 받고,
-    solver_key로 SOLVER_REGISTRY에서 찾고 그래프는 워커 전역(_POOL_GRAPH)을 그대로 쓴다.
-    """
-    solver = SOLVER_REGISTRY[solver_key]
-    target_km = params.get("target_km")
-    time_budget_sec = params.get("time_budget_sec")
-
-    t0 = time.perf_counter()
-    try:
-        raw_result = solver.solve(_POOL_GRAPH, start_node, target_node, params)
-    except Exception as e:
-        return _failed_row(solver, "failed", time.perf_counter() - t0, repr(e), target_km)
-
-    elapsed = time.perf_counter() - t0
-
-    try:
-        result = _validate_solver_result(raw_result)
-    except Exception as e:
-        return _failed_row(solver, "failed", elapsed, str(e), target_km)
-
-    distance_km = _compute_route_distance_km(_POOL_GRAPH, result["paths"])
-    distance_deviation_km = (
-        round(abs(distance_km - target_km), 4) if distance_km is not None and target_km is not None else None
-    )
-    within_time_budget = elapsed <= time_budget_sec if time_budget_sec is not None else None
-
-    return {
-        "algorithm": solver.name,
-        "status": "ok",
-        "elapsed_sec": round(elapsed, 6),
-        "within_time_budget": within_time_budget,
-        "cost": result["cost"],
-        "overlap_ratio": result["overlap_ratio"],
-        "distance_km": distance_km,
-        "target_km": target_km,
-        "distance_deviation_km": distance_deviation_km,
-        "is_closed_loop": _is_closed_loop(result["paths"]),
-        "spike_count": _count_spikes(result["paths"]),
-        "edge_overlap_ratio": _compute_edge_overlap_ratio(result["paths"]),
-        "find_path_sec": result.get("find_path_sec"),
-        "astar_calls": result.get("astar_calls"),
-        "cache_hits": result.get("cache_hits"),
-        "selection_status": result.get("selection_status"),
-        "feasible": result.get("feasible"),
-        "segment_p1_p2_m": result.get("segment_p1_p2_m"),
-        "segment_p2_p3_m": result.get("segment_p2_p3_m"),
-        "segment_p3_p1_m": result.get("segment_p3_p1_m"),
-        "waypoint_separation_m": result.get("waypoint_separation_m"),
-        "min_waypoint_separation_m": result.get("min_waypoint_separation_m"),
-        "repeated_edge_ratio": (
-            result.get("repeated_edge_ratio")
-            if result.get("repeated_edge_ratio") is not None
-            else _compute_edge_overlap_ratio(result["paths"])
-        ),
-        "waypoint_angle_diff_deg": result.get("waypoint_angle_diff_deg"),
-        "segment_balance_ratio": result.get("segment_balance_ratio"),
-        "is_degenerate_loop": result.get("is_degenerate_loop"),
-        "alns_operator_stats": result.get("alns_operator_stats"),
-        "error": "",
-    }
+    return run_solver_task(SOLVER_REGISTRY[solver_key], _POOL_GRAPH, start_node, target_node, params)
 
 
 def _run_scenario_with_pool(pool, algos, start_node, target_node, params, timeout_sec=30.0) -> pd.DataFrame:
@@ -121,7 +62,7 @@ def _run_scenario_with_pool(pool, algos, start_node, target_node, params, timeou
         try:
             rows.append(ar.get(timeout=timeout_sec))
         except multiprocessing.TimeoutError:
-            rows.append(_failed_row(
+            rows.append(failed_row(
                 solver, "timeout", timeout_sec,
                 f"timeout after {timeout_sec}s (worker 강제종료 안 함 — 절충안)", params.get("target_km"),
             ))
@@ -184,8 +125,9 @@ def main():
         최대초=("elapsed_sec", "max"),
         평균find_path초=("find_path_sec", "mean"),
         평균거리편차km=("distance_deviation_km", "mean"),
-        평균우회도=("overlap_ratio", "mean"),
-        평균자기중복=("edge_overlap_ratio", "mean"),
+        평균우회도=("overlap_ratio", "mean"),      # 편도 solver만 값이 있다(순환은 None)
+        평균재통행=("repeated_edge_ratio", "mean"),  # 구 평균자기중복(edge_overlap_ratio)
+        평균원형성=("circularity_q", "mean"),
     ).round(4)
 
     print(summary.to_string())
