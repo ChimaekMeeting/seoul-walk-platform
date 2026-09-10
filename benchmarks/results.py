@@ -59,11 +59,20 @@ RESULT_COLUMNS = [
     "find_path_sec", "astar_calls", "cache_hits", "pool_cache_hits", "pool_cache_misses",
 
     # --- 4계층: 진단 (결정 근거로 쓰지 않음) ---
-    # 아래 segment_*/waypoint_*/is_degenerate_loop는 최종 경로가 아니라 "선언한 경유지
-    # 분해"를 다시 걸어서 계산한 값이다(grasp_waypoint_common.compute_route_geometry_metrics).
+    # 아래 waypoint_*/is_degenerate_loop는 최종 경로가 아니라 "선언한 경유지 분해"를
+    # 다시 걸어서 계산한 값이다(grasp_waypoint_common.compute_route_geometry_metrics).
     # pruning이 경유지를 지운 행에서는 최종 경로와 어긋나므로 게이트에 쓰지 않는다.
+    #
+    # segment_p1_p2_m/segment_p2_p3_m/segment_p3_p1_m은 2026-09-11 제거했다. N=2 시절
+    # segment_lengths_m[0]/[1]/[-1]을 옛 이름으로 다시 노출한 하위 호환 필드였는데,
+    # (1) waypoint_separation_m/segment_balance_ratio가 이미 같은 리스트에서 계산한
+    # 요약을 CSV에 내보내 완전히 중복이었고, (2) 어떤 코드도 이 세 컬럼을 다시 읽지
+    # 않았으며(grep 확인), (3) N>2로 확장하면 중간 구간(segments[2:-1])이 이 세 컬럼
+    # 어디에도 담기지 않아 애초에 정보가 불완전했다. 구간별 원본이 다시 필요해지면
+    # (예: N 스윕에서 특정 구간만 짧아지는 패턴 조사) alns_operator_stats처럼 JSON
+    # 문자열 리스트 컬럼(segment_lengths_m)으로 새로 추가할 것 — 고정 3개 컬럼으로
+    # 되살리지 않는다.
     "selection_status", "feasible",
-    "segment_p1_p2_m", "segment_p2_p3_m", "segment_p3_p1_m",
     "waypoint_separation_m", "min_waypoint_separation_m",
     "waypoint_angle_diff_deg", "segment_balance_ratio", "is_degenerate_loop",
     "num_waypoints_used", "effective_waypoints_used",
@@ -84,7 +93,6 @@ _OPTIONAL_INT_KEYS = (
 )
 _OPTIONAL_FLOAT_KEYS = (
     "find_path_sec", "overlap_ratio",
-    "segment_p1_p2_m", "segment_p2_p3_m", "segment_p3_p1_m",
     "waypoint_separation_m", "min_waypoint_separation_m",
     "repeated_edge_ratio", "waypoint_angle_diff_deg", "segment_balance_ratio",
     "prune_branch_length_m", "prune_clean_branch_length_m",

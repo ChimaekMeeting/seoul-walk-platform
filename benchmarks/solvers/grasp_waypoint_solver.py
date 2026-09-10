@@ -74,15 +74,14 @@ def _segment_metrics(engine, start_node: int, target_km: float) -> dict:
     if gm is None:
         gm = RouteGeometryMetrics(None, None, None, None, None, False)
 
-    segments = gm.segment_lengths_m
     angles = gm.waypoint_angle_diffs_deg
 
     return {
         "selection_status": status,
         "feasible": status == "feasible",
-        "segment_p1_p2_m": r(segments[0]) if segments else None,
-        "segment_p2_p3_m": r(segments[1]) if segments and len(segments) > 1 else None,
-        "segment_p3_p1_m": r(segments[-1]) if segments else None,
+        # 구간 원본(gm.segment_lengths_m)은 CSV로 내보내지 않는다 — 2026-09-11 제거.
+        # 요약인 waypoint_separation_m/segment_balance_ratio가 같은 리스트에서 계산되고,
+        # 옛 segment_p*_m 3개 컬럼은 N>2에서 중간 구간을 담지 못했다(results.py 주석 참고).
         "waypoint_separation_m": r(gm.waypoint_separation_m),
         "min_waypoint_separation_m": round(min_separation_m, 4),
         "repeated_edge_ratio": r(gm.repeated_edge_ratio, 4),
