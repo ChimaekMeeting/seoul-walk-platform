@@ -6,8 +6,13 @@ import time
 
 import pandas as pd
 
-from benchmarks.config import ROUTE_ENGINE_DATASET
-from benchmarks.benchmark import _load_default_graph, SOLVER_REGISTRY
+from benchmarks.config import (
+    BENCHMARK_SEEDS,
+    CIRCULAR_BENCHMARK_PROFILE,
+    DEFAULT_TIME_BUDGET_SEC,
+    ROUTE_ENGINE_DATASET,
+)
+from benchmarks.benchmark import _load_default_graph, SEED_SENSITIVE_SOLVERS, SOLVER_REGISTRY
 from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
@@ -47,26 +52,53 @@ def _pool_worker_task(solver_key: str, start_node, target_node, params: dict) ->
     return run_solver_task(SOLVER_REGISTRY[solver_key], _POOL_GRAPH, start_node, target_node, params)
 
 
-def _run_scenario_with_pool(pool, algos, start_node, target_node, params, timeout_sec=30.0) -> pd.DataFrame:
+def _scenario_tasks(algos: list[str]) -> list[tuple[str, int | None]]:
+    """알고리즘별로 돌릴 (algo, seed) 조합.
+
+    확률적 알고리즘의 분산·최악값을 보려면 조건당 여러 시드가 필요하지만, 시드를 읽지
+    않는 solver까지 반복하면 실행 시간만 늘어난다(SEED_SENSITIVE_SOLVERS 참고).
     """
-    이미 떠 있는 워커 풀에 알고리즘별 태스크를 제출하고 결과를 모은다.
+    tasks: list[tuple[str, int | None]] = []
+    for key in algos:
+        if key in SEED_SENSITIVE_SOLVERS:
+            tasks.extend((key, seed) for seed in BENCHMARK_SEEDS)
+        else:
+            tasks.append((key, None))
+    return tasks
+
+
+def _run_scenario_with_pool(pool, algos, start_node, target_node, base_params, timeout_sec=30.0) -> pd.DataFrame:
+    """이미 떠 있는 워커 풀에 (알고리즘 × 시드) 태스크를 제출하고 결과를 모은다.
+
     타임아웃 시 해당 워커는 죽이지 않고 결과만 실패 처리한다(하드킬 포기 — 절충안).
+    죽지 않은 태스크가 계속 돌면 같은 풀의 이후 측정치가 부풀 수 있다는 점에 주의.
     """
-    async_results = {
-        key: pool.apply_async(_pool_worker_task, args=(key, start_node, target_node, params))
-        for key in algos
-    }
+    circular = start_node == target_node
+
+    async_results = []
+    for key, seed in _scenario_tasks(algos):
+        params = dict(base_params)
+        if seed is not None:
+            params["seed"] = seed
+        async_results.append(
+            (key, seed, pool.apply_async(_pool_worker_task, args=(key, start_node, target_node, params)))
+        )
+
     rows = []
-    for key, ar in async_results.items():
+    for key, seed, ar in async_results:
         solver = SOLVER_REGISTRY[key]
         try:
-            rows.append(ar.get(timeout=timeout_sec))
+            row = ar.get(timeout=timeout_sec)
         except multiprocessing.TimeoutError:
-            rows.append(failed_row(
+            row = failed_row(
                 solver, "timeout", timeout_sec,
-                f"timeout after {timeout_sec}s (worker 강제종료 안 함 — 절충안)", params.get("target_km"),
-            ))
-    return pd.DataFrame(rows, columns=RESULT_COLUMNS)
+                f"timeout after {timeout_sec}s (worker 강제종료 안 함 — 절충안)",
+                base_params.get("target_km"), circular,
+            )
+        row["seed"] = seed
+        rows.append(row)
+
+    return pd.DataFrame(rows, columns=["seed", *RESULT_COLUMNS])
 
 
 def main():
@@ -96,16 +128,31 @@ def main():
         start_node = utils.find_nearest_node(case["start_lat"], case["start_lon"])
         target_node = utils.find_nearest_node(case["end_lat"], case["end_lon"]) if mode == "oneway" else start_node
 
-        print(f"[{i}/{len(scenarios)}] {case['id']} ({mode}, profile={case['profile']}, target_km={case['target_km']}) 시작...", flush=True)
+        # 순환 비교는 프로필을 고정한다 — wp 계열은 mode="distance" 고정이라 profile을
+        # 아예 읽지 않는 반면 레거시 grasp-circular/beam-circular는 반영해서, 시나리오
+        # 프로필을 그대로 쓰면 두 진영이 서로 다른 목적함수를 최적화한 채 비교된다.
+        # 편도는 프로필을 정상적으로 쓰므로 시나리오 값을 그대로 둔다.
+        profile = case["profile"] if mode == "oneway" else CIRCULAR_BENCHMARK_PROFILE
+        fixed_note = " (고정)" if profile != case["profile"] else ""
+        print(
+            f"[{i}/{len(scenarios)}] {case['id']} ({mode}, profile={profile}{fixed_note}, "
+            f"target_km={case['target_km']}) 시작...",
+            flush=True,
+        )
 
-        params = {"target_km": case["target_km"], "profile": case["profile"]}
+        params = {
+            "target_km": case["target_km"],
+            "profile": profile,
+            "time_budget_sec": DEFAULT_TIME_BUDGET_SEC,
+        }
         df = _run_scenario_with_pool(pool, algos, start_node, target_node, params, timeout_sec=30.0)
         df.insert(0, "scenario_id", case["id"])
         df.insert(1, "mode", mode)
         all_rows.append(df)
 
         ok_count = (df["status"] == "ok").sum()
-        print(f"  -> {ok_count}/{len(df)} ok", flush=True)
+        passed_count = (df["passed"] == True).sum()  # noqa: E712 — NaN 섞인 컬럼이라 `is True` 불가
+        print(f"  -> {ok_count}/{len(df)} ok, 게이트 통과 {passed_count}건", flush=True)
 
     pool.close()
     pool.join()
@@ -121,6 +168,7 @@ def main():
     summary = result_df.groupby("algorithm").agg(
         시도횟수=("status", "count"),
         성공=("status", lambda s: (s == "ok").sum()),
+        게이트통과율=("passed", lambda s: s.mean() if s.notna().any() else None),
         평균초=("elapsed_sec", "mean"),
         최대초=("elapsed_sec", "max"),
         평균find_path초=("find_path_sec", "mean"),
@@ -131,6 +179,12 @@ def main():
     ).round(4)
 
     print(summary.to_string())
+    print(
+        "\n[주의] 위 평균들은 성공한 행만으로 계산됩니다. 어려운 조건에서 실패하는 알고리즘일수록 "
+        "쉬운 케이스만 남아 품질 평균이 좋아 보이므로, 반드시 게이트통과율과 함께 읽으세요. "
+        "게이트는 순환 행에만 적용되며(편도는 None), 조건별 짝지은 비교와 분산·최악값은 "
+        "별도 집계(이슈 G)에서 냅니다."
+    )
 
     TARGET_AGNOSTIC_ALGOS = {"A*(oneway)", "Dijkstra(oneway)", "Bidirectional A*(oneway)"}
     hit = TARGET_AGNOSTIC_ALGOS & set(summary.index)

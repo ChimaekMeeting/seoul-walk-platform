@@ -24,6 +24,11 @@ import math
 import time
 from typing import Optional
 
+from benchmarks.config import (
+    MAX_DISTANCE_DEVIATION_KM,
+    MAX_REPEATED_EDGE_RATIO,
+    MAX_SPIKE_COUNT,
+)
 from src.route_engine.waypoint_route_builder import edge_overlap_ratio
 
 REQUIRED_RESULT_KEYS = ("paths", "cost")
@@ -38,6 +43,10 @@ RESULT_COLUMNS = [
     # "사용자에게 실제로 전달되는 경로"를 서술한다.
     "distance_km", "target_km", "distance_deviation_km",
     "is_closed_loop", "spike_count", "repeated_edge_ratio", "circularity_q",
+    # 위 관측값들이 config.py의 임계값을 전부 통과했는지(순환 행만 판정, 편도는 None).
+    # gate_failed_on은 떨어진 항목 이름을 쉼표로 묶은 문자열 — 집계에서 "무엇 때문에
+    # 떨어졌는가"를 세려면 불리언 하나로는 부족하다. evaluate_gate() 참고.
+    "passed", "gate_failed_on",
 
     # --- solver 자기 신고 (알고리즘 간 비교 금지) ---
     # cost: wp 계열은 거리(m), 레거시 순환 계열은 누적 custom_score라 단위·스케일이 다르다.
@@ -275,18 +284,65 @@ def validate_solver_result(result) -> dict:
     return validated
 
 
+def evaluate_gate(row: dict, circular: Optional[bool]) -> tuple[Optional[bool], Optional[str]]:
+    """최종 경로 관측값만으로 합격 여부를 판정한다(2026-09-10 신설).
+
+    circular=False(편도)나 None(모름)이면 (None, None) — 이 게이트는 순환 경로 전용이다.
+    편도 경로는 애초에 닫히면 안 되고, A*/Dijkstra처럼 target_km을 아예 고려하지 않는
+    알고리즘도 섞여 있어 같은 기준을 적용하면 무의미한 판정이 된다.
+
+    게이트에 넣지 않는 것과 그 이유:
+      - feasible / selection_status : fallback은 "내부 제약을 만족하는 경유지 조합을
+        못 찾았다"는 뜻일 뿐이며, 최종 경로가 기준을 만족하면 정상 해다.
+      - is_degenerate_loop : 세 조건 중 둘(waypoint_separation_m, segment_balance_ratio)이
+        선언 경유지 분해 기반이라 최종 경로 품질과 어긋날 수 있다
+        (grasp_waypoint_common.compute_route_geometry_metrics 참고).
+      - effective_waypoints_used 불일치 : 경유지 소실은 품질 미달이 아니라 N 튜닝의
+        비용 효율 문제다.
+      - circularity_q : 아직 임계값을 정할 실측이 없다. 대리 지표 검증(이슈 H)이
+        끝난 뒤 편입 여부를 판단한다.
+    """
+    if not circular:
+        return None, None
+
+    failures = []
+    if row.get("status") != "ok":
+        failures.append("status")
+        return False, ",".join(failures)  # 실패 행은 나머지 지표가 전부 비어 있다
+
+    if row.get("is_closed_loop") is not True:
+        failures.append("is_closed_loop")
+
+    deviation = row.get("distance_deviation_km")
+    if deviation is None or deviation > MAX_DISTANCE_DEVIATION_KM:
+        failures.append("distance_deviation_km")
+
+    repeated = row.get("repeated_edge_ratio")
+    if repeated is None or repeated > MAX_REPEATED_EDGE_RATIO:
+        failures.append("repeated_edge_ratio")
+
+    spikes = row.get("spike_count")
+    if spikes is None or spikes > MAX_SPIKE_COUNT:
+        failures.append("spike_count")
+
+    return (not failures), (",".join(failures) if failures else None)
+
+
 def _empty_row() -> dict:
     """RESULT_COLUMNS 전부를 None으로 깐 행. 모든 행 생성이 여기서 출발하므로,
     컬럼을 추가해도 어떤 호출 경로에서든 키가 빠지지 않는다."""
     return {column: None for column in RESULT_COLUMNS}
 
 
-def failed_row(solver, status: str, elapsed_sec: float, error: str, target_km=None) -> dict:
+def failed_row(solver, status: str, elapsed_sec: float, error: str, target_km=None,
+               circular: Optional[bool] = None) -> dict:
     """예외·타임아웃·규격 위반 행. 품질 지표는 전부 None으로 남는다.
 
+    circular를 주면 게이트가 매겨진다(순환 실행에서 실패는 곧 불합격).
+
     집계 시 주의: 실패 행의 품질 지표가 비어 있으므로, 품질 평균만 보면 어려운 조건에서
-    실패하는 알고리즘일수록 좋아 보인다. 반드시 성공률과 함께 읽을 것. 또 타임아웃 행의
-    elapsed_sec은 실제 소요가 아니라 제한시간에서 잘린(censored) 값이다.
+    실패하는 알고리즘일수록 좋아 보인다. 반드시 passed(게이트 통과율)와 함께 읽을 것.
+    또 타임아웃 행의 elapsed_sec은 실제 소요가 아니라 제한시간에서 잘린(censored) 값이다.
     """
     row = _empty_row()
     row.update({
@@ -296,14 +352,18 @@ def failed_row(solver, status: str, elapsed_sec: float, error: str, target_km=No
         "target_km": target_km,
         "error": error,
     })
+    row["passed"], row["gate_failed_on"] = evaluate_gate(row, circular)
     return row
 
 
-def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: dict) -> dict:
+def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: dict,
+                     circular: Optional[bool] = None) -> dict:
     """검증을 통과한 solve() 결과를 표준 결과 행으로 만든다.
 
     benchmark.py::_run_single()과 러너 4종이 **모두** 이 함수를 쓴다 — 예전에는 각자
     dict 리터럴을 들고 있어서 컬럼이 늘 때마다 누락이 생겼다.
+
+    circular(출발=도착 여부)를 주면 합격 게이트를 함께 매긴다. 안 주면 passed는 None이다.
     """
     target_km = params.get("target_km")
     time_budget_sec = params.get("time_budget_sec")
@@ -341,6 +401,7 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
         "overlap_ratio": result.get("overlap_ratio"),
         "error": "",
     })
+    row["passed"], row["gate_failed_on"] = evaluate_gate(row, circular)
     return row
 
 
@@ -352,18 +413,19 @@ def run_solver_task(solver, graph, start_node, target_node, params: dict) -> dic
     부분(build_result_row / failed_row)은 동일하게 공유한다.
     """
     target_km = params.get("target_km")
+    circular = start_node == target_node  # 순환 경로는 출발=도착
 
     t0 = time.perf_counter()
     try:
         raw_result = solver.solve(graph, start_node, target_node, params)
     except Exception as e:
-        return failed_row(solver, "failed", time.perf_counter() - t0, repr(e), target_km)
+        return failed_row(solver, "failed", time.perf_counter() - t0, repr(e), target_km, circular)
 
     elapsed = time.perf_counter() - t0
 
     try:
         result = validate_solver_result(raw_result)
     except Exception as e:
-        return failed_row(solver, "failed", elapsed, str(e), target_km)
+        return failed_row(solver, "failed", elapsed, str(e), target_km, circular)
 
-    return build_result_row(solver, graph, params, elapsed, result)
+    return build_result_row(solver, graph, params, elapsed, result, circular)

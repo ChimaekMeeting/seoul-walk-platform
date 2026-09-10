@@ -158,6 +158,19 @@ SOLVER_REGISTRY: dict[str, BasePathSolver] = {
     "dummy-b": DummySolver(name="DummySolver-B", fake_delay_sec=0.1),
 }
 
+# params["seed"]를 실제로 읽는 solver (2026-09-10 코드 확인 — grasp_waypoint_solver.py와
+# beam_waypoint_refinement_solver.py만 params.get("seed")를 참조한다).
+# 나머지는 시드를 바꿔도 결과가 같으므로 격자에서 1회만 돌린다 — 전부 10회씩 돌리면
+# 실행 시간만 늘어난다.
+#
+# 주의: 여기 있다고 결과가 반드시 seed마다 다르다는 뜻은 아니다. beam-wp-local /
+# beam-wp-vnd는 구축(beam_search)이 결정적이고 정제(local/vnd)도 결정적 하강이라
+# 실제로는 시드 불변일 수 있다 — 그건 집계에서 std≈0으로 드러난다.
+SEED_SENSITIVE_SOLVERS = frozenset({
+    "grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-wp-alns",
+    "beam-wp-local", "beam-wp-vnd", "beam-wp-vns", "beam-wp-alns",
+})
+
 
 def _child_worker(solver, graph, start_node, target_node, params, result_queue) -> None:
     """별도 프로세스에서 실제로 solve()를 실행하는 함수.
@@ -199,6 +212,7 @@ def _run_single(
     "어떤 컬럼을 어떻게 채우는가"는 러너 4종과 완전히 동일하게 공유한다.
     """
     target_km = params.get("target_km")
+    circular = start_node == target_node  # 순환 경로는 출발=도착
 
     ctx = multiprocessing.get_context("spawn")
     result_queue = ctx.Queue()
@@ -213,7 +227,10 @@ def _run_single(
     except Exception as e:
         # solver/graph/params가 pickle이 안 되는 경우 등, 프로세스 생성 자체가 실패
         logger.warning("[%s] 프로세스 생성 실패: %s — 실패 처리 후 계속 진행", solver.name, e)
-        return failed_row(solver, "failed", time.perf_counter() - wall_start, f"process spawn failed: {e!r}", target_km)
+        return failed_row(
+            solver, "failed", time.perf_counter() - wall_start,
+            f"process spawn failed: {e!r}", target_km, circular,
+        )
 
     process.join(timeout=timeout_sec)
 
@@ -226,7 +243,7 @@ def _run_single(
             process.join()
         return failed_row(
             solver, "timeout", time.perf_counter() - wall_start,
-            f"timeout after {timeout_sec}s (process killed)", target_km,
+            f"timeout after {timeout_sec}s (process killed)", target_km, circular,
         )
 
     try:
@@ -236,20 +253,20 @@ def _run_single(
         logger.warning("[%s] 프로세스가 결과 없이 종료됨 (exitcode=%s)", solver.name, process.exitcode)
         return failed_row(
             solver, "failed", time.perf_counter() - wall_start,
-            f"child process exited (code={process.exitcode}) without producing a result", target_km,
+            f"child process exited (code={process.exitcode}) without producing a result", target_km, circular,
         )
 
     if status == "error":
         logger.warning("[%s] 실행 실패: %s — 실패 처리 후 계속 진행", solver.name, payload)
-        return failed_row(solver, "failed", child_elapsed, payload, target_km)
+        return failed_row(solver, "failed", child_elapsed, payload, target_km, circular)
 
     try:
         result = validate_solver_result(payload)
     except Exception as e:
         logger.warning("[%s] 반환값 규격 위반: %s — 실패 처리 후 계속 진행", solver.name, e)
-        return failed_row(solver, "failed", child_elapsed, str(e), target_km)
+        return failed_row(solver, "failed", child_elapsed, str(e), target_km, circular)
 
-    return build_result_row(solver, graph, params, child_elapsed, result)
+    return build_result_row(solver, graph, params, child_elapsed, result, circular)
 
 
 def run_benchmark(
@@ -276,6 +293,51 @@ def resolve_solvers(selected: list[str]) -> list[BasePathSolver]:
     if "all" in selected:
         return list(SOLVER_REGISTRY.values())
     return [SOLVER_REGISTRY[key] for key in selected]
+
+
+# 정제 노브 CLI 플래그 정의. (정제, 노브, 타입, 도움말)
+# 노브 이름은 grasp_waypoint_solver._REFINEMENT_PARAM_KEYS와 일치해야 하고, 정제 이름은
+# waypoint_refinement.OPTIONS_AWARE_REFINEMENTS 안에 있어야 한다 — 어긋나면 엔진
+# 생성자가 ValueError로 막는다. 이 일치는 test_benchmark.py::test_f1이 검사한다.
+#
+# alns_seed는 일부러 뺐다: ALNS 내부 난수 시드로, 실행 전체의 --seed와 다른 축이라
+# 한 플래그로 섞으면 재현 조건이 모호해진다. 스윕이 필요하면 러너에서 직접 넣을 것.
+_REFINEMENT_CLI_KNOBS = (
+    ("alns", "iterations", int, "ALNS 최대 제거·복구 시도 수 (엔진 기본 30)"),
+    ("alns", "removal_fraction", float, "한 번에 제거할 경유지 비율. 개수는 ceil(N*비율) (기본 0.3)"),
+    ("alns", "start_temperature_m", float, "악화 수락 초기 척도(m) (기본 100.0)"),
+    ("alns", "cooling_rate", float, "시도마다 온도에 곱하는 비율 (기본 0.95)"),
+    ("alns", "segment_length", int, "연산자 가중치 갱신 주기 (기본 10)"),
+    ("alns", "reaction_factor", float, "새 성과 반영률. 0이면 가중치 고정 (기본 0.2)"),
+    ("alns", "candidate_limit", int, "복구 후보 풀 상한. 미지정이면 제한 없음"),
+    ("alns", "max_cost_calls", int, "cost 콜백 호출 상한 (기본 3000)"),
+    ("vns", "max_shake_level", int, "VNS 교란 레벨 상한. 4 이상은 전체 재구축 반복"),
+)
+
+
+def _add_refinement_knob_args(parser: argparse.ArgumentParser) -> None:
+    for refinement, knob, value_type, help_text in _REFINEMENT_CLI_KNOBS:
+        parser.add_argument(
+            f"--{refinement}-{knob.replace('_', '-')}",
+            dest=f"{refinement}_{knob}",
+            type=value_type,
+            default=None,
+            help=f"[{refinement}] {help_text}",
+        )
+
+
+def refinement_params_from_args(args: argparse.Namespace) -> dict:
+    """CLI에서 지정된 정제 노브만 골라 params 키(<정제>_<노브>)로 되돌린다.
+
+    지정하지 않은 노브는 넣지 않는다 — 그래야 waypoint_refinement.py의 기본값이 그대로
+    쓰이고, "CLI가 기본값을 덮어썼는지" 여부가 CSV/로그에서 구분된다. 이 키들은
+    grasp_waypoint_solver._refinement_options_from_params()가 읽어 엔진에 전달한다.
+    """
+    return {
+        f"{refinement}_{knob}": getattr(args, f"{refinement}_{knob}")
+        for refinement, knob, _, _ in _REFINEMENT_CLI_KNOBS
+        if getattr(args, f"{refinement}_{knob}", None) is not None
+    }
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -342,6 +404,7 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="GRASP/Beam이 선택할 경유지 개수(N). 미지정 시 엔진 기본값(2) 사용 — "
              "grasp-wp-*/beam-wp-* solver만 반영하며 removal_fraction 튜닝용 실험 축이다.",
     )
+    _add_refinement_knob_args(parser)
     return parser.parse_args(argv)
 
 
@@ -407,6 +470,7 @@ def main():
         params["seed"] = args.seed
     if args.num_waypoints is not None:
         params["num_waypoints"] = args.num_waypoints
+    params.update(refinement_params_from_args(args))
 
     solvers = resolve_solvers(args.algo)
 

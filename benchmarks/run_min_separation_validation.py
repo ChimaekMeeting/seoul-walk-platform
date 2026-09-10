@@ -24,10 +24,11 @@ import time
 import pandas as pd
 
 from benchmarks.benchmark import _load_default_graph, SOLVER_REGISTRY
+from benchmarks.config import BENCHMARK_SEEDS, DEFAULT_TIME_BUDGET_SEC
 from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
-SEEDS = [42, 7, 123]
+SEEDS = BENCHMARK_SEEDS  # 러너 공용 (구 [42, 7, 123] — 분산 추정 표본 부족으로 10개로 확대)
 TARGET_KMS = [3.0, 5.0]
 START_NODES = [1, 41417, 111383, 175895, 179044]  # largest_cc(=전체 그래프)에서 seed=2026으로 무작위 추출
 ALGOS = ["grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-circular"]  # grasp-circular = 기존 비교 기준
@@ -53,7 +54,11 @@ def _pool_worker_task(solver_key: str, start_node: int, target_km: float, seed: 
     함수가 dict 리터럴을 직접 들고 있어서, 컬럼이 추가될 때마다 여기가 빠졌다
     (num_waypoints_used / effective_waypoints_used / pool_cache_* 4종이 실제로 누락).
     """
-    params = {"target_km": target_km, "seed": seed}
+    params = {
+        "target_km": target_km,
+        "seed": seed,
+        "time_budget_sec": DEFAULT_TIME_BUDGET_SEC,
+    }
     return run_solver_task(SOLVER_REGISTRY[solver_key], _POOL_GRAPH, start_node, start_node, params)
 
 

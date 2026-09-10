@@ -27,6 +27,7 @@ import pandas as pd
 import pytest
 
 from benchmarks import benchmark as bm
+from benchmarks import config as bm_config
 from benchmarks import results as bm_results
 from benchmarks.solvers.base_solver import BasePathSolver
 from benchmarks.tests.fixtures import (
@@ -50,7 +51,12 @@ TEST_TIMEOUT_SEC = 3.0  # 정상/실패 케이스용 넉넉한 하드 타임아�
 # 주의: process.join(timeout=...)은 spawn 오버헤드까지 포함해서 잰다. 단독 실행 시
 # spawn은 ~0.05s지만, 테스트 스위트 안에서 프로세스 spawn이 연달아 누적되면 부하로
 # 인해 값이 튈 수 있어(관찰상 순간적으로 0.3s 초과) 넉넉하게 잡는다.
-SHORT_TIMEOUT_SEC = 1.5
+#
+# 2026-09-10: 1.5s였을 때 스위트 전체 실행에서 test_h4/test_h6이 간헐적으로 깨졌다
+# (같은 테스트를 단독 실행하면 통과 — 부하로 인한 spawn 지연이 원인). 게이트·스윕
+# 테스트가 늘면서 프로세스 spawn 횟수가 더 늘어 3.0s로 올린다. 이 값을 올려도
+# HangingSolver는 무한 대기라 타임아웃 검증 자체는 그대로 성립한다.
+SHORT_TIMEOUT_SEC = 3.0
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -454,6 +460,141 @@ def test_c2_runner_task_produces_the_same_row_shape_as_the_cli_path():
 
     assert set(runner_row) == set(cli_df.columns)
     assert runner_row["status"] == cli_df.iloc[0]["status"] == "ok"
+
+
+@pytest.mark.parametrize(
+    "path, target_km, expect_passed, expect_reason",
+    [
+        (["A", "B", "C", "D", "A"], 4.0, True, None),           # 4km 루프, 편차 0
+        (["A", "B", "C", "D", "A"], 6.0, False, "distance_deviation_km"),
+        (["A", "B", "A"], 2.0, False, "repeated_edge_ratio"),   # 단순 왕복 = 0.5 > 0.35
+    ],
+)
+def test_d1_gate_uses_only_final_path_observations(path, target_km, expect_passed, expect_reason):
+    """합격 게이트는 최종 경로 관측값(거리 편차·재통행·폐합·잔가시)만으로 판정한다."""
+    graph = nx.Graph()
+    for u, v in [("A", "B"), ("B", "C"), ("C", "D"), ("D", "A")]:
+        graph.add_edge(u, v, length=1000)
+
+    df = bm.run_benchmark(
+        [FixedPathSolver("Gated", path=path)], graph, "A", "A", {"target_km": target_km},
+        timeout_sec=TEST_TIMEOUT_SEC,
+    )
+    row = df.iloc[0]
+
+    assert bool(row["passed"]) is expect_passed
+    if expect_reason is None:
+        assert pd.isna(row["gate_failed_on"])
+    else:
+        assert expect_reason in row["gate_failed_on"]
+
+
+def test_d2_gate_is_not_applied_to_oneway_rows():
+    """편도 행은 게이트 대상이 아니다 — 닫히면 오히려 틀렸고, target_km을 아예 보지 않는
+    알고리즘(A*/Dijkstra)도 섞여 있어 같은 기준이 무의미하다."""
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=1000)
+
+    df = bm.run_benchmark(
+        [FixedPathSolver("Oneway", path=["A", "B"])], graph, "A", "B", {"target_km": 1.0},
+        timeout_sec=TEST_TIMEOUT_SEC,
+    )
+
+    assert pd.isna(df.iloc[0]["passed"])
+    assert pd.isna(df.iloc[0]["gate_failed_on"])
+
+
+def test_d3_failed_rows_are_gate_failures_on_circular_runs():
+    df = bm.run_benchmark(
+        [RaisingSolver("Boom")], None, "A", "A", {"target_km": 3.0}, timeout_sec=TEST_TIMEOUT_SEC,
+    )
+    row = df.iloc[0]
+
+    assert row["status"] == "failed"
+    assert bool(row["passed"]) is False
+    assert row["gate_failed_on"] == "status"
+
+
+def test_d4_gate_ignores_waypoint_derived_diagnostics():
+    """경유지 분해 기반 지표(feasible / is_degenerate_loop)가 나빠도 게이트는 통과한다.
+
+    경유지는 사용자와 약속한 대상이 아니라 순환 경로를 만들기 위한 내부 수단이므로,
+    최종 경로가 거리·겹침 기준을 만족하면 정상 해다(2026-09-10 결정).
+    """
+    row = {
+        "status": "ok",
+        "is_closed_loop": True,
+        "distance_deviation_km": 0.1,
+        "repeated_edge_ratio": 0.0,
+        "spike_count": 0,
+        # 아래는 전부 "나쁜" 값이지만 게이트가 보지 않는 항목이다.
+        "feasible": False,
+        "is_degenerate_loop": True,
+        "num_waypoints_used": 6,
+        "effective_waypoints_used": 1,
+        "segment_balance_ratio": 0.01,
+    }
+
+    passed, reason = bm_results.evaluate_gate(row, circular=True)
+
+    assert passed is True
+    assert reason is None
+
+
+def test_f1_refinement_cli_knobs_match_the_solver_and_engine_contracts():
+    """CLI 플래그 목록이 solver의 노브 표·엔진의 허용 정제 목록과 어긋나지 않는지 고정.
+
+    어긋난 채로 값을 실어 보내면 엔진 생성자가 ValueError로 막아 런타임에야 드러난다.
+    """
+    from benchmarks.solvers.grasp_waypoint_solver import _REFINEMENT_PARAM_KEYS
+    from src.route_engine.engines.waypoint_refinement import OPTIONS_AWARE_REFINEMENTS
+
+    for refinement, knob, _, _ in bm._REFINEMENT_CLI_KNOBS:
+        assert refinement in OPTIONS_AWARE_REFINEMENTS, f"{refinement}는 옵션 주입을 받지 않는다"
+        assert knob in _REFINEMENT_PARAM_KEYS[refinement], f"{refinement}_{knob}는 solver가 모르는 노브"
+
+
+def test_f2_refinement_knobs_only_reach_params_when_explicitly_given():
+    """지정하지 않은 노브는 params에 들어가지 않는다 — 엔진 기본값이 그대로 쓰여야 한다."""
+    args = bm.parse_args(["--algo", "grasp-wp-alns"])
+    assert bm.refinement_params_from_args(args) == {}
+
+    args = bm.parse_args([
+        "--algo", "grasp-wp-alns", "--alns-iterations", "60", "--vns-max-shake-level", "3",
+    ])
+    assert bm.refinement_params_from_args(args) == {"alns_iterations": 60, "vns_max_shake_level": 3}
+
+
+def test_f3_refinement_knob_params_are_understood_by_the_solver_adapter():
+    """CLI가 만든 params 키를 solver 어댑터가 그대로 정제 설정으로 되돌린다."""
+    from benchmarks.solvers.grasp_waypoint_solver import _refinement_options_from_params
+
+    args = bm.parse_args([
+        "--algo", "grasp-wp-alns", "--alns-iterations", "60", "--alns-cooling-rate", "0.9",
+    ])
+    params = bm.refinement_params_from_args(args)
+
+    assert _refinement_options_from_params("alns", params) == {"iterations": 60, "cooling_rate": 0.9}
+    assert _refinement_options_from_params("vns", params) is None
+
+
+def test_e1_seed_axis_only_repeats_solvers_that_read_the_seed():
+    """시드를 읽지 않는 solver까지 반복하면 실행 시간만 늘어난다."""
+    from benchmarks import run_all_scenarios as ras
+
+    tasks = ras._scenario_tasks(["grasp-wp-alns", "beam-wp", "grasp-circular"])
+    by_algo = {}
+    for key, seed in tasks:
+        by_algo.setdefault(key, []).append(seed)
+
+    assert len(by_algo["grasp-wp-alns"]) == len(bm_config.BENCHMARK_SEEDS)
+    assert by_algo["beam-wp"] == [None]
+    assert by_algo["grasp-circular"] == [None]
+
+
+def test_e2_seed_sensitive_solvers_are_all_registered():
+    """오타로 레지스트리에 없는 키가 들어가면 그 solver는 조용히 1회만 돌게 된다."""
+    assert bm.SEED_SENSITIVE_SOLVERS <= set(bm.SOLVER_REGISTRY)
 
 
 def test_r10_within_time_budget_flags_technically_ok_but_too_slow_runs():
