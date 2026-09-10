@@ -1,0 +1,24 @@
+{
+  "id": "sangmyung",
+  "name": "상명대학교 서울캠퍼스 정문",
+  "destination": {
+    "name": "경복궁역 3번 출입구",
+    "lat": 37.5762348,
+    "lon": 126.9726844,
+    "coordinate_source_name": "OpenStreetMap node 3403538914, ref=3, 경복궁역 3번출구",
+    "coordinate_source_url": "https://www.openstreetmap.org/node/3403538914",
+    "verified_date": "2026-09-10",
+    "verification_note": "OSM 공개 API에서 description=경복궁역 3번출구 및 ref=3 확인. 버스 정류장 또는 3-1번 출입구와 구분."
+  },
+  "origin": {
+    "name": "상명대학교 서울캠퍼스 정문",
+    "lat": 37.601446,
+    "lon": 126.955064,
+    "coordinate_source_name": "Google 지도 상명대정문 버스 정류장",
+    "coordinate_source_url": "https://www.google.com/maps/search/?api=1&query=37.601446%2C126.955064",
+    "identity_source_name": "상명대학교 서울캠퍼스 찾아오시는 길",
+    "identity_source_url": "https://www.sangmyung.ac.kr/kor/intro/road.do",
+    "verified_date": "2026-09-10",
+    "verification_note": "상명대학교 공식 안내에서 7016번 버스가 학교 정문에서 하차함을 확인하고, 지도에 등록된 상명대정문 정류장 좌표를 사용했습니다."
+  }
+}
