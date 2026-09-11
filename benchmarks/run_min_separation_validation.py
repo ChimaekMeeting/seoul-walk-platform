@@ -4,8 +4,9 @@ benchmarks/run_min_separation_validation.py
 P2-P3 최소거리 안전장치("Claude CLI 전달용 구현 지시서: 현재 구현을 유지한 상태에서
 P2-P3 최소거리와 추가 검증만 반영", 2026-08-30) §7이 요구하는 다중 조건 검증 러너.
 
-seed × target_km × start_node 조합마다 grasp-wp-local/vnd/vns와 비교 기준(grasp-circular)을
-동일 조건에서 실행하고, 결과를 원본 CSV(반올림 없는 값 그대로)로 저장한다. run_all_scenarios.py
+seed × target_km × start_node 조합마다 grasp-wp-local/vnd/vns를 동일 조건에서 실행하고
+(비교 기준이던 grasp-circular는 2026-09-11 레지스트리에서 제외),
+결과를 원본 CSV(반올림 없는 값 그대로)로 저장한다. run_all_scenarios.py
 와 달리 고정 시나리오 데이터셋(JSON)이 아니라 이 스크립트 자체가 정의하는 seed/target_km/
 start_node 격자를 순회한다.
 
@@ -32,7 +33,9 @@ from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 SEEDS = BENCHMARK_SEEDS  # 러너 공용 (구 [42, 7, 123] — 분산 추정 표본 부족으로 10개로 확대)
 TARGET_KMS = [3.0, 5.0]
 START_NODES = [1, 41417, 111383, 175895, 179044]  # largest_cc(=전체 그래프)에서 seed=2026으로 무작위 추출
-ALGOS = ["grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-circular"]  # grasp-circular = 기존 비교 기준
+# grasp-circular(기존 비교 기준)는 2026-09-11 커밋 4c7c924에서 SOLVER_REGISTRY에서 빠져
+# 제외했다. 비교 기준이 사라진 이 러너의 존치 여부는 순환 시나리오 재작성 때 정한다.
+ALGOS = ["grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns"]
 TIMEOUT_SEC = 400.0  # VNS가 target_km=5.0에서 최대 250초 안팎 걸리는 것을 감안한 여유
 
 _POOL_GRAPH = None

@@ -18,9 +18,15 @@ from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
-ONEWAY_ALGOS   = ["astar-oneway", "dijkstra-oneway", "bi-astar-oneway", "bi-dijkstra-oneway", "beam-oneway", "grasp-oneway", "alns-oneway", "rcsp-oneway", "plateau"]
+# 편도(최단거리) 계열 9종은 2026-09-11 커밋 4c7c924에서 SOLVER_REGISTRY에서 제외했다.
+# 순환 경로 검증이 끝난 뒤 리팩토링에서 되살린다 — 복구는
+#   git show 4c7c924 -- benchmarks/benchmark.py
+# 빈 목록이면 main()의 `if not algos: continue`가 편도 시나리오를 건너뛴다.
+ONEWAY_ALGOS: list[str] = []
+
+# 레거시 순환 4종(beam/grasp/alns/rcsp-circular)도 같은 커밋에서 빠졌다. 이쪽은 되살릴
+# 계획이 없다 — 신세대(grasp_waypoint_common 계열 / waypoint_beam+adapter) 9종으로 대체됐다.
 CIRCULAR_ALGOS = [
-    "beam-circular", "grasp-circular", "alns-circular", "rcsp-circular",
     "grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-wp-alns",
     # Beam 계열(2026-09-10 추가): SOLVER_REGISTRY에는 등록돼 있었는데 이 격자에만 빠져
     # 있어서 GRASP과 같은 조건에서 비교할 수 없었다.
@@ -129,9 +135,10 @@ def main():
         start_node = utils.find_nearest_node(case["start_lat"], case["start_lon"])
         target_node = utils.find_nearest_node(case["end_lat"], case["end_lon"]) if mode == "oneway" else start_node
 
-        # 순환 비교는 프로필을 고정한다 — wp 계열은 mode="distance" 고정이라 profile을
-        # 아예 읽지 않는 반면 레거시 grasp-circular/beam-circular는 반영해서, 시나리오
-        # 프로필을 그대로 쓰면 두 진영이 서로 다른 목적함수를 최적화한 채 비교된다.
+        # 순환 비교는 프로필을 고정한다. 현재 CIRCULAR_ALGOS 9종은 전부 mode="distance"
+        # 고정이라 profile을 아예 읽지 않으므로, 고정은 결과에 영향이 없고 CSV에 "프로필
+        # 없이 돌았다"는 사실을 명시하는 역할만 한다(프로필을 읽던 레거시 grasp-circular/
+        # beam-circular는 4c7c924에서 제외돼 두 진영 간 목적함수 불일치는 소멸했다).
         # 편도는 프로필을 정상적으로 쓰므로 시나리오 값을 그대로 둔다.
         profile = case["profile"] if mode == "oneway" else CIRCULAR_BENCHMARK_PROFILE
         fixed_note = " (고정)" if profile != case["profile"] else ""

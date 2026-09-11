@@ -5,8 +5,9 @@ benchmarks/run_geometry_validation.py
 segment_balance_ratio/is_degenerate_loop, 2026-08-30 요청)가 추가된 이후의 다중 조건
 재검증 러너. 이전 두 스크립트(run_min_separation_validation.py, run_alns_validation.py)의
 CSV는 이 컬럼들이 생기기 전에 만들어져 집계에 쓸 수 없다 — 같은 seed×target_km×
-start_node 격자에서 grasp-wp-local/vnd/vns/alns + grasp-circular(기존 비교 기준)를
-한 번에 다시 실행해 새 컬럼이 포함된 CSV를 만든다.
+start_node 격자에서 grasp-wp-local/vnd/vns/alns를 한 번에 다시 실행해 새 컬럼이 포함된
+CSV를 만든다. (비교 기준이던 grasp-circular는 2026-09-11 레지스트리에서 제외됐다 —
+기존 geometry_validation_results.csv 500행에는 그 행이 남아 있다.)
 
 실행:
     python -m benchmarks.run_geometry_validation
@@ -43,7 +44,9 @@ START_NODE_COORDS = {
     179044: (37.528862, 127.004334),
 }
 START_NODES = list(START_NODE_COORDS)
-ALGOS = ["grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-wp-alns", "grasp-circular"]
+# grasp-circular(기존 비교 기준)는 2026-09-11 커밋 4c7c924에서 SOLVER_REGISTRY에서 빠져
+# 제외했다. 비교 기준이 사라진 이 러너의 존치 여부는 순환 시나리오 재작성 때 정한다.
+ALGOS = ["grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-wp-alns"]
 TIMEOUT_SEC = 400.0
 
 _POOL_GRAPH = None

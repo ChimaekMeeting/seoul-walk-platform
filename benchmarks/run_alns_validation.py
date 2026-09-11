@@ -3,9 +3,9 @@ benchmarks/run_alns_validation.py
 
 GRASP+ALNS 검수 요청서(2026-08-30) §7이 요구하는 다중 조건 검증 러너.
 run_min_separation_validation.py와 같은 seed×target_km×start_node 격자에서
-grasp-wp-alns만 실행한다 — Local/VND/VNS/grasp-circular는 이미 그 스크립트가 같은
-격자로 실행 중이라 중복 실행하지 않는다. 두 CSV는 (seed, start_node, target_km) 키로
-합쳐서 비교할 수 있다.
+grasp-wp-alns만 실행한다 — Local/VND/VNS는 이미 그 스크립트가 같은 격자로 실행
+중이라 중복 실행하지 않는다(grasp-circular는 2026-09-11 레지스트리에서 제외). 두 CSV는
+행으로 쌓아서(concat) 비교한다 — aggregate_results.load_results() 참고.
 
 실행:
     python -m benchmarks.run_alns_validation

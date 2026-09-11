@@ -582,14 +582,15 @@ def test_e1_seed_axis_only_repeats_solvers_that_read_the_seed():
     """시드를 읽지 않는 solver까지 반복하면 실행 시간만 늘어난다."""
     from benchmarks import run_all_scenarios as ras
 
-    tasks = ras._scenario_tasks(["grasp-wp-alns", "beam-wp", "grasp-circular"])
+    # grasp-circular 케이스는 2026-09-11 레지스트리에서 제외된 키라 뺐다 — 미등록 키로도
+    # 통과해버려 존재하지 않는 solver를 검증하고 있었다. 명제는 beam-wp로 충분하다.
+    tasks = ras._scenario_tasks(["grasp-wp-alns", "beam-wp"])
     by_algo = {}
     for key, seed in tasks:
         by_algo.setdefault(key, []).append(seed)
 
     assert len(by_algo["grasp-wp-alns"]) == len(bm_config.BENCHMARK_SEEDS)
     assert by_algo["beam-wp"] == [None]
-    assert by_algo["grasp-circular"] == [None]
 
 
 def test_e2_seed_sensitive_solvers_are_all_registered():
