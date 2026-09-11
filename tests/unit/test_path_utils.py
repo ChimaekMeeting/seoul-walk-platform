@@ -191,3 +191,54 @@ class TestPruneDeadEnds:
         result = utils.prune_dead_ends(path, max_branch_length=400.0)
         # 500m 구간은 제거 대상 아님
         assert len(result) == len(path)
+
+
+# ── prune_dead_ends의 삭제 기록(sink) ────────────────────────────────────────
+#
+# "겹침 제거 로직을 겹침 기준으로 바꿀지, 아예 뺄지"를 나중에 데이터로 판단하기 위한
+# 순수 진단 훅(2026-09-09). sink를 넘겨도 반환값은 달라지지 않아야 한다.
+
+
+def _block_graph(edge_m: float = 50.0) -> nx.Graph:
+    """4개 노드로 이루어진 블록 하나 + 곁가지. 엣지 길이를 실제 도보망 수준으로 짧게 둬
+    블록 한 바퀴(4구간)가 max_branch_length(400m) 안에 들어오게 한다."""
+    G = nx.Graph()
+    for a, b in ((0, 1), (1, 2), (2, 3), (3, 0), (1, 9)):
+        G.add_edge(a, b, length=edge_m)
+    return G
+
+
+class TestPruneDeadEndsSink:
+    def test_sink를_넘겨도_반환값이_같다(self):
+        utils = PathUtils(_block_graph())
+        path = [0, 1, 9, 1, 2]
+        sink = []
+        assert utils.prune_dead_ends(path, sink=sink) == utils.prune_dead_ends(path)
+        assert sink  # 기록은 남아야 한다
+
+    def test_순수_왕복은_재통행률_0_5로_기록된다(self):
+        utils = PathUtils(_block_graph())
+        sink = []
+        utils.prune_dead_ends([0, 1, 9, 1, 2], sink=sink)
+        assert len(sink) == 1
+        branch = sink[0]
+        assert branch.anchor == 1
+        assert branch.overlap_ratio == pytest.approx(0.5)  # 같은 엣지를 두 번 통행
+        assert branch.length_m == pytest.approx(100.0)
+        assert branch.interior == (9,)  # 이 제거로 경로에서 빠지는 노드
+
+    def test_겹침_없는_블록_순환도_지워지며_재통행률_0으로_기록된다(self):
+        """현재 규칙이 되짚어 온 길과 한 바퀴 돌아온 길을 구분하지 못한다는 사실 자체를
+        고정한다 — 겹침 기준으로 바꾸면 살아남아야 할 구간이다."""
+        utils = PathUtils(_block_graph())
+        sink = []
+        result = utils.prune_dead_ends([0, 1, 2, 3, 0], sink=sink)
+        assert result == [0]  # 겹치는 엣지가 하나도 없는데 통째로 삭제된다
+        assert len(sink) == 1
+        assert sink[0].overlap_ratio == 0.0
+        assert sink[0].length_m == pytest.approx(200.0)
+
+    def test_sink를_안_넘기면_아무것도_기록하지_않는다(self):
+        utils = PathUtils(_block_graph())
+        # sink 기본값 None에서 예외 없이 기존 경로로 동작하는지만 확인한다.
+        assert utils.prune_dead_ends([0, 1, 9, 1, 2]) == [0, 1, 2]

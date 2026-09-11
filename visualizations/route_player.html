@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ROUDI · 경로 탐색 재생</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f6f7fa;color:#18222f;font:16px/1.6 system-ui,'Malgun Gothic',sans-serif}
+main{max-width:1240px;margin:auto;padding:28px}h1{font-size:27px;margin:0 0 6px}p{margin:8px 0}.muted{color:#5a6778;font-size:14px}
+label{font-weight:650}select,button{font:inherit;padding:9px 13px;border:1px solid #cbd2dc;border-radius:7px;background:white;color:inherit}
+select{max-width:100%;width:520px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button.primary{background:#174fcd;color:white;border-color:#174fcd}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:20px;margin-top:18px}.plot{background:white;border:1px solid #dce1e8;border-radius:10px;padding:12px}
+canvas{display:block;width:100%;height:580px}.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;padding:6px 4px}.legend span:before{content:'';display:inline-block;width:14px;height:4px;background:var(--swatch);vertical-align:middle;margin-right:5px}
+canvas{background:#090f1a;border-radius:6px;cursor:grab;touch-action:none}.plot{background:#090f1a!important;color:#dce8fa}.map-tools{display:flex;gap:6px;justify-content:flex-end}.map-tools button{background:#1a2638;color:#eff6ff;border-color:#43516a;padding:4px 10px}.map-tools small{margin-right:auto;color:#a6b7d0}
+aside{background:white;border:1px solid #dce1e8;border-radius:10px;padding:20px}aside h2{font-size:21px;margin:7px 0}.eyebrow{font-size:13px;color:#536275}.detail{min-height:170px}.metric{border-top:1px solid #e1e6ed;padding-top:14px;margin-top:16px}.metric strong{font-size:25px}.warning{color:#a23b12}.controls{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:14px}input[type=range]{width:100%;accent-color:#174fcd}.footer{margin-top:18px;font-size:13px;color:#59667a}
+@media(max-width:780px){main{padding:16px}.layout{grid-template-columns:1fr}canvas{height:420px}.detail{min-height:0}aside{padding:16px}h1{font-size:23px}}
+.comparison{background:white;border:1px solid #dce1e8;border-radius:10px;padding:18px;margin:20px 0}.comparison h2{margin:0;font-size:20px}.table-scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:10px 9px;border-bottom:1px solid #e1e6ed;white-space:nowrap}th{color:#536275;font-size:12px}tr.selected{background:#edf4ff}td button{padding:4px 8px;font-size:14px}.stage-values{font-size:13px;margin-top:12px;background:#f4f7fb;padding:12px;border-radius:7px}.stage-values p{margin:5px 0}.story-options{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}.story-options select{width:auto}.decision{font-weight:600}.scene-note{font-size:13px;color:#536275}.layout{grid-template-columns:minmax(0,1fr) 330px}.scroll-hint{display:none}.map-tools button{white-space:nowrap;flex-shrink:0}.map-tools small{font-size:12px;min-width:0}@media(max-width:780px){.layout{grid-template-columns:1fr}.scroll-hint{display:block}}
+</style>
+<main>
+  <h1>경로가 만들어지는 과정</h1>
+  <p class="muted">상명대 정문 출발 · 실제 엔진의 탐색·경유지 선택·지역 개선 기록</p>
+  <section class="comparison" aria-label="같은 목적의 결과 비교">
+    <h2 id="comparison-title">결과 비교</h2>
+    <p class="muted">행의 ‘과정 보기’를 눌러 중요한 변화 장면을 확인하세요. 거리와 재통행 비율은 반환된 첫 번째 후보 기준입니다.</p>
+    <div class="table-scroll"><table><thead><tr><th>방식</th><th>실제 계산</th><th>최종 거리</th><th>목표 오차</th><th>목표 판정</th><th>재통행</th><th></th></tr></thead><tbody id="comparison-body"></tbody></table></div>
+    <p class="muted scroll-hint">표를 좌우로 밀어 나머지 수치와 과정 보기 버튼을 확인하세요.</p>
+    <p class="muted" id="comparison-settings"></p>
+    <p class="muted">계산 시간은 애니메이션 길이와 별개입니다. 1회 실행의 관측이므로 성능 순위를 확정하지 않습니다.</p>
+    <details class="muted"><summary>측정 조건과 비교할 때 볼 점</summary><p>시간은 기록을 끈 경로 생성 실행 1회입니다. 도보망 읽기·복사·엔진 준비·화면 생성은 제외하고, 실행 안의 전처리와 응답 생성은 포함합니다. 기록 실행 다음에 측정했습니다. GRASP의 재시작 횟수와 난수 조건을 함께 확인하고, 방식별로 다른 허용 오차보다 실제 거리 오차와 재통행 수치도 비교하세요.</p></details>
+  </section>
+  <label for="scenario">테스트 상황</label><br>
+  <select id="scenario"></select>
+  <p id="intent" class="muted"></p>
+  <div class="story-options"><label for="playback-mode">재생 범위</label><select id="playback-mode"><option value="key">핵심 장면</option><option value="all">전체 기록</option></select><span id="story-summary" class="muted"></span></div>
+  <div class="layout">
+    <section class="plot" aria-label="도보망과 탐색 과정">
+      <div class="map-tools"><small>휠로 확대 · 드래그로 이동</small><button id="zoom-in" aria-label="확대">＋</button><button id="zoom-out" aria-label="축소">－</button><button id="fit">전체보기</button></div>
+      <canvas id="map" role="img" aria-label="상명대와 경복궁역 주변 도보망의 경로 탐색 단계"></canvas>
+      <div class="legend">
+        <span style="--swatch:#43516a">미탐색 길</span><span style="--swatch:#ffc247">확장 후보 / 대기 지점</span>
+        <span style="--swatch:#57d7ff">현재 경로 / 유지 후보</span><span style="--swatch:#97ddb5">확인한 연결</span>
+        <span style="--swatch:#68ff97">반환 경로</span><span style="--swatch:#f88fc1">변경 전 경로</span><span style="--swatch:#d6a6ff">점선: 경유지 순서</span>
+      </div>
+    </section>
+    <aside aria-live="polite">
+      <div class="eyebrow" id="progress"></div><h2 id="phase"></h2>
+      <div class="detail"><p id="explanation"></p><p id="counts" class="muted"></p></div>
+      <p id="decision" class="decision"></p><div id="stage-values" class="stage-values"></div><p id="scene-note" class="scene-note"></p>
+      <div class="metric"><div class="eyebrow">반환 결과 · 대표 후보</div><strong id="distance"></strong><p id="target" class="muted"></p><p id="quality"></p></div>
+    </aside>
+  </div>
+  <div class="controls">
+    <button id="play" class="primary">재생</button><button id="prev">이전 단계</button><button id="next">다음 단계</button><button id="final">최종 결과</button><button id="reset">처음으로</button>
+    <label for="speed">속도</label><select id="speed" style="width:auto"><option value="700">천천히</option><option value="250" selected>보통</option><option value="80">빠르게</option></select>
+  </div>
+  <label for="step" class="muted">탐색 단계 이동</label><input id="step" type="range" min="0" value="0">
+  <p class="footer">거리 기반 실험이며 기존 후보 선택·정리 규칙을 유지합니다. A*는 큐에서 꺼내는 매 단계를 기록합니다. 지역 개선의 검토 후보는 5개마다 표본을 보여주며 실제 개선은 모두 기록합니다. Beam·경유지 간 A* 연결은 완성 구간으로 표시합니다. 보라색 점선은 경유지 순서이며 실제 도로가 아닙니다. 재생 시간은 계산 시간이 아닙니다.</p>
+</main>
+<script id="route-data" type="application/json">__ROUTE_DATA__</script>
+<script>
+(()=>{
+  'use strict';
+  const data=JSON.parse(document.getElementById('route-data').textContent);
+  const $=id=>document.getElementById(id), canvas=$('map'), ctx=canvas.getContext('2d');
+  let result, index=0, timer=null, camera, lastScale=1, drag=null, timeline=[];
+  data.cases.forEach((item,i)=>{const o=document.createElement('option');o.value=i;o.textContent=item.request;$('scenario').append(o)});
+  const descriptions={
+    refinement_done:['한 초기 후보의 개선 완료','분홍색 초기 경로와 개선 과정을 마친 하늘색 경로를 비교합니다. 서로 다른 재시작 후보를 전후 변화로 섞지 않습니다.'],
+    vns_decision:['VNS · 교란 후 재개선 판단','교란 후보를 VND로 개선한 결과(하늘색)를 기존 경로(분홍색)와 비교합니다. 기각된 하늘색 경로는 이후 현재 경로로 쓰이지 않습니다.'],
+    grasp_choice:['GRASP · 경유지 선택','주황색 후보 중 실제로 선택된 경유지를 강조합니다. 보라색 점선은 현재 선택 순서이며, 도로 경로로 연결하기 전입니다.'],
+    constructed:['GRASP · 초기 경로 생성','선택한 경유지를 실제 도보망에서 연결해 만든 초기 경로입니다.'],
+    construction_failed:['GRASP · 초기 경로 생성 실패','이번 경유지 선택으로 유효한 초기 경로를 만들지 못했습니다. 다음 재시작으로 넘어갑니다.'],
+    neighbor:['지역 개선 · 후보 검토','현재 경로(분홍색)에서 경유지를 바꾼 후보(하늘색)를 검토합니다. 아직 채택된 결과는 아닙니다.'],
+    improved:['지역 개선 · 변경 채택','실제 비교 기준에서 개선된 후보를 현재 경로로 채택했습니다.'],
+    winner:['전체 최선 경로 갱신','지금까지 만든 결과 중 가장 좋은 경로가 바뀌었습니다.'],
+    shake:['VNS · 경로 교란','현재 경로를 바꿔 새로운 지역을 탐색합니다. 이어서 VND로 다시 개선합니다.'],
+    shake_failed:['VNS · 교란 실패','이 교란 방식으로 유효한 후보를 만들지 못했습니다. 다음 시도를 진행합니다.'],
+    destroy:['ALNS · 일부 경유지 제거','이전 경유지 순서에서 일부를 제거했습니다. 도로 경로가 아닌 경유지 순서를 점선으로 표시합니다.'],
+    repair:['ALNS · 경유지 재삽입','제거한 자리를 새로운 후보로 채워 경유지 순서를 만들었습니다. 아직 서비스의 최종 경로가 아닙니다.'],
+    alns_accept:['ALNS · 내부 수락 판단','ALNS 내부 비용·온도 규칙의 판단입니다. 나쁜 후보를 일시적으로 받아들일 수 있고, 최선해는 별도로 보존합니다.'],
+    alns_result:['ALNS · 실제 경로 재검증','ALNS 결과를 도로 경로로 연결하고 기존 경로와 비교합니다. 경유지 간격과 재통행 등을 확인해 최종적으로 반영하거나 기존 경로를 유지합니다.'],
+    start:['출발 준비','출발점과 도착점을 도보망에 연결했습니다. 재생을 누르면 실제 탐색 기록을 순서대로 볼 수 있습니다.'],
+    astar:['A* · 다음 지점 확인','도착지까지의 예상 비용을 기준으로 우선순위 큐에서 지점을 꺼냅니다. 파란 점이 이번 지점, 주황색은 대기 중인 지점입니다. 이미 더 좋은 경로가 있으면 꺼낸 항목을 건너뛸 수도 있습니다.'],
+    expand:['Beam · 후보 확장','남겨 둔 각 경로의 끝에서 이웃 길로 한 단계씩 확장했습니다. 주황색 선은 이번에 만들어진 후보 경로입니다.'],
+    keep:['Beam · 상위 후보 유지','기존 엔진의 정렬 기준으로 상위 최대 8개 경로를 남겼습니다. 파란 선이 다음 탐색으로 이어질 후보입니다.'],
+    connect:['도착점으로 연결','한 후보의 끝에서 도착점까지 연결한 완성 경로입니다. 순환은 상명대로 돌아갑니다. 아직 최종 선택된 경로는 아닙니다.'],
+    selection:['완성 후보 선택','도착점 연결에 성공한 후보를 비교한 뒤 최대 3개를 골랐습니다. 다음 단계에서 기존 정리 규칙을 적용합니다.'],
+    prune:['기존 정리 규칙 적용','분홍색은 정리 전, 파란색은 정리 후입니다. 현재 코드는 반복 노드 사이의 짧은 구간을 제거하므로, 정리 후 목표 거리에서 멀어질 수도 있습니다.'],
+    final:['반환 결과','초록색은 엔진이 실제 반환한 경로입니다. 굵은 선은 대표 후보, 옅은 선은 추가 후보입니다. 목표 거리 충족 여부는 오른쪽 결과를 확인하세요.']
+  };
+  function stop(){if(timer!==null)clearInterval(timer);timer=null;$('play').textContent='재생'}
+  const km=v=>(v/1000).toFixed(3)+' km', pct=v=>(v*100).toFixed(1)+'%', seconds=v=>v==null?'미측정':v<1?(v*1000).toFixed(1)+' ms':v.toFixed(3)+' s';
+  function comparison(){
+    const circular=result.start.node===result.end.node;
+    const rows=data.results.filter(r=>circular?r.start.node===r.end.node&&r.target_m===result.target_m:r.mode===result.mode);
+    $('comparison-title').textContent=circular?'상명대 '+km(result.target_m)+' 순환 · 결과 비교':result.mode==='shortest'?'상명대 → 경복궁역 · 최단거리 결과':'상명대 → 경복궁역 · 편도 우회 결과';
+    $('comparison-body').replaceChildren();
+    rows.forEach(r=>{const m=r.metrics[0],tr=document.createElement('tr');tr.className=r.mode===result.mode?'selected':'';
+      const cells=[r.mode==='circular'?'순환 Beam':r.engine,seconds(r.run_seconds),m?km(m.distance_m):'경로 없음',m?.target_error_m!=null?m.target_error_m.toFixed(1)+' m':'해당 없음',!r.route_valid?'경로 검증 실패':m?.target_within_tolerance==null?'Dijkstra 일치':(m.target_within_tolerance?'범위 안':'범위 밖')+' (±'+Math.round(r.tolerance_ratio*100)+'%)',m?pct(m.repeated_edge_ratio):'—'];
+      cells.forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===4&&(!r.route_valid||m?.target_within_tolerance===false))td.className='warning';tr.append(td)});
+      const td=document.createElement('td'),button=document.createElement('button');button.textContent='과정 보기';button.setAttribute('aria-label',cells[0]+' 과정 보기');button.onclick=()=>{$('scenario').value=data.cases.findIndex(c=>c.result===r.mode);choose()};td.append(button);tr.append(td);$('comparison-body').append(tr);
+    });
+    const configured=rows.find(r=>r.settings);
+    $('comparison-settings').textContent=(configured?'GRASP 계열: '+configured.settings+' · 같은 seed여도 개선 과정의 난수 소비로 이후 초기 후보는 달라질 수 있습니다. ':'')+'재통행 = 이미 지난 무방향 엣지를 다시 걷는 거리 / 전체 거리. 목표 범위 안에서도 오차와 재통행을 함께 보세요.';
+  }
+  function setTimeline(){timeline=$('playback-mode').value==='key'?result.keyframes:result.trace.map((_,i)=>i);$('step').max=timeline.length-1;$('story-summary').textContent=timeline.length+'개 장면 / 전체 '+result.trace.length+'개 기록';}
+  function choose(){stop();index=0;const chosen=data.cases[Number($('scenario').value)];result=data.results.find(r=>r.mode===chosen.result);camera={...result.bounds};setTimeline();comparison();
+    $('intent').textContent=chosen.verification?'이 요청은 기존 챗봇 규칙에 따라 순환 기록을 함께 보여줍니다. 실제 챗봇 응답 검증은 포함하지 않습니다.':'도착점: '+(result.start.node===result.end.node?'출발점으로 복귀':'경복궁역 3번 출입구')+' · '+result.engine+' · '+result.settings;
+    const m=result.metrics[0];$('distance').textContent=m?(m.distance_m/1000).toFixed(3)+' km':'경로 없음';
+    $('target').textContent=result.target_m?'목표 '+(result.target_m/1000).toFixed(3)+' km · 허용 오차 ±'+Math.round(result.tolerance_ratio*100)+'%':'Dijkstra 거리와 대조한 최단 경로';
+    $('quality').className='';
+    if(!result.route_valid){$('quality').textContent='경로 연결 또는 출발·도착 검증 실패';$('quality').className='warning'}
+    else if(m?.target_within_tolerance===false){$('quality').textContent='목표 범위 벗어남 · 오차 '+Math.round(m.target_error_m)+'m';$('quality').className='warning'}
+    else $('quality').textContent=m.target_error_m===null?'연결·출발·도착 검증 통과':'목표 범위 안 · 오차 '+Math.round(m.target_error_m)+'m';
+    draw();
+  }
+  function draw(){
+    if(!result)return;const event=result.trace[timeline[index]], box=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(box.width*dpr);canvas.height=Math.round(box.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);
+    const w=box.width,h=box.height,pad=40,scale=(Math.min(w,h)-pad*2)/(camera.radius*2);lastScale=scale;
+    const xy=p=>[w/2+(p[0]-camera.cx)*scale,h/2-(p[1]-camera.cy)*scale], point=n=>xy(data.nodes[n]);
+    ctx.fillStyle='#090f1a';ctx.fillRect(0,0,w,h);
+    function line(coords,color,width=1,alpha=1){if(!coords.length)return;ctx.strokeStyle=color;ctx.lineWidth=width;ctx.globalAlpha=alpha;ctx.beginPath();coords.forEach((p,i)=>{const q=xy(p);if(i)ctx.lineTo(...q);else ctx.moveTo(...q)});ctx.stroke();ctx.globalAlpha=1}
+    function path(nodes,color,width=1,alpha=1){line(nodes.map(n=>data.nodes[n]),color,width,alpha)}
+    function dot(n,color,r=2){if(!data.nodes[n])return;const p=point(n);ctx.fillStyle=color;ctx.beginPath();ctx.arc(...p,r,0,2*Math.PI);ctx.fill()}
+    data.background.forEach(s=>line(s,'#344257',.8));
+    (event.tree||[]).forEach(edge=>path(edge,'#97ddb5',2));
+    (event.frontier||[]).forEach(n=>dot(n,'#ffc247',3));(event.choices||[]).forEach(n=>dot(n,'#ffc247',5));
+    if(event.before)path(event.before,'#f88fc1',5,.8);
+    const shade=event.phase==='final'?'#68ff97':event.phase==='expand'?'#ffc247':'#57d7ff';
+    event.paths.forEach((p,i)=>path(p,shade,i===0?3.3:2,i===0?1:.65));
+    if(event.previous_waypoints){ctx.setLineDash([4,6]);path([result.start.node,...event.previous_waypoints,result.end.node],'#f88fc1',2);ctx.setLineDash([])}
+    if(event.waypoints){ctx.setLineDash([5,7]);if(!event.paths.length)path([result.start.node,...event.waypoints,result.end.node],'#d6a6ff',2);ctx.setLineDash([]);event.waypoints.forEach((n,i)=>{dot(n,'#d6a6ff',6);const p=point(n);ctx.fillStyle='#f5eaff';ctx.font='bold 13px system-ui';ctx.fillText('W'+(i+1),p[0]+9,p[1]+16)})}
+    if(event.current!==undefined){dot(event.current,'#57d7ff',9);dot(event.current,'#fff',4)}
+    const same=result.start.node===result.end.node;
+    [[result.start.node,'#ff7272',same?'상명대 · 출발/복귀':'상명대 · 출발'],...(!same?[[result.end.node,'#fff','경복궁역 3번 · 도착']]:[])].forEach(([n,color,label])=>{
+      dot(n,'#090f1a',9);dot(n,color,6);const p=point(n);ctx.font='bold 14px system-ui';ctx.textAlign=p[0]>w*.65?'right':'left';const lx=p[0]+(ctx.textAlign==='right'?-10:10),ly=Math.max(18,p[1]-12);ctx.lineWidth=4;ctx.strokeStyle='#090f1a';ctx.strokeText(label,lx,ly);ctx.fillStyle=color;ctx.fillText(label,lx,ly)
+    });
+    const barMeters=camera.radius>1000?500:camera.radius>200?100:25, barPx=barMeters*scale;ctx.strokeStyle='#cbdcf5';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(16,h-22);ctx.lineTo(16+barPx,h-22);ctx.stroke();ctx.textAlign='left';ctx.fillStyle='#cbdcf5';ctx.font='12px system-ui';ctx.fillText(barMeters+'m · 북쪽 ↑',16,h-29);
+    const text=descriptions[event.phase];$('phase').textContent=text[0];$('explanation').textContent=text[1];$('progress').textContent=(index+1)+' / '+timeline.length+' 장면 · 전체 기록 '+(timeline[index]+1)+'번';
+    $('counts').textContent=event.iteration?'확장 '+event.iteration+'회 · 생성 '+event.generated+'개 · 유지 '+event.kept+'개 · 연결 대기 '+event.finished+'개':event.popped?'큐에서 꺼냄 '+event.popped+'회 · 대기 지점 '+event.frontier.length+'개':'';
+    if(event.examined)$('counts').textContent='검토 '+event.examined+'회 · 이웃 방식 '+event.neighborhood;
+    if(event.shake_level)$('counts').textContent='교란 레벨 '+event.shake_level;
+    if(event.accepted!==undefined)$('counts').textContent=event.accepted?'채택':'기각 / 기존 경로 유지';
+    $('decision').textContent=event.decision_reason||'';
+    const values=$('stage-values');values.replaceChildren();const add=t=>{const p=document.createElement('p');p.textContent=t;values.append(p)};
+    const before=event.before_metrics,after=event.stage_metrics;
+    if(after){add(before?(event.phase==='winner'?'이전 전체 최선 → 새 전체 최선':event.phase==='neighbor'||event.phase==='vns_decision'?'기존 경로 → 검토 후보':'변경 전 → 이 단계 결과'):after.complete?'이 장면의 완성 경로':'탐색 중인 부분 경로 · 최종 결과 아님');
+      add('거리: '+(before?km(before.distance_m)+' → ':'')+km(after.distance_m));
+      if(after.target_error_m!=null)add('목표 오차: '+(before?.target_error_m!=null?before.target_error_m.toFixed(1)+' m → ':'')+after.target_error_m.toFixed(1)+' m');
+      add('재통행: '+(before?pct(before.repeated_edge_ratio)+' → ':'')+pct(after.repeated_edge_ratio));
+      if(event.changed===false)add('개선 과정 전후에 경로 변화가 없습니다.');
+    }else add('도로 경로로 연결하기 전이므로 거리·재통행 수치를 표시하지 않습니다.');
+    if(event.waypoint_changes){const c=event.waypoint_changes;add('경유지: 제거 '+c.removed.length+'개 · 추가 '+c.added.length+'개'+(!c.removed.length&&!c.added.length&&c.order_changed?' · 순서 변경':''));}
+    if(event.delta!==undefined)add('ALNS 내부 평가값 변화 '+event.delta.toFixed(3)+' · 온도 '+event.temperature.toFixed(3)+' (도로 거리 변화와 다름)');
+    if(event.internal_before){add('ALNS 내부 구간 거리 합: '+km(event.internal_before.distance_m)+' → '+km(event.internal_after.distance_m));add('내부 목표 오차: '+event.internal_before.error_m.toFixed(1)+' m → '+event.internal_after.error_m.toFixed(1)+' m · 도로 재연결·정리 전 평가');}
+    if(event.phase==='alns_result'&&event.objective_after){add('최종 반영 판단에 쓴 후보:');add('목표 오차 '+event.objective_before.distance_error_m.toFixed(1)+' m → '+event.objective_after.distance_error_m.toFixed(1)+' m');add('재통행 '+pct(event.objective_before.repeated_edge_ratio)+' → '+pct(event.objective_after.repeated_edge_ratio));add(event.accepted?'이 후보를 반영했습니다.':'이 후보는 기각했으며 위 지도와 경로 수치는 유지된 결과입니다.');}
+    const skipped=index?timeline[index]-timeline[index-1]-1:0;
+    $('scene-note').textContent=$('playback-mode').value==='key'?(skipped?'앞선 반복 기록 '+skipped+'개 생략. ':'')+'변화·판단 중심의 대표 장면입니다. 나머지는 전체 기록에서 볼 수 있습니다.':'기록된 모든 장면입니다. 지역 개선 후보 검토는 5개마다 표본 기록하며 실제 개선은 모두 기록합니다.';
+    $('step').value=index;$('prev').disabled=index===0;$('next').disabled=index===timeline.length-1;
+  }
+  $('scenario').value=data.cases.findIndex(c=>c.result==='circular');
+  $('playback-mode').onchange=()=>{stop();const raw=timeline[index];setTimeline();const next=timeline.findIndex(i=>i>=raw);index=next<0?timeline.length-1:next;draw()};
+  $('scenario').onchange=choose;$('prev').onclick=()=>{stop();index=Math.max(0,index-1);draw()};$('next').onclick=()=>{stop();index=Math.min(timeline.length-1,index+1);draw()};
+  $('final').onclick=()=>{stop();index=timeline.length-1;draw()};$('reset').onclick=()=>{stop();index=0;draw()};$('step').oninput=()=>{stop();index=Number($('step').value);draw()};
+  function play(){if(timer!==null){stop();return}if(index===timeline.length-1)index=0;$('play').textContent='일시정지';timer=setInterval(()=>{index=Math.min(timeline.length-1,index+1);draw();if(index===timeline.length-1)stop()},Number($('speed').value))}
+  $('play').onclick=play;$('speed').onchange=()=>{if(timer!==null){stop();play()}};new ResizeObserver(draw).observe(canvas);choose();
+  const zoom=f=>{camera.radius=Math.max(30,Math.min(result.bounds.radius*2,camera.radius*f));draw()};
+  $('zoom-in').onclick=()=>zoom(.7);$('zoom-out').onclick=()=>zoom(1/.7);$('fit').onclick=()=>{camera={...result.bounds};draw()};
+  canvas.addEventListener('wheel',e=>{e.preventDefault();zoom(e.deltaY>0?1.15:1/1.15)},{passive:false});
+  canvas.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId)};
+  canvas.onpointermove=e=>{if(drag){camera.cx-=(e.clientX-drag.x)/lastScale;camera.cy+=(e.clientY-drag.y)/lastScale;drag={x:e.clientX,y:e.clientY};draw()}};
+  canvas.onpointerup=canvas.onpointercancel=()=>{drag=null};
+})();
+</script>
+</html>

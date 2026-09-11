@@ -41,12 +41,52 @@ class MissingEdgeAttributeError(KeyError):
     그렇게 하면 모든 비용이 0으로 계산되는 오류가 숨겨질 수 있다."""
 
 
+def surviving_waypoints(node_ids: Sequence[int], waypoints: Sequence[int]) -> list[int]:
+    """왕복 가지 제거(PathUtils.prune_dead_ends) 이후 node_ids에 실제로 남아 있는
+    경유지만 요청 순서 그대로 추린다(2026-09-09 버그픽스).
+
+    build_cycle_route는 구간을 이어붙인 뒤 prune_dead_ends로 "잠깐 나갔다 그대로
+    되돌아오는" 가지를 걷어내는데, 그 가지가 곧 어떤 경유지로 들어갔다 나오는 왕복
+    구간이면 경유지 노드 자체가 node_ids에서 사라진다. 그런데도 Route.waypoints는
+    선언값 그대로 남아, "경유지 6개를 지난다"고 기록하면서 실제로는 1개만 지나는
+    Route가 정상 해로 채택됐다.
+
+    판정 기준은 "그 노드를 실제로 지나는가"뿐이다 — 자기 구간이 통째로 pruning됐어도
+    다른 구간이 우연히 그 노드를 지나면 생존으로 센다. 경로 위에 실재하는지가
+    이 지표가 답하려는 질문이기 때문이다.
+    """
+    remaining = set(node_ids)
+    return [w for w in waypoints if w in remaining]
+
+
 @dataclass
 class Route:
     node_ids: list[int]
-    waypoints: list[int]  # p1 다음 정류점부터 순서대로
+    waypoints: list[int]  # p1 다음 정류점부터 순서대로 — "무엇을 요청했는가"(탐색 입력)
     distance_m: float
     repeated_edge_ratio: float
+    effective_waypoints: Optional[list[int]] = None
+    # pruning 이후 node_ids에 실제로 남은 경유지 — "무엇을 실제로 지났는가"(관측값).
+    # None으로 두고 만들면 __post_init__이 node_ids/waypoints에서 계산해 채우므로,
+    # 기존 Route 생성부(build_cycle_route, waypoint_refinement.py::_shake_reroute_segment)는
+    # 인자를 추가하지 않아도 자동으로 올바른 값을 갖는다.
+    #
+    # waypoints를 생존분으로 덮어쓰지 않고 별도 필드로 분리한 이유(2026-09-09 계약 결정):
+    # waypoints는 정제 이웃 생성(waypoint_replacement_neighbors의 위치 순회)·ALNS 초기
+    # 순서·랭킹 누적거리 기준이 전부 읽는 탐색 입력이다. 이 값을 생존분으로 줄이면
+    # N개를 요청한 탐색이 그보다 적은 경유지로 이웃을 만들게 되어 탐색 계약 자체가
+    # 바뀌고, 반대로 생존 0개인 Route를 None으로 버리면 기존에 채택되던 해가 통째로
+    # 사라진다. 이번 이슈는 품질 미달이 아니라 계측·계산의 정확성 문제이므로, 탐색
+    # 공간은 건드리지 않고 불일치를 드러내 기록만 한다.
+
+    def __post_init__(self):
+        if self.effective_waypoints is None:
+            self.effective_waypoints = surviving_waypoints(self.node_ids, self.waypoints)
+
+    @property
+    def effective_waypoint_count(self) -> int:
+        """실제로 지난 경유지 수. len(waypoints)와 다르면 pruning이 경유지를 지웠다는 뜻이다."""
+        return len(self.effective_waypoints)
 
 
 def sum_edge_length(G: nx.Graph, path: list[int]) -> float:
@@ -101,6 +141,10 @@ def build_cycle_route(
     목표거리에 가까운 것처럼 보이지만, 실제로는 최종 표시 단계에서 똑같이 pruning되어
     거리가 크게 줄어드는 경로를 잘못 선택하게 된다. distance_m/repeated_edge_ratio를
     pruning 이후 기준으로 통일해 이 불일치를 없앤다.
+
+    pruning이 경유지 노드 자체를 지울 수 있다는 점에 주의한다 — 그 경우에도 waypoints는
+    선언값 그대로 두고, 실제 생존분은 Route.effective_waypoints에 따로 기록한다
+    (surviving_waypoints() / Route 필드 주석 참고).
     """
     if not waypoints:
         raise ValueError("waypoints는 최소 1개 이상이어야 합니다")

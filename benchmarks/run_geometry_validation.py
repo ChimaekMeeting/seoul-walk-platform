@@ -17,22 +17,32 @@ import time
 
 import pandas as pd
 
-from benchmarks.benchmark import (
-    RESULT_COLUMNS,
-    SOLVER_REGISTRY,
-    _compute_edge_overlap_ratio,
-    _compute_route_distance_km,
-    _count_spikes,
-    _failed_row,
-    _is_closed_loop,
-    _load_default_graph,
-    _validate_solver_result,
-)
+from benchmarks.benchmark import _load_default_graph, SOLVER_REGISTRY
+from benchmarks.config import BENCHMARK_SEEDS, DEFAULT_TIME_BUDGET_SEC
+from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
+from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
-SEEDS = [42, 7, 123]
+SEEDS = BENCHMARK_SEEDS  # 러너 공용 (구 [42, 7, 123] — 분산 추정 표본 부족으로 10개로 확대)
 TARGET_KMS = [3.0, 5.0]
-START_NODES = [1, 41417, 111383, 175895, 179044]
+
+# 출발지 노드와 그 좌표(2026-09-11 기록). 지금까지 정수 노드 ID만 남아 있어서, 결과를
+# 재현하는 사람이 "어디에서 출발한 경로인가"를 알 방법이 없었다. 좌표는 fixture
+# (route_nodes.parquet)에서 읽은 실측값이며, 노드 ID는 fixture가 다시 빌드되면 달라질 수
+# 있지만 좌표는 그렇지 않다.
+#
+# ⚠ 이 5개가 어떤 기준으로 선정됐는지는 기록이 없다. 서울 도보망 전반을 대표한다고
+#   주장할 근거가 아직 없으므로, 이 격자의 결과는 "이 5개 출발지에서 관측된 값"으로만
+#   읽어야 한다. 대표성 있는 표본 설계(도로망 밀도 층화 등)는 시나리오 데이터셋 개편
+#   범위이며 여기서 다루지 않는다.
+START_NODE_COORDS = {
+    1:      (37.564088, 126.902572),
+    41417:  (37.575209, 126.928363),
+    111383: (37.518967, 126.889364),
+    175895: (37.596433, 127.094927),
+    179044: (37.528862, 127.004334),
+}
+START_NODES = list(START_NODE_COORDS)
 ALGOS = ["grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-wp-alns", "grasp-circular"]
 TIMEOUT_SEC = 400.0
 
@@ -49,61 +59,18 @@ def _pool_worker_init():
 
 
 def _pool_worker_task(solver_key: str, start_node: int, target_km: float, seed: int) -> dict:
-    solver = SOLVER_REGISTRY[solver_key]
-    params = {"target_km": target_km, "seed": seed}
+    """단일 (solver, start_node, target_km, seed) 조합 실행.
 
-    t0 = time.perf_counter()
-    try:
-        raw_result = solver.solve(_POOL_GRAPH, start_node, start_node, params)
-    except Exception as e:
-        return _failed_row(solver, "failed", time.perf_counter() - t0, repr(e), target_km)
-
-    elapsed = time.perf_counter() - t0
-
-    try:
-        result = _validate_solver_result(raw_result)
-    except Exception as e:
-        return _failed_row(solver, "failed", elapsed, str(e), target_km)
-
-    distance_km = _compute_route_distance_km(_POOL_GRAPH, result["paths"])
-    distance_deviation_km = (
-        round(abs(distance_km - target_km), 4) if distance_km is not None and target_km is not None else None
-    )
-
-    return {
-        "algorithm": solver.name,
-        "status": "ok",
-        "elapsed_sec": round(elapsed, 6),
-        "within_time_budget": None,
-        "cost": result["cost"],
-        "overlap_ratio": result["overlap_ratio"],
-        "distance_km": distance_km,
+    결과 행 생성은 benchmarks/results.py::run_solver_task()가 전담한다 — 예전에는 이
+    함수가 dict 리터럴을 직접 들고 있어서, 컬럼이 추가될 때마다 여기가 빠졌다
+    (num_waypoints_used / effective_waypoints_used / pool_cache_* 4종이 실제로 누락).
+    """
+    params = {
         "target_km": target_km,
-        "distance_deviation_km": distance_deviation_km,
-        "is_closed_loop": _is_closed_loop(result["paths"]),
-        "spike_count": _count_spikes(result["paths"]),
-        "edge_overlap_ratio": _compute_edge_overlap_ratio(result["paths"]),
-        "find_path_sec": result.get("find_path_sec"),
-        "astar_calls": result.get("astar_calls"),
-        "cache_hits": result.get("cache_hits"),
-        "selection_status": result.get("selection_status"),
-        "feasible": result.get("feasible"),
-        "segment_p1_p2_m": result.get("segment_p1_p2_m"),
-        "segment_p2_p3_m": result.get("segment_p2_p3_m"),
-        "segment_p3_p1_m": result.get("segment_p3_p1_m"),
-        "waypoint_separation_m": result.get("waypoint_separation_m"),
-        "min_waypoint_separation_m": result.get("min_waypoint_separation_m"),
-        "repeated_edge_ratio": (
-            result.get("repeated_edge_ratio")
-            if result.get("repeated_edge_ratio") is not None
-            else _compute_edge_overlap_ratio(result["paths"])
-        ),
-        "waypoint_angle_diff_deg": result.get("waypoint_angle_diff_deg"),
-        "segment_balance_ratio": result.get("segment_balance_ratio"),
-        "is_degenerate_loop": result.get("is_degenerate_loop"),
-        "alns_operator_stats": result.get("alns_operator_stats"),
-        "error": "",
+        "seed": seed,
+        "time_budget_sec": DEFAULT_TIME_BUDGET_SEC,
     }
+    return run_solver_task(SOLVER_REGISTRY[solver_key], _POOL_GRAPH, start_node, start_node, params)
 
 
 def main():
@@ -136,7 +103,7 @@ def main():
         try:
             row = ar.get(timeout=TIMEOUT_SEC)
         except multiprocessing.TimeoutError:
-            row = _failed_row(solver, "timeout", TIMEOUT_SEC, f"timeout after {TIMEOUT_SEC}s", target_km)
+            row = failed_row(solver, "timeout", TIMEOUT_SEC, f"timeout after {TIMEOUT_SEC}s", target_km)
         row["seed"] = seed
         row["start_node"] = start_node
         rows.append(row)
@@ -156,9 +123,18 @@ def main():
     result_df = pd.DataFrame(rows, columns=["seed", "start_node", *RESULT_COLUMNS])
     out_path = "benchmarks/geometry_validation_results.csv"
     result_df.to_csv(out_path, index=False)
+    meta_path = save_run_metadata(
+        out_path, runner="run_geometry_validation",
+        seeds=SEEDS, target_kms=TARGET_KMS, start_nodes=START_NODES,
+        # 노드 ID는 fixture를 다시 빌드하면 달라질 수 있어 좌표를 함께 남긴다.
+        start_node_coords={str(node): coords for node, coords in START_NODE_COORDS.items()},
+        algos=ALGOS, workers=6, timeout_sec=TIMEOUT_SEC,
+        time_budget_sec=DEFAULT_TIME_BUDGET_SEC,
+    )
 
     print(f"\n전체 소요 시간: {time.perf_counter() - t_start:.1f}초")
-    print(f"결과 저장 완료: {out_path}\n")
+    print(f"결과 저장 완료: {out_path}")
+    print(f"메타데이터 저장 완료: {meta_path}\n")
 
     print("=== 엔진별 원형성 집계 ===")
     summary = result_df.groupby("algorithm").agg(

@@ -1,10 +1,35 @@
 import math
 import random
-from typing import TypeVar
+from dataclasses import dataclass
+from typing import Optional, TypeVar
 
 import networkx as nx
 
 _PathT = TypeVar("_PathT")
+
+
+@dataclass(frozen=True)
+class PrunedBranch:
+    """prune_dead_ends가 한 번의 반복에서 잘라낸 구간 하나의 기록(2026-09-09 계측 추가).
+
+    "겹침 제거 로직을 겹침 기준으로 바꿀지, 아예 뺄지"를 나중에 데이터로 판단하기 위한
+    순수 진단 값이다 — 이 기록을 켜도 prune_dead_ends의 반환값은 달라지지 않는다.
+
+    현재 규칙은 중복 노드 사이 구간을 길이만 보고 지우므로, "되짚어 온 길"과 "한 바퀴
+    돌아온 길"을 구분하지 못한다. overlap_ratio가 그 둘을 가른다:
+        0.0  — 겹치는 엣지가 하나도 없는 순환(겹침 기준으로 바꾸면 살아남을 구간)
+        0.5  — 순수 왕복(어떤 기준에서도 지워야 할 구간)
+    (0.5는 waypoint_route_builder.py::edge_overlap_ratio와 같은 정의다 — 두 번째 이후
+    통행분만 repeated에 더하므로 단순 왕복이 정확히 0.5가 된다.)
+
+    interior는 이 제거로 경로에서 빠지는 노드들이다(중복 검출된 anchor 자신은 first
+    위치에 그대로 남으므로 포함하지 않는다). 사라진 경유지를 어느 유형의 구간에
+    귀속시킬지 판단할 때 쓴다.
+    """
+    anchor: int                   # 두 번 등장해 구간을 특정한 노드(살아남음)
+    length_m: float               # 잘라낸 구간의 길이
+    overlap_ratio: float          # 그 구간 안의 엣지 재통행 거리 비율
+    interior: tuple[int, ...]     # 이 제거로 경로에서 빠지는 노드들
 
 _R1_M: float = 30.0   # ROUT-NODE 1차 탐색 반경 (m)
 _R2_M: float = 300.0  # ROUT-NODE 2차 탐색 반경 (m)
@@ -106,10 +131,46 @@ class PathUtils:
                 result.append([lat, lon])
         return result
 
-    def prune_dead_ends(self, path_nodes: list, max_branch_length: float = 400.0) -> list:
+    def _describe_pruned_branch(self, pruned: list, first: int, last: int) -> PrunedBranch:
+        """잘라내기 직전의 구간 하나를 PrunedBranch로 기록합니다(진단 전용).
+
+        구간 안에서 같은 도로 엣지가 두 번째 이후로 통행되는 분량만 repeated에 더해
+        재통행 비율을 구합니다 — waypoint_route_builder.py::edge_overlap_ratio와 같은
+        정의이며, 순환 import를 피하려고 여기서 다시 계산합니다.
+        """
+        seen: set[frozenset] = set()
+        total = repeated = 0.0
+        for j in range(first, last):
+            length = (self.G.get_edge_data(pruned[j], pruned[j + 1]) or {}).get("length", 0)
+            key = frozenset((pruned[j], pruned[j + 1]))
+            total += length
+            if key in seen:
+                repeated += length
+            seen.add(key)
+        return PrunedBranch(
+            anchor=pruned[first],
+            length_m=total,
+            overlap_ratio=(repeated / total if total else 0.0),
+            interior=tuple(pruned[first + 1:last]),
+        )
+
+    def prune_dead_ends(
+        self, path_nodes: list, max_branch_length: float = 400.0,
+        sink: Optional[list] = None,
+    ) -> list:
         """
         왕복 가지치기를 수행합니다.
         같은 노드가 두 번 등장하는 구간 중 max_branch_length 미만인 것을 반복 제거합니다.
+
+        max_branch_length는 "총 왕복 길이"의 상한이 아니라 **한 번의 제거에 적용되는**
+        상한입니다(2026-09-09 확인). 제거 후 루프가 다시 돌면서 더 짧아진 왕복이 새로
+        드러나므로, 안쪽 한 쌍만 임계값 아래면 순수 왕복은 총 길이와 무관하게 끝까지
+        붕괴합니다(합성 격자, 엣지 약 159m: 왕복 1~4구간 318~1270m가 모두 노드 1개로 축소).
+
+        sink에 리스트를 넘기면 제거한 구간마다 PrunedBranch를 append합니다(진단 전용,
+        기본값 None이면 아무 비용도 들지 않고 반환값도 완전히 동일합니다). 현재 규칙은
+        "짧은 닫힌 부분경로"를 지우므로 겹치는 엣지가 하나도 없는 블록 순환까지 지워지는데,
+        그 비율을 실측으로 확인해 겹침 기준 전환·제거 여부를 판단하기 위한 훅입니다.
         """
         pruned  = list(path_nodes)
         changed = True
@@ -130,6 +191,8 @@ class PathUtils:
                     node_positions[node] = i
             if candidates:
                 _, first, last = min(candidates, key=lambda x: x[0])  # 가장 짧은 가지 선택
+                if sink is not None:
+                    sink.append(self._describe_pruned_branch(pruned, first, last))
                 pruned  = pruned[:first + 1] + pruned[last + 1:]       # 해당 구간 제거
                 changed = True
         return pruned

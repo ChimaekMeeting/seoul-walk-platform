@@ -23,20 +23,13 @@ import time
 
 import pandas as pd
 
-from benchmarks.benchmark import (
-    RESULT_COLUMNS,
-    SOLVER_REGISTRY,
-    _compute_edge_overlap_ratio,
-    _compute_route_distance_km,
-    _count_spikes,
-    _failed_row,
-    _is_closed_loop,
-    _load_default_graph,
-    _validate_solver_result,
-)
+from benchmarks.benchmark import _load_default_graph, SOLVER_REGISTRY
+from benchmarks.config import BENCHMARK_SEEDS, DEFAULT_TIME_BUDGET_SEC
+from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
+from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
-SEEDS = [42, 7, 123]
+SEEDS = BENCHMARK_SEEDS  # 러너 공용 (구 [42, 7, 123] — 분산 추정 표본 부족으로 10개로 확대)
 TARGET_KMS = [3.0, 5.0]
 START_NODES = [1, 41417, 111383, 175895, 179044]  # largest_cc(=전체 그래프)에서 seed=2026으로 무작위 추출
 ALGOS = ["grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-circular"]  # grasp-circular = 기존 비교 기준
@@ -56,64 +49,18 @@ def _pool_worker_init():
 
 
 def _pool_worker_task(solver_key: str, start_node: int, target_km: float, seed: int) -> dict:
-    """단일 (solver, start_node, target_km, seed) 조합 실행. benchmark.py::_run_single과
-    동일한 결과 스키마(신규 selection_status/segment_* 필드 포함)를 만든다 — 그 함수를
-    그대로 재사용하지 않는 이유는 이 스크립트가 프로세스 풀(워커당 그래프 1회 로드)
-    구조를 쓰기 때문이다(run_all_scenarios.py와 동일한 이유)."""
-    solver = SOLVER_REGISTRY[solver_key]
-    params = {"target_km": target_km, "seed": seed}
+    """단일 (solver, start_node, target_km, seed) 조합 실행.
 
-    t0 = time.perf_counter()
-    try:
-        raw_result = solver.solve(_POOL_GRAPH, start_node, start_node, params)
-    except Exception as e:
-        return _failed_row(solver, "failed", time.perf_counter() - t0, repr(e), target_km)
-
-    elapsed = time.perf_counter() - t0
-
-    try:
-        result = _validate_solver_result(raw_result)
-    except Exception as e:
-        return _failed_row(solver, "failed", elapsed, str(e), target_km)
-
-    distance_km = _compute_route_distance_km(_POOL_GRAPH, result["paths"])
-    distance_deviation_km = (
-        round(abs(distance_km - target_km), 4) if distance_km is not None and target_km is not None else None
-    )
-
-    return {
-        "algorithm": solver.name,
-        "status": "ok",
-        "elapsed_sec": round(elapsed, 6),
-        "within_time_budget": None,
-        "cost": result["cost"],
-        "overlap_ratio": result["overlap_ratio"],
-        "distance_km": distance_km,
+    결과 행 생성은 benchmarks/results.py::run_solver_task()가 전담한다 — 예전에는 이
+    함수가 dict 리터럴을 직접 들고 있어서, 컬럼이 추가될 때마다 여기가 빠졌다
+    (num_waypoints_used / effective_waypoints_used / pool_cache_* 4종이 실제로 누락).
+    """
+    params = {
         "target_km": target_km,
-        "distance_deviation_km": distance_deviation_km,
-        "is_closed_loop": _is_closed_loop(result["paths"]),
-        "spike_count": _count_spikes(result["paths"]),
-        "edge_overlap_ratio": _compute_edge_overlap_ratio(result["paths"]),
-        "find_path_sec": result.get("find_path_sec"),
-        "astar_calls": result.get("astar_calls"),
-        "cache_hits": result.get("cache_hits"),
-        "selection_status": result.get("selection_status"),
-        "feasible": result.get("feasible"),
-        "segment_p1_p2_m": result.get("segment_p1_p2_m"),
-        "segment_p2_p3_m": result.get("segment_p2_p3_m"),
-        "segment_p3_p1_m": result.get("segment_p3_p1_m"),
-        "waypoint_separation_m": result.get("waypoint_separation_m"),
-        "min_waypoint_separation_m": result.get("min_waypoint_separation_m"),
-        "repeated_edge_ratio": (
-            result.get("repeated_edge_ratio")
-            if result.get("repeated_edge_ratio") is not None
-            else _compute_edge_overlap_ratio(result["paths"])
-        ),
-        "waypoint_angle_diff_deg": result.get("waypoint_angle_diff_deg"),
-        "segment_balance_ratio": result.get("segment_balance_ratio"),
-        "is_degenerate_loop": result.get("is_degenerate_loop"),
-        "error": "",
+        "seed": seed,
+        "time_budget_sec": DEFAULT_TIME_BUDGET_SEC,
     }
+    return run_solver_task(SOLVER_REGISTRY[solver_key], _POOL_GRAPH, start_node, start_node, params)
 
 
 def main():
@@ -146,7 +93,7 @@ def main():
         try:
             row = ar.get(timeout=TIMEOUT_SEC)
         except multiprocessing.TimeoutError:
-            row = _failed_row(solver, "timeout", TIMEOUT_SEC, f"timeout after {TIMEOUT_SEC}s", target_km)
+            row = failed_row(solver, "timeout", TIMEOUT_SEC, f"timeout after {TIMEOUT_SEC}s", target_km)
         row["seed"] = seed
         row["start_node"] = start_node
         rows.append(row)
@@ -167,9 +114,15 @@ def main():
     result_df = pd.DataFrame(rows, columns=["seed", "start_node", *RESULT_COLUMNS])
     out_path = "benchmarks/min_separation_validation_results.csv"
     result_df.to_csv(out_path, index=False)
+    meta_path = save_run_metadata(
+        out_path, runner="run_min_separation_validation",
+        seeds=SEEDS, target_kms=TARGET_KMS, start_nodes=START_NODES, algos=ALGOS,
+        workers=6, timeout_sec=TIMEOUT_SEC,
+    )
 
     print(f"\n전체 소요 시간: {time.perf_counter() - t_start:.1f}초")
-    print(f"결과 저장 완료: {out_path}\n")
+    print(f"결과 저장 완료: {out_path}")
+    print(f"메타데이터 저장 완료: {meta_path}\n")
 
     print("=== 알고리즘별 요약 ===")
     summary = result_df.groupby("algorithm").agg(
@@ -179,7 +132,8 @@ def main():
         평균초=("elapsed_sec", "mean"),
         최대초=("elapsed_sec", "max"),
         평균거리편차km=("distance_deviation_km", "mean"),
-        평균자기중복=("edge_overlap_ratio", "mean"),
+        평균재통행=("repeated_edge_ratio", "mean"),  # 구 평균자기중복(edge_overlap_ratio)
+        평균원형성=("circularity_q", "mean"),
         최소거리위반건수=("waypoint_separation_m", lambda s: None),  # 아래에서 별도 계산
     ).round(4)
     print(summary.to_string())

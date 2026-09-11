@@ -54,6 +54,7 @@ class ALNSResult:
     destroy_stats: tuple[OperatorStats, ...]
     repair_stats: tuple[OperatorStats, ...]
     route_evaluations: int = 0
+    remove_count: int = 0  # 실제 파괴 개수 = max(1, ceil(N * removal_fraction)). 신규(2026-09).
 
 
 class _CostBudgetExhausted(Exception):
@@ -416,4 +417,5 @@ def alns_search(
         destroy.snapshot(),
         repair.snapshot(),
         evaluator.route_evaluations,
+        remove_count,
     )

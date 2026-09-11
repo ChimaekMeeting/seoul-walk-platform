@@ -16,11 +16,14 @@ tests/unit/test_grasp_waypoint.py
 """
 
 import math
+import random
+from types import SimpleNamespace
 
 import networkx as nx
 import pytest
 
 from src.interfaces.schema.walk_schema import WalkMode
+import src.route_engine.engines.grasp_waypoint_common as _gwc  # monkeypatch 대상 모듈 네임스페이스
 from src.route_engine.engines.grasp_waypoint_common import (
     BuildCycleRoute,
     GraspConfig,
@@ -32,7 +35,9 @@ from src.route_engine.engines.grasp_waypoint_common import (
     EdgeCost,
     _angular_separation_rad,
     _bearing_rad,
+    _prefix_distances_m,
     _rank_next_waypoint_candidates,
+    _remaining_distance_estimate_m,
     better,
     compute_route_geometry_metrics,
     construct_initial_route,
@@ -40,12 +45,20 @@ from src.route_engine.engines.grasp_waypoint_common import (
     evaluate_route,
     is_degenerate_loop_route,
     is_waypoint_pair_separated,
+    waypoint_pair_replacement_neighbors,
+    waypoint_replacement_neighbors,
 )
+from src.route_engine.engines.circular_grasp_waypoint_alns import CircularGraspWaypointAlnsEngine
 from src.route_engine.engines.circular_grasp_waypoint_local import CircularGraspWaypointLocalEngine
 from src.route_engine.engines.circular_grasp_waypoint_vnd import CircularGraspWaypointVndEngine
 from src.route_engine.engines.circular_grasp_waypoint_vns import CircularGraspWaypointVnsEngine
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.waypoint_pool import WaypointPoolGenerator
+from src.route_engine.engines.waypoint_refinement import (
+    _MAX_SHAKE_LEVEL,
+    vnd as _vnd_refine,
+    vns as _vns_refine,
+)
 from src.schema.route_schema import CircularRouteInput
 
 _LAT_STEP = 0.0015  # 약 167m/step
@@ -380,6 +393,111 @@ def test_rank_next_waypoint_candidates_separation_filter_disabled_when_ratio_zer
     assert ranked == [4]
 
 
+# ── 남은 구간 수를 반영한 나머지 거리 추정(2026-09-09 버그픽스) ──────────
+#
+# 이전 추정식은 "지금 고르는 경유지가 마지막"이라고 가정해 남은 경유지들의 거리를 0으로
+# 봤다. 그 하한을 target_m에 맞추려 하면 앞쪽 구간이 예산을 전부 써버려, 첫 단계 조준점이
+# 균형값 target_m/(N+1)이 아니라 target_m/2(=r_max)가 된다(N=2에서도 1.5배 어긋남).
+
+def test_remaining_distance_estimate_is_exact_when_one_leg_remains():
+    """남은 구간이 1개면 dist(c,p1)가 곧 정확한 값이므로 균형 가정값으로 덮어쓰지 않는다."""
+    assert _remaining_distance_estimate_m(500.0, 3000.0, remaining_legs=1, total_legs=3) == 500.0
+    # total_legs를 모르면(호출부가 안 넘기면) 추정을 시도하지 않는다 — 이전 동작과 동일.
+    assert _remaining_distance_estimate_m(500.0, 3000.0, remaining_legs=2, total_legs=None) == 500.0
+
+
+def test_remaining_distance_estimate_uses_balanced_share_but_keeps_lower_bound():
+    """남은 구간이 2개 이상이면 균형 가정값 target_m*(남은 구간)/(N+1)을 쓰되,
+    실제 하한 dist(c,p1)보다 작아지면 하한을 지킨다(하한을 깨면 물리적으로 불가능한
+    총거리를 조준하게 된다)."""
+    # 균형 가정값 = 3000 * 2/3 = 2000 > 하한 500 → 균형 가정값 채택
+    assert _remaining_distance_estimate_m(500.0, 3000.0, remaining_legs=2, total_legs=3) == 2000.0
+    # 하한 2500 > 균형 가정값 2000 → 하한 유지
+    assert _remaining_distance_estimate_m(2500.0, 3000.0, remaining_legs=2, total_legs=3) == 2500.0
+
+
+def test_rank_next_waypoint_candidates_aims_at_balanced_first_leg_when_waypoints_remain():
+    """N=2의 첫 경유지 선택에서, 조준점이 target_m/2(=r_max)가 아니라 균형값
+    target_m/(N+1)로 옮겨졌는지 확인한다.
+
+    후보 10은 target_m/3(=1000m, 균형값), 후보 20은 target_m/2(=1500m, 이전 추정식의
+    최적점)에 있다. 남은 구간 수를 안 넘기면(이전 동작) 20이 먼저 오고, 넘기면 10이
+    먼저 와야 한다."""
+    G = nx.Graph()
+    G.add_node(1, lat=0.0, lon=0.0)    # p1
+    G.add_node(10, lat=0.0, lon=1.0)
+    G.add_node(20, lat=0.0, lon=1.5)
+
+    pool = _FakePoolResult(
+        pool_nodes=[10, 20], dist_from_p1={10: 1000.0, 20: 1500.0}, pairwise={},
+    )
+    target_m = 3000.0
+    cfg = GraspConfig(angle_diversity_weight_m=0.0, min_waypoint_separation_ratio=0.0)
+
+    # 이전 동작(남은 구간을 0으로 봄): |2d − target| → d=1500(r_max)이 최적
+    ranked_old = _rank_next_waypoint_candidates(G, pool, 1, 1, 0.0, target_m, cfg)
+    assert ranked_old[0] == 20
+
+    # 수정 후: tail = max(d, 3000*2/3=2000) → 후보 10은 1000+2000=3000(오차 0),
+    # 후보 20은 1500+2000=3500(오차 500)
+    ranked_new = _rank_next_waypoint_candidates(
+        G, pool, 1, 1, 0.0, target_m, cfg, remaining_legs=2, total_legs=3,
+    )
+    assert ranked_new[0] == 10
+
+
+def test_construct_initial_route_passes_decreasing_remaining_legs(monkeypatch):
+    """구축 단계가 매 선택마다 '남은 구간 수'를 n, n-1, ..., 1로 줄여 넘기고 total_legs는
+    n+1로 고정하는지 확인한다 — 마지막 단계가 1이어야 추정 없이 정확한 dist(c,p1)를 쓴다."""
+    calls: list[tuple] = []
+
+    def fake_rank(G, pool_result, p1, prev, cumulative_so_far_m, target_m, cfg,
+                  exclude=frozenset(), *, remaining_legs=1, total_legs=None):
+        calls.append((remaining_legs, total_legs))
+        return [11 + len(calls) - 1]
+
+    monkeypatch.setattr(_gwc, "_rank_next_waypoint_candidates", fake_rank)
+    monkeypatch.setattr(_gwc, "BuildCycleRoute", lambda *args, **kwargs: None)
+
+    pool = _FakePoolResult(
+        pool_nodes=[11, 12, 13],
+        dist_from_p1={11: 500.0, 12: 500.0, 13: 500.0},
+        pairwise={(11, 12): 500.0, (12, 13): 500.0},
+    )
+    stub_cost_cache = SimpleNamespace(astar_path=lambda a, b: None)
+    _gwc.construct_initial_route(
+        nx.Graph(), stub_cost_cache, pool, 1, 3000.0, random.Random(0),
+        GraspConfig(num_waypoints=3),
+    )
+    assert calls == [(3, 4), (2, 4), (1, 4)]
+
+
+def test_waypoint_replacement_neighbors_passes_position_aware_remaining_legs(monkeypatch, grid_graph):
+    """지역개선의 위치별 이웃 생성도 같은 기준(위치 i → 남은 구간 n-i)을 쓰는지 확인한다 —
+    구축과 정제가 다른 조준점을 쓰면 개선이 구축 결과를 도로 밀어낸다."""
+    calls: list[tuple] = []
+
+    def fake_rank(G, pool_result, p1, prev, cumulative_so_far_m, target_m, cfg,
+                  exclude=frozenset(), *, remaining_legs=1, total_legs=None):
+        calls.append((remaining_legs, total_legs))
+        return []
+
+    monkeypatch.setattr(_gwc, "_rank_next_waypoint_candidates", fake_rank)
+
+    pool = _FakePoolResult(
+        pool_nodes=[11, 12, 13],
+        dist_from_p1={11: 500.0, 12: 500.0, 13: 500.0},
+        pairwise={(11, 12): 500.0, (12, 13): 500.0},
+    )
+    route = Route(node_ids=[1, 11, 12, 13, 1], waypoints=[11, 12, 13],
+                  distance_m=3000.0, repeated_edge_ratio=0.0)
+
+    list(waypoint_replacement_neighbors(
+        grid_graph, object(), pool, 1, route, 3000.0, GraspConfig(num_waypoints=3),
+    ))
+    assert calls == [(3, 4), (2, 4), (1, 4)]
+
+
 # ── selection_status(feasible / fallback_distance / no_valid_waypoint_pair) ──
 
 def test_determine_selection_status_feasible_when_route_within_tolerance():
@@ -637,6 +755,102 @@ def test_vns_does_not_accept_worse_route_after_shake(grid_graph):
     assert not better(obj_before, obj_after)  # VNS 결과가 VND 단독 결과보다 나빠지지 않음
 
 
+# ── VNS options 주입(max_shake_level) ────────────────────────────────────
+
+def _first_initial_route(engine, pool_result, start_node, target_m):
+    """실제 엔진과 같은 방식으로 seed를 순서대로 재시도해 초기 해 하나를 얻는다."""
+    for attempt_seed in range(24):
+        construction = construct_initial_route(
+            engine.G, engine.cost_cache, pool_result, start_node, target_m,
+            random.Random(attempt_seed), engine.config,
+        )
+        if construction.route is not None:
+            return construction.route
+    return None
+
+
+def test_vns_explicit_default_max_shake_level_matches_no_options(grid_graph):
+    """options로 기본값을 그대로 주입한 실행은 주입하지 않은 실행과 완전히 같아야 한다 —
+    주입구가 기존 동작을 바꾸지 않는다는 회귀 보호."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    args = (engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config)
+    without = _vns_refine(*args, random.Random(7))
+    with_default = _vns_refine(*args, random.Random(7), options={"max_shake_level": _MAX_SHAKE_LEVEL})
+    assert with_default.node_ids == without.node_ids
+    assert with_default.distance_m == pytest.approx(without.distance_m)
+
+
+def test_vns_lower_max_shake_level_still_never_worsens_vnd_result(grid_graph):
+    """교란 상한을 낮춰도 VNS는 VND 단독 결과보다 나빠지지 않아야 한다(채택 규칙은 그대로)."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    tolerance = target_m * engine.config.distance_tolerance_ratio
+    vnd_only = _vnd_refine(engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config)
+    obj_vnd = evaluate_route(vnd_only, target_m, tolerance)
+
+    for level in (1, 2, 3):
+        result = _vns_refine(
+            engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config,
+            random.Random(7), options={"max_shake_level": level},
+        )
+        assert not better(obj_vnd, evaluate_route(result, target_m, tolerance))
+
+
+def test_vns_options_reject_unknown_key(grid_graph):
+    """alns 노브를 vns에 잘못 실어 보내는 식의 오타는 조용히 무시되지 않고 즉시 실패한다."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    with pytest.raises(TypeError, match="iterations"):
+        _vns_refine(
+            engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config,
+            random.Random(7), options={"iterations": 30},
+        )
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 2.5, "3", None])
+def test_vns_options_reject_invalid_max_shake_level(grid_graph, bad):
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    with pytest.raises(ValueError, match="max_shake_level"):
+        _vns_refine(
+            engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config,
+            random.Random(7), options={"max_shake_level": bad},
+        )
+
+
 # ── 3버전 공정 비교 ──────────────────────────────────────────────────────
 
 def test_three_engines_use_same_mode_and_are_comparable_with_same_evaluate_route(grid_graph):
@@ -666,6 +880,108 @@ def test_three_engines_use_same_mode_and_are_comparable_with_same_evaluate_route
             target_distance_m=_ENGINE_TEST_TARGET_M,
             distance_tolerance_m=_ENGINE_TEST_TARGET_M * e.config.distance_tolerance_ratio,
         )
+
+
+# ── 경유지 3개 이상 + 도달 불가 쌍(2026-09-09 버그픽스) ───────────────────
+#
+# 구축 단계는 연속 경유지 쌍의 도달 가능성을 보장하지만, 지역개선이 위치 i만 바꾸면 그
+# 뒤 구간(새 경유지 → waypoints[i+1])은 검사되지 않고, VNS Shake는 아예 풀에서 무작위로
+# 뽑는다. 그래서 경유지가 3개 이상이면 WaypointPoolResult.distance()가 None인 연속 쌍이
+# 실제로 만들어지고, 예전 _prefix_distances_m은 그 None을 그대로 더해 TypeError로 죽었다
+# (local/vnd/vns 3종. alns는 자체 cost_fn이 None을 inf로 바꿔 영향받지 않았다).
+
+_PREFIX_TEST_CFG = GraspConfig(angle_diversity_weight_m=0.0, min_waypoint_separation_ratio=0.0)
+
+
+def test_prefix_distances_m_marks_unreachable_prefix_as_none():
+    """도달 불가 구간(distance()가 None)을 만나면 그 지점부터의 누적 거리는 정의할 수
+    없으므로 None으로 표시된다 — 예전에는 여기서 TypeError가 났다."""
+    pool = _FakePoolResult(
+        pool_nodes=[10, 11, 12],
+        dist_from_p1={10: 400.0, 11: 500.0, 12: 600.0},
+        pairwise={(11, 12): 700.0},  # (10, 11)이 없어 두 번째 구간이 도달 불가
+    )
+    assert _prefix_distances_m(pool, start_node=1, waypoints=[10, 11, 12]) == [0.0, 400.0, None]
+
+
+def test_prefix_distances_m_never_yields_none_for_two_waypoints():
+    """경유지 2개에서는 유일한 구간이 항상 prev == start_node 분기(dist_from_p1)를 타므로
+    None이 생길 수 없다 — 이 수정이 기존 기본값(num_waypoints=2) 동작을 전혀 바꾸지
+    않는다는 보장."""
+    pool = _FakePoolResult(pool_nodes=[10, 11], dist_from_p1={10: 400.0, 11: 500.0}, pairwise={})
+    assert _prefix_distances_m(pool, start_node=1, waypoints=[10, 11]) == [0.0, 400.0]
+
+
+def test_waypoint_replacement_neighbors_skips_positions_with_unknown_prefix(grid_graph):
+    """누적 거리를 못 구하는 위치(여기서는 위치 2)는 이웃을 만들지 않고, 누적 거리가
+    정의된 위치(0·1)는 정상적으로 이웃을 만든다."""
+    start = _node_id(2, 2)
+    w0, w1, w2, cand = _node_id(0, 0), _node_id(0, 4), _node_id(4, 4), _node_id(4, 0)
+    pool = _FakePoolResult(
+        pool_nodes=[w0, w1, w2, cand],
+        dist_from_p1={w0: 480.0, w1: 480.0, w2: 480.0, cand: 480.0},
+        pairwise={(w0, cand): 600.0},  # (w0, w1)이 없어 cum[2]가 None이 된다
+    )
+    cost_cache = _CostCache(grid_graph, mode="distance")
+    route = BuildCycleRoute(grid_graph, cost_cache.astar_path, start, [w0, w1, w2])
+    assert route is not None
+
+    neighbors = list(waypoint_replacement_neighbors(
+        grid_graph, cost_cache, pool, start, route, _ENGINE_TEST_TARGET_M, _PREFIX_TEST_CFG,
+    ))
+    assert neighbors  # 살아 있는 위치가 있으므로 이웃 집합이 통째로 비지 않는다
+    assert all(n.waypoints[2] == w2 for n in neighbors)   # 위치 2는 한 번도 교체되지 않음
+    assert any(n.waypoints[1] == cand for n in neighbors)  # 위치 1은 정상 교체됨
+
+
+def test_waypoint_pair_replacement_neighbors_skips_pairs_with_unknown_prefix(grid_graph):
+    """쌍 교체도 같은 규칙을 따른다 — cum[2]가 None이면 쌍 (2,3)은 만들어지지 않으므로
+    마지막 자리는 어떤 이웃에서도 바뀌지 않는다."""
+    start = _node_id(2, 2)
+    w0, w1, w2, w3 = _node_id(0, 0), _node_id(0, 4), _node_id(4, 4), _node_id(4, 0)
+    cand = _node_id(4, 2)
+    pool = _FakePoolResult(
+        pool_nodes=[w0, w1, w2, w3, cand],
+        dist_from_p1={w0: 480.0, w1: 480.0, w2: 480.0, w3: 480.0, cand: 480.0},
+        pairwise={(w0, cand): 600.0, (cand, w1): 600.0, (w0, w2): 600.0, (cand, w2): 600.0},
+    )
+    cost_cache = _CostCache(grid_graph, mode="distance")
+    route = BuildCycleRoute(grid_graph, cost_cache.astar_path, start, [w0, w1, w2, w3])
+    assert route is not None
+
+    neighbors = list(waypoint_pair_replacement_neighbors(
+        grid_graph, cost_cache, pool, start, route, _ENGINE_TEST_TARGET_M, _PREFIX_TEST_CFG,
+    ))
+    assert neighbors
+    assert all(n.waypoints[3] == w3 for n in neighbors)
+
+
+_WAYPOINT_ENGINE_CLASSES = (
+    CircularGraspWaypointLocalEngine,
+    CircularGraspWaypointVndEngine,
+    CircularGraspWaypointVnsEngine,
+    CircularGraspWaypointAlnsEngine,
+)
+
+
+@pytest.mark.parametrize("engine_cls", _WAYPOINT_ENGINE_CLASSES)
+@pytest.mark.parametrize("num_waypoints", [2, 3, 4])
+def test_engines_complete_for_two_three_and_four_waypoints(grid_graph, engine_cls, num_waypoints):
+    """4종 x N=2·3·4 완주 확인. 이 격자(5x5, target_km=1.2, r_max=600m)는 풀 안 190쌍 중
+    76쌍(40%)이 r_max를 넘어 distance()가 None이므로, 수정 전에는 N>=3에서 local/vnd/vns가
+    전부 TypeError로 죽었다(2026-09-09 확인. 이슈 재현 조건인 9x9 격자·target_km=2.4에서도
+    동일하게 재현되지만, 이 파일의 기존 fixture로 충분하다)."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = engine_cls(inp=inp, G=grid_graph, seed=42, num_waypoints=num_waypoints)
+    start_node = _node_id(2, 2)
+
+    nodes = engine.find_path(start_node, target_km=_ENGINE_TEST_TARGET_KM)
+
+    assert nodes[0] == start_node
+    assert nodes[-1] == start_node
+    assert len(nodes) > 2  # 퇴화 폴백이 아니라 실제 순환 경로
+    assert engine.last_route is not None
+    assert len(engine.last_route.waypoints) == num_waypoints
 
 
 # ── 프로덕션 배선 보호 ────────────────────────────────────────────────────

@@ -11,18 +11,19 @@ fixture를 test_grasp_waypoint.py와 동일한 방식으로 이 파일 안에 �
     갱신 등)은 tests/unit/test_waypoint_alns.py(팀원 구현, 이 작업으로 수정하지 않음)가
     이미 검증한다. 이 파일은 "그 함수와 grasp_waypoint_common.py/NetworkX 그래프 사이의
     어댑터가 올바른지"만 검증한다.
+
+어댑터·정제 로직 자체는 이제 waypoint_refinement.py에 있고(2026-09-08 "ALNS 정제 로직
+이중화 해소" 이슈로 circular_grasp_waypoint_alns.py의 중복 구현을 제거함), 이 파일은 그
+함수들과 GRASP 조합(CircularGraspWaypointAlnsEngine)이 올바르게 연결되는지를 본다.
 """
 
 import math
+import random
 
 import networkx as nx
 import pytest
 
-from src.route_engine.engines.circular_grasp_waypoint_alns import (
-    CircularGraspWaypointAlnsEngine,
-    _build_alns_candidates,
-    _make_cost_fn,
-)
+from src.route_engine.engines.circular_grasp_waypoint_alns import CircularGraspWaypointAlnsEngine
 from src.route_engine.engines.grasp_waypoint_common import (
     GraspConfig,
     SelectionStatus,
@@ -31,6 +32,12 @@ from src.route_engine.engines.grasp_waypoint_common import (
 )
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.waypoint_pool import WaypointPoolGenerator
+from src.route_engine.engines.waypoint_refinement import (
+    AlnsStatsAccumulator,
+    _alns_candidates_from_pool,
+    _alns_cost_fn,
+    alns as alns_refinement,
+)
 from src.route_engine.waypoint_alns import ALNSResult, OperatorStats
 from src.route_engine.waypoint_types import WaypointOrder
 from src.schema.route_schema import CircularRouteInput
@@ -86,38 +93,38 @@ _ENGINE_TEST_TARGET_KM = 1.2
 _ENGINE_TEST_TARGET_M = _ENGINE_TEST_TARGET_KM * 1000
 
 
-# ── _build_alns_candidates / _make_cost_fn 어댑터 ─────────────────────────
+# ── _alns_candidates_from_pool / _alns_cost_fn 어댑터 ─────────────────────
 
-def test_build_alns_candidates_matches_pool_nodes_with_lat_lon(grid_graph):
+def test_alns_candidates_from_pool_matches_pool_nodes_with_lat_lon(grid_graph):
     result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
     assert result is not None
 
-    candidates = _build_alns_candidates(grid_graph, result)
+    candidates = _alns_candidates_from_pool(grid_graph, result)
     assert {c["node_id"] for c in candidates} == set(result.pool_nodes)
     for c in candidates:
         assert c["lat"] == grid_graph.nodes[c["node_id"]]["lat"]
         assert c["lon"] == grid_graph.nodes[c["node_id"]]["lon"]
 
 
-def test_make_cost_fn_handles_start_node_not_in_pool(grid_graph):
+def test_alns_cost_fn_handles_start_node_not_in_pool(grid_graph):
     """p1(start_node)은 waypoint_pool.py 설계상 pool_nodes에 없다 — cost(start,x)/cost(x,start)는
     pool_result.dist_from_p1으로 처리되고, pool_result.distance()처럼 ValueError가 나면 안 된다."""
     start_node = _node_id(2, 2)
     result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
     assert result is not None
-    cost = _make_cost_fn(result, start_node)
+    cost = _alns_cost_fn(result, start_node)
 
     some_node = result.pool_nodes[0]
     assert cost(start_node, some_node) == pytest.approx(result.dist_from_p1[some_node])
     assert cost(some_node, start_node) == pytest.approx(result.dist_from_p1[some_node])
 
 
-def test_make_cost_fn_matches_pool_distance_between_two_pool_nodes(grid_graph):
+def test_alns_cost_fn_matches_pool_distance_between_two_pool_nodes(grid_graph):
     start_node = _node_id(2, 2)
     result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
     assert result is not None
     assert len(result.pool_nodes) >= 2
-    cost = _make_cost_fn(result, start_node)
+    cost = _alns_cost_fn(result, start_node)
 
     a, b = result.pool_nodes[0], result.pool_nodes[1]
     expected = result.distance(a, b)
@@ -137,10 +144,10 @@ class _FakePoolResult:
         return self._pairwise.get((u, v), self._pairwise.get((v, u)))
 
 
-def test_make_cost_fn_returns_inf_for_unreachable_pair():
+def test_alns_cost_fn_returns_inf_for_unreachable_pair():
     """pool_result.distance()가 None(도달 불가)을 주면 cost()는 ALNS 계약대로 inf를 반환해야 한다."""
     fake = _FakePoolResult(dist_from_p1={2: 100.0, 3: 100.0}, pairwise={(2, 3): None})
-    cost = _make_cost_fn(fake, start_node=1)
+    cost = _alns_cost_fn(fake, start_node=1)
     assert cost(2, 3) == math.inf
 
 
@@ -211,8 +218,8 @@ def test_alns_result_violating_min_separation_is_rejected(grid_graph, monkeypatc
     _rank_p3_candidates의 최소거리 필터를 거치지 않으므로, better()로는 이겨도 P2-P3
     실제 거리가 min_waypoint_separation_ratio*target_m 미만인 (p2,p3)를 "best"로 고를
     수 있었다(30건 중 3건 위반, 2건은 feasible로 최종 채택까지 됨). alns_search를
-    가짜 결과로 교체해 이 경로를 직접 재현하고, _improve_with_alns가 이제는 거부하는지
-    확인한다."""
+    가짜 결과로 교체해 이 경로를 직접 재현하고, waypoint_refinement.alns()가 이제는
+    거부하는지 확인한다."""
     start_node = _node_id(2, 2)
     pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
     assert pool_result is not None
@@ -240,7 +247,7 @@ def test_alns_result_violating_min_separation_is_rejected(grid_graph, monkeypatc
     cost_cache = _CostCache(grid_graph, mode="distance")
     original_route = None
     for attempt_seed in range(24):
-        rng = __import__("random").Random(attempt_seed)
+        rng = random.Random(attempt_seed)
         construction = construct_initial_route(
             grid_graph, cost_cache, pool_result, start_node, _ENGINE_TEST_TARGET_M, rng, cfg,
         )
@@ -256,27 +263,21 @@ def test_alns_result_violating_min_separation_is_rejected(grid_graph, monkeypatc
         destroy_stats=(OperatorStats("random", 1, 1.0),), repair_stats=(OperatorStats("greedy", 1, 1.0),),
     )
     monkeypatch.setattr(
-        "src.route_engine.engines.circular_grasp_waypoint_alns.alns_search",
+        "src.route_engine.engines.waypoint_refinement.alns_search",
         lambda **kwargs: fake_result,
     )
 
-    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
-    engine = CircularGraspWaypointAlnsEngine(inp=inp, G=grid_graph, seed=42, config=cfg)
-    engine.cost_cache = cost_cache
-    alns_candidates = _build_alns_candidates(grid_graph, pool_result)
-    cost_fn = _make_cost_fn(pool_result, start_node)
-    from src.route_engine.waypoint_alns import ALNSConfig
-    alns_config = ALNSConfig(candidate_limit=cfg.rcl_size)
-
-    result_route, accepted, _ = engine._improve_with_alns(
-        original_route, alns_candidates, cost_fn, start_node, alns_config, _ENGINE_TEST_TARGET_M,
+    stats = AlnsStatsAccumulator()
+    result_route = alns_refinement(
+        grid_graph, cost_cache, pool_result, start_node, original_route,
+        _ENGINE_TEST_TARGET_M, cfg, random.Random(42), stats=stats,
     )
-    assert accepted is False
+    assert stats.pending_accepted is False
     assert result_route is original_route  # 최소거리를 어긴 ALNS 제안은 기각되고 원래 해가 그대로 유지됨
 
 
 def test_alns_improvement_never_worsens_the_grasp_initial_route(grid_graph):
-    """_improve_with_alns는 better()로 원래 GRASP 초기 해와 비교한 뒤에만 교체한다 —
+    """waypoint_refinement.alns()는 better()로 원래 GRASP 초기 해와 비교한 뒤에만 교체한다 —
     여러 seed에 걸쳐 최종 경로가 raw 구축 단계보다 절대 나빠지지 않아야 한다. (실측으로
     확인된 회귀: ALNS 결과를 검증 없이 그대로 채택하면 repeated_edge_ratio가 0.66→0.40
     같은 방향으로 악화될 수 있었다 — 이 테스트가 그 회귀를 막는다.)"""
@@ -299,19 +300,18 @@ def test_alns_improvement_never_worsens_the_grasp_initial_route(grid_graph):
 
     checked = 0
     for seed in range(10):
-        rng = __import__("random").Random(seed)
+        rng = random.Random(seed)
         construction = construct_initial_route(grid_graph, cost_cache, pool_result, start_node, target_m, rng, engine.config)
         if construction.route is None:
             continue
         checked += 1
 
-        candidates = _build_alns_candidates(grid_graph, pool_result)
-        cost_fn = _make_cost_fn(pool_result, start_node)
-        from src.route_engine.waypoint_alns import ALNSConfig
-        alns_config = ALNSConfig(iterations=20, candidate_limit=engine.config.rcl_size, seed=seed)
-
-        improved, _accepted, _alns_result = engine._improve_with_alns(
-            construction.route, candidates, cost_fn, start_node, alns_config, target_m
+        # options로 ALNS 설정을 부분 override한다(candidate_limit/start_temperature_m 등
+        # 나머지 필드는 waypoint_refinement.py의 기본값이 target_m·cfg에서 채워진다).
+        improved = alns_refinement(
+            grid_graph, cost_cache, pool_result, start_node, construction.route,
+            target_m, engine.config, random.Random(seed),
+            options={"iterations": 20, "seed": seed},
         )
 
         before = evaluate_route(construction.route, target_m, target_m * engine.config.distance_tolerance_ratio)
