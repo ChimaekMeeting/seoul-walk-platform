@@ -17,6 +17,12 @@ circularity_q(등주 지수 4πA/P², 최종 경로 좌표만 사용)가 그 기
   이유가 없고, 순위 상관은 단조 관계만 가정하므로 더 안전하다. Pearson은 참고로만 낸다.
 - 표본이 작으면 상관계수 하나로 아무것도 말할 수 없다. 부트스트랩 95% 신뢰구간을 함께
   내고, 구간이 0을 포함하면 "관계 있음"이라고 말하지 않는다.
+- 부트스트랩은 **행이 아니라 조건을 재표집한다**(2026-09-11). 행은 독립이 아니다 —
+  같은 조건(출발지·거리)을 시드만 바꿔 여러 번 돌린 결과이고, 알고리즘별로도 군집돼
+  있다. 행을 i.i.d.로 뽑으면 실제 독립 단위보다 표본이 많은 것처럼 계산돼 신뢰구간이
+  실제보다 좁아지고, "0을 제외한다"는 판정이 그만큼 관대해진다.
+  조건이 MIN_CLUSTERS개 미만이면 재표집할 군집 자체가 부족하므로 행 단위로 물러서되,
+  그 사실을 표(재표집단위 컬럼)에 남긴다.
 - 경유지가 pruning으로 사라진 행에서는 대리 지표가 최종 경로와 다른 것을 서술한다.
   보존/소실을 나눠서 낸다 — 소실 행에서만 상관이 무너진다면 그건 지표가 틀린 게 아니라
   측정 위치가 틀린 것이다.
@@ -33,13 +39,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from benchmarks.aggregate_results import load_results
+from benchmarks.aggregate_results import condition_columns, load_results
 from benchmarks.stats import percentile
 
 GROUND_TRUTH = "circularity_q"
 BOOTSTRAP_SAMPLES = 2000
 BOOTSTRAP_SEED = 2026  # 재현 가능한 신뢰구간
 MIN_SAMPLES = 8  # 이보다 적으면 상관계수를 내지 않는다 (부트스트랩도 무의미)
+MIN_CLUSTERS = 5  # 조건이 이보다 적으면 군집 재표집이 성립하지 않아 행 단위로 물러선다
+CONDITION_COLUMN = "_condition"  # prepare()가 만드는 군집 라벨
 
 
 @dataclass(frozen=True)
@@ -95,6 +103,12 @@ def prepare(df: pd.DataFrame) -> pd.DataFrame:
     else:
         work["waypoints_preserved"] = pd.NA
 
+    # 부트스트랩의 재표집 단위. 같은 조건을 시드만 바꿔 돌린 행들이 한 군집이 된다.
+    keys = condition_columns(work)
+    work[CONDITION_COLUMN] = (
+        work[keys].astype(str).agg("|".join, axis=1) if keys else "(단일 조건)"
+    )
+
     return work
 
 
@@ -145,12 +159,31 @@ def _pearson_rows(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         return np.where(denominator > 0, numerator / denominator, np.nan)
 
 
-def bootstrap_ci(x: pd.Series, y: pd.Series, samples: int = BOOTSTRAP_SAMPLES) -> tuple:
+def _spearman_of(xs: np.ndarray, ys: np.ndarray) -> float:
+    """1차원 배열 두 개의 Spearman. 군집 재표집은 표본 길이가 매 회 달라져 행렬로
+    한 번에 처리할 수 없으므로 이 단건 경로를 쓴다."""
+    if len(xs) < 2:
+        return float("nan")
+    return float(_pearson_rows(_rank_rows(xs[None, :]), _rank_rows(ys[None, :]))[0])
+
+
+def bootstrap_ci(
+    x: pd.Series, y: pd.Series, clusters: pd.Series | None = None,
+    samples: int = BOOTSTRAP_SAMPLES,
+) -> tuple:
     """Spearman 상관의 부트스트랩 95% 신뢰구간.
 
     scipy가 없어 해석적 p-value를 낼 수 없고, 애초에 표본이 작을 때는 재표집 구간이
     점추정치보다 훨씬 정직하다. 구간이 0을 포함하면 "관계가 있다"고 말하지 않는다.
-    재표집을 한 번에 벡터화해 계산한다(2000회 × 수십 행이면 즉시 끝난다).
+
+    clusters를 주면 **행이 아니라 군집을 재표집한다**(2026-09-11). 행은 독립이 아니다 —
+    같은 조건을 시드만 바꿔 돌린 결과라, 행을 i.i.d.로 뽑으면 실제 독립 단위보다 표본이
+    많은 것처럼 계산돼 구간이 실제보다 좁아진다. 군집이 MIN_CLUSTERS개 미만이면 재표집할
+    것이 부족하므로 행 단위로 물러선다(반환값에는 드러나지 않으므로 resampling_unit()로
+    확인할 것).
+
+    반환: (하한, 상한). 표본이 부족하거나 재표집 대부분에서 상관이 정의되지 않으면
+    (None, None).
     """
     pair = _paired(x, y)
     if len(pair) < MIN_SAMPLES:
@@ -159,9 +192,18 @@ def bootstrap_ci(x: pd.Series, y: pd.Series, samples: int = BOOTSTRAP_SAMPLES) -
     rng = np.random.default_rng(BOOTSTRAP_SEED)
     xs = pair.iloc[:, 0].to_numpy(dtype=float)
     ys = pair.iloc[:, 1].to_numpy(dtype=float)
-    index = rng.integers(0, len(pair), (samples, len(pair)))
 
-    estimates = _pearson_rows(_rank_rows(xs[index]), _rank_rows(ys[index]))
+    groups = _cluster_groups(pair, clusters)
+    if groups is None:
+        index = rng.integers(0, len(pair), (samples, len(pair)))
+        estimates = _pearson_rows(_rank_rows(xs[index]), _rank_rows(ys[index]))
+    else:
+        drawn = rng.integers(0, len(groups), (samples, len(groups)))
+        estimates = np.empty(samples, dtype=float)
+        for i, picks in enumerate(drawn):
+            rows = np.concatenate([groups[p] for p in picks])
+            estimates[i] = _spearman_of(xs[rows], ys[rows])
+
     estimates = estimates[~np.isnan(estimates)]
     if len(estimates) < samples // 2:
         return (None, None)  # 재표집 대부분이 상수라 상관이 정의되지 않음
@@ -170,14 +212,39 @@ def bootstrap_ci(x: pd.Series, y: pd.Series, samples: int = BOOTSTRAP_SAMPLES) -
     return (percentile(values, 0.025), percentile(values, 0.975))
 
 
-def correlation_row(label: str, x: pd.Series, y: pd.Series) -> dict:
-    low, high = bootstrap_ci(x, y)
+def _cluster_groups(pair: pd.DataFrame, clusters: pd.Series | None):
+    """재표집할 군집별 행 위치 목록. 군집이 부족하면 None(행 단위로 물러섬)."""
+    if clusters is None:
+        return None
+    aligned = clusters.reindex(pair.index)
+    if aligned.isna().any() or aligned.nunique() < MIN_CLUSTERS:
+        return None
+    positions = pd.Series(np.arange(len(pair)), index=pair.index)
+    return [group.to_numpy() for _, group in positions.groupby(aligned.to_numpy())]
+
+
+def resampling_unit(pair_length: int, clusters: pd.Series | None, index=None) -> str:
+    """이 표본에 실제로 쓰인 재표집 단위 이름 — 표에 그대로 싣는다."""
+    if clusters is None or index is None:
+        return "행"
+    aligned = clusters.reindex(index)
+    distinct = aligned.nunique()
+    if aligned.isna().any() or distinct < MIN_CLUSTERS:
+        return f"행(군집 {distinct}개 < {MIN_CLUSTERS})"
+    return f"조건 {distinct}개"
+
+
+def correlation_row(label: str, x: pd.Series, y: pd.Series,
+                    clusters: pd.Series | None = None) -> dict:
+    pair = _paired(x, y)
+    low, high = bootstrap_ci(x, y, clusters)
     excludes_zero = (
         "예" if low is not None and high is not None and (low > 0) == (high > 0) else "아니오"
     )
     return {
         "구분": label,
-        "n": len(_paired(x, y)),
+        "n": len(pair),
+        "재표집단위": resampling_unit(len(pair), clusters, pair.index),
         "spearman": _corr(x, y, "spearman"),
         "95%CI_low": low,
         "95%CI_high": high,
@@ -187,20 +254,27 @@ def correlation_row(label: str, x: pd.Series, y: pd.Series) -> dict:
 
 
 def correlations(work: pd.DataFrame, proxies=PROXIES) -> pd.DataFrame:
-    """대리 지표별 상관표. 경유지 보존 여부로 나눠서 함께 낸다."""
+    """대리 지표별 상관표. 경유지 보존 여부로 나눠서 함께 낸다.
+
+    신뢰구간은 조건 단위로 재표집한다 — 행은 독립이 아니다(bootstrap_ci docstring 참고).
+    """
+    clusters = work[CONDITION_COLUMN] if CONDITION_COLUMN in work.columns else None
     rows = []
     for proxy in proxies:
         if proxy.column not in work.columns:
             continue
         truth = work[GROUND_TRUTH]
-        rows.append({"지표": proxy.label, **correlation_row("전체", work[proxy.column], truth)})
+        rows.append({
+            "지표": proxy.label,
+            **correlation_row("전체", work[proxy.column], truth, clusters),
+        })
 
         if work["waypoints_preserved"].notna().any():
             for preserved, subset in work.groupby("waypoints_preserved", dropna=True):
                 label = "경유지 보존" if preserved else "경유지 소실"
                 rows.append({
                     "지표": proxy.label,
-                    **correlation_row(label, subset[proxy.column], subset[GROUND_TRUTH]),
+                    **correlation_row(label, subset[proxy.column], subset[GROUND_TRUTH], clusters),
                 })
 
     return pd.DataFrame(rows)
@@ -211,6 +285,7 @@ def correlations_by_n(work: pd.DataFrame, proxies=PROXIES) -> pd.DataFrame:
     if "num_waypoints_used" not in work.columns:
         return pd.DataFrame()
 
+    clusters = work[CONDITION_COLUMN] if CONDITION_COLUMN in work.columns else None
     rows = []
     for n, subset in work.groupby("num_waypoints_used", dropna=True):
         for proxy in proxies:
@@ -218,7 +293,9 @@ def correlations_by_n(work: pd.DataFrame, proxies=PROXIES) -> pd.DataFrame:
                 continue
             rows.append({
                 "N": int(n), "지표": proxy.label,
-                **correlation_row(f"N={int(n)}", subset[proxy.column], subset[GROUND_TRUTH]),
+                **correlation_row(
+                    f"N={int(n)}", subset[proxy.column], subset[GROUND_TRUTH], clusters
+                ),
             })
     return pd.DataFrame(rows)
 

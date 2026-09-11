@@ -9,6 +9,8 @@ benchmarks/analyze_thresholds.py
        벤치마크 회귀 확인은 아직 하지 않았다"고 명시한 상태다.
     2) 합격 게이트 임계값 (benchmarks/config.py의 MAX_* 3종)
        전부 "1차 실험값"으로 들어가 있다.
+       ⚠ 2026-09-11 확정 시도 결과가 config.py의 MAX_* 위 주석에 기록돼 있다 — 500행
+         격자로는 확정할 수 없었다(퇴화 사례 부재). 같은 분석을 반복하기 전에 먼저 읽을 것.
     3) min_waypoint_separation_ratio (현재 0.20, GraspConfig)
        구축 단계 하드 필터다.
 
