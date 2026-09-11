@@ -25,7 +25,24 @@ from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 SEEDS = BENCHMARK_SEEDS  # 러너 공용 (구 [42, 7, 123] — 분산 추정 표본 부족으로 10개로 확대)
 TARGET_KMS = [3.0, 5.0]
-START_NODES = [1, 41417, 111383, 175895, 179044]
+
+# 출발지 노드와 그 좌표(2026-09-11 기록). 지금까지 정수 노드 ID만 남아 있어서, 결과를
+# 재현하는 사람이 "어디에서 출발한 경로인가"를 알 방법이 없었다. 좌표는 fixture
+# (route_nodes.parquet)에서 읽은 실측값이며, 노드 ID는 fixture가 다시 빌드되면 달라질 수
+# 있지만 좌표는 그렇지 않다.
+#
+# ⚠ 이 5개가 어떤 기준으로 선정됐는지는 기록이 없다. 서울 도보망 전반을 대표한다고
+#   주장할 근거가 아직 없으므로, 이 격자의 결과는 "이 5개 출발지에서 관측된 값"으로만
+#   읽어야 한다. 대표성 있는 표본 설계(도로망 밀도 층화 등)는 시나리오 데이터셋 개편
+#   범위이며 여기서 다루지 않는다.
+START_NODE_COORDS = {
+    1:      (37.564088, 126.902572),
+    41417:  (37.575209, 126.928363),
+    111383: (37.518967, 126.889364),
+    175895: (37.596433, 127.094927),
+    179044: (37.528862, 127.004334),
+}
+START_NODES = list(START_NODE_COORDS)
 ALGOS = ["grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-wp-alns", "grasp-circular"]
 TIMEOUT_SEC = 400.0
 
@@ -108,8 +125,11 @@ def main():
     result_df.to_csv(out_path, index=False)
     meta_path = save_run_metadata(
         out_path, runner="run_geometry_validation",
-        seeds=SEEDS, target_kms=TARGET_KMS, start_nodes=START_NODES, algos=ALGOS,
-        workers=6, timeout_sec=TIMEOUT_SEC,
+        seeds=SEEDS, target_kms=TARGET_KMS, start_nodes=START_NODES,
+        # 노드 ID는 fixture를 다시 빌드하면 달라질 수 있어 좌표를 함께 남긴다.
+        start_node_coords={str(node): coords for node, coords in START_NODE_COORDS.items()},
+        algos=ALGOS, workers=6, timeout_sec=TIMEOUT_SEC,
+        time_budget_sec=DEFAULT_TIME_BUDGET_SEC,
     )
 
     print(f"\n전체 소요 시간: {time.perf_counter() - t_start:.1f}초")
