@@ -33,6 +33,35 @@ _DEFAULT_TARGET_KM = 3.0
 _DEFAULT_SEED = 42
 
 
+def _prune_metrics(gm: Optional[RouteGeometryMetrics]) -> dict:
+    """PruneDiagnostics를 CSV 컬럼으로 편다(2026-09-10 노출). Beam solver도 이 함수를 쓴다.
+
+    이 값들은 품질 판정이 아니라 튜닝 근거다 — 경유지는 순환 경로를 만들기 위한 내부
+    수단이므로, 경유지가 잘려나갔다는 사실 자체는 해의 품질 미달이 아니다. 다만
+    num_waypoints(N)를 올려도 실제로 지나는 경유지가 늘지 않는다면 그만큼 A* 호출이
+    낭비이므로, N 기본값을 정할 때 이 값을 본다.
+
+    waypoints_lost_clean(재통행 없는 구간에 휩쓸려 사라진 경유지) 대
+    waypoints_lost_repeated(어떤 기준에서도 지워질 구간에서 사라진 경유지)의 비율은
+    "겹침 제거 기준을 길이 기준에서 겹침 기준으로 바꿀 가치가 있는가"를 판단할 데이터다
+    (PruneDiagnostics 클래스 docstring 참고).
+
+    Route가 없어 진단을 못 만든 경우(prune_diagnostics=None)에는 빈 dict를 돌려
+    해당 컬럼들이 None으로 남게 한다.
+    """
+    diagnostics = getattr(gm, "prune_diagnostics", None) if gm is not None else None
+    if diagnostics is None:
+        return {}
+    return {
+        "prune_branch_count": diagnostics.branch_count,
+        "prune_branch_length_m": round(diagnostics.branch_length_m, 4),
+        "prune_clean_branch_count": diagnostics.clean_branch_count,
+        "prune_clean_branch_length_m": round(diagnostics.clean_branch_length_m, 4),
+        "waypoints_lost_clean": diagnostics.waypoints_lost_clean,
+        "waypoints_lost_repeated": diagnostics.waypoints_lost_repeated,
+    }
+
+
 def _segment_metrics(engine, start_node: int, target_km: float) -> dict:
     status = getattr(engine, "last_selection_status", None)
     target_m = target_km * 1000
@@ -45,15 +74,14 @@ def _segment_metrics(engine, start_node: int, target_km: float) -> dict:
     if gm is None:
         gm = RouteGeometryMetrics(None, None, None, None, None, False)
 
-    segments = gm.segment_lengths_m
     angles = gm.waypoint_angle_diffs_deg
 
     return {
         "selection_status": status,
         "feasible": status == "feasible",
-        "segment_p1_p2_m": r(segments[0]) if segments else None,
-        "segment_p2_p3_m": r(segments[1]) if segments and len(segments) > 1 else None,
-        "segment_p3_p1_m": r(segments[-1]) if segments else None,
+        # 구간 원본(gm.segment_lengths_m)은 CSV로 내보내지 않는다 — 2026-09-11 제거.
+        # 요약인 waypoint_separation_m/segment_balance_ratio가 같은 리스트에서 계산되고,
+        # 옛 segment_p*_m 3개 컬럼은 N>2에서 중간 구간을 담지 못했다(results.py 주석 참고).
         "waypoint_separation_m": r(gm.waypoint_separation_m),
         "min_waypoint_separation_m": round(min_separation_m, 4),
         "repeated_edge_ratio": r(gm.repeated_edge_ratio, 4),
@@ -64,6 +92,7 @@ def _segment_metrics(engine, start_node: int, target_km: float) -> dict:
         "effective_waypoints_used": gm.effective_waypoint_count,
         "pool_cache_hits": getattr(engine.last_pool_result, "cache_hits", None),
         "pool_cache_misses": getattr(engine.last_pool_result, "cache_misses", None),
+        **_prune_metrics(gm),
     }
 
 
@@ -112,7 +141,6 @@ class CircularGraspWaypointLocalSolver(BasePathSolver):
         return {
             "paths": [path],
             "cost": cost,
-            "overlap_ratio": 0.0,
             "astar_calls": engine.cost_cache.astar_calls,
             "cache_hits": engine.cost_cache.cache_hits,
             **_segment_metrics(engine, start_node, target_km),
@@ -138,7 +166,6 @@ class CircularGraspWaypointVndSolver(BasePathSolver):
         return {
             "paths": [path],
             "cost": cost,
-            "overlap_ratio": 0.0,
             "astar_calls": engine.cost_cache.astar_calls,
             "cache_hits": engine.cost_cache.cache_hits,
             **_segment_metrics(engine, start_node, target_km),
@@ -165,7 +192,6 @@ class CircularGraspWaypointVnsSolver(BasePathSolver):
         return {
             "paths": [path],
             "cost": cost,
-            "overlap_ratio": 0.0,
             "astar_calls": engine.cost_cache.astar_calls,
             "cache_hits": engine.cost_cache.cache_hits,
             **_segment_metrics(engine, start_node, target_km),
@@ -192,7 +218,6 @@ class CircularGraspWaypointAlnsSolver(BasePathSolver):
         return {
             "paths": [path],
             "cost": cost,
-            "overlap_ratio": 0.0,
             "astar_calls": engine.cost_cache.astar_calls,
             "cache_hits": engine.cost_cache.cache_hits,
             # destroy/repair operator 사용 횟수 등(요청서 §4.4/§7) — 다른 solver는 이 키를

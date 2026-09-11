@@ -27,6 +27,7 @@ mode="distance"만 쓰므로 DistancePathFinder로 충분하다.
 from typing import Optional
 
 from benchmarks.solvers.base_solver import BasePathSolver
+from benchmarks.solvers.grasp_waypoint_solver import _prune_metrics
 from src.route_engine.engines.grasp_waypoint_common import (
     RouteGeometryMetrics,
     SelectionStatus,
@@ -71,15 +72,13 @@ def _segment_metrics_from_geometry(
     if gm is None:
         gm = RouteGeometryMetrics(None, None, None, None, None, False)
 
-    segments = gm.segment_lengths_m
     angles = gm.waypoint_angle_diffs_deg
 
     return {
         "selection_status": status,
         "feasible": status == SelectionStatus.FEASIBLE,
-        "segment_p1_p2_m": r(segments[0]) if segments else None,
-        "segment_p2_p3_m": r(segments[1]) if segments and len(segments) > 1 else None,
-        "segment_p3_p1_m": r(segments[-1]) if segments else None,
+        # 구간 원본(gm.segment_lengths_m)은 CSV로 내보내지 않는다 — 2026-09-11 제거.
+        # 이유는 grasp_waypoint_solver._segment_metrics()·results.py 주석 참고.
         "waypoint_separation_m": r(gm.waypoint_separation_m),
         "min_waypoint_separation_m": round(min_separation_m, 4),
         "repeated_edge_ratio": r(gm.repeated_edge_ratio, 4),
@@ -88,6 +87,7 @@ def _segment_metrics_from_geometry(
         "is_degenerate_loop": gm.is_degenerate_loop,
         "num_waypoints_used": num_waypoints,
         "effective_waypoints_used": gm.effective_waypoint_count,
+        **_prune_metrics(gm),
     }
 
 
@@ -160,7 +160,6 @@ class CircularBeamWaypointSolver(BasePathSolver):
         return {
             "paths": [best_route.node_ids],
             "cost": best_route.distance_m,
-            "overlap_ratio": 0.0,  # grasp-wp-* solver와 동일하게 0.0 고정 — 실측값은 repeated_edge_ratio에
             "astar_calls": path_finder.astar_calls,
             "cache_hits": path_finder.cache_hits,
             **_segment_metrics_from_geometry(

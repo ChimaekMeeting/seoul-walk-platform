@@ -57,6 +57,11 @@ Y/
 *.dump
 restore_log.txt
 
+# 벤치마크 실행 산출물. 결과 CSV는 위 *.csv로 이미 제외되지만, 그 옆에 나란히 생기는
+# 재현 메타데이터(<csv>.metadata.json, benchmarks/run_metadata.py)는 덮이지 않아
+# untracked로 남았습니다. 실행할 때마다 덮어쓰이는 산출물이라 버전 관리하지 않습니다.
+*.metadata.json
+
 # cache 폴더는 제외하되, infrastructure/cache는 버전 관리합니다.
 !src/infrastructure/cache/
 !src/infrastructure/cache/repository/
