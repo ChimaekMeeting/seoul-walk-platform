@@ -151,6 +151,13 @@ def prepare_alt_heuristic(
         t0 = perf_counter()
         heuristic, table = build_alt_heuristic(G, landmarks, weight=weight)
         table_s = perf_counter() - t0
+        # 시각화 재생(visualizations/astar_adapter.py)이 h(u,v)를 랜드마크별 항으로
+        # 분해해 보여주려면 같은 거리표를 읽어야 한다. 클로저 안의 표를 꺼낼 방법이
+        # 없으므로 함수 객체의 속성으로 붙인다. copy.deepcopy는 함수 객체를 원자값으로
+        # 취급하므로(모듈 docstring "거리표를 G.graph에 직접 넣지 않는 이유" 참고)
+        # 이 속성 때문에 그래프 깊은 복사에서 표가 복제되지는 않는다 — 복사본의
+        # 휴리스틱은 원본과 같은 함수 객체이고, 따라서 같은 표 하나를 가리킨다.
+        heuristic.landmark_table = table
     except Exception as exc:  # 기동을 막지 않는다 — 어떤 실패든 Haversine으로 돌아간다.
         logger.warning(
             "ALT 휴리스틱 준비에 실패해 Haversine으로 폴백합니다(method=%s, k=%s): %s: %s",

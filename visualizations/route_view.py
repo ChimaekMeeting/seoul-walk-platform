@@ -13,7 +13,8 @@ from matplotlib.lines import Line2D
 from visualizations.network_view import EARTH_RADIUS_M, _korean_font, _local_xy, _segments_in_square
 
 
-LABELS = {"shortest": "최단거리 · A*", "detour": "편도 우회 · Beam", "circular": "순환 · Beam"}
+LABELS = {"shortest": "최단거리 · A*", "shortest_alt": "최단거리 · A* + ALT",
+          "detour": "편도 우회 · Beam", "circular": "순환 · Beam"}
 LABELS.update({f"grasp_{r}": f"GRASP + {r.upper()}" for r in ("none", "local", "vnd", "vns", "alns")})
 LABELS["grasp_none"] = "GRASP · 구축만"
 
@@ -28,6 +29,25 @@ def event_nodes(result):
         if "current" in event:
             used.add(event["current"])
     return used
+
+
+def landmark_points(result):
+    """실행 조건에 기록된 ALT 랜드마크 좌표. Haversine 실행이면 빈 목록이다."""
+    heuristic = (result.get("conditions") or {}).get("heuristic") or {}
+    return heuristic.get("landmarks") or []
+
+
+def describe_settings(result):
+    """비교표에 그대로 보여 줄 실행 조건 한 줄."""
+    if "config" in result:
+        return f"경유지 2개 · 재시작 {result['config']['grasp_iters']}회 · seed {result['seed']}"
+    heuristic = (result.get("conditions") or {}).get("heuristic") or {}
+    if not heuristic:
+        return ""
+    if heuristic["name"] == "haversine":
+        return "Haversine"
+    return (f"ALT {heuristic['method'].capitalize()} k={heuristic['k_requested']} "
+            f"(실제 {heuristic['k_actual']}개)")
 
 
 def write_route_views(graph, report, output):
@@ -53,7 +73,13 @@ def write_route_views(graph, report, output):
         xs, ys = zip(*coords)
         item["bounds"] = {"cx": (min(xs)+max(xs))/2, "cy": (min(ys)+max(ys))/2,
                           "radius": max(max(xs)-min(xs), max(ys)-min(ys), 400)/2+100}
-        item["settings"] = f"경유지 2개 · 재시작 {result['config']['grasp_iters']}회 · seed {result['seed']}" if "config" in result else ""
+        item["settings"] = describe_settings(result)
+        item["conditions"] = result.get("conditions")
+        # 랜드마크는 경로가 지나지 않는 외곽 노드다. 화면 범위(bounds)는 event_nodes로만
+        # 잡고 여기서는 좌표만 따로 넘긴다 — 넣으면 지도가 랜드마크까지 넓어진다.
+        item["landmarks"] = [[round(x, 2), round(y, 2)] for x, y in
+                             (_local_xy(m["lat"], m["lon"], center_lat, center_lon)
+                              for m in landmark_points(result))]
     template = Path(__file__).with_name("route_player.html").read_text(encoding="utf-8")
     serialized = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c").replace("&", "\\u0026")
     (output / "routes.html").write_text(template.replace("__ROUTE_DATA__", serialized), encoding="utf-8")

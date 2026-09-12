@@ -11,10 +11,20 @@ from dataclasses import asdict, replace
 from unittest.mock import patch
 from time import perf_counter
 
+from src.route_engine.alt_runtime import attach_alt_heuristic, prepare_alt_heuristic
 from src.route_engine.engines import circular_beam, oneway_astar, oneway_beam
 from src.route_engine.engines.path_utils import PathUtils, _TOLERANCE_RATIO
 from src.schema.route_schema import CircularRouteInput, OnewayRouteInput
+from visualizations.astar_adapter import record_astar_run
 from visualizations.route_trace import SearchTrace
+
+# A* 실행에 쓰는 ALT 기본값. 시각화는 src.config.settings를 import하지 않으므로
+# 서비스 기본값(WALK_ALT_METHOD/K/SEED)과 같은지는 테스트가 대조한다.
+DEFAULT_ALT_METHOD = "planar"
+DEFAULT_ALT_K = 8
+DEFAULT_ALT_SEED = 0
+# 같은 A* 엔진을 서로 다른 휴리스틱으로 돌린 결과를 구분하는 이름이다.
+SHORTEST_MODES = ("shortest", "shortest_alt")
 
 
 def graph_digest(graph):
@@ -45,13 +55,36 @@ def snap(graph, location):
             "distance_m": utils._haversine_m(location["lat"], location["lon"], data["lat"], data["lon"])}
 
 
-def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterations=4, seed=42):
+def prepare_alt(graph, *, method, k, seed):
+    """서비스와 같은 함수로 ALT 휴리스틱을 붙이고 준비 시간(초)을 돌려준다.
+
+    서비스는 준비에 실패하면 Haversine으로 조용히 폴백하지만, 시각화는 그러면 안 된다
+    — ALT라고 적힌 결과가 실제로는 Haversine 실행이면 비교가 거짓이 된다. 그래서
+    여기서는 폴백을 허용하지 않고 중단한다.
+    """
+    started = perf_counter()
+    heuristic, info = prepare_alt_heuristic(graph, enabled=True, method=method, k=k, seed=seed)
+    if heuristic is None:
+        raise RuntimeError(
+            f"ALT 휴리스틱 준비에 실패했습니다(method={method}, k={k}). "
+            "Haversine으로 조용히 폴백하면 비교가 잘못되므로 중단합니다."
+        )
+    attach_alt_heuristic(graph, heuristic, info)
+    return perf_counter() - started
+
+
+def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterations=4, seed=42,
+            heuristic="haversine", alt_method=DEFAULT_ALT_METHOD, alt_k=DEFAULT_ALT_K,
+            alt_seed=DEFAULT_ALT_SEED, code_commit=None, artifact=None):
     # graph.graph의 feature cache까지 분리: 엔진의 얕은 copy만으로는 부족하다.
     local = copy.deepcopy(graph)
     fields = {"start_lat": start["lat"], "start_lon": start["lon"],
               "target_km": target_m / 1000 if target_m is not None else None}
     waypoint = mode.startswith("grasp_")
+    shortest = mode in SHORTEST_MODES
     tolerance = _TOLERANCE_RATIO
+    alt_prepare_seconds = None
+    module = trace = None
     if waypoint:
         from src.route_engine.engines.grasp_waypoint_common import DEFAULT_CONFIG
         from src.route_engine.engines.waypoint_engine_assembly import WaypointEngine
@@ -60,16 +93,25 @@ def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterat
         tolerance = config.distance_tolerance_ratio
         engine = WaypointEngine(CircularRouteInput(**fields), local, mode="distance", seed=seed,
                                 config=config, construction="grasp", refinement=mode.split("_", 1)[1])
-        module = None
+        trace = WaypointTrace(engine)
     elif mode == "circular":
         engine = circular_beam.CircularBeamEngine(CircularRouteInput(**fields), local)
         module = circular_beam
+        trace = SearchTrace(engine)
+    elif shortest:
+        # 엔진은 서비스와 똑같이 그래프에 붙은 휴리스틱을 집어 쓴다. 준비 시간은
+        # run_seconds에 섞지 않으려고 실행 구간 밖에서 따로 잰다.
+        if heuristic not in ("haversine", "alt"):
+            raise ValueError("heuristic은 'haversine' 또는 'alt'만 지원합니다.")
+        if heuristic == "alt":
+            alt_prepare_seconds = prepare_alt(local, method=alt_method, k=alt_k, seed=alt_seed)
+        fields.update(end_lat=end["lat"], end_lon=end["lon"])
+        engine = oneway_astar.OnewayAstarEngine(OnewayRouteInput(**fields), local)
     else:
         fields.update(end_lat=end["lat"], end_lon=end["lon"])
-        module = oneway_astar if mode == "shortest" else oneway_beam
-        cls = module.OnewayAstarEngine if mode == "shortest" else module.OnewayBeamEngine
-        engine = cls(OnewayRouteInput(**fields), local)
-    trace = WaypointTrace(engine) if waypoint else SearchTrace(engine, shortest=mode == "shortest")
+        engine = oneway_beam.OnewayBeamEngine(OnewayRouteInput(**fields), local)
+        module = oneway_beam
+        trace = SearchTrace(engine)
     paths = []
     original_prune = engine.utils.prune_dead_ends
 
@@ -78,18 +120,31 @@ def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterat
         paths.append(list(result))
         return result
 
+    recording = None
     with ExitStack() as stack:
-        if mode != "shortest":
+        if not shortest:
             if not waypoint:
                 stack.enter_context(patch.object(module, "calculate_custom_score", distance_score))
                 stack.enter_context(patch.object(module, "compute_score_vector", distance_vector))
             stack.enter_context(patch.object(engine.utils, "prune_dead_ends", capture_prune))
-        if record:
-            stack.enter_context(trace)
+            if record:
+                stack.enter_context(trace)
         started = perf_counter()
-        responses = engine.run()
+        if shortest and record:
+            # A*는 settrace 대신 "실제 실행 → 같은 조건 재생 → 노드열 대조"로 기록한다.
+            recording = record_astar_run(
+                engine, local, mode=mode, target_m=target_m, seed=seed,
+                alt_seed=alt_seed if heuristic == "alt" else None,
+                code_commit=code_commit, artifact=artifact,
+                config={"heuristic": heuristic,
+                        "alt_method": alt_method if heuristic == "alt" else None,
+                        "alt_k": alt_k if heuristic == "alt" else None,
+                        "alt_seed": alt_seed if heuristic == "alt" else None})
+            responses = recording["responses"]
+        else:
+            responses = engine.run()
         elapsed = perf_counter() - started
-    if mode == "shortest":
+    if shortest:
         paths = [list(engine.last_path_nodes)] if engine.last_path_nodes else []
     metrics = []
     for nodes in paths:
@@ -112,16 +167,21 @@ def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterat
     result = {"mode": mode, "engine": type(engine).__name__, "target_m": target_m,
               "start": start, "end": end, "paths": paths, "metrics": metrics,
               "responses": [r.model_dump(mode="json") for r in responses],
-              "trace": trace.events, "astar_queue_pops": trace.pops,
-              "beam_iterations": trace.iterations, "trace_source_hashes": trace.source_hashes}
+              "trace": recording["events"] if recording else (trace.events if trace else []),
+              "astar_queue_pops": recording["popped"] if recording else (trace.pops if trace else 0),
+              "beam_iterations": trace.iterations if trace else 0,
+              "trace_source_hashes": trace.source_hashes if trace else {},
+              "conditions": recording["conditions"].as_dict() if recording else None}
     result["tolerance_ratio"] = tolerance
     result["run_seconds"] = elapsed if not record else None
+    result["alt_prepare_seconds"] = alt_prepare_seconds
     if waypoint:
         result.update(config=asdict(config), seed=seed, refinement=engine.refinement,
                       engine=("GRASP · 구축만" if engine.refinement == "none" else f"GRASP + {engine.refinement.upper()}"), alns_stats=engine.last_alns_stats,
                       candidate_states_seen=trace.candidates_seen,
                       effective_waypoints=(engine.last_route.effective_waypoint_count if engine.last_route else 0))
-    if record:
+    if record and not shortest:
+        # A* 어댑터는 final 이벤트를 스스로 만든다(seq가 이어져야 하므로 덧붙이지 않는다).
         result["trace"].append({"phase": "final", "paths": paths})
     return result
 

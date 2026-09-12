@@ -224,3 +224,23 @@ def test_deepcopy_works_and_does_not_duplicate_the_distance_table():
 
     # 복사본에서도 그대로 동작한다.
     assert local.graph[HEURISTIC_KEY](0, 35) == heuristic(0, 35)
+
+
+def test_prepared_heuristic_exposes_the_landmark_table_and_survives_deepcopy():
+    """시각화가 h(u,v)를 랜드마크별 항으로 분해하려면 같은 거리표를 읽어야 한다.
+
+    표는 클로저 안에 있어 밖에서 꺼낼 수 없으므로 함수 객체 속성으로 붙인다.
+    함수는 deepcopy에서 원자값이라 복사본도 같은 표 하나를 가리킨다.
+    """
+    G = _grid()
+    heuristic, info = prepare_alt_heuristic(
+        G, enabled=True, method="planar", k=4, seed=0
+    )
+    attach_alt_heuristic(G, heuristic, info)
+
+    table = heuristic.landmark_table
+    assert sorted(table) == sorted(info.landmarks)
+    assert sum(len(row) for row in table.values()) == info.table_entries
+
+    local = copy.deepcopy(G)
+    assert local.graph[HEURISTIC_KEY].landmark_table is table
