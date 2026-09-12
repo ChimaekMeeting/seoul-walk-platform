@@ -765,7 +765,12 @@
     });
     // 범위 밖 랜드마크는 방향과 거리만 가장자리에 표시한다(미니맵을 넓히지 않는다).
     mctx.font = '10px system-ui';
-    const labelled = [];   // 가장자리 글자가 겹치면 화살표만 남기고 거리 표시는 생략한다.
+    // 가장자리 글자가 겹치면 화살표만 남기고 거리 표시는 생략한다. 시작점 거리가 아니라
+    // 실제 글자 상자(폭·높이)로 판정한다 — 시작점이 23px 떨어져도 60px짜리 글자는 겹친다.
+    const labelBoxes = [];
+    const LABEL_H = 12, LABEL_PAD = 3;
+    const overlaps = (a, b) => !(a.x1 + LABEL_PAD < b.x0 || b.x1 + LABEL_PAD < a.x0
+      || a.y1 + LABEL_PAD < b.y0 || b.y1 + LABEL_PAD < a.y0);
     (result.landmarks || []).forEach((p, i) => {
       const q = xy(p);
       const inside = q[0] >= 0 && q[0] <= w && q[1] >= 0 && q[1] <= h;
@@ -794,13 +799,21 @@
       mctx.closePath();
       mctx.fill();
       mctx.restore();
-      if (labelled.some(q => Math.hypot(q[0] - ex, q[1] - ey) < LABEL_GAP)) return;
-      labelled.push([ex, ey]);
       const away = Math.hypot(p[0] - bounds.cx, p[1] - bounds.cy) / 1000;
+      const text = 'L' + (i + 1) + ' · ' + away.toFixed(1) + 'km';
+      const textW = mctx.measureText(text).width;
+      const right = ex > w / 2;
+      const tx = ex + (right ? -8 : 8), ty = ey + 3;
+      const box = {x0: right ? tx - textW : tx, x1: right ? tx : tx + textW, y0: ty - LABEL_H + 2, y1: ty + 2};
+      // 미니맵 밖으로 나가는 글자도 생략한다(잘린 글자는 읽을 수 없다).
+      if (box.x0 < 0 || box.x1 > w || box.y0 < 0 || box.y1 > h) return;
+      if (labelBoxes.some(other => overlaps(box, other))) return;
+      labelBoxes.push(box);
       mctx.fillStyle = '#ffd9a8';
-      mctx.textAlign = ex > w / 2 ? 'right' : 'left';
-      mctx.fillText('L' + (i + 1) + ' · ' + away.toFixed(1) + 'km', ex + (ex > w / 2 ? -8 : 8), ey + 3);
+      mctx.textAlign = right ? 'right' : 'left';
+      mctx.fillText(text, tx, ty);
     });
+    stats.minimapLabelBoxes = labelBoxes;
     // 지금 보고 있는 영역
     const half = camera.radius * scale;
     const centre = xy([camera.cx, camera.cy]);
@@ -1109,6 +1122,11 @@
         }
         check(stats.minimap && stats.minimap.cx === camera.cx && stats.minimap.radius === camera.radius,
           item.mode + ' ' + step + '번 장면의 미니맵 사각형이 카메라와 다릅니다.');
+        // 미니맵 가장자리 라벨은 서로 겹치지 않고 미니맵 안에 온전히 들어와야 한다.
+        const boxes = stats.minimapLabelBoxes || [];
+        const collided = boxes.some((a, i) => boxes.some((b, j) => j > i
+          && !(a.x1 < b.x0 || b.x1 < a.x0 || a.y1 < b.y0 || b.y1 < a.y0)));
+        check(!collided, item.mode + ' ' + step + '번 장면의 미니맵 랜드마크 라벨이 서로 겹칩니다.');
         // 다듬기 (a): A* 장면이 현재 지점에 너무 붙어 주변을 못 보는 일이 없어야 한다.
         if ((event.values || {}).f_m != null) {
           check(camera.radius >= MIN_RADIUS - 1e-6,
