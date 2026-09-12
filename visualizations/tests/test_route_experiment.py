@@ -90,7 +90,10 @@ def test_waypoint_recording_preserves_real_engine_and_reports_own_tolerance(grid
     phases = {e["phase"] for e in recorded["trace"]}
     assert {"grasp_choice", "constructed", "winner", "final"} <= phases
     if refinement != "vns":
-        choices = [e for e in recorded["trace"] if e["phase"] == "grasp_choice"]
+        # 어댑터가 선택 1회를 candidates(RCL) + select(실제 선택) 두 장면으로 나누므로
+        # 원본 선택 횟수는 candidates 쪽만 센다.
+        choices = [e for e in recorded["trace"]
+                   if e["phase"] == "grasp_choice" and e["kind"] == "candidates"]
         assert len(choices) <= 2 * 2  # 재시작 2회 × 경유지 2개: 삼항식 재진입 중복 방지
         completions = [e for e in recorded["trace"] if e["phase"] in ("constructed", "construction_failed")]
         assert len(completions) == 2

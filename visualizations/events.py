@@ -16,7 +16,9 @@
 | `paths` | list[list] | 이 장면과 관련된 경로 노드열 목록(없으면 `[]`) |
 
 `phase`는 화면 호환용이다. 재생 화면은 당분간 `phase`로 설명 문구를 고르므로,
-어댑터는 기존 화면이 아는 이름을 그대로 써야 한다.
+어댑터는 기존 화면이 아는 이름을 그대로 써야 한다. `source_phase`는 그것과 별개로
+"이 공통 이벤트가 어느 원본 이벤트에서 왔는가"를 남긴다 — 원본 기록(settrace 수집물)과
+공통 이벤트를 나중에 짝지어 대조하기 위한 키이며, 문자열이면 통과시킨다.
 
 ## 이벤트 선택 키
 
@@ -24,6 +26,7 @@
 |---|---|---|
 | `candidate_id` | str | 같은 후보의 흐름을 잇는 식별자 |
 | `parent_candidate_id` | str | 이 후보가 갈라져 나온 부모 후보 식별자 |
+| `source_phase` | str | 이 공통 이벤트를 만든 원본 기록의 phase 이름 |
 | `nodes` | list | 이 장면과 관련된 노드 목록 |
 | `values` | dict | 판단에 쓴 수치. 화면이 그대로 표시할 수 있는 값만 담는다 |
 | `decision` | dict | `{"accepted": bool, "reason": str}` — 실제 기록으로 확인되는 문장만 |
@@ -61,7 +64,38 @@ KINDS = tuple(KIND_MEANINGS)
 
 REQUIRED_KEYS = ("seq", "kind", "algorithm", "phase", "paths")
 
+# RunConditions.service_use가 가질 수 있는 값.
+SERVICE_USE_VALUES = ("service", "benchmark_only")
+
 _SCALARS = (bool, int, float, str)
+
+
+class TraceMismatchError(RuntimeError):
+    """기록이 실제 실행과 어긋날 때. 잘못된 장면을 만드는 대신 여기서 중단한다.
+
+    어댑터가 공통으로 쓴다 — 재생 경로가 엔진 반환과 다를 때(A*), 원본 기록에 모르는
+    phase나 필요한 키가 없을 때(Beam·GRASP) 모두 이 예외로 멈춘다.
+    """
+
+
+def service_use_for(engine_class) -> str:
+    """엔진 클래스가 서비스 요청에 연결돼 있는지 코드에서 판정한다.
+
+    이름 규칙이나 문자열 비교가 아니라 `RouteService.base_engines`(서비스가 실제로
+    고르는 엔진 표)에 그 클래스가 있는지로 정한다. 표는 `__init__`에서만 만들어지므로
+    인스턴스를 하나 세워 읽는다 — `__init__`은 인자를 그대로 담기만 하고 그래프·인증을
+    쓰지 않아 `None`을 넘겨도 안전하다. 시각화는 이 함수 밖에서 서비스 코드를 호출하지
+    않는다.
+    """
+    from src.service.route.route_service import RouteService
+
+    engines = set(getattr(RouteService(None, None), "base_engines", {}).values())
+    if not engines:
+        raise RuntimeError(
+            "RouteService.base_engines를 읽지 못했습니다. 서비스 엔진 표의 위치가 바뀌었는지 "
+            "확인하세요 — 추정으로 service_use를 정하지 않습니다."
+        )
+    return "service" if engine_class in engines else "benchmark_only"
 
 
 @dataclass(frozen=True)
@@ -102,11 +136,21 @@ class RunConditions:
     mode: str
     heuristic: HeuristicConditions
     weight_policy: str
+    # "service"(서비스 요청에 실제로 연결된 엔진) 또는 "benchmark_only"(벤치마크·시각화
+    # 전용). 문자열 비교가 아니라 service_use_for()가 코드에서 판정한 값을 넣는다.
+    service_use: str
     code_commit: str | None = None
     artifact: ArtifactRef = field(default_factory=ArtifactRef)
     target_m: float | None = None
     seed: int | None = None
     config: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        if self.service_use not in SERVICE_USE_VALUES:
+            raise ValueError(
+                f"service_use는 {', '.join(SERVICE_USE_VALUES)} 중 하나여야 합니다"
+                f"(받은 값: {self.service_use!r})."
+            )
 
     def as_dict(self) -> dict:
         """JSON으로 저장할 수 있는 dict. 결과 파일과 화면 payload가 함께 쓴다."""
@@ -198,7 +242,7 @@ def validate_events(events) -> list:
         for j, path in enumerate(event["paths"]):
             if not isinstance(path, list):
                 _fail(where, f"paths[{j}]는 노드 리스트여야 합니다.")
-        for key in ("candidate_id", "parent_candidate_id"):
+        for key in ("candidate_id", "parent_candidate_id", "source_phase"):
             if key in event and not isinstance(event[key], str):
                 _fail(where, f"{key}는 문자열이어야 합니다.")
         if "nodes" in event and not isinstance(event["nodes"], list):

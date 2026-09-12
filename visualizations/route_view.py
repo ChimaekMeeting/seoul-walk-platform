@@ -13,10 +13,16 @@ from matplotlib.lines import Line2D
 from visualizations.network_view import EARTH_RADIUS_M, _korean_font, _local_xy, _segments_in_square
 
 
+# 서비스에 연결된 엔진인지(RunConditions.service_use)를 이름에 같이 적는다. 순환·편도
+# Beam은 RouteService.base_engines에 있고, GRASP 계열은 아직 서비스에 연결되지 않았다.
 LABELS = {"shortest": "최단거리 · A*", "shortest_alt": "최단거리 · A* + ALT",
-          "detour": "편도 우회 · Beam", "circular": "순환 · Beam"}
-LABELS.update({f"grasp_{r}": f"GRASP + {r.upper()}" for r in ("none", "local", "vnd", "vns", "alns")})
-LABELS["grasp_none"] = "GRASP · 구축만"
+          "detour": "편도 우회 · Beam(서비스)", "circular": "순환 · Beam(서비스)"}
+LABELS.update({f"grasp_{r}": f"GRASP + {r.upper()}(벤치마크)"
+               for r in ("none", "local", "vnd", "vns", "alns")})
+LABELS["grasp_none"] = "GRASP · 구축만(벤치마크)"
+
+# 비교표 배지 문구. 값은 RunConditions.service_use가 정한다.
+SERVICE_BADGES = {"service": "서비스 엔진", "benchmark_only": "벤치마크 전용"}
 
 
 def event_nodes(result):
@@ -38,16 +44,21 @@ def landmark_points(result):
 
 
 def describe_settings(result):
-    """비교표에 그대로 보여 줄 실행 조건 한 줄."""
+    """비교표에 그대로 보여 줄 실행 조건 한 줄. 끝에 서비스 연결 배지를 붙인다."""
+    conditions = result.get("conditions") or {}
+    badge = SERVICE_BADGES.get(conditions.get("service_use"))
     if "config" in result:
-        return f"경유지 2개 · 재시작 {result['config']['grasp_iters']}회 · seed {result['seed']}"
-    heuristic = (result.get("conditions") or {}).get("heuristic") or {}
-    if not heuristic:
-        return ""
-    if heuristic["name"] == "haversine":
-        return "Haversine"
-    return (f"ALT {heuristic['method'].capitalize()} k={heuristic['k_requested']} "
-            f"(실제 {heuristic['k_actual']}개)")
+        text = f"경유지 2개 · 재시작 {result['config']['grasp_iters']}회 · seed {result['seed']}"
+    else:
+        heuristic = conditions.get("heuristic") or {}
+        if not heuristic:
+            text = ""
+        elif heuristic["name"] == "haversine":
+            text = "Haversine"
+        else:
+            text = (f"ALT {heuristic['method'].capitalize()} k={heuristic['k_requested']} "
+                    f"(실제 {heuristic['k_actual']}개)")
+    return " · ".join(part for part in (text, badge) if part)
 
 
 def write_route_views(graph, report, output):

@@ -90,9 +90,7 @@ def run_suite(args):
         plain = execute(graph, mode, start, finish, target, record=False, **options)
         recorded["recording_preserves_result"] = compare_recording(recorded, plain)
         recorded["run_seconds"] = plain["run_seconds"]
-        if not shortest_case:
-            # A* 어댑터는 run_start 이벤트를 스스로 만든다(seq가 이어져야 한다).
-            recorded["trace"].insert(0, {"phase": "start", "paths": [[start["node"]]]})
+        # run_start·final은 모든 어댑터가 스스로 만든다(여기서 덧붙이지 않는다).
         if shortest_case:
             recorded["dijkstra_distance_m"] = shortest_m
             recorded["matches_dijkstra"] = bool(recorded["metrics"]) and math.isclose(
