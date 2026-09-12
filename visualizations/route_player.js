@@ -20,10 +20,17 @@
   let drag = null, pinch = null, lastScale = 1;
   let pathAnim = null, pathAnimResolve = null;
   // 자가 점검(?selftest=1)이 읽는 마지막 렌더 상태. 화면 동작에는 쓰지 않는다.
-  const stats = {drawnPaths: 0, keptOverlay: false, minimap: null, disabledOptions: 0};
+  const stats = {drawnPaths: 0, keptOverlay: false, minimap: null, disabledOptions: 0,
+                 landmarkLabel: null, landmarkLabelSkipped: false, landmarkRayOffscreen: false};
 
   // ── 상수 ─────────────────────────────────────────────────
-  const MIN_RADIUS = 120;          // 자동 확대가 더 좁게 들어가지 않는 하한(m)
+  // 자동 확대 하한(m). A* 초반에는 focus 노드가 현재 지점 주변에 몰려 있어 더 좁게 잡으면
+  // 주변 도보망이 거의 안 보인다(PR #424 점검에서 25m 눈금까지 들어간 장면이 나왔다).
+  const MIN_RADIUS = 200;
+  // focus 노드가 이보다 적으면 최근 탐색 구간을 함께 담아 위치를 알아볼 수 있게 한다.
+  const FOCUS_MIN_NODES = 3;
+  const FOCUS_TREE_TAIL = 20;      // 함께 담을 최근 탐색 구간 수
+  const LABEL_GAP = 22;            // 가장자리 라벨이 이보다 가까우면 겹치므로 생략한다(px)
   const FOCUS_PAD = 0.20;          // focus 노드 범위에 더하는 여백
   const FINAL_PAD = 0.15;          // 최종 경로 범위에 더하는 여백
   const TWEEN_MS = 250;            // 카메라 이동 시간 상한
@@ -283,6 +290,18 @@
 
   const coordsOf = ids => (ids || []).map(n => data.nodes[n]).filter(Boolean);
 
+  // 한 점에서 angle 방향으로 나간 반직선이 화면 사각형과 만나는 자리. 없으면 null.
+  function edgeCrossing(from, angle, w, h) {
+    const dx = Math.cos(angle), dy = Math.sin(angle);
+    let nearest = Infinity;
+    const consider = t => { if (t > 0 && t < nearest) nearest = t; };
+    if (dx > 1e-9) consider((w - from[0]) / dx);
+    if (dx < -1e-9) consider((0 - from[0]) / dx);
+    if (dy > 1e-9) consider((h - from[1]) / dy);
+    if (dy < -1e-9) consider((0 - from[1]) / dy);
+    return Number.isFinite(nearest) ? [from[0] + dx * nearest, from[1] + dy * nearest] : null;
+  }
+
   function autoTarget(event) {
     // 시작은 전체 범위, 최종은 반환 경로 범위, 나머지는 어댑터가 남긴 focus.nodes.
     if (event.kind === 'run_start') return {...result.bounds};
@@ -291,7 +310,14 @@
       event.paths.forEach(path => coordsOf(path).forEach(p => coords.push(p)));
       return cameraFor(coords, FINAL_PAD) || {...result.bounds};
     }
-    return cameraFor(coordsOf(event.focus && event.focus.nodes), FOCUS_PAD);
+    const ids = [...((event.focus && event.focus.nodes) || [])];
+    if (ids.length < FOCUS_MIN_NODES) {
+      // 화면 규칙일 뿐 이벤트 데이터는 바꾸지 않는다. 탐색 트리의 끝점(child) 쪽만 쓴다.
+      (event.tree || []).slice(-FOCUS_TREE_TAIL).forEach(edge => {
+        if (edge.length > 1) ids.push(edge[1]);
+      });
+    }
+    return cameraFor(coordsOf(ids), FOCUS_PAD);
   }
 
   function tweenMs() {
@@ -515,6 +541,9 @@
     }
 
     stats.keptOverlay = false;
+    stats.landmarkLabel = null;
+    stats.landmarkLabelSkipped = false;
+    stats.landmarkRayOffscreen = false;
     if (isStart) {
       // 시작 장면은 입력만 알린다. 아직 아무것도 탐색하지 않았으므로 경로를 그리지 않는다.
     } else if (isFinal) {
@@ -593,17 +622,38 @@
           if (target) {
             const from = point(event.current), to = xy(target);
             const angle = Math.atan2(to[1] - from[1], to[0] - from[0]);
-            const reach = Math.min(Math.hypot(to[0] - from[0], to[1] - from[1]), Math.max(w, h));
+            const full = Math.hypot(to[0] - from[0], to[1] - from[1]);
+            const reach = Math.min(full, Math.max(w, h));
+            const tip = [from[0] + Math.cos(angle) * reach, from[1] + Math.sin(angle) * reach];
             ctx.setLineDash([3, 6]);
             ctx.strokeStyle = COLORS.landmark;
             ctx.lineWidth = 1;
             ctx.globalAlpha = .8;
             ctx.beginPath();
             ctx.moveTo(from[0], from[1]);
-            ctx.lineTo(from[0] + Math.cos(angle) * reach, from[1] + Math.sin(angle) * reach);
+            ctx.lineTo(tip[0], tip[1]);
             ctx.stroke();
             ctx.globalAlpha = 1;
             ctx.setLineDash([]);
+            // 랜드마크가 화면 밖이면 점선이 가장자리와 만나는 자리에 방향과 거리를 적는다.
+            if (tip[0] < 0 || tip[0] > w || tip[1] < 0 || tip[1] > h || full > reach) {
+              stats.landmarkRayOffscreen = true;
+              const edge = edgeCrossing(from, angle, w, h);
+              if (edge && placed.some(q => Math.hypot(q[0] - edge[0], q[1] - edge[1]) < LABEL_GAP)) {
+                stats.landmarkLabelSkipped = true;
+              } else if (edge) {
+                placed.push(edge);
+                const away = Math.hypot(target[0] - data.nodes[event.current][0],
+                                        target[1] - data.nodes[event.current][1]) / 1000;
+                const text = 'L' + values.best_landmark + ' 방향 · ' + away.toFixed(1) + 'km';
+                ctx.font = '12px system-ui';
+                ctx.textAlign = edge[0] > w * .7 ? 'right' : 'left';
+                label(text, Math.min(Math.max(edge[0], 8), w - 8),
+                      Math.min(Math.max(edge[1], 16), h - 8), COLORS.landmark);
+                ctx.textAlign = 'left';
+                stats.landmarkLabel = text;
+              }
+            }
           }
         }
       }
@@ -744,7 +794,7 @@
       mctx.closePath();
       mctx.fill();
       mctx.restore();
-      if (labelled.some(q => Math.hypot(q[0] - ex, q[1] - ey) < 22)) return;
+      if (labelled.some(q => Math.hypot(q[0] - ex, q[1] - ey) < LABEL_GAP)) return;
       labelled.push([ex, ey]);
       const away = Math.hypot(p[0] - bounds.cx, p[1] - bounds.cy) / 1000;
       mctx.fillStyle = '#ffd9a8';
@@ -1041,6 +1091,8 @@
     check($('algorithm').querySelectorAll('option:disabled').length
       === (data.catalog || []).filter(entry => !entry.available).length,
       '선택 화면의 disabled 항목 수가 catalog의 available=false 수와 다릅니다.');
+    let landmarkLabels = 0;
+    const hasLandmarks = data.results.some(item => (item.landmarks || []).length);
     for (const item of data.results) {
       selectResult(item.mode);
       $('playback-mode').value = 'all';
@@ -1057,6 +1109,18 @@
         }
         check(stats.minimap && stats.minimap.cx === camera.cx && stats.minimap.radius === camera.radius,
           item.mode + ' ' + step + '번 장면의 미니맵 사각형이 카메라와 다릅니다.');
+        // 다듬기 (a): A* 장면이 현재 지점에 너무 붙어 주변을 못 보는 일이 없어야 한다.
+        if ((event.values || {}).f_m != null) {
+          check(camera.radius >= MIN_RADIUS - 1e-6,
+            item.mode + ' ' + step + '번 A* 장면의 자동 확대 반지름이 ' + MIN_RADIUS
+            + 'm보다 좁습니다: ' + camera.radius);
+        }
+        // 다듬기 (b): 랜드마크 방향 점선이 화면을 벗어나면 방향·거리 라벨이 있어야 한다.
+        if (stats.landmarkRayOffscreen) {
+          check(stats.landmarkLabel !== null || stats.landmarkLabelSkipped,
+            item.mode + ' ' + step + '번 장면: 화면 밖 랜드마크 방향에 라벨이 없습니다.');
+          if (stats.landmarkLabel) landmarkLabels++;
+        }
         if (event.kind === 'final') {
           const drawing = startPathAnimation();
           finishPathAnimation();
@@ -1068,14 +1132,19 @@
         }
       }
     }
-    return {checks, failures, results: data.results.length};
+    if (hasLandmarks) {
+      check(landmarkLabels > 0,
+        'ALT 결과가 있는데 랜드마크 방향 라벨이 한 번도 그려지지 않았습니다.');
+    }
+    return {checks, failures, results: data.results.length, landmarkLabels};
   }
 
   if (SELFTEST) {
     selftest().then(report => {
       $('selftest-result').textContent = JSON.stringify(
         {passed: report.checks - report.failures.length, checks: report.checks,
-         results: report.results, failures: report.failures}, null, 2);
+         results: report.results, landmarkLabels: report.landmarkLabels,
+         failures: report.failures}, null, 2);
     }).catch(error => {
       $('selftest-result').textContent = JSON.stringify(
         {passed: 0, checks: 0, failures: ['예외: ' + (error && error.message ? error.message : String(error))]}, null, 2);
