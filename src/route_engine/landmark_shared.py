@@ -1,7 +1,7 @@
 """ALT(A* + Landmark + Triangle inequality) 선택법들이 공유하는 인프라.
 
 랜드마크-전체노드 거리표, 삼각부등식 휴리스틱, admissibility 검증을 담당한다.
-개별 선택법(Random/Farthest/Planar)은 각자 파일에서 이 모듈만 가져다 쓴다.
+개별 선택법(Random/Farthest/Planar/Avoid)은 각자 파일에서 이 모듈만 가져다 쓴다.
 어떤 엔진에도 연결하지 않은 독립 모듈이다 — 현재 프로덕션 OnewayAstarEngine은
 weight=length(거리 전용)로 바뀌면서 Haversine 휴리스틱만으로도 admissible해
 랜드마크 ALT를 쓰지 않는다(2026-08-23, route_engine/README.md

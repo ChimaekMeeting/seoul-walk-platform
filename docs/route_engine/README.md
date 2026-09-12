@@ -585,7 +585,9 @@ admissible해 랜드마크 ALT 자체를 쓰지 않는다(2026-08-23, 아래 "on
   선택)을 따랐다. 원 논문의 공간 분할(예: quadtree·space-filling curve) 대신
   centroid 기준 각도 섹터로 단순화했다 — 이 단순화가 논문의 실제 성능 특성과
   얼마나 가까운지는 확인하지 않았다.
-- Random/Farthest 선택법은 이번에 구현하지 않았다. 티켓이 요구한 "Random/Farthest
+- Random/Farthest 선택법은 이번에 구현하지 않았다(2026-09-12에 독립 함수로
+  구현했다 — 아래 "Random 랜드마크 선택 독립 함수"·"Farthest 랜드마크 선택
+  독립 함수" 절 참고). 티켓이 요구한 "Random/Farthest
   대비 h(n) 품질·탐색 노드 수 비교 벤치마크"는 그 두 선택법이 없어 아직 수행하지
   못했다 — `landmark_shared.py`의 `LandmarkTable`/`verify_admissible` 등 공용
   인터페이스는 이후 `landmark_random.py`/`landmark_farthest.py`를 같은 패턴으로
@@ -700,9 +702,153 @@ Avoid로 고른 랜드마크도 admissibility는 삼각부등식으로 항상 �
 - **미확인**: 실제 서울 그래프 규모(15만+ 노드)에서의 선택 시간(위 "전처리
   비용" 참고), Random/Farthest/Planar 대비 h(n) 품질·탐색 노드 수 비교
   벤치마크, 어떤 엔진에도 연결한 실행. Random/Farthest 자체도 아직 구현하지
-  않아 4개 선택법을 한 번에 비교하는 벤치마크는 그것부터 필요하다.
+  않아 4개 선택법을 한 번에 비교하는 벤치마크는 그것부터 필요하다(Random/Farthest는
+  2026-09-12에 구현해 선택법 4종이 모두 갖춰졌고, 비교 벤치마크는 아직 남아 있다).
 - 문제 발생 시 이 두 파일과 단위 테스트부터 확인한다. 어떤 엔진·API·DB도
   변경하지 않아 복구가 필요 없다.
+
+## Random 랜드마크 선택 독립 함수 (2026-09-12)
+
+ALT의 Random 랜드마크 선택법을 독립 함수로 구현했다. 진입점은
+[landmark_random.py](../../src/route_engine/landmark_random.py)의
+`select_landmarks_random()`이며, 공용 인프라는 Planar/Avoid와 동일하게
+[landmark_shared.py](../../src/route_engine/landmark_shared.py)를 그대로 쓴다 —
+이번에 공용 모듈에 새로 추가한 함수는 없다(모듈 docstring의 선택법 목록에 Avoid를
+더한 것이 유일한 수정이다). Planar/Avoid와 마찬가지로 어떤 엔진·API·DB에도
+연결하지 않았다.
+
+### 입력·출력
+
+- 입력: `G`(무방향 그래프), `k`(랜드마크 개수), 키워드 전용 `seed`(기본 0).
+- 출력: 서로 다른 노드 ID `k`개의 `list[int]`. 거리표는 반환하지 않는다 — 호출자가
+  `precompute_landmark_distances(G, landmarks, weight="length")`로 따로 만든다.
+  선택법 4종이 모두 같은 계약이라 서로 교체해 끼울 수 있다.
+- `k < 1`이거나 `k`가 최대 연결요소의 노드 수보다 크면 `ValueError`.
+
+### `select_landmarks_random(G, k, *, seed=0)` 구현 규칙
+
+1. `_largest_component_nodes(G)`로 후보를 최대 연결요소로 제한한다 — 실제 탐색
+   시작점도 이 요소 안에서만 잡히므로, 모든 탐색 쌍에서 도달 가능한 랜드마크가 된다.
+2. `random.Random(seed).sample(nodes, k)`로 중복 없이 k개를 뽑는다. 전역 `random`
+   상태를 건드리지 않아 호출자의 다른 난수 흐름에 영향을 주지 않는다.
+3. SSSP도 좌표 계산도 하지 않는다 — 선택 자체의 비용이 4종 중 가장 낮다
+   (Planar는 좌표 1패스, Farthest는 SSSP k회, Avoid는 반복당 SSSP 2회).
+
+### 논문 대조
+
+- Goldberg & Harrelson, *Computing the Shortest Path: A\* Search Meets Graph
+  Theory* (SODA 2005)가 Farthest/Planar의 성능을 견줄 때 기준선으로 쓴 무작위
+  선택을 그대로 옮겼다. 알고리즘에 해석의 여지가 없어 Planar/Avoid와 달리 원
+  논문과 다르게 구현한 부분이 없다.
+- 이 저장소의 Planar 절은 같은 논문을 *A\* Search Meets Landmarks*로 적었는데
+  원 제목은 *A\* Search Meets Graph Theory*다. 2026-09-12 작업에서 원문 PDF를 다시
+  열어 대조하지는 않았고, Planar 절의 문장도 그대로 두었다 — 표기를 어느 쪽으로
+  통일할지는 남은 판단이다.
+
+### Admissibility 검증
+
+Planar/Avoid와 동일하게 `landmark_shared.py`의 `verify_admissible`을 그대로 쓴다.
+어떤 방식으로 고르든 `alt_heuristic`의 admissibility는 삼각부등식으로 항상
+증명되는 성질이라(`landmark_dist`가 탐색과 같은 weight로 계산된 실제 최단거리인 한)
+새 검증 로직이 필요 없다 — 무작위 선택도 예외가 아니다.
+
+### 실행·검증·복구
+
+```bash
+./.venv/Scripts/python.exe -m pytest tests/unit/test_landmark_random.py -q
+```
+
+- 2026-09-12, 로컬 pytest 실행에서 7개 테스트 전부 통과. 6×6 grid에서 k개 distinct
+  노드 반환, 같은 seed 재현, 다른 seed(0/1)의 결과 불일치, `k < 1` 거부,
+  `k > 최대 연결요소 노드 수` 거부, seed 0/1/2 각각에서 전체 쌍(630쌍)
+  admissibility 위반 0건을 확인했다.
+- **미확인**: 실제 서울 그래프 규모(15만+ 노드)에서의 선택 시간과 h(n) 품질,
+  Farthest/Planar/Avoid 대비 비교 벤치마크, 어떤 엔진에도 연결한 실행.
+- 문제 발생 시 이 파일과 단위 테스트부터 확인한다. 어떤 엔진·API·DB도 변경하지
+  않아 복구가 필요 없다.
+
+## Farthest 랜드마크 선택 독립 함수 (2026-09-12)
+
+ALT의 Farthest 랜드마크 선택법을 독립 함수로 구현했다. 진입점은
+[landmark_farthest.py](../../src/route_engine/landmark_farthest.py)의
+`select_landmarks_farthest()`이며, 공용 인프라는
+[landmark_shared.py](../../src/route_engine/landmark_shared.py)의
+`_largest_component_nodes`/`precompute_landmark_distances`를 그대로 쓴다 — 이번에
+공용 모듈에 새로 추가한 함수는 없다. 다른 세 선택법과 마찬가지로 어떤 엔진·API·DB에도
+연결하지 않았다.
+
+### 입력·출력
+
+- 입력: `G`, `k`, 키워드 전용 `weight`(기본 `"length"`), `seed`(기본 0). `weight`는
+  `precompute_landmark_distances`로 그대로 넘어가므로, 나중에 거리표를 만들 때와
+  **같은 weight**를 써야 선택 기준과 실제 휴리스틱이 어긋나지 않는다.
+- 출력: 서로 다른 노드 ID `k`개의 `list[int]`. **뽑힌 순서를 유지한다** — 앞쪽이
+  먼저 뽑힌, 즉 그 시점의 랜드마크 집합에서 더 멀리 떨어졌던 노드다.
+- `k < 1`이거나 `k`가 최대 연결요소의 노드 수보다 크면 `ValueError`(Random과 동일).
+
+### `select_landmarks_farthest(G, k, *, weight="length", seed=0)` 구현 규칙
+
+1. `_largest_component_nodes(G)`로 후보를 제한하고, 첫 랜드마크를
+   `random.Random(seed).choice`로 무작위로 고른다.
+2. 랜드마크를 추가할 때마다 그 랜드마크 1개에 대해 `precompute_landmark_distances`를
+   1회 호출하고, 그 결과로 노드별 `min_dist(v) = min_{L in S} dist(L, v)`를
+   갱신한다. 전체 SSSP 횟수는 정확히 k회다.
+3. 아직 뽑히지 않은 후보 중 `min_dist(v)`가 가장 큰 노드를 다음 랜드마크로 고른다.
+   동점은 노드 ID가 작은 쪽을 우선한다(재현성을 위한, 원 논문에 없는 이 구현의 결정).
+4. `min_dist`는 그 노드에 **실제로 도달한** 랜드마크만으로 계산하고, 어떤
+   랜드마크에서도 도달하지 못한 노드는 후보에서 아예 제외한다 — 그런 노드는 ALT
+   하한을 전혀 받지 못해 "가장 먼 노드"로 뽑을 이유가 없다. 무방향 그래프는 최대
+   연결요소 안에서 서로 모두 도달 가능하므로 이 제외가 실제로 일어나지 않는다.
+5. (방어적 처리) 4번에도 불구하고 도달 가능한 후보가 다 떨어져 k개를 못 채우면
+   `ValueError`를 낸다. 조용히 k개보다 적게 반환하거나 하한을 못 주는 노드를
+   랜드마크로 넣는 것보다 낫다고 판단한, 원 논문에 없는 이 구현의 결정이다.
+
+### 전처리 비용
+
+- 반복(랜드마크 1개)당 SSSP 1회 + `min_dist` 갱신 O(n)이라 전체 O(k·(SSSP + n)).
+- Avoid(반복당 SSSP 2회 + O(n·|S|))보다 싸고, Planar(SSSP 0회, 좌표 1패스)와
+  Random(SSSP 0회)보다 비싸다. 실제 서울 그래프에서의 절대 시간은 아직 실측하지
+  않았다.
+
+### 논문 대조
+
+- Goldberg & Harrelson (SODA 2005, 제목 표기는 위 Random 절 참고)의 farthest
+  선택법 — "현재 랜드마크 집합까지의 거리가 최대인 노드를 반복해서 더한다" — 의
+  반복 단계를 그대로 따랐다.
+- **첫 랜드마크가 원 논문과 다르다**: 원 논문은 무작위 시작점에서 *가장 먼* 노드를
+  첫 랜드마크로 삼지만, 이 구현은 무작위로 고른 노드 자체를 첫 랜드마크로 쓴다.
+  SSSP 1회를 아끼는 대신 첫 랜드마크가 그래프 외곽으로 밀리지 않는다. 2번째
+  랜드마크부터는 규칙이 같다. 이 차이가 h(n) 품질에 얼마나 영향을 주는지는
+  측정하지 않았다.
+- 동점 처리(노드 ID가 작은 쪽)와 도달 불가 노드 제외는 원 논문에 없는 이 구현의
+  결정이다. 2026-09-12 작업에서 원문 PDF를 다시 열어 대조하지는 않았다.
+
+### Admissibility 검증
+
+Planar/Avoid/Random과 동일하게 `landmark_shared.py`의 `verify_admissible`을 그대로
+쓴다. Farthest가 고르는 "서로 멀리 떨어진" 랜드마크는 h(n)을 크게 만들 뿐
+admissibility 조건 자체를 바꾸지 않는다 — 삼각부등식으로 항상 성립한다.
+
+### 실행·검증·복구
+
+```bash
+./.venv/Scripts/python.exe -m pytest tests/unit/test_landmark_farthest.py -q
+```
+
+- 2026-09-12, 로컬 pytest 실행에서 9개 테스트 전부 통과. 노드 5개를 100m 간격으로
+  이은 일직선 그래프에서 선택 순서를 손계산과 대조했다 — 끝점(0번)에서 시작하면
+  `[0, 4, 2, 1, 3]`, 안쪽 노드(3번)에서 시작하면 `[3, 0, 1, 2]`로, "반대쪽 끝 →
+  가운데 → 동점이면 작은 ID" 순서가 그대로 나온다. 6×6 grid에서는 k개 distinct
+  노드 반환, 같은 seed 재현, 다른 seed(0/1)의 결과 불일치, `k < 1`·`k > 노드 수`
+  거부, seed 0/1/2 각각에서 전체 쌍(630쌍) admissibility 위반 0건을 확인했다.
+- 일직선 그래프 테스트의 첫 랜드마크(seed 2 → 0번, seed 0 → 3번)는
+  `random.Random(seed).choice`가 `_largest_component_nodes`의 반환 순서에 의존한다.
+  그 순서가 바뀌면 테스트 기대값도 다시 계산해야 한다.
+- **미확인**: 실제 서울 그래프 규모(15만+ 노드)에서의 선택 시간(위 "전처리 비용"
+  참고)과 h(n) 품질, Random/Planar/Avoid 대비 비교 벤치마크, 어떤 엔진에도 연결한
+  실행.
+- 문제 발생 시 이 파일과 단위 테스트부터 확인한다. 어떤 엔진·API·DB도 변경하지
+  않아 복구가 필요 없다.
 
 ## Waypoint(경유지) 조합 엔진
 

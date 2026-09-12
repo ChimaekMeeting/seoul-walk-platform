@@ -31,6 +31,8 @@ package-lock.json
 !tests/unit/test_waypoint_route_builder.py
 !tests/unit/test_landmark_planar.py
 !tests/unit/test_landmark_avoid.py
+!tests/unit/test_landmark_random.py
+!tests/unit/test_landmark_farthest.py
 !tests/unit/test_grasp_waypoint_common.py
 !tests/unit/test_waypoint_engine_assembly.py
 .claude/
