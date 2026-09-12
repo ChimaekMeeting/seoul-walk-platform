@@ -168,8 +168,10 @@ Windows, Python 3.12.14, NetworkX 3.6, artifact `v2-2026-08-25`에서 기본 명
 | `visualizations/route_experiment.py` | 엔진 실행 조건과 경로 검증 |
 | `visualizations/events.py` | 모든 어댑터가 쓰는 공통 이벤트 형식·실행 조건과 그 검사 |
 | `visualizations/astar_adapter.py` | 최단거리 A*·ALT 실행의 재생과 노드열 대조 |
-| `visualizations/route_trace.py` | 기존 Beam 기록(A*는 어댑터로 옮김) |
-| `visualizations/waypoint_trace.py` | GRASP·Local·VND·VNS·ALNS 기록 |
+| `visualizations/beam_adapter.py` | 순환·편도 Beam 기록을 공통 이벤트로 변환 |
+| `visualizations/waypoint_adapter.py` | GRASP 계열 기록을 공통 이벤트로 변환 |
+| `visualizations/route_trace.py` | 기존 Beam 기록 수집(settrace, 오프라인 전용) |
+| `visualizations/waypoint_trace.py` | GRASP·Local·VND·VNS·ALNS 기록 수집(settrace, 오프라인 전용) |
 | `visualizations/route_story.py` | 장면별 경로 지표·변경 전후 비교·핵심 장면 선택 |
 | `visualizations/route_view.py` | 기록을 화면 데이터·PNG로 변환 |
 | `visualizations/route_player.html` | 재생·단계 이동·확대·이동 화면 |
@@ -319,3 +321,114 @@ ALT 준비(랜드마크 선정 1.178초 + 거리표 5.830초 = 7.382초)는 `run
 회귀 테스트 128개 통과, Windows 심볼릭 링크 권한으로 1개 건너뜀(`visualizations/tests`, `tests/unit/test_alt_runtime.py`, `tests/unit/test_alt_shortest_path_runner.py`). Ruff와 `git diff --check` 통과. Chrome 152 headless에서 생성된 `routes.html`을 열어 JavaScript 오류가 없음을 확인했고, 최단거리 비교표의 두 행과 휴리스틱 조건 표시, ALT 장면의 `f = g + h`·휴리스틱 종류·최대 하한 랜드마크·대기 상위 후보·이웃 처리 목록, 마지막 장면의 큐 추출·삽입 횟수가 나오는 것을 확인했다. 모바일 배치와 여러 seed·반복 실행 비교는 이번 검증에 포함하지 않았다.
 
 `routes.png`는 결과가 4개가 되면서 2행 배치가 됐고, 2행 제목이 1행 x축 눈금과 겹쳐 보인다(`--with-grasp`의 기존 다행 배치와 같은 현상). 그림 배치 코드는 이번 범위에서 바꾸지 않았다.
+
+## Beam·GRASP 계열 어댑터 (2026-09-12)
+
+앞 절 “공통 이벤트 형식과 A*·ALT 어댑터”에서 만든 형식을 Beam·GRASP 계열까지 넓혔다. 이제 **모든 모드의 `trace`가 `validate_events()`를 통과한 공통 이벤트**이고, `conditions`(RunConditions)가 모든 결과에 붙는다. `route_story`·`route_view`·재생 화면은 settrace 산출물을 더 이상 직접 보지 않고 어댑터가 낸 공통 이벤트만 본다.
+
+`sys.settrace` 수집(`route_trace.py`·`waypoint_trace.py`)은 이번에 걷어내지 않았다. 걷어내는 방법은 [경로 엔진 관찰자 훅 도입 제안](../proposals/route_engine_trace_observer_proposal.md)에 있으며, 승인 전까지는 "settrace 수집 → 어댑터 → 공통 이벤트"로 동작한다. 그래서 소스 해시 검사(`trace_source_hashes`)와 "디버거·커버리지와 동시에 실행하지 않는다"는 제약도 그대로다.
+
+### Beam 매핑 (`visualizations/beam_adapter.py`)
+
+원본 키(`iteration`·`generated`·`kept`·`finished`·`before`)는 화면 호환을 위해 그대로 두고 공통 키를 덧붙인다.
+
+| 원본 phase | kind | paths | 주요 values | decision |
+|---|---|---|---|---|
+| (없음) | `run_start` | `[[출발 노드]]` | `start`, `end`, `target_m`, `beam_width` | 없음 |
+| `expand` | `candidates` | 생성된 확장 후보 전부 | `iteration`, `generated`, `kept`, `finished`, `candidate_ids`, `parent_candidate_ids` | 없음 |
+| `keep` | `select` | 유지 후보 | 위와 같음 | `accepted=True`, "평가값 상위 N개 안에 들어 유지" |
+| `keep`(차집합) | `reject` | 같은 반복의 `expand` − `keep` | 위 + `dropped` | `accepted=False`, "평가값 상위 N개 밖" |
+| `connect` | `route_changed` | 연결된 완성 경로 | `connection`(순환이면 "출발지 복귀", 편도면 "도착 연결") | 없음 |
+| `selection` | `select` | `find_path`가 반환한 후보 | `candidates` | `accepted=True`, "엔진 find_path가 반환한 후보입니다." |
+| `prune` | `cleanup` | 정리 후 경로(`before`에 정리 전) | `removed_nodes` | 없음 |
+| (없음) | `final` | 엔진이 반환한 경로 전부 | `candidates` | `accepted=True` |
+
+탈락 후보 장면은 원본에 없는 새 장면이라 `phase="drop"`으로 만든다. 재생 화면에 같은 이름의 설명을 추가했다.
+
+**판단 이유를 짓지 않는다.** 원본 기록에는 후보별 평가값 수치가 없다(상위 k개 절단만 기록된다). 그래서 `decision.reason`에는 순위 사실만 적고 점수를 만들어 내지 않는다.
+
+### GRASP 계열 매핑 (`visualizations/waypoint_adapter.py`)
+
+| 원본 phase | kind | 비고 |
+|---|---|---|
+| (없음) | `run_start` | `seed`, `grasp_iters`, `num_waypoints`, `refinement` |
+| `grasp_choice` | `candidates` + `select` | 제한 후보 목록(RCL)과 실제 선택을 두 장면으로 나눈다. select의 이유는 "제한 후보 목록(RCL) 안에서 무작위로 선택" |
+| `constructed` | `route_changed` | `candidate_id=restart:{n}`, `values.distance_m` |
+| `construction_failed` | `reject` | "구간 연결 실패로 구축 실패" |
+| `neighbor` | `evaluate` | `values.sampled=True`(5개마다 표본), `examined`, `neighborhood`. decision 없음 |
+| `improved` | `route_changed` | `accepted=True`, 원본 `objective_before`/`after`를 values에 편다 |
+| `refinement_done` | `evaluate` | `changed`, `nodes_before`, `nodes_after`. 채택 판단은 `winner`가 한다 |
+| `winner` | `select` | "전체 최선 갱신(RouteObjective 비교)." + 원본 비교 문장 |
+| `shake` | `route_changed` | `shake_level`, `note="교란(VND 개선 전)"`. decision 없음 |
+| `shake_failed` | `reject` | "교란 후보 생성 실패" |
+| `vns_decision` | `select` / `reject` | 기록된 `accepted`를 따른다 |
+| `destroy` / `repair` | `candidates` | `operator`, `stage`, `nodes`=경유지 |
+| `alns_accept` | `evaluate` | **`select`/`reject`로 올리지 않는다**(아래) |
+| `alns_result` | `select` / `reject` | 기록된 `accepted`를 따르고 재검증 수치를 values에 그대로 |
+| `prune` | `cleanup` | 정리 전후 |
+| (없음) | `final` | 엔진이 반환한 경로 |
+
+`values`의 최상위에는 dict를 담을 수 없으므로 `objective_before`·`internal_after` 같은 한 겹 dict는 `objective_before_distance_error_m`처럼 이름만 펴서 넣는다. 값은 원본 기록의 숫자 그대로이며 새로 계산하지 않는다(`inf`는 `None`으로 남긴다). 회귀 테스트가 변환 전후 이벤트를 짝지어 "공통 `values`의 숫자가 원본 이벤트의 숫자이거나 원본이 담은 리스트 길이(또는 두 길이의 차)에서 나온 값인지"를 확인한다.
+
+**경유지와 도로 경로를 섞지 않는다.** `nodes`에는 경유지 ID만, `paths`에는 도로 노드열만 넣는다. 경유지 단계 장면(`grasp_choice`·`destroy`·`repair`·`alns_accept`)의 `paths`는 항상 비어 있다.
+
+### 내부 수락(alns_accept)과 최종 채택(alns_result)
+
+`alns_accept`는 ALNS 내부 비용·온도 규칙의 판단이라 **나쁜 후보도 일시적으로 받아들인다.** 그래서 `evaluate`로만 남기고 `select`/`reject`로 올리지 않으며 `decision`을 붙이지 않는다. 실제로 경로에 반영되는 판단은 도로 경로로 다시 연결해 비교한 `alns_result`뿐이며 이쪽만 `select`/`reject`가 된다. 재생 화면도 두 장면의 설명 문구를 다르게 유지하고, 공통 단계(kind) 한 줄이 "후보를 평가했다(채택 여부는 아직 아님)"와 "후보를 골랐다/버렸다"로 갈린다. 이 구분은 회귀 테스트가 지킨다.
+
+### candidate_id 규칙
+
+| 계열 | 규칙 |
+|---|---|
+| Beam | `beam:{반복 번호}:{노드열 sha1 앞 10자}`. `parent_candidate_id`는 직전 반복의 유지 후보 중 이 후보의 접두사인 가장 긴 노드열의 id(없으면 `None`) |
+| GRASP | 뿌리는 `restart:{n}`. VNS·ALNS 내부 후보는 `restart:{n}:vns:{k}`·`restart:{n}:alns:{k}`, 이웃 검토는 그 아래 `:nb:{검토 순번}`. 정제 단계 이벤트는 뿌리를 `parent_candidate_id`로 갖는다 |
+
+Beam에서 **같은 노드열이 여러 반복에 나타나면 반복 번호가 달라 id도 달라진다.** 의도한 것이다 — Beam은 반복마다 후보 집합을 새로 자르므로 "언제의 후보인가"가 후보의 정체에 포함된다.
+
+GRASP의 `n`은 원본 기록의 `construction_call`, 즉 **구축 함수 호출 순번**이다. VNS의 전체 재구축(`waypoint_refinement._shake` level 4 이상)도 같은 함수를 부르므로 이 번호가 올라간다. 그래서 `n`은 "외부 재시작 번호"와 항상 같지는 않다.
+
+### 변환할 수 없는 기록은 중단한다
+
+모르는 `phase`, 필요한 키 없음, `expand`·`keep` 짝 불일치는 건너뛰지 않고 `TraceMismatchError`로 멈춘다(`visualizations/events.py`). 기록에 없는 장면을 만들어 내는 대신 실행을 실패시킨다.
+
+### service_use 판정 근거
+
+`RunConditions.service_use`는 `"service"`(서비스 요청에 실제로 연결된 엔진) 또는 `"benchmark_only"`다. 이름이나 문자열 비교가 아니라 **`RouteService.base_engines`(서비스가 실제로 고르는 엔진 표)에 그 엔진 클래스가 있는지**로 정한다(`events.service_use_for`). 표는 `__init__`에서만 만들어지므로 인스턴스를 하나 세워 읽는다.
+
+| 모드 | 엔진 | service_use |
+|---|---|---|
+| `shortest`, `shortest_alt` | `OnewayAstarEngine` | `service` |
+| `detour` | `OnewayBeamEngine` | `service` |
+| `circular` | `CircularBeamEngine` | `service` |
+| `grasp_*` | `WaypointEngine` | `benchmark_only` |
+
+서비스에 연결된 것은 `WaypointComposerEngine`이며 시각화가 쓰는 `WaypointEngine`(GRASP 조립)은 아직 서비스 경로에 없다. 비교표에는 "서비스 엔진"·"벤치마크 전용" 배지로, `routes.png` 제목에는 "(서비스)"·"(벤치마크)"로 표시한다.
+
+### 배포에 남는 코드와 오프라인 전용 코드
+
+- **배포에 남는다**: 엔진의 선택 인자(`OnewayAstarEngine`의 `heuristic=None`, 제안 중인 `observer=None`)는 정식 계약이다. 인자를 주지 않으면 기존 동작 그대로이고, 시각화·벤치마크만 넘긴다. 임시 계측이 아니므로 배포 전에 걷어내지 않는다.
+- **오프라인 전용**: `visualizations/route_trace.py`·`waypoint_trace.py`의 `sys.settrace` 수집과 `benchmarks/runner/_astar_instrumented.py`의 계측 A* 복제본. 서비스 요청 중에는 켜지 않으며 `src/**`는 이 파일들을 import하지 않는다.
+
+### 2026-09-13 로컬 실행 관측
+
+Windows, Python 3.12.14, NetworkX 3.6, artifact `v2-2026-08-25`, 코드 `aa61ea6`에서 `--with-grasp --grasp-iterations 4 --seed 42`로 실행했다. 아래는 이 입력 1회 실행의 관측값이며 고정 기대값이 아니다. 기록은 `outputs/algorithm_visualization/routes/sangmyung/20260913-000103/`의 `summary.json`·`trace.json`에 있다(출력 폴더는 Git 제외).
+
+| 모드 | 이벤트 수 | kind 분포(`run_start`·`final` 각 1개 제외) | service_use | 계측 전후 결과 보존 | 경로 검증 |
+|---|---|---|---|---|---|
+| `shortest` | 235 | select 233 | service | 예 | 예 |
+| `shortest_alt` | 85 | select 83 | service | 예 | 예 |
+| `detour` | 85 | candidates 31 · select 32 · reject 13 · route_changed 5 · cleanup 2 | service | 예 | 예 |
+| `circular` | 170 | candidates 44 · select 45 · reject 28 · route_changed 50 · cleanup 1 | service | 예 | 예 |
+| `grasp_none` | 28 | candidates 8 · evaluate 3 · select 10 · reject 1 · route_changed 3 · cleanup 1 | benchmark_only | 예 | 예 |
+| `grasp_local` | 41 | candidates 8 · evaluate 14 · select 10 · reject 1 · route_changed 5 · cleanup 1 | benchmark_only | 예 | 예 |
+| `grasp_vnd` | 91 | candidates 8 · evaluate 62 · select 9 · reject 1 · route_changed 8 · cleanup 1 | benchmark_only | 예 | 예 |
+| `grasp_vns` | 193 | candidates 12 · evaluate 132 · select 13 · reject 12 · route_changed 21 · cleanup 1 | benchmark_only | 예 | 예 |
+| `grasp_alns` | 209 | candidates 128 · evaluate 62 · select 10 · reject 4 · route_changed 2 · cleanup 1 | benchmark_only | 예 | 예 |
+
+Beam의 `candidates` 수는 `beam_iterations`와 같다(편도 31회, 순환 44회). 반환 거리는 최단 3540.6m, 편도 우회 4510.8m·4544.8m, 순환 3439.1m으로 앞 절 관측과 같고, GRASP 계열은 구축만 2163.0m / Local 2274.0m / VND·VNS 3129.6m / ALNS 2274.0m이었다. 원본 그래프와 입력 파일 해시가 보존됐다(`graph_unchanged`, `input_files_unchanged`).
+
+`reject` 장면은 원본 `expand` 후보 중 탈락분을 다시 담으므로 `trace.json`이 커진다. 이 실행에서는 2.6MB였다.
+
+회귀 테스트 177개 통과, Windows 심볼릭 링크 권한으로 1개 건너뜀(`visualizations/tests`, `tests/unit/test_alt_runtime.py`, `tests/unit/test_alt_shortest_path_runner.py`). Ruff와 `git diff --check` 통과.
+
+브라우저 확인은 Chrome 152 headless에서 생성된 `routes.html`을 열어 했다. 처음 로드와, **10개 상황 × 전체 기록의 모든 장면 1307개를 실제 조작(상황 선택 `change`, 단계 슬라이더 `input`)으로 훑는 동안 JavaScript 오류가 0건**이었다. 그 과정에서 23개 `phase`와 8개 `kind` 전부가 화면에 표시됐다. 모바일 배치와 여러 seed·반복 실행 비교는 이번 검증에 포함하지 않았다.
