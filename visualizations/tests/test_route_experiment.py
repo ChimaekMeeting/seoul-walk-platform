@@ -11,15 +11,6 @@ from visualizations.route_trace import SearchTrace
 from visualizations.routes import validate_destination
 
 
-@pytest.fixture
-def grid():
-    graph = nx.convert_node_labels_to_integers(nx.grid_2d_graph(5, 5))
-    for n in graph:
-        graph.nodes[n].update(lat=37 + (n // 5) * .001, lon=127 + (n % 5) * .001)
-    nx.set_edge_attributes(graph, 120.0, "length")
-    return graph
-
-
 @pytest.mark.parametrize("mode", ["shortest", "detour", "circular"])
 def test_real_engine_trace_preserves_paths_graph_and_score_functions(grid, mode):
     before = graph_digest(grid)
@@ -37,7 +28,11 @@ def test_real_engine_trace_preserves_paths_graph_and_score_functions(grid, mode)
     assert original == (circular_beam.calculate_custom_score, oneway_beam.calculate_custom_score)
     phases = {e["phase"] for e in recorded["trace"]}
     if mode == "shortest":
-        assert "astar" in phases
+        # A*는 어댑터가 run_start·select·final을 한 기록으로 만든다(중복 삽입 없음).
+        assert {"start", "astar", "final"} <= phases
+        assert [e["seq"] for e in recorded["trace"]] == list(range(len(recorded["trace"])))
+        assert recorded["conditions"]["heuristic"]["name"] == "haversine"
+        assert recorded["trace_source_hashes"] == {}
         assert recorded["metrics"][0]["distance_m"] == nx.dijkstra_path_length(grid, 0, 24, weight="length")
         assert recorded["metrics"][0]["endpoints_match"]
     else:
@@ -131,6 +126,7 @@ def test_astar_records_every_pop_with_real_parent_edges(grid):
     events = [e for e in result["trace"] if e["phase"] == "astar"]
     assert len(events) == result["astar_queue_pops"]
     for event in events:
+        assert event["kind"] == "select"
         assert all(grid.has_edge(u, v) for u, v in event["tree"])
         assert event["paths"][0][0] == start["node"]
         assert event["paths"][0][-1] == event["current"]

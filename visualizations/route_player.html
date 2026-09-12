@@ -39,6 +39,7 @@ aside{background:white;border:1px solid #dce1e8;border-radius:10px;padding:20px}
         <span style="--swatch:#43516a">미탐색 길</span><span style="--swatch:#ffc247">확장 후보 / 대기 지점</span>
         <span style="--swatch:#57d7ff">현재 경로 / 유지 후보</span><span style="--swatch:#97ddb5">확인한 연결</span>
         <span style="--swatch:#68ff97">반환 경로</span><span style="--swatch:#f88fc1">변경 전 경로</span><span style="--swatch:#d6a6ff">점선: 경유지 순서</span>
+        <span style="--swatch:#ff9f45">주황 마름모 = ALT 랜드마크(경로가 지나지 않음)</span>
       </div>
     </section>
     <aside aria-live="polite">
@@ -89,18 +90,27 @@ aside{background:white;border:1px solid #dce1e8;border-radius:10px;padding:20px}
   };
   function stop(){if(timer!==null)clearInterval(timer);timer=null;$('play').textContent='재생'}
   const km=v=>(v/1000).toFixed(3)+' km', pct=v=>(v*100).toFixed(1)+'%', seconds=v=>v==null?'미측정':v<1?(v*1000).toFixed(1)+' ms':v.toFixed(3)+' s';
+  const meters=v=>v==null?'—':Math.round(v)+' m';
+  // 같은 A* 엔진을 휴리스틱만 바꿔 돌린 결과라 비교표에서는 한 묶음으로 본다.
+  const SHORTEST_MODES=['shortest','shortest_alt'];
+  const rowName=r=>r.mode==='circular'?'순환 Beam':SHORTEST_MODES.includes(r.mode)&&r.settings?r.engine+' · '+r.settings:r.engine;
+  const EXPANDED_REASONS={new:'처음 넣음',improved:'더 나은 비용으로 갱신',worse:'이미 같거나 더 나은 비용이 큐에 있음',stale:'이미 더 나은 경로로 확장함',blocked:'통행 차단',cutoff:'상한 초과'};
   function comparison(){
     const circular=result.start.node===result.end.node;
-    const rows=data.results.filter(r=>circular?r.start.node===r.end.node&&r.target_m===result.target_m:r.mode===result.mode);
-    $('comparison-title').textContent=circular?'상명대 '+km(result.target_m)+' 순환 · 결과 비교':result.mode==='shortest'?'상명대 → 경복궁역 · 최단거리 결과':'상명대 → 경복궁역 · 편도 우회 결과';
+    const shortest=SHORTEST_MODES.includes(result.mode);
+    const rows=data.results.filter(r=>circular?r.start.node===r.end.node&&r.target_m===result.target_m:shortest?SHORTEST_MODES.includes(r.mode):r.mode===result.mode);
+    $('comparison-title').textContent=circular?'상명대 '+km(result.target_m)+' 순환 · 결과 비교':shortest?'상명대 → 경복궁역 · 최단거리 결과':'상명대 → 경복궁역 · 편도 우회 결과';
     $('comparison-body').replaceChildren();
     rows.forEach(r=>{const m=r.metrics[0],tr=document.createElement('tr');tr.className=r.mode===result.mode?'selected':'';
-      const cells=[r.mode==='circular'?'순환 Beam':r.engine,seconds(r.run_seconds),m?km(m.distance_m):'경로 없음',m?.target_error_m!=null?m.target_error_m.toFixed(1)+' m':'해당 없음',!r.route_valid?'경로 검증 실패':m?.target_within_tolerance==null?'Dijkstra 일치':(m.target_within_tolerance?'범위 안':'범위 밖')+' (±'+Math.round(r.tolerance_ratio*100)+'%)',m?pct(m.repeated_edge_ratio):'—'];
+      const cells=[rowName(r),seconds(r.run_seconds),m?km(m.distance_m):'경로 없음',m?.target_error_m!=null?m.target_error_m.toFixed(1)+' m':'해당 없음',!r.route_valid?'경로 검증 실패':m?.target_within_tolerance==null?'Dijkstra 일치':(m.target_within_tolerance?'범위 안':'범위 밖')+' (±'+Math.round(r.tolerance_ratio*100)+'%)',m?pct(m.repeated_edge_ratio):'—'];
       cells.forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===4&&(!r.route_valid||m?.target_within_tolerance===false))td.className='warning';tr.append(td)});
       const td=document.createElement('td'),button=document.createElement('button');button.textContent='과정 보기';button.setAttribute('aria-label',cells[0]+' 과정 보기');button.onclick=()=>{$('scenario').value=data.cases.findIndex(c=>c.result===r.mode);choose()};td.append(button);tr.append(td);$('comparison-body').append(tr);
     });
-    const configured=rows.find(r=>r.settings);
-    $('comparison-settings').textContent=(configured?'GRASP 계열: '+configured.settings+' · 같은 seed여도 개선 과정의 난수 소비로 이후 초기 후보는 달라질 수 있습니다. ':'')+'재통행 = 이미 지난 무방향 엣지를 다시 걷는 거리 / 전체 거리. 목표 범위 안에서도 오차와 재통행을 함께 보세요.';
+    const configured=rows.find(r=>r.mode.startsWith('grasp_')&&r.settings);
+    const heuristics=rows.filter(r=>SHORTEST_MODES.includes(r.mode)&&r.settings).map(r=>r.settings).join(' / ');
+    $('comparison-settings').textContent=(configured?'GRASP 계열: '+configured.settings+' · 같은 seed여도 개선 과정의 난수 소비로 이후 초기 후보는 달라질 수 있습니다. ':'')
+      +(heuristics?'휴리스틱 조건: '+heuristics+' · 둘 다 admissible이라 반환 경로는 같고 탐색량만 달라집니다. ':'')
+      +'재통행 = 이미 지난 무방향 엣지를 다시 걷는 거리 / 전체 거리. 목표 범위 안에서도 오차와 재통행을 함께 보세요.';
   }
   function setTimeline(){timeline=$('playback-mode').value==='key'?result.keyframes:result.trace.map((_,i)=>i);$('step').max=timeline.length-1;$('story-summary').textContent=timeline.length+'개 장면 / 전체 '+result.trace.length+'개 기록';}
   function choose(){stop();index=0;const chosen=data.cases[Number($('scenario').value)];result=data.results.find(r=>r.mode===chosen.result);camera={...result.bounds};setTimeline();comparison();
@@ -130,6 +140,9 @@ aside{background:white;border:1px solid #dce1e8;border-radius:10px;padding:20px}
     event.paths.forEach((p,i)=>path(p,shade,i===0?3.3:2,i===0?1:.65));
     if(event.previous_waypoints){ctx.setLineDash([4,6]);path([result.start.node,...event.previous_waypoints,result.end.node],'#f88fc1',2);ctx.setLineDash([])}
     if(event.waypoints){ctx.setLineDash([5,7]);if(!event.paths.length)path([result.start.node,...event.waypoints,result.end.node],'#d6a6ff',2);ctx.setLineDash([]);event.waypoints.forEach((n,i)=>{dot(n,'#d6a6ff',6);const p=point(n);ctx.fillStyle='#f5eaff';ctx.font='bold 13px system-ui';ctx.fillText('W'+(i+1),p[0]+9,p[1]+16)})}
+    // ALT 랜드마크는 화면 범위 계산에서 빠져 있으므로 지금 보이는 영역 안일 때만 그린다.
+    (result.landmarks||[]).forEach(p=>{const q=xy(p);if(q[0]<0||q[0]>w||q[1]<0||q[1]>h)return;
+      ctx.fillStyle='#ff9f45';ctx.beginPath();ctx.moveTo(q[0],q[1]-6);ctx.lineTo(q[0]+6,q[1]);ctx.lineTo(q[0],q[1]+6);ctx.lineTo(q[0]-6,q[1]);ctx.closePath();ctx.fill()});
     if(event.current!==undefined){dot(event.current,'#57d7ff',9);dot(event.current,'#fff',4)}
     const same=result.start.node===result.end.node;
     [[result.start.node,'#ff7272',same?'상명대 · 출발/복귀':'상명대 · 출발'],...(!same?[[result.end.node,'#fff','경복궁역 3번 · 도착']]:[])].forEach(([n,color,label])=>{
@@ -141,7 +154,7 @@ aside{background:white;border:1px solid #dce1e8;border-radius:10px;padding:20px}
     if(event.examined)$('counts').textContent='검토 '+event.examined+'회 · 이웃 방식 '+event.neighborhood;
     if(event.shake_level)$('counts').textContent='교란 레벨 '+event.shake_level;
     if(event.accepted!==undefined)$('counts').textContent=event.accepted?'채택':'기각 / 기존 경로 유지';
-    $('decision').textContent=event.decision_reason||'';
+    $('decision').textContent=event.decision_reason||(event.decision?event.decision.reason:'')||'';
     const values=$('stage-values');values.replaceChildren();const add=t=>{const p=document.createElement('p');p.textContent=t;values.append(p)};
     const before=event.before_metrics,after=event.stage_metrics;
     if(after){add(before?(event.phase==='winner'?'이전 전체 최선 → 새 전체 최선':event.phase==='neighbor'||event.phase==='vns_decision'?'기존 경로 → 검토 후보':'변경 전 → 이 단계 결과'):after.complete?'이 장면의 완성 경로':'탐색 중인 부분 경로 · 최종 결과 아님');
@@ -150,6 +163,15 @@ aside{background:white;border:1px solid #dce1e8;border-radius:10px;padding:20px}
       add('재통행: '+(before?pct(before.repeated_edge_ratio)+' → ':'')+pct(after.repeated_edge_ratio));
       if(event.changed===false)add('개선 과정 전후에 경로 변화가 없습니다.');
     }else add('도로 경로로 연결하기 전이므로 거리·재통행 수치를 표시하지 않습니다.');
+    const v=event.values;
+    if(v&&v.f_m!=null){
+      add('f = g + h: '+meters(v.f_m)+' = 지금까지 '+meters(v.g_m)+' + 남은 예상 '+meters(v.h_m));
+      add('휴리스틱: '+(v.h_kind==='alt'?'ALT 삼각부등식 하한':'Haversine 직선거리')+(v.best_landmark!=null?' · 하한이 가장 큰 랜드마크 '+v.best_landmark:''));
+      if(v.stale)add('이 항목은 이미 더 나은 경로로 확장한 노드라 건너뜁니다.');
+      if(v.frontier_top&&v.frontier_top.length)add('다음 대기 후보(f 오름차순): '+v.frontier_top.map(t=>t.node+' f '+meters(t.f_m)).join(' · '));
+      if(v.expanded&&v.expanded.length)add('이웃 처리 '+v.expanded.length+'개: '+v.expanded.map(e=>e.node+' '+(e.result==='skipped'?'건너뜀':'큐에 넣음')+'('+(EXPANDED_REASONS[e.reason]||e.reason)+')').join(' · '));
+    }
+    if(v&&v.popped!=null)add('큐에서 꺼낸 횟수 '+v.popped+'회 · 큐에 넣은 횟수 '+v.pushed+'회');
     if(event.waypoint_changes){const c=event.waypoint_changes;add('경유지: 제거 '+c.removed.length+'개 · 추가 '+c.added.length+'개'+(!c.removed.length&&!c.added.length&&c.order_changed?' · 순서 변경':''));}
     if(event.delta!==undefined)add('ALNS 내부 평가값 변화 '+event.delta.toFixed(3)+' · 온도 '+event.temperature.toFixed(3)+' (도로 거리 변화와 다름)');
     if(event.internal_before){add('ALNS 내부 구간 거리 합: '+km(event.internal_before.distance_m)+' → '+km(event.internal_after.distance_m));add('내부 목표 오차: '+event.internal_before.error_m.toFixed(1)+' m → '+event.internal_after.error_m.toFixed(1)+' m · 도로 재연결·정리 전 평가');}
