@@ -918,6 +918,12 @@ Planar·Avoid·Random·Farthest 4종을 갖춘 뒤, 같은 (출발, 도착) 쌍�
 - **search_mean_s / search_median_s / search_max_s**: 계측 없는 탐색을 warmup 1회 +
   `--repeats`회 반복해 잰 초 단위 시간. `test_oneway_shortest_path.time_repeated`와 같은
   방식으로 측정 중 gc를 끈다. 확장 노드 수를 세는 패스는 시간 측정에 섞지 않는다.
+- ⚠ **시간 비교에 섞인 구현 차이**: `haversine`과 ALT 4종의 시간은 모두 위 계측판에서
+  나오지만 `dijkstra`의 시간만 `nx.shortest_path`(라이브러리 구현)에서 나온다. 그래서
+  ALT 사이의 시간 비교와 `haversine` 대비 시간 비교는 같은 구현끼리의 비교지만,
+  `dijkstra` 대비 시간 비교에는 알고리즘 차이와 구현 차이가 함께 들어 있다. popped는
+  6개 방식 모두 같은 계측판에서 세므로 이 문제가 없다 — 방식 간 비교는 popped 쪽이
+  더 깨끗하다.
 - **select_s**: 랜드마크 선정 시간. **table_s**: 거리표(`precompute_landmark_distances`)
   생성 시간. 둘 다 `(방식, k, seed)` 조합당 전체 실행에서 1회만 수행하고 모든 시나리오가
   재사용하므로, 행마다 같은 값이 반복해서 찍힌다.
@@ -1024,6 +1030,9 @@ popped 중앙값 (tier × method):
   4쌍이라 tier 안의 분산을 논할 수 있는 크기가 아니다.
 - 전처리 시간·탐색 시간은 이 머신에서 1회 측정한 값이고, 러너는 반복 간 변동(CV)을
   따로 판정하지 않는다. `search_max_s`로만 흔들림을 짐작할 수 있다.
+- 휴리스틱 함수 자체의 호출 비용(Haversine은 노드마다 삼각함수, ALT는 랜드마크 수만큼
+  dict 조회)은 따로 분리해 재지 않았다. 탐색 시간 안에 섞여 있어, popped가 줄었는데
+  시간이 그만큼 줄지 않는 구간의 원인을 이 데이터만으로는 가를 수 없다.
 - 이 실행은 커밋되지 않은 작업 트리에서 돌렸다(`results.metadata.json`의 `dirty=true`).
   같은 수치를 재현하려면 이 절을 담은 커밋을 체크아웃한 뒤 다시 돌려야 한다.
 - 랜드마크를 프로덕션 경로에서 준비·보관하는 비용(메모리 상주, 그래프 갱신 시 재계산,
