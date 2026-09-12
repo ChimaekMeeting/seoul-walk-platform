@@ -5,8 +5,9 @@ A* Search Meets Graph Theory", SODA 2005에서 다른 선택법의 기준선으�
 선택법(Farthest/Planar/Avoid)의 h(n) 품질을 비교할 때 기준선(baseline) 역할을
 한다. 공용 인프라(LandmarkTable, precompute_landmark_distances, alt_heuristic,
 verify_admissible)는 landmark_shared.py를 그대로 쓰고 이 파일은 선택만 한다 —
-공용 모듈에 새로 추가한 함수는 없다. Planar/Avoid와 마찬가지로 어떤 엔진에도
-연결하지 않은 독립 모듈이다.
+공용 모듈에 새로 추가한 함수는 없다. 2026-09-12부터 alt_runtime.py가 이 선택법을
+WALK_ALT_METHOD=random 설정으로 쓸 수 있게 열어 뒀다(기본값은 planar) — seed에 따라
+결과가 달라져 기본 선택법으로는 쓰지 않는다.
 """
 
 from __future__ import annotations

@@ -2,10 +2,12 @@
 
 랜드마크-전체노드 거리표, 삼각부등식 휴리스틱, admissibility 검증을 담당한다.
 개별 선택법(Random/Farthest/Planar/Avoid)은 각자 파일에서 이 모듈만 가져다 쓴다.
-어떤 엔진에도 연결하지 않은 독립 모듈이다 — 현재 프로덕션 OnewayAstarEngine은
-weight=length(거리 전용)로 바뀌면서 Haversine 휴리스틱만으로도 admissible해
-랜드마크 ALT를 쓰지 않는다(2026-08-23, route_engine/README.md
-"oneway_shortest 엔진" 절 참고).
+2026-09-12부터 OnewayAstarEngine이 alt_runtime.py를 통해 이 인프라를 실제로 쓴다 —
+기동 때 Planar로 고른 랜드마크의 거리표를 메모리에 만들어 A*에 주입한다. 그 전까지는
+어떤 엔진에도 연결하지 않은 독립 모듈이었다(2026-08-23에 weight=length로 바뀌면서
+Haversine만으로도 admissible해져 랜드마크 ALT가 필요 없었기 때문이다).
+어느 선택법을 서비스에 쓸 수 있는지는 alt_runtime.prepare_alt_heuristic이 정한다 —
+route_engine/README.md "ALT 서비스 연결" 절 참고.
 """
 
 from __future__ import annotations
