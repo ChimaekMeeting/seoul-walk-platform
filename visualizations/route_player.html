@@ -3,47 +3,104 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ROUDI · 경로 탐색 재생</title>
+<!-- 유지보수는 route_player.html/.css/.js 세 파일로 하고, route_view.render_player가
+     아래 세 자리에 스타일·스크립트·데이터를 인라인해 routes.html 하나를 만든다.
+     산출물은 외부 요청 없이 혼자 열려야 하므로 link·src로 외부 파일을 부르지 않는다. -->
 <style>__ROUTE_STYLE__</style>
 <main>
   <h1>경로가 만들어지는 과정</h1>
   <p class="muted">상명대 정문 출발 · 실제 엔진의 탐색·경유지 선택·지역 개선 기록</p>
+
+  <section class="picker" aria-label="무엇을 볼지 선택">
+    <h2>무엇을 볼지</h2>
+    <p class="muted">이 파일에 들어 있는 실행 결과 중 하나를 고릅니다. 화면은 새 실행을 시작하지 않습니다.</p>
+    <div class="picker-grid">
+      <div>
+        <div class="picker-field">
+          <label for="algorithm">알고리즘 · 설정 (결과 선택)</label><br>
+          <select id="algorithm"></select>
+          <p class="muted" id="algorithm-note"></p>
+        </div>
+        <div class="picker-field">
+          <label for="scenario">테스트 상황 (요청 문장)</label><br>
+          <select id="scenario"></select>
+          <p id="intent" class="muted"></p>
+        </div>
+        <div class="rerun" id="rerun" hidden>
+          <strong>새 실행이 필요한 항목</strong>
+          <p class="muted" id="rerun-note"></p>
+          <code id="rerun-command"></code>
+        </div>
+      </div>
+      <div>
+        <div class="picker-field">
+          <label>시나리오</label>
+          <div class="readonly"><dl id="scenario-summary"></dl></div>
+        </div>
+        <div class="picker-field conditions">
+          <label>선택한 결과의 실행 조건</label>
+          <div class="table-scroll"><table><tbody id="conditions-table"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="comparison" aria-label="같은 목적의 결과 비교">
     <h2 id="comparison-title">결과 비교</h2>
     <p class="muted">행의 ‘과정 보기’를 눌러 중요한 변화 장면을 확인하세요. 거리와 재통행 비율은 반환된 첫 번째 후보 기준입니다.</p>
+    <p class="condition-warning" id="condition-warning" hidden></p>
     <div class="table-scroll"><table><thead><tr><th>방식</th><th>연결</th><th>실제 계산</th><th>최종 거리</th><th>목표 오차</th><th>목표 판정</th><th>재통행</th><th></th></tr></thead><tbody id="comparison-body"></tbody></table></div>
     <p class="muted scroll-hint">표를 좌우로 밀어 나머지 수치와 과정 보기 버튼을 확인하세요.</p>
     <p class="muted" id="comparison-settings"></p>
     <p class="muted">계산 시간은 애니메이션 길이와 별개입니다. 1회 실행의 관측이므로 성능 순위를 확정하지 않습니다.</p>
     <details class="muted"><summary>측정 조건과 비교할 때 볼 점</summary><p>시간은 기록을 끈 경로 생성 실행 1회입니다. 도보망 읽기·복사·엔진 준비·화면 생성은 제외하고, 실행 안의 전처리와 응답 생성은 포함합니다. 기록 실행 다음에 측정했습니다. GRASP의 재시작 횟수와 난수 조건을 함께 확인하고, 방식별로 다른 허용 오차보다 실제 거리 오차와 재통행 수치도 비교하세요.</p></details>
   </section>
-  <label for="scenario">테스트 상황</label><br>
-  <select id="scenario"></select>
-  <p id="intent" class="muted"></p>
+
   <div class="story-options"><label for="playback-mode">재생 범위</label><select id="playback-mode"><option value="key">핵심 장면</option><option value="all">전체 기록</option></select><span id="story-summary" class="muted"></span></div>
+
   <div class="layout">
     <section class="plot" aria-label="도보망과 탐색 과정">
-      <div class="map-tools"><small>휠로 확대 · 드래그로 이동</small><button id="zoom-in" aria-label="확대">＋</button><button id="zoom-out" aria-label="축소">－</button><button id="fit">전체보기</button></div>
-      <canvas id="map" role="img" aria-label="상명대와 경복궁역 주변 도보망의 경로 탐색 단계"></canvas>
+      <div class="map-tools">
+        <small>휠·핀치로 확대 · 드래그로 이동</small>
+        <button id="landmark-view" hidden>랜드마크까지 보기</button>
+        <button id="replay" hidden>다시 그리기</button>
+        <button id="zoom-in" aria-label="확대">＋</button>
+        <button id="zoom-out" aria-label="축소">－</button>
+        <button id="fit">전체보기</button>
+      </div>
+      <div class="map-stage">
+        <canvas id="map" role="img" aria-label="상명대와 경복궁역 주변 도보망의 경로 탐색 단계"></canvas>
+        <canvas id="minimap" aria-label="전체 범위 안에서 지금 보고 있는 위치"></canvas>
+        <div class="camera-note" id="camera-note"><span>자동 확대 꺼짐</span><button id="camera-auto">자동 확대 켜기</button></div>
+      </div>
       <div class="legend">
+        <span class="legend-key" style="--swatch:#d6a6ff">보라 점 W1… = 경유지(도로 아님)</span>
+        <span class="legend-key" style="--swatch:#ff9f45">주황 마름모 = ALT 랜드마크(경로가 지나지 않음)</span>
+        <span class="legend-key" style="--swatch:#57d7ff">실선 = 실제 도로 경로</span>
         <span style="--swatch:#43516a">미탐색 길</span><span style="--swatch:#ffc247">확장 후보 / 대기 지점</span>
-        <span style="--swatch:#57d7ff">현재 경로 / 유지 후보</span><span style="--swatch:#97ddb5">확인한 연결</span>
-        <span style="--swatch:#68ff97">반환 경로</span><span style="--swatch:#f88fc1">변경 전 경로</span><span style="--swatch:#d6a6ff">점선: 경유지 순서</span>
-        <span style="--swatch:#ff9f45">주황 마름모 = ALT 랜드마크(경로가 지나지 않음)</span>
+        <span style="--swatch:#57d7ff">현재 경로 / 유지 후보</span><span style="--swatch:#ff7a7a">점선: 기각된 후보</span>
+        <span style="--swatch:#97ddb5">확인한 연결</span><span style="--swatch:#68ff97">반환 경로</span>
+        <span style="--swatch:#f88fc1">변경 전 경로</span>
       </div>
     </section>
     <aside aria-live="polite">
-      <div class="eyebrow" id="progress"></div><h2 id="phase"></h2>
+      <div class="eyebrow" id="progress"></div>
+      <div><span class="kind-tag" id="kind-tag"></span></div>
+      <h2 id="phase"></h2>
+      <p id="decision" class="decision"></p>
       <div class="detail"><p id="explanation"></p><p id="kind-meaning" class="muted"></p><p id="counts" class="muted"></p></div>
-      <p id="decision" class="decision"></p><div id="stage-values" class="stage-values"></div><p id="scene-note" class="scene-note"></p>
+      <div id="stage-values" class="stage-values"></div><p id="scene-note" class="scene-note"></p>
       <div class="metric"><div class="eyebrow">반환 결과 · 대표 후보</div><strong id="distance"></strong><p id="target" class="muted"></p><p id="quality"></p></div>
     </aside>
   </div>
+
   <div class="controls">
     <button id="play" class="primary">재생</button><button id="prev">이전 단계</button><button id="next">다음 단계</button><button id="final">최종 결과</button><button id="reset">처음으로</button>
     <label for="speed">속도</label><select id="speed" style="width:auto"><option value="700">천천히</option><option value="250" selected>보통</option><option value="80">빠르게</option></select>
   </div>
   <label for="step" class="muted">탐색 단계 이동</label><input id="step" type="range" min="0" value="0">
-  <p class="footer">거리 기반 실험이며 기존 후보 선택·정리 규칙을 유지합니다. A*는 큐에서 꺼내는 매 단계를 기록합니다. 지역 개선의 검토 후보는 5개마다 표본을 보여주며 실제 개선은 모두 기록합니다. Beam·경유지 간 A* 연결은 완성 구간으로 표시합니다. 보라색 점선은 경유지 순서이며 실제 도로가 아닙니다. 재생 시간은 계산 시간이 아닙니다.</p>
+  <p class="footer">거리 기반 실험이며 기존 후보 선택·정리 규칙을 유지합니다. A*는 큐에서 꺼내는 매 단계를 기록합니다. 지역 개선의 검토 후보는 5개마다 표본을 보여주며 실제 개선은 모두 기록합니다. Beam·경유지 간 A* 연결은 완성 구간으로 표시합니다. 보라색 점선은 경유지 순서이며 실제 도로가 아닙니다. 재생 시간과 그리기 애니메이션은 계산 시간이 아닙니다.</p>
+  <pre id="selftest-result"></pre>
 </main>
 <script id="route-data" type="application/json">__ROUTE_DATA__</script>
 <script>__ROUTE_SCRIPT__</script>
