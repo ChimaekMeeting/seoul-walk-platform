@@ -16,7 +16,9 @@ from src.route_engine.engines import circular_beam, oneway_astar, oneway_beam
 from src.route_engine.engines.path_utils import PathUtils, _TOLERANCE_RATIO
 from src.schema.route_schema import CircularRouteInput, OnewayRouteInput
 from visualizations.astar_adapter import record_astar_run
+from visualizations.beam_adapter import record_beam_trace
 from visualizations.route_trace import SearchTrace
+from visualizations.waypoint_adapter import record_waypoint_trace
 
 # A* 실행에 쓰는 ALT 기본값. 시각화는 src.config.settings를 import하지 않으므로
 # 서비스 기본값(WALK_ALT_METHOD/K/SEED)과 같은지는 테스트가 대조한다.
@@ -146,6 +148,22 @@ def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterat
         elapsed = perf_counter() - started
     if shortest:
         paths = [list(engine.last_path_nodes)] if engine.last_path_nodes else []
+    if record and not shortest:
+        # settrace 산출물은 여기서 끝난다. 이 뒤의 파이프라인(route_story·route_view·화면)은
+        # 어댑터가 낸 공통 이벤트만 본다.
+        arguments = {"engine": engine, "mode": mode, "start_node": start["node"],
+                     "end_node": end["node"], "paths": paths, "target_m": target_m,
+                     "seed": seed, "code_commit": code_commit, "artifact": artifact}
+        if waypoint:
+            recording = record_waypoint_trace(
+                trace, config={"heuristic": "haversine", "grasp_iters": config.grasp_iters,
+                               "num_waypoints": config.num_waypoints,
+                               "construction": engine.construction,
+                               "refinement": engine.refinement},
+                **arguments)
+        else:
+            recording = record_beam_trace(
+                trace, config={"heuristic": "haversine"}, **arguments)
     metrics = []
     for nodes in paths:
         edges = list(zip(nodes, nodes[1:]))
@@ -168,7 +186,8 @@ def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterat
               "start": start, "end": end, "paths": paths, "metrics": metrics,
               "responses": [r.model_dump(mode="json") for r in responses],
               "trace": recording["events"] if recording else (trace.events if trace else []),
-              "astar_queue_pops": recording["popped"] if recording else (trace.pops if trace else 0),
+              # 큐 추출 수는 A* 어댑터만 낸다. Beam·GRASP 기록에는 없다.
+              "astar_queue_pops": (recording or {}).get("popped", trace.pops if trace else 0),
               "beam_iterations": trace.iterations if trace else 0,
               "trace_source_hashes": trace.source_hashes if trace else {},
               "conditions": recording["conditions"].as_dict() if recording else None}
@@ -180,9 +199,6 @@ def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterat
                       engine=("GRASP · 구축만" if engine.refinement == "none" else f"GRASP + {engine.refinement.upper()}"), alns_stats=engine.last_alns_stats,
                       candidate_states_seen=trace.candidates_seen,
                       effective_waypoints=(engine.last_route.effective_waypoint_count if engine.last_route else 0))
-    if record and not shortest:
-        # A* 어댑터는 final 이벤트를 스스로 만든다(seq가 이어져야 하므로 덧붙이지 않는다).
-        result["trace"].append({"phase": "final", "paths": paths})
     return result
 
 

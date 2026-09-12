@@ -21,7 +21,7 @@ aside{background:white;border:1px solid #dce1e8;border-radius:10px;padding:20px}
   <section class="comparison" aria-label="같은 목적의 결과 비교">
     <h2 id="comparison-title">결과 비교</h2>
     <p class="muted">행의 ‘과정 보기’를 눌러 중요한 변화 장면을 확인하세요. 거리와 재통행 비율은 반환된 첫 번째 후보 기준입니다.</p>
-    <div class="table-scroll"><table><thead><tr><th>방식</th><th>실제 계산</th><th>최종 거리</th><th>목표 오차</th><th>목표 판정</th><th>재통행</th><th></th></tr></thead><tbody id="comparison-body"></tbody></table></div>
+    <div class="table-scroll"><table><thead><tr><th>방식</th><th>연결</th><th>실제 계산</th><th>최종 거리</th><th>목표 오차</th><th>목표 판정</th><th>재통행</th><th></th></tr></thead><tbody id="comparison-body"></tbody></table></div>
     <p class="muted scroll-hint">표를 좌우로 밀어 나머지 수치와 과정 보기 버튼을 확인하세요.</p>
     <p class="muted" id="comparison-settings"></p>
     <p class="muted">계산 시간은 애니메이션 길이와 별개입니다. 1회 실행의 관측이므로 성능 순위를 확정하지 않습니다.</p>
@@ -44,7 +44,7 @@ aside{background:white;border:1px solid #dce1e8;border-radius:10px;padding:20px}
     </section>
     <aside aria-live="polite">
       <div class="eyebrow" id="progress"></div><h2 id="phase"></h2>
-      <div class="detail"><p id="explanation"></p><p id="counts" class="muted"></p></div>
+      <div class="detail"><p id="explanation"></p><p id="kind-meaning" class="muted"></p><p id="counts" class="muted"></p></div>
       <p id="decision" class="decision"></p><div id="stage-values" class="stage-values"></div><p id="scene-note" class="scene-note"></p>
       <div class="metric"><div class="eyebrow">반환 결과 · 대표 후보</div><strong id="distance"></strong><p id="target" class="muted"></p><p id="quality"></p></div>
     </aside>
@@ -82,6 +82,7 @@ aside{background:white;border:1px solid #dce1e8;border-radius:10px;padding:20px}
     start:['출발 준비','출발점과 도착점을 도보망에 연결했습니다. 재생을 누르면 실제 탐색 기록을 순서대로 볼 수 있습니다.'],
     astar:['A* · 다음 지점 확인','도착지까지의 예상 비용을 기준으로 우선순위 큐에서 지점을 꺼냅니다. 파란 점이 이번 지점, 주황색은 대기 중인 지점입니다. 이미 더 좋은 경로가 있으면 꺼낸 항목을 건너뛸 수도 있습니다.'],
     expand:['Beam · 후보 확장','남겨 둔 각 경로의 끝에서 이웃 길로 한 단계씩 확장했습니다. 주황색 선은 이번에 만들어진 후보 경로입니다.'],
+    drop:['Beam · 탈락 후보','같은 확장에서 만들어졌지만 평가값 순위가 상위 k개 밖이라 버린 후보입니다. 다음 단계로 이어지지 않습니다.'],
     keep:['Beam · 상위 후보 유지','기존 엔진의 정렬 기준으로 상위 최대 8개 경로를 남겼습니다. 파란 선이 다음 탐색으로 이어질 후보입니다.'],
     connect:['도착점으로 연결','한 후보의 끝에서 도착점까지 연결한 완성 경로입니다. 순환은 상명대로 돌아갑니다. 아직 최종 선택된 경로는 아닙니다.'],
     selection:['완성 후보 선택','도착점 연결에 성공한 후보를 비교한 뒤 최대 3개를 골랐습니다. 다음 단계에서 기존 정리 규칙을 적용합니다.'],
@@ -93,7 +94,14 @@ aside{background:white;border:1px solid #dce1e8;border-radius:10px;padding:20px}
   const meters=v=>v==null?'—':Math.round(v)+' m';
   // 같은 A* 엔진을 휴리스틱만 바꿔 돌린 결과라 비교표에서는 한 묶음으로 본다.
   const SHORTEST_MODES=['shortest','shortest_alt'];
-  const rowName=r=>r.mode==='circular'?'순환 Beam':SHORTEST_MODES.includes(r.mode)&&r.settings?r.engine+' · '+r.settings:r.engine;
+  // visualizations/events.py의 KIND_MEANINGS와 같은 내용이다. 어휘가 바뀌면 같이 고친다.
+  const KIND_MEANINGS={run_start:'실행 시작. 입력과 조건을 알린다.',candidates:'이번 단계에서 만들어진 후보 목록.',
+    evaluate:'후보를 평가했다(채택 여부는 아직 아님).',select:'후보를 골랐다.',reject:'후보를 버렸다.',
+    route_changed:'현재 경로가 실제로 바뀌었다.',cleanup:'기존 정리 규칙을 적용했다.',final:'엔진이 반환한 결과.'};
+  const SERVICE_BADGES={service:'서비스 엔진',benchmark_only:'벤치마크 전용'};
+  // 서비스 연결 배지는 표의 전용 칸에 따로 있으므로 방식·휴리스틱 문구에서는 뺀다.
+  const stripBadge=text=>Object.values(SERVICE_BADGES).reduce((t,badge)=>t.replace(' · '+badge,''),text||'');
+  const rowName=r=>r.mode==='circular'?'순환 Beam':SHORTEST_MODES.includes(r.mode)&&r.settings?r.engine+' · '+stripBadge(r.settings):r.engine;
   const EXPANDED_REASONS={new:'처음 넣음',improved:'더 나은 비용으로 갱신',worse:'이미 같거나 더 나은 비용이 큐에 있음',stale:'이미 더 나은 경로로 확장함',blocked:'통행 차단',cutoff:'상한 초과'};
   function comparison(){
     const circular=result.start.node===result.end.node;
@@ -102,12 +110,12 @@ aside{background:white;border:1px solid #dce1e8;border-radius:10px;padding:20px}
     $('comparison-title').textContent=circular?'상명대 '+km(result.target_m)+' 순환 · 결과 비교':shortest?'상명대 → 경복궁역 · 최단거리 결과':'상명대 → 경복궁역 · 편도 우회 결과';
     $('comparison-body').replaceChildren();
     rows.forEach(r=>{const m=r.metrics[0],tr=document.createElement('tr');tr.className=r.mode===result.mode?'selected':'';
-      const cells=[rowName(r),seconds(r.run_seconds),m?km(m.distance_m):'경로 없음',m?.target_error_m!=null?m.target_error_m.toFixed(1)+' m':'해당 없음',!r.route_valid?'경로 검증 실패':m?.target_within_tolerance==null?'Dijkstra 일치':(m.target_within_tolerance?'범위 안':'범위 밖')+' (±'+Math.round(r.tolerance_ratio*100)+'%)',m?pct(m.repeated_edge_ratio):'—'];
-      cells.forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===4&&(!r.route_valid||m?.target_within_tolerance===false))td.className='warning';tr.append(td)});
+      const cells=[rowName(r),SERVICE_BADGES[(r.conditions||{}).service_use]||'미기록',seconds(r.run_seconds),m?km(m.distance_m):'경로 없음',m?.target_error_m!=null?m.target_error_m.toFixed(1)+' m':'해당 없음',!r.route_valid?'경로 검증 실패':m?.target_within_tolerance==null?'Dijkstra 일치':(m.target_within_tolerance?'범위 안':'범위 밖')+' (±'+Math.round(r.tolerance_ratio*100)+'%)',m?pct(m.repeated_edge_ratio):'—'];
+      cells.forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===5&&(!r.route_valid||m?.target_within_tolerance===false))td.className='warning';tr.append(td)});
       const td=document.createElement('td'),button=document.createElement('button');button.textContent='과정 보기';button.setAttribute('aria-label',cells[0]+' 과정 보기');button.onclick=()=>{$('scenario').value=data.cases.findIndex(c=>c.result===r.mode);choose()};td.append(button);tr.append(td);$('comparison-body').append(tr);
     });
     const configured=rows.find(r=>r.mode.startsWith('grasp_')&&r.settings);
-    const heuristics=rows.filter(r=>SHORTEST_MODES.includes(r.mode)&&r.settings).map(r=>r.settings).join(' / ');
+    const heuristics=rows.filter(r=>SHORTEST_MODES.includes(r.mode)&&r.settings).map(r=>stripBadge(r.settings)).join(' / ');
     $('comparison-settings').textContent=(configured?'GRASP 계열: '+configured.settings+' · 같은 seed여도 개선 과정의 난수 소비로 이후 초기 후보는 달라질 수 있습니다. ':'')
       +(heuristics?'휴리스틱 조건: '+heuristics+' · 둘 다 admissible이라 반환 경로는 같고 탐색량만 달라집니다. ':'')
       +'재통행 = 이미 지난 무방향 엣지를 다시 걷는 거리 / 전체 거리. 목표 범위 안에서도 오차와 재통행을 함께 보세요.';
@@ -149,7 +157,8 @@ aside{background:white;border:1px solid #dce1e8;border-radius:10px;padding:20px}
       dot(n,'#090f1a',9);dot(n,color,6);const p=point(n);ctx.font='bold 14px system-ui';ctx.textAlign=p[0]>w*.65?'right':'left';const lx=p[0]+(ctx.textAlign==='right'?-10:10),ly=Math.max(18,p[1]-12);ctx.lineWidth=4;ctx.strokeStyle='#090f1a';ctx.strokeText(label,lx,ly);ctx.fillStyle=color;ctx.fillText(label,lx,ly)
     });
     const barMeters=camera.radius>1000?500:camera.radius>200?100:25, barPx=barMeters*scale;ctx.strokeStyle='#cbdcf5';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(16,h-22);ctx.lineTo(16+barPx,h-22);ctx.stroke();ctx.textAlign='left';ctx.fillStyle='#cbdcf5';ctx.font='12px system-ui';ctx.fillText(barMeters+'m · 북쪽 ↑',16,h-29);
-    const text=descriptions[event.phase];$('phase').textContent=text[0];$('explanation').textContent=text[1];$('progress').textContent=(index+1)+' / '+timeline.length+' 장면 · 전체 기록 '+(timeline[index]+1)+'번';
+    const text=descriptions[event.phase]||[event.phase,''];$('phase').textContent=text[0];$('explanation').textContent=text[1];
+    $('kind-meaning').textContent=event.kind?'공통 단계 '+event.kind+' · '+(KIND_MEANINGS[event.kind]||''):'';$('progress').textContent=(index+1)+' / '+timeline.length+' 장면 · 전체 기록 '+(timeline[index]+1)+'번';
     $('counts').textContent=event.iteration?'확장 '+event.iteration+'회 · 생성 '+event.generated+'개 · 유지 '+event.kept+'개 · 연결 대기 '+event.finished+'개':event.popped?'큐에서 꺼냄 '+event.popped+'회 · 대기 지점 '+event.frontier.length+'개':'';
     if(event.examined)$('counts').textContent='검토 '+event.examined+'회 · 이웃 방식 '+event.neighborhood;
     if(event.shake_level)$('counts').textContent='교란 레벨 '+event.shake_level;

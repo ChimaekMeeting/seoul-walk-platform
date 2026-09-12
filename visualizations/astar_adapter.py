@@ -45,8 +45,12 @@ from visualizations.events import (
     ArtifactRef,
     HeuristicConditions,
     RunConditions,
+    TraceMismatchError,
+    service_use_for,
     validate_events,
 )
+
+__all__ = ["ALGORITHM", "TraceMismatchError", "record_astar_run"]
 
 ALGORITHM = "astar"
 # 한 장면에 텍스트로 보여 줄 대기 후보 수. 전체 대기 목록은 frontier 키에 그대로 있다.
@@ -63,9 +67,7 @@ _FINAL_REASON = "엔진이 반환한 경로입니다. 재생 경로가 노드열
 
 _MISSING = object()
 
-
-class TraceMismatchError(RuntimeError):
-    """재생 결과가 실제 엔진 반환과 다를 때. 잘못된 장면 대신 여기서 중단한다."""
+# 재생 결과가 실제 엔진 반환과 다를 때 쓰는 예외는 events.py가 어댑터 공통으로 가진다.
 
 
 def _finite(value):
@@ -370,6 +372,8 @@ def record_astar_run(engine, graph, *, mode, target_m=None, seed=None, alt_seed=
         mode=mode,
         heuristic=_heuristic_conditions(graph, contract["heuristic_name"], table, alt_seed),
         weight_policy=_weight_policy(contract["blocked_tags"], visited_nodes),
+        # OnewayAstarEngine은 RouteService.base_engines에 있는 서비스 엔진이다.
+        service_use=service_use_for(type(engine)),
         code_commit=code_commit,
         artifact=ArtifactRef(**artifact) if artifact else ArtifactRef(),
         target_m=target_m,

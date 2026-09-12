@@ -101,7 +101,9 @@ def test_run_conditions_serialize_to_plain_dict():
         algorithm="astar", engine_class="OnewayAstarEngine", mode="shortest_alt",
         heuristic=HeuristicConditions(name="alt_planar", method="planar", k_requested=8,
                                       k_actual=8, seed=0, landmarks=[{"node": 1, "lat": 37.0, "lon": 127.0}]),
-        weight_policy="기본 엣지 비용 = length", target_m=None, seed=42, config={"alt_k": 8})
+        weight_policy="기본 엣지 비용 = length", service_use="service",
+        target_m=None, seed=42, config={"alt_k": 8})
     data = conditions.as_dict()
     assert data["heuristic"]["landmarks"][0]["node"] == 1
     assert data["artifact"] == {"data_version": None, "sha256": None}
+    assert data["service_use"] == "service"

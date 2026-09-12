@@ -1,4 +1,9 @@
-"""GRASP와 정제 함수의 실제 선택·변경 상태를 읽는다."""
+"""오프라인 전용. 서비스 요청 중 사용 금지. 엔진 훅 도입 시 제거 대상.
+
+GRASP와 정제 함수의 실제 선택·변경 상태를 `sys.settrace`로 읽는다. 훅이 승인되면
+`visualizations/waypoint_adapter.py`의 입력만 바뀌고 이 파일은 사라진다
+(`docs/proposals/route_engine_trace_observer_proposal.md`).
+"""
 import ast
 from dataclasses import asdict
 

@@ -45,6 +45,7 @@ class OnewayAstarEngine:
         # 휴리스틱 선택 순서: 명시 인자 > 그래프에 부착된 ALT > 기존 Haversine.
         # 셋 다 admissible하므로 어느 것을 써도 반환 경로의 최적성은 같다 — 바뀌는 것은
         # 탐색 속도뿐이다(docs/route_engine/README.md "ALT 서비스 연결" 절).
+        # heuristic 인자는 배포 코드에 남는 정식 인자다. None이면 기존 동작. 시각화·벤치마크가 넘긴다.
         if heuristic is not None:
             self._active_heuristic = heuristic
             self.heuristic_name = "alt_injected"

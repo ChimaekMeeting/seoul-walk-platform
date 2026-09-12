@@ -39,7 +39,8 @@ def astar_path_instrumented(
 
     Args:
         observer: None이면 아무 일도 하지 않는다(기본, 기존 동작 그대로). 주면 아래
-            세 시점을 알려 준다. 탐색 결과에는 영향을 주지 않는다.
+            세 시점을 알려 준다. 탐색 결과에는 영향을 주지 않는다. 이 파일은 벤치마크·
+            시각화 전용 모듈이며 서비스(`src/**`)는 이 파일을 import하지 않는다.
 
             - ``on_pop(node, g, parent, explored, queue)``: 큐에서 꺼낸 직후
               (popped를 센 직후, 도착 판정 전).

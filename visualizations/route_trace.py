@@ -1,4 +1,11 @@
-"""실제 엔진의 로컬 상태를 읽는 오프라인 계측. 탐색 구현을 복제하지 않는다."""
+"""오프라인 전용. 서비스 요청 중 사용 금지. 엔진 훅 도입 시 제거 대상.
+
+실제 엔진의 로컬 상태를 읽는 오프라인 계측이며 탐색 구현을 복제하지 않는다. 이 파일의
+`sys.settrace` 수집은 디버거·커버리지와 같이 쓸 수 없고 엔진 소스 구조에 묶인다 —
+`docs/proposals/route_engine_trace_observer_proposal.md`의 관찰자 훅이 승인되면
+`visualizations/beam_adapter.py`의 입력이 훅으로 바뀌고 이 파일은 사라진다. 어댑터와
+공통 이벤트 형식(`visualizations/events.py`)은 그대로 남는다.
+"""
 
 from __future__ import annotations
 
@@ -28,7 +35,9 @@ class SearchTrace:
 
     최단거리 A*는 더 이상 여기서 기록하지 않는다 — settrace로 NetworkX 내부 프레임을
     읽는 대신 `visualizations/astar_adapter.py`가 실제 실행을 재생해 공통 이벤트를
-    만든다. Beam의 settrace는 아직 남아 있다(대체는 PR-B 예정).
+    만든다. Beam의 settrace는 아직 남아 있고, 여기서 나온 기록은 곧바로
+    `visualizations/beam_adapter.py`가 공통 이벤트로 바꾼다 — 파이프라인의 나머지는 이
+    파일의 산출물을 직접 보지 않는다. settrace 자체를 걷어내는 일은 엔진 훅 승인 뒤다.
     """
 
     def __init__(self, engine):
