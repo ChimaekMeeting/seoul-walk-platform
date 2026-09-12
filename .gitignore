@@ -33,6 +33,7 @@ package-lock.json
 !tests/unit/test_landmark_avoid.py
 !tests/unit/test_landmark_random.py
 !tests/unit/test_landmark_farthest.py
+!tests/unit/test_alt_shortest_path_runner.py
 !tests/unit/test_grasp_waypoint_common.py
 !tests/unit/test_waypoint_engine_assembly.py
 .claude/
@@ -63,6 +64,13 @@ restore_log.txt
 # 재현 메타데이터(<csv>.metadata.json, benchmarks/run_metadata.py)는 덮이지 않아
 # untracked로 남았습니다. 실행할 때마다 덮어쓰이는 산출물이라 버전 관리하지 않습니다.
 *.metadata.json
+
+# 점대점 벤치마크(benchmarks/runner/alt_shortest_path.py) 실행 산출물.
+# results.csv는 위 *.csv로, results.metadata.json은 위 *.metadata.json으로 이미
+# 제외되지만 summary.json은 덮이지 않는다. 실행할 때마다 새 타임스탬프 폴더가
+# 생기는 산출물이라 폴더째 버전 관리하지 않는다 — 시나리오 데이터셋
+# (benchmarks/datasets/shortest_path.json)과 생성 스크립트만 커밋한다.
+/benchmarks/results/shortest_path/
 
 # cache 폴더는 제외하되, infrastructure/cache는 버전 관리합니다.
 !src/infrastructure/cache/
