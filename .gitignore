@@ -34,6 +34,8 @@ package-lock.json
 !tests/unit/test_landmark_random.py
 !tests/unit/test_landmark_farthest.py
 !tests/unit/test_alt_shortest_path_runner.py
+!tests/unit/test_alt_runtime.py
+!tests/unit/test_oneway_astar_alt.py
 !tests/unit/test_grasp_waypoint_common.py
 !tests/unit/test_waypoint_engine_assembly.py
 .claude/

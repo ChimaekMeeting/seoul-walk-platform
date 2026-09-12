@@ -30,6 +30,7 @@ from src.repository.network.graph_artifact_repository import (
 )
 from src.repository.network.graph_repository import GraphRepository
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
+from src.route_engine.alt_runtime import attach_alt_heuristic, prepare_alt_heuristic
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,17 @@ def init_route_service():
     global G, route_service, prewalk_orchestrator
     G             = load_runtime_graph()
     precompute_scoring_features(G)
+    # ALT 휴리스틱은 그래프에 붙여 두고 OnewayAstarEngine이 알아서 집어 쓴다 —
+    # RouteService와 route_service.py는 이 때문에 바뀌지 않는다. 준비에 실패하면
+    # (None, None)이 와서 아무것도 붙지 않고 엔진이 Haversine으로 돌아간다.
+    alt_heuristic, alt_info = prepare_alt_heuristic(
+        G,
+        enabled=settings.WALK_ALT_ENABLED,
+        method=settings.WALK_ALT_METHOD,
+        k=settings.WALK_ALT_K,
+        seed=settings.WALK_ALT_SEED,
+    )
+    attach_alt_heuristic(G, alt_heuristic, alt_info)
     route_service = RouteService(G=G, auth_service=auth_service)
     prewalk_orchestrator = PrewalkOrchestrator(
         weather_checker        = WeatherChecker(weather_client=weather_client),

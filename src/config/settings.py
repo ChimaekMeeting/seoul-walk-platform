@@ -23,6 +23,20 @@ class Settings(BaseSettings):
     WALK_GRAPH_DATA_VERSION: str = "v1-2026-07-30"
     WALK_GRAPH_EXPECTED_COMMIT: str = ""
 
+    # ALT(A* + Landmark + Triangle inequality) 휴리스틱
+    # 그래프 로드 직후 랜드마크 거리표를 메모리에 1회 만들어 최단거리 A*에 주입한다.
+    # 준비에 실패하면 자동으로 Haversine으로 폴백하므로 기동은 막히지 않는다.
+    # 되돌리려면 WALK_ALT_ENABLED=false로 재기동하면 된다.
+    WALK_ALT_ENABLED: bool = True
+    # Farthest·Avoid는 전처리 비용 대비 이득이 확인되지 않아 지원하지 않는다
+    # (analysis/route_engine/alt_landmark_selection_validation.md).
+    WALK_ALT_METHOD: Literal["planar", "random"] = "planar"
+    # k=8은 2026-09-12 실측으로 확정한 값이다(tier 4개의 Haversine 대비 탐색 시간 비율
+    # 평균이 최저). docs/route_engine/README.md "ALT 서비스 연결" 절 참고.
+    WALK_ALT_K: int = 8
+    # Random 선택법에만 쓰인다. Planar는 좌표 결정론이라 무시한다.
+    WALK_ALT_SEED: int = 0
+
     # Valkey
     VALKEY_URI: str = "redis://localhost:6379"
 
