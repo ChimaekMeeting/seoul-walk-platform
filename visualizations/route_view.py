@@ -61,6 +61,31 @@ def describe_settings(result):
     return " · ".join(part for part in (text, badge) if part)
 
 
+def render_player(payload):
+    """마크업·스타일·스크립트·데이터를 한 파일로 합친다.
+
+    유지보수는 `route_player.html`·`.css`·`.js` 세 파일로 하고, 산출물은 외부 요청 없이
+    혼자 열리는 `routes.html` 하나로 남긴다 — 결과 폴더를 그대로 주고받을 수 있어야 하고,
+    브라우저가 인터넷·로컬 파일을 더 읽지 않아야 하기 때문이다.
+    """
+    here = Path(__file__).parent
+    # JSON 문자열 안의 "<"를 역슬래시 이스케이프로 바꿔 데이터가 <script> 태그를 닫고
+    # 나가지 못하게 한다(브라우저가 JSON을 읽을 때 같은 문자로 되돌아온다).
+    serialized = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c").replace("&", "\\u0026")
+    style = (here / "route_player.css").read_text(encoding="utf-8")
+    script = (here / "route_player.js").read_text(encoding="utf-8")
+    for name, text in (("route_player.css", style), ("route_player.js", script)):
+        if "</script" in text.lower():
+            raise ValueError(f"{name}에 </script>가 있어 인라인할 수 없습니다.")
+    document = (here / "route_player.html").read_text(encoding="utf-8")
+    for placeholder, value in (("__ROUTE_STYLE__", style), ("__ROUTE_SCRIPT__", script),
+                               ("__ROUTE_DATA__", serialized)):
+        if placeholder not in document:
+            raise ValueError(f"route_player.html에 {placeholder} 자리가 없습니다.")
+        document = document.replace(placeholder, value)
+    return document
+
+
 def write_route_views(graph, report, output):
     origin = report["scenario"]["origin"]
     used = set().union(*(event_nodes(r) for r in report["results"]))
@@ -91,9 +116,7 @@ def write_route_views(graph, report, output):
         item["landmarks"] = [[round(x, 2), round(y, 2)] for x, y in
                              (_local_xy(m["lat"], m["lon"], center_lat, center_lon)
                               for m in landmark_points(result))]
-    template = Path(__file__).with_name("route_player.html").read_text(encoding="utf-8")
-    serialized = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c").replace("&", "\\u0026")
-    (output / "routes.html").write_text(template.replace("__ROUTE_DATA__", serialized), encoding="utf-8")
+    (output / "routes.html").write_text(render_player(payload), encoding="utf-8")
     font = _korean_font()
     rows = math.ceil(len(report["results"]) / 3)
     fig, axes = plt.subplots(rows, 3, figsize=(18, 6 * rows + 1), squeeze=False)

@@ -1,0 +1,144 @@
+(()=>{
+  'use strict';
+  const data=JSON.parse(document.getElementById('route-data').textContent);
+  const $=id=>document.getElementById(id), canvas=$('map'), ctx=canvas.getContext('2d');
+  let result, index=0, timer=null, camera, lastScale=1, drag=null, timeline=[];
+  data.cases.forEach((item,i)=>{const o=document.createElement('option');o.value=i;o.textContent=item.request;$('scenario').append(o)});
+  const descriptions={
+    refinement_done:['한 초기 후보의 개선 완료','분홍색 초기 경로와 개선 과정을 마친 하늘색 경로를 비교합니다. 서로 다른 재시작 후보를 전후 변화로 섞지 않습니다.'],
+    vns_decision:['VNS · 교란 후 재개선 판단','교란 후보를 VND로 개선한 결과(하늘색)를 기존 경로(분홍색)와 비교합니다. 기각된 하늘색 경로는 이후 현재 경로로 쓰이지 않습니다.'],
+    grasp_choice:['GRASP · 경유지 선택','주황색 후보 중 실제로 선택된 경유지를 강조합니다. 보라색 점선은 현재 선택 순서이며, 도로 경로로 연결하기 전입니다.'],
+    constructed:['GRASP · 초기 경로 생성','선택한 경유지를 실제 도보망에서 연결해 만든 초기 경로입니다.'],
+    construction_failed:['GRASP · 초기 경로 생성 실패','이번 경유지 선택으로 유효한 초기 경로를 만들지 못했습니다. 다음 재시작으로 넘어갑니다.'],
+    neighbor:['지역 개선 · 후보 검토','현재 경로(분홍색)에서 경유지를 바꾼 후보(하늘색)를 검토합니다. 아직 채택된 결과는 아닙니다.'],
+    improved:['지역 개선 · 변경 채택','실제 비교 기준에서 개선된 후보를 현재 경로로 채택했습니다.'],
+    winner:['전체 최선 경로 갱신','지금까지 만든 결과 중 가장 좋은 경로가 바뀌었습니다.'],
+    shake:['VNS · 경로 교란','현재 경로를 바꿔 새로운 지역을 탐색합니다. 이어서 VND로 다시 개선합니다.'],
+    shake_failed:['VNS · 교란 실패','이 교란 방식으로 유효한 후보를 만들지 못했습니다. 다음 시도를 진행합니다.'],
+    destroy:['ALNS · 일부 경유지 제거','이전 경유지 순서에서 일부를 제거했습니다. 도로 경로가 아닌 경유지 순서를 점선으로 표시합니다.'],
+    repair:['ALNS · 경유지 재삽입','제거한 자리를 새로운 후보로 채워 경유지 순서를 만들었습니다. 아직 서비스의 최종 경로가 아닙니다.'],
+    alns_accept:['ALNS · 내부 수락 판단','ALNS 내부 비용·온도 규칙의 판단입니다. 나쁜 후보를 일시적으로 받아들일 수 있고, 최선해는 별도로 보존합니다.'],
+    alns_result:['ALNS · 실제 경로 재검증','ALNS 결과를 도로 경로로 연결하고 기존 경로와 비교합니다. 경유지 간격과 재통행 등을 확인해 최종적으로 반영하거나 기존 경로를 유지합니다.'],
+    start:['출발 준비','출발점과 도착점을 도보망에 연결했습니다. 재생을 누르면 실제 탐색 기록을 순서대로 볼 수 있습니다.'],
+    astar:['A* · 다음 지점 확인','도착지까지의 예상 비용을 기준으로 우선순위 큐에서 지점을 꺼냅니다. 파란 점이 이번 지점, 주황색은 대기 중인 지점입니다. 이미 더 좋은 경로가 있으면 꺼낸 항목을 건너뛸 수도 있습니다.'],
+    expand:['Beam · 후보 확장','남겨 둔 각 경로의 끝에서 이웃 길로 한 단계씩 확장했습니다. 주황색 선은 이번에 만들어진 후보 경로입니다.'],
+    drop:['Beam · 탈락 후보','같은 확장에서 만들어졌지만 평가값 순위가 상위 k개 밖이라 버린 후보입니다. 다음 단계로 이어지지 않습니다.'],
+    keep:['Beam · 상위 후보 유지','기존 엔진의 정렬 기준으로 상위 최대 8개 경로를 남겼습니다. 파란 선이 다음 탐색으로 이어질 후보입니다.'],
+    connect:['도착점으로 연결','한 후보의 끝에서 도착점까지 연결한 완성 경로입니다. 순환은 상명대로 돌아갑니다. 아직 최종 선택된 경로는 아닙니다.'],
+    selection:['완성 후보 선택','도착점 연결에 성공한 후보를 비교한 뒤 최대 3개를 골랐습니다. 다음 단계에서 기존 정리 규칙을 적용합니다.'],
+    prune:['기존 정리 규칙 적용','분홍색은 정리 전, 파란색은 정리 후입니다. 현재 코드는 반복 노드 사이의 짧은 구간을 제거하므로, 정리 후 목표 거리에서 멀어질 수도 있습니다.'],
+    final:['반환 결과','초록색은 엔진이 실제 반환한 경로입니다. 굵은 선은 대표 후보, 옅은 선은 추가 후보입니다. 목표 거리 충족 여부는 오른쪽 결과를 확인하세요.']
+  };
+  function stop(){if(timer!==null)clearInterval(timer);timer=null;$('play').textContent='재생'}
+  const km=v=>(v/1000).toFixed(3)+' km', pct=v=>(v*100).toFixed(1)+'%', seconds=v=>v==null?'미측정':v<1?(v*1000).toFixed(1)+' ms':v.toFixed(3)+' s';
+  const meters=v=>v==null?'—':Math.round(v)+' m';
+  // 같은 A* 엔진을 휴리스틱만 바꿔 돌린 결과라 비교표에서는 한 묶음으로 본다.
+  const SHORTEST_MODES=['shortest','shortest_alt'];
+  // visualizations/events.py의 KIND_MEANINGS와 같은 내용이다. 어휘가 바뀌면 같이 고친다.
+  const KIND_MEANINGS={run_start:'실행 시작. 입력과 조건을 알린다.',candidates:'이번 단계에서 만들어진 후보 목록.',
+    evaluate:'후보를 평가했다(채택 여부는 아직 아님).',select:'후보를 골랐다.',reject:'후보를 버렸다.',
+    route_changed:'현재 경로가 실제로 바뀌었다.',cleanup:'기존 정리 규칙을 적용했다.',final:'엔진이 반환한 결과.'};
+  const SERVICE_BADGES={service:'서비스 엔진',benchmark_only:'벤치마크 전용'};
+  // 서비스 연결 배지는 표의 전용 칸에 따로 있으므로 방식·휴리스틱 문구에서는 뺀다.
+  const stripBadge=text=>Object.values(SERVICE_BADGES).reduce((t,badge)=>t.replace(' · '+badge,''),text||'');
+  const rowName=r=>r.mode==='circular'?'순환 Beam':SHORTEST_MODES.includes(r.mode)&&r.settings?r.engine+' · '+stripBadge(r.settings):r.engine;
+  const EXPANDED_REASONS={new:'처음 넣음',improved:'더 나은 비용으로 갱신',worse:'이미 같거나 더 나은 비용이 큐에 있음',stale:'이미 더 나은 경로로 확장함',blocked:'통행 차단',cutoff:'상한 초과'};
+  function comparison(){
+    const circular=result.start.node===result.end.node;
+    const shortest=SHORTEST_MODES.includes(result.mode);
+    const rows=data.results.filter(r=>circular?r.start.node===r.end.node&&r.target_m===result.target_m:shortest?SHORTEST_MODES.includes(r.mode):r.mode===result.mode);
+    $('comparison-title').textContent=circular?'상명대 '+km(result.target_m)+' 순환 · 결과 비교':shortest?'상명대 → 경복궁역 · 최단거리 결과':'상명대 → 경복궁역 · 편도 우회 결과';
+    $('comparison-body').replaceChildren();
+    rows.forEach(r=>{const m=r.metrics[0],tr=document.createElement('tr');tr.className=r.mode===result.mode?'selected':'';
+      const cells=[rowName(r),SERVICE_BADGES[(r.conditions||{}).service_use]||'미기록',seconds(r.run_seconds),m?km(m.distance_m):'경로 없음',m?.target_error_m!=null?m.target_error_m.toFixed(1)+' m':'해당 없음',!r.route_valid?'경로 검증 실패':m?.target_within_tolerance==null?'Dijkstra 일치':(m.target_within_tolerance?'범위 안':'범위 밖')+' (±'+Math.round(r.tolerance_ratio*100)+'%)',m?pct(m.repeated_edge_ratio):'—'];
+      cells.forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===5&&(!r.route_valid||m?.target_within_tolerance===false))td.className='warning';tr.append(td)});
+      const td=document.createElement('td'),button=document.createElement('button');button.textContent='과정 보기';button.setAttribute('aria-label',cells[0]+' 과정 보기');button.onclick=()=>{$('scenario').value=data.cases.findIndex(c=>c.result===r.mode);choose()};td.append(button);tr.append(td);$('comparison-body').append(tr);
+    });
+    const configured=rows.find(r=>r.mode.startsWith('grasp_')&&r.settings);
+    const heuristics=rows.filter(r=>SHORTEST_MODES.includes(r.mode)&&r.settings).map(r=>stripBadge(r.settings)).join(' / ');
+    $('comparison-settings').textContent=(configured?'GRASP 계열: '+configured.settings+' · 같은 seed여도 개선 과정의 난수 소비로 이후 초기 후보는 달라질 수 있습니다. ':'')
+      +(heuristics?'휴리스틱 조건: '+heuristics+' · 둘 다 admissible이라 반환 경로는 같고 탐색량만 달라집니다. ':'')
+      +'재통행 = 이미 지난 무방향 엣지를 다시 걷는 거리 / 전체 거리. 목표 범위 안에서도 오차와 재통행을 함께 보세요.';
+  }
+  function setTimeline(){timeline=$('playback-mode').value==='key'?result.keyframes:result.trace.map((_,i)=>i);$('step').max=timeline.length-1;$('story-summary').textContent=timeline.length+'개 장면 / 전체 '+result.trace.length+'개 기록';}
+  function choose(){stop();index=0;const chosen=data.cases[Number($('scenario').value)];result=data.results.find(r=>r.mode===chosen.result);camera={...result.bounds};setTimeline();comparison();
+    $('intent').textContent=chosen.verification?'이 요청은 기존 챗봇 규칙에 따라 순환 기록을 함께 보여줍니다. 실제 챗봇 응답 검증은 포함하지 않습니다.':'도착점: '+(result.start.node===result.end.node?'출발점으로 복귀':'경복궁역 3번 출입구')+' · '+result.engine+' · '+result.settings;
+    const m=result.metrics[0];$('distance').textContent=m?(m.distance_m/1000).toFixed(3)+' km':'경로 없음';
+    $('target').textContent=result.target_m?'목표 '+(result.target_m/1000).toFixed(3)+' km · 허용 오차 ±'+Math.round(result.tolerance_ratio*100)+'%':'Dijkstra 거리와 대조한 최단 경로';
+    $('quality').className='';
+    if(!result.route_valid){$('quality').textContent='경로 연결 또는 출발·도착 검증 실패';$('quality').className='warning'}
+    else if(m?.target_within_tolerance===false){$('quality').textContent='목표 범위 벗어남 · 오차 '+Math.round(m.target_error_m)+'m';$('quality').className='warning'}
+    else $('quality').textContent=m.target_error_m===null?'연결·출발·도착 검증 통과':'목표 범위 안 · 오차 '+Math.round(m.target_error_m)+'m';
+    draw();
+  }
+  function draw(){
+    if(!result)return;const event=result.trace[timeline[index]], box=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(box.width*dpr);canvas.height=Math.round(box.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);
+    const w=box.width,h=box.height,pad=40,scale=(Math.min(w,h)-pad*2)/(camera.radius*2);lastScale=scale;
+    const xy=p=>[w/2+(p[0]-camera.cx)*scale,h/2-(p[1]-camera.cy)*scale], point=n=>xy(data.nodes[n]);
+    ctx.fillStyle='#090f1a';ctx.fillRect(0,0,w,h);
+    function line(coords,color,width=1,alpha=1){if(!coords.length)return;ctx.strokeStyle=color;ctx.lineWidth=width;ctx.globalAlpha=alpha;ctx.beginPath();coords.forEach((p,i)=>{const q=xy(p);if(i)ctx.lineTo(...q);else ctx.moveTo(...q)});ctx.stroke();ctx.globalAlpha=1}
+    function path(nodes,color,width=1,alpha=1){line(nodes.map(n=>data.nodes[n]),color,width,alpha)}
+    function dot(n,color,r=2){if(!data.nodes[n])return;const p=point(n);ctx.fillStyle=color;ctx.beginPath();ctx.arc(...p,r,0,2*Math.PI);ctx.fill()}
+    data.background.forEach(s=>line(s,'#344257',.8));
+    (event.tree||[]).forEach(edge=>path(edge,'#97ddb5',2));
+    (event.frontier||[]).forEach(n=>dot(n,'#ffc247',3));(event.choices||[]).forEach(n=>dot(n,'#ffc247',5));
+    if(event.before)path(event.before,'#f88fc1',5,.8);
+    const shade=event.phase==='final'?'#68ff97':event.phase==='expand'?'#ffc247':'#57d7ff';
+    event.paths.forEach((p,i)=>path(p,shade,i===0?3.3:2,i===0?1:.65));
+    if(event.previous_waypoints){ctx.setLineDash([4,6]);path([result.start.node,...event.previous_waypoints,result.end.node],'#f88fc1',2);ctx.setLineDash([])}
+    if(event.waypoints){ctx.setLineDash([5,7]);if(!event.paths.length)path([result.start.node,...event.waypoints,result.end.node],'#d6a6ff',2);ctx.setLineDash([]);event.waypoints.forEach((n,i)=>{dot(n,'#d6a6ff',6);const p=point(n);ctx.fillStyle='#f5eaff';ctx.font='bold 13px system-ui';ctx.fillText('W'+(i+1),p[0]+9,p[1]+16)})}
+    // ALT 랜드마크는 화면 범위 계산에서 빠져 있으므로 지금 보이는 영역 안일 때만 그린다.
+    (result.landmarks||[]).forEach(p=>{const q=xy(p);if(q[0]<0||q[0]>w||q[1]<0||q[1]>h)return;
+      ctx.fillStyle='#ff9f45';ctx.beginPath();ctx.moveTo(q[0],q[1]-6);ctx.lineTo(q[0]+6,q[1]);ctx.lineTo(q[0],q[1]+6);ctx.lineTo(q[0]-6,q[1]);ctx.closePath();ctx.fill()});
+    if(event.current!==undefined){dot(event.current,'#57d7ff',9);dot(event.current,'#fff',4)}
+    const same=result.start.node===result.end.node;
+    [[result.start.node,'#ff7272',same?'상명대 · 출발/복귀':'상명대 · 출발'],...(!same?[[result.end.node,'#fff','경복궁역 3번 · 도착']]:[])].forEach(([n,color,label])=>{
+      dot(n,'#090f1a',9);dot(n,color,6);const p=point(n);ctx.font='bold 14px system-ui';ctx.textAlign=p[0]>w*.65?'right':'left';const lx=p[0]+(ctx.textAlign==='right'?-10:10),ly=Math.max(18,p[1]-12);ctx.lineWidth=4;ctx.strokeStyle='#090f1a';ctx.strokeText(label,lx,ly);ctx.fillStyle=color;ctx.fillText(label,lx,ly)
+    });
+    const barMeters=camera.radius>1000?500:camera.radius>200?100:25, barPx=barMeters*scale;ctx.strokeStyle='#cbdcf5';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(16,h-22);ctx.lineTo(16+barPx,h-22);ctx.stroke();ctx.textAlign='left';ctx.fillStyle='#cbdcf5';ctx.font='12px system-ui';ctx.fillText(barMeters+'m · 북쪽 ↑',16,h-29);
+    const text=descriptions[event.phase]||[event.phase,''];$('phase').textContent=text[0];$('explanation').textContent=text[1];
+    $('kind-meaning').textContent=event.kind?'공통 단계 '+event.kind+' · '+(KIND_MEANINGS[event.kind]||''):'';$('progress').textContent=(index+1)+' / '+timeline.length+' 장면 · 전체 기록 '+(timeline[index]+1)+'번';
+    $('counts').textContent=event.iteration?'확장 '+event.iteration+'회 · 생성 '+event.generated+'개 · 유지 '+event.kept+'개 · 연결 대기 '+event.finished+'개':event.popped?'큐에서 꺼냄 '+event.popped+'회 · 대기 지점 '+event.frontier.length+'개':'';
+    if(event.examined)$('counts').textContent='검토 '+event.examined+'회 · 이웃 방식 '+event.neighborhood;
+    if(event.shake_level)$('counts').textContent='교란 레벨 '+event.shake_level;
+    if(event.accepted!==undefined)$('counts').textContent=event.accepted?'채택':'기각 / 기존 경로 유지';
+    $('decision').textContent=event.decision_reason||(event.decision?event.decision.reason:'')||'';
+    const values=$('stage-values');values.replaceChildren();const add=t=>{const p=document.createElement('p');p.textContent=t;values.append(p)};
+    const before=event.before_metrics,after=event.stage_metrics;
+    if(after){add(before?(event.phase==='winner'?'이전 전체 최선 → 새 전체 최선':event.phase==='neighbor'||event.phase==='vns_decision'?'기존 경로 → 검토 후보':'변경 전 → 이 단계 결과'):after.complete?'이 장면의 완성 경로':'탐색 중인 부분 경로 · 최종 결과 아님');
+      add('거리: '+(before?km(before.distance_m)+' → ':'')+km(after.distance_m));
+      if(after.target_error_m!=null)add('목표 오차: '+(before?.target_error_m!=null?before.target_error_m.toFixed(1)+' m → ':'')+after.target_error_m.toFixed(1)+' m');
+      add('재통행: '+(before?pct(before.repeated_edge_ratio)+' → ':'')+pct(after.repeated_edge_ratio));
+      if(event.changed===false)add('개선 과정 전후에 경로 변화가 없습니다.');
+    }else add('도로 경로로 연결하기 전이므로 거리·재통행 수치를 표시하지 않습니다.');
+    const v=event.values;
+    if(v&&v.f_m!=null){
+      add('f = g + h: '+meters(v.f_m)+' = 지금까지 '+meters(v.g_m)+' + 남은 예상 '+meters(v.h_m));
+      add('휴리스틱: '+(v.h_kind==='alt'?'ALT 삼각부등식 하한':'Haversine 직선거리')+(v.best_landmark!=null?' · 하한이 가장 큰 랜드마크 '+v.best_landmark:''));
+      if(v.stale)add('이 항목은 이미 더 나은 경로로 확장한 노드라 건너뜁니다.');
+      if(v.frontier_top&&v.frontier_top.length)add('다음 대기 후보(f 오름차순): '+v.frontier_top.map(t=>t.node+' f '+meters(t.f_m)).join(' · '));
+      if(v.expanded&&v.expanded.length)add('이웃 처리 '+v.expanded.length+'개: '+v.expanded.map(e=>e.node+' '+(e.result==='skipped'?'건너뜀':'큐에 넣음')+'('+(EXPANDED_REASONS[e.reason]||e.reason)+')').join(' · '));
+    }
+    if(v&&v.popped!=null)add('큐에서 꺼낸 횟수 '+v.popped+'회 · 큐에 넣은 횟수 '+v.pushed+'회');
+    if(event.waypoint_changes){const c=event.waypoint_changes;add('경유지: 제거 '+c.removed.length+'개 · 추가 '+c.added.length+'개'+(!c.removed.length&&!c.added.length&&c.order_changed?' · 순서 변경':''));}
+    if(event.delta!==undefined)add('ALNS 내부 평가값 변화 '+event.delta.toFixed(3)+' · 온도 '+event.temperature.toFixed(3)+' (도로 거리 변화와 다름)');
+    if(event.internal_before){add('ALNS 내부 구간 거리 합: '+km(event.internal_before.distance_m)+' → '+km(event.internal_after.distance_m));add('내부 목표 오차: '+event.internal_before.error_m.toFixed(1)+' m → '+event.internal_after.error_m.toFixed(1)+' m · 도로 재연결·정리 전 평가');}
+    if(event.phase==='alns_result'&&event.objective_after){add('최종 반영 판단에 쓴 후보:');add('목표 오차 '+event.objective_before.distance_error_m.toFixed(1)+' m → '+event.objective_after.distance_error_m.toFixed(1)+' m');add('재통행 '+pct(event.objective_before.repeated_edge_ratio)+' → '+pct(event.objective_after.repeated_edge_ratio));add(event.accepted?'이 후보를 반영했습니다.':'이 후보는 기각했으며 위 지도와 경로 수치는 유지된 결과입니다.');}
+    const skipped=index?timeline[index]-timeline[index-1]-1:0;
+    $('scene-note').textContent=$('playback-mode').value==='key'?(skipped?'앞선 반복 기록 '+skipped+'개 생략. ':'')+'변화·판단 중심의 대표 장면입니다. 나머지는 전체 기록에서 볼 수 있습니다.':'기록된 모든 장면입니다. 지역 개선 후보 검토는 5개마다 표본 기록하며 실제 개선은 모두 기록합니다.';
+    $('step').value=index;$('prev').disabled=index===0;$('next').disabled=index===timeline.length-1;
+  }
+  $('scenario').value=data.cases.findIndex(c=>c.result==='circular');
+  $('playback-mode').onchange=()=>{stop();const raw=timeline[index];setTimeline();const next=timeline.findIndex(i=>i>=raw);index=next<0?timeline.length-1:next;draw()};
+  $('scenario').onchange=choose;$('prev').onclick=()=>{stop();index=Math.max(0,index-1);draw()};$('next').onclick=()=>{stop();index=Math.min(timeline.length-1,index+1);draw()};
+  $('final').onclick=()=>{stop();index=timeline.length-1;draw()};$('reset').onclick=()=>{stop();index=0;draw()};$('step').oninput=()=>{stop();index=Number($('step').value);draw()};
+  function play(){if(timer!==null){stop();return}if(index===timeline.length-1)index=0;$('play').textContent='일시정지';timer=setInterval(()=>{index=Math.min(timeline.length-1,index+1);draw();if(index===timeline.length-1)stop()},Number($('speed').value))}
+  $('play').onclick=play;$('speed').onchange=()=>{if(timer!==null){stop();play()}};new ResizeObserver(draw).observe(canvas);choose();
+  const zoom=f=>{camera.radius=Math.max(30,Math.min(result.bounds.radius*2,camera.radius*f));draw()};
+  $('zoom-in').onclick=()=>zoom(.7);$('zoom-out').onclick=()=>zoom(1/.7);$('fit').onclick=()=>{camera={...result.bounds};draw()};
+  canvas.addEventListener('wheel',e=>{e.preventDefault();zoom(e.deltaY>0?1.15:1/1.15)},{passive:false});
+  canvas.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId)};
+  canvas.onpointermove=e=>{if(drag){camera.cx-=(e.clientX-drag.x)/lastScale;camera.cy+=(e.clientY-drag.y)/lastScale;drag={x:e.clientX,y:e.clientY};draw()}};
+  canvas.onpointerup=canvas.onpointercancel=()=>{drag=null};
+})();
