@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 import networkx as nx
 
+from visualizations.checks import run_checks, violation_summary
 from visualizations.graph_source import load_graph_artifact
 from visualizations.route_experiment import (
     DEFAULT_ALT_K,
@@ -138,6 +139,13 @@ def run_suite(args):
                                     for r in results]}
     (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"재생 화면: {output / 'routes.html'}\n최종 경로 그림: {output / 'routes.png'}", flush=True)
+    # 산출물을 다 쓴 뒤에 기록 불변식을 점검한다. 위반이 있으면 멈추되 결과는 남긴다 —
+    # 무엇이 어긋났는지 checks.json과 trace.json에서 봐야 하기 때문이다.
+    checked = run_checks(output, graph=graph)
+    print(f"기록 점검: {output / 'checks.json'}", flush=True)
+    if not checked["passed"]:
+        raise RuntimeError(f"기록 불변식 점검에 실패했습니다: {violation_summary(checked)}. "
+                           f"자세한 내용은 {output / 'checks.json'}을 보세요.")
     return output
 
 
