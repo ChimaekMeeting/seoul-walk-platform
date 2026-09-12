@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 
+from src.route_engine.engines.waypoint_engine_assembly import REFINEMENT_REGISTRY
 from visualizations.network_view import EARTH_RADIUS_M, _korean_font, _local_xy, _segments_in_square
 
 
@@ -23,6 +24,65 @@ LABELS["grasp_none"] = "GRASP · 구축만(벤치마크)"
 
 # 비교표 배지 문구. 값은 RunConditions.service_use가 정한다.
 SERVICE_BADGES = {"service": "서비스 엔진", "benchmark_only": "벤치마크 전용"}
+
+# 이 명령 하나가 만드는 모드. 목록을 손으로 적지 않고 실제 레지스트리에서 만든다.
+BASE_MODES = ("shortest", "shortest_alt", "detour", "circular")
+BASE_COMMAND = "python -m visualizations.routes"
+GRASP_COMMAND = "python -m visualizations.routes --with-grasp"
+
+# 비교표에서 "같은 조건인가"를 판단할 때 보는 항목. 하나라도 다르면 나란히 비교하지 않는다.
+CONDITION_FIELDS = {"target_m": "목표 거리", "seed": "seed", "num_waypoints": "경유지 수"}
+
+
+def catalog_modes():
+    """이 화면이 다룰 수 있는 모드 전체. GRASP 계열은 실제 정제 레지스트리에서 읽는다."""
+    return [*BASE_MODES, *(f"grasp_{name}" for name in REFINEMENT_REGISTRY)]
+
+
+def build_catalog(results):
+    """선택 화면이 쓸 목록. `available`이 False면 "새 실행 필요" 항목이다.
+
+    화면은 실행을 시작하지 않는다. `command`는 사용자가 직접 돌릴 명령 문자열이다.
+    """
+    produced = {result["mode"] for result in results}
+    return [{"label": LABELS[mode], "mode": mode, "available": mode in produced,
+             "command": GRASP_COMMAND if mode.startswith("grasp_") else BASE_COMMAND}
+            for mode in catalog_modes()]
+
+
+def scenario_summary(scenario):
+    """선택 화면에 읽기 전용으로 보여 줄 시나리오 요약."""
+    return {"id": scenario.get("id"), "name": scenario.get("name"),
+            "origin": (scenario.get("origin") or {}).get("name"),
+            "destination": (scenario.get("destination") or {}).get("name")}
+
+
+def _condition_values(result):
+    conditions = result.get("conditions") or {}
+    config = conditions.get("config") or {}
+    return {"target_m": conditions.get("target_m"), "seed": conditions.get("seed"),
+            "num_waypoints": config.get("num_waypoints")}
+
+
+def condition_differences(left, right):
+    """두 결과의 실행 조건 중 서로 다른 항목 이름. 같으면 빈 목록이다.
+
+    둘 다 값이 없는 항목(예: 목표 거리가 없는 최단거리 두 건)은 다르다고 보지 않는다.
+    """
+    a, b = _condition_values(left), _condition_values(right)
+    return sorted(field for field in CONDITION_FIELDS if a[field] != b[field])
+
+
+def condition_diff_map(results):
+    """`{모드: {다른 모드: [다른 항목, ...]}}`. 화면이 비교표 경고를 만들 때 찾아본다."""
+    table = {}
+    for left in results:
+        row = {right["mode"]: fields for right in results
+               if right["mode"] != left["mode"]
+               and (fields := condition_differences(left, right))}
+        if row:
+            table[left["mode"]] = row
+    return table
 
 
 def event_nodes(result):
@@ -61,6 +121,31 @@ def describe_settings(result):
     return " · ".join(part for part in (text, badge) if part)
 
 
+def render_player(payload):
+    """마크업·스타일·스크립트·데이터를 한 파일로 합친다.
+
+    유지보수는 `route_player.html`·`.css`·`.js` 세 파일로 하고, 산출물은 외부 요청 없이
+    혼자 열리는 `routes.html` 하나로 남긴다 — 결과 폴더를 그대로 주고받을 수 있어야 하고,
+    브라우저가 인터넷·로컬 파일을 더 읽지 않아야 하기 때문이다.
+    """
+    here = Path(__file__).parent
+    # JSON 문자열 안의 "<"를 역슬래시 이스케이프로 바꿔 데이터가 <script> 태그를 닫고
+    # 나가지 못하게 한다(브라우저가 JSON을 읽을 때 같은 문자로 되돌아온다).
+    serialized = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c").replace("&", "\\u0026")
+    style = (here / "route_player.css").read_text(encoding="utf-8")
+    script = (here / "route_player.js").read_text(encoding="utf-8")
+    for name, text in (("route_player.css", style), ("route_player.js", script)):
+        if "</script" in text.lower():
+            raise ValueError(f"{name}에 </script>가 있어 인라인할 수 없습니다.")
+    document = (here / "route_player.html").read_text(encoding="utf-8")
+    for placeholder, value in (("__ROUTE_STYLE__", style), ("__ROUTE_SCRIPT__", script),
+                               ("__ROUTE_DATA__", serialized)):
+        if placeholder not in document:
+            raise ValueError(f"route_player.html에 {placeholder} 자리가 없습니다.")
+        document = document.replace(placeholder, value)
+    return document
+
+
 def write_route_views(graph, report, output):
     origin = report["scenario"]["origin"]
     used = set().union(*(event_nodes(r) for r in report["results"]))
@@ -77,6 +162,10 @@ def write_route_views(graph, report, output):
     payload = {"nodes": {str(n): [round(x, 2), round(y, 2)] for n, (x, y) in points.items()},
                "background": [[[round(x, 2), round(y, 2)] for x, y in s] for s in segments],
                "radius": radius, "cases": report["intent_cases"],
+               "scenario": scenario_summary(report["scenario"]),
+               "catalog": build_catalog(report["results"]),
+               "condition_diff": condition_diff_map(report["results"]),
+               "condition_labels": CONDITION_FIELDS,
                "results": [{k: r[k] for k in ("mode", "engine", "target_m", "start", "end", "metrics", "trace", "route_valid", "tolerance_ratio", "run_seconds", "keyframes", "keyframe_policy")}
                            for r in report["results"]]}
     for item, result in zip(payload["results"], report["results"]):
@@ -85,15 +174,14 @@ def write_route_views(graph, report, output):
         item["bounds"] = {"cx": (min(xs)+max(xs))/2, "cy": (min(ys)+max(ys))/2,
                           "radius": max(max(xs)-min(xs), max(ys)-min(ys), 400)/2+100}
         item["settings"] = describe_settings(result)
+        item["label"] = LABELS[result["mode"]]
         item["conditions"] = result.get("conditions")
         # 랜드마크는 경로가 지나지 않는 외곽 노드다. 화면 범위(bounds)는 event_nodes로만
         # 잡고 여기서는 좌표만 따로 넘긴다 — 넣으면 지도가 랜드마크까지 넓어진다.
         item["landmarks"] = [[round(x, 2), round(y, 2)] for x, y in
                              (_local_xy(m["lat"], m["lon"], center_lat, center_lon)
                               for m in landmark_points(result))]
-    template = Path(__file__).with_name("route_player.html").read_text(encoding="utf-8")
-    serialized = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c").replace("&", "\\u0026")
-    (output / "routes.html").write_text(template.replace("__ROUTE_DATA__", serialized), encoding="utf-8")
+    (output / "routes.html").write_text(render_player(payload), encoding="utf-8")
     font = _korean_font()
     rows = math.ceil(len(report["results"]) / 3)
     fig, axes = plt.subplots(rows, 3, figsize=(18, 6 * rows + 1), squeeze=False)

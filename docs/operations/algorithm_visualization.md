@@ -173,8 +173,10 @@ Windows, Python 3.12.14, NetworkX 3.6, artifact `v2-2026-08-25`에서 기본 명
 | `visualizations/route_trace.py` | 기존 Beam 기록 수집(settrace, 오프라인 전용) |
 | `visualizations/waypoint_trace.py` | GRASP·Local·VND·VNS·ALNS 기록 수집(settrace, 오프라인 전용) |
 | `visualizations/route_story.py` | 장면별 경로 지표·변경 전후 비교·핵심 장면 선택 |
-| `visualizations/route_view.py` | 기록을 화면 데이터·PNG로 변환 |
-| `visualizations/route_player.html` | 재생·단계 이동·확대·이동 화면 |
+| `visualizations/route_view.py` | 기록을 화면 데이터·PNG로 변환, 세 파일을 합쳐 `routes.html` 생성 |
+| `visualizations/route_player.html` | 재생 화면 마크업(스타일·스크립트·데이터 자리) |
+| `visualizations/route_player.css` | 재생 화면 스타일 |
+| `visualizations/route_player.js` | 재생 화면 동작(선택·자동 확대·미니맵·최종 경로 재생·자가 점검) |
 
 기본 명령으로 생성한 재생 화면에는 4개 실행 결과(최단거리 Haversine·ALT, 편도 우회, 순환)와 5개 요청 선택 항목이, `--with-grasp`로 생성한 화면에는 9개 실행 결과와 10개 요청 선택 항목이 들어간다(‘그냥 3km’는 순환과 같은 결과). 이미 생성한 HTML은 자체 데이터를 포함하므로 새 코드를 실행해 새로 생성해야 화면 변경이 반영된다.
 
@@ -432,3 +434,119 @@ Beam의 `candidates` 수는 `beam_iterations`와 같다(편도 31회, 순환 44�
 회귀 테스트 177개 통과, Windows 심볼릭 링크 권한으로 1개 건너뜀(`visualizations/tests`, `tests/unit/test_alt_runtime.py`, `tests/unit/test_alt_shortest_path_runner.py`). Ruff와 `git diff --check` 통과.
 
 브라우저 확인은 Chrome 152 headless에서 생성된 `routes.html`을 열어 했다. 처음 로드와, **10개 상황 × 전체 기록의 모든 장면 1307개를 실제 조작(상황 선택 `change`, 단계 슬라이더 `input`)으로 훑는 동안 JavaScript 오류가 0건**이었다. 그 과정에서 23개 `phase`와 8개 `kind` 전부가 화면에 표시됐다. 모바일 배치와 여러 seed·반복 실행 비교는 이번 검증에 포함하지 않았다.
+
+## 단계별 확대 재생 화면 (2026-09-13)
+
+PR-A·B가 만든 기록 구조는 그대로 두고, 화면이 이미 있는 데이터(`kind`·`decision`·`focus`·`values`·`conditions`·`landmarks`·`keyframes`)를 실제로 쓰도록 재생 화면을 고쳤다. 기록 형식과 어댑터는 바꾸지 않았고 `src/`도 건드리지 않았다.
+
+### 파일 분리와 단일 산출물
+
+유지보수는 세 파일로 한다.
+
+| 파일 | 역할 |
+|---|---|
+| `visualizations/route_player.html` | 마크업. `__ROUTE_STYLE__`·`__ROUTE_SCRIPT__`·`__ROUTE_DATA__` 세 자리만 비워 둔다 |
+| `visualizations/route_player.css` | 스타일 |
+| `visualizations/route_player.js` | 동작 |
+
+`route_view.render_player()`가 세 파일을 읽어 그 자리에 인라인하고 `routes.html` 하나를 만든다. **산출물은 여전히 외부 요청 없이 혼자 열리는 파일 하나다** — `<script src>`·`<link href>`를 만들지 않으며, 회귀 테스트가 생성된 문서에 그 두 패턴과 `http://`가 없는지 확인한다. 데이터의 `<`는 `<`로 바꿔 `<script>` 태그를 닫고 나가지 못하게 한다.
+
+### 선택 화면 ― 결과 선택과 새 실행의 구분
+
+상단 "무엇을 볼지"에 **알고리즘 select(결과 선택)**, **테스트 상황 select(요청 문장)**, 읽기 전용 **시나리오 요약**, 선택한 결과의 **실행 조건 표**를 둔다.
+
+- 알고리즘 항목 표시명은 `LABELS` + `settings`다(예: `최단거리 · A* + ALT · ALT Planar k=8 (실제 8개) · 서비스 엔진`). 같은 알고리즘이라도 설정이 다르면 별도 항목이며, 끝에 `service_use` 배지가 붙는다.
+- 지원 목록(`payload.catalog`)은 코드에서 만든다. 최단거리 2건(Haversine·ALT) + 서비스 Beam 2건(순환·편도) + GRASP × `REFINEMENT_REGISTRY`의 모든 키다. 정제 목록은 손으로 적지 않고 `src/route_engine/engines/waypoint_engine_assembly`에서 읽는다(읽기만 하고 수정하지 않는다).
+- `available`은 "이 파일에 그 모드의 결과가 있는가"다. `false`면 select에 `disabled`로 넣고 `· 새 실행 필요`를 붙이며, 아래 주황 상자에 직접 실행할 명령(`python -m visualizations.routes` 또는 `--with-grasp`)을 보여 준다. **화면은 실행을 시작하지 않는다.**
+- 실행 조건 표에는 엔진, 휴리스틱(이름·선택법·요청/실제 랜드마크 수), 목표 거리, seed, 경유지 수·재시작 수·정제, 서비스 연결 배지, 코드 커밋 앞 7자, 도보망 `data_version`이 들어간다. 값은 전부 `RunConditions`에서 온다.
+
+### 실행 조건이 다른 행 경고
+
+비교표 위 한 줄은 선택한 결과와 표의 다른 행을 `target_m`·`seed`·`num_waypoints`로 비교해 자동 생성한다. 하나라도 다르면 "실행 조건이 다른 행: … (같은 조건으로 비교하지 마세요)"를 띄운다. 비교는 `route_view.condition_differences()`가 파이썬에서 미리 계산해 `payload.condition_diff`로 넘기므로 화면과 테스트가 같은 규칙을 본다. 둘 다 값이 없는 항목(최단거리 두 건의 목표 거리)은 다르다고 보지 않는다.
+
+### 자동 확대
+
+카메라에 `auto`/`manual` 상태를 둔다. 기본은 `auto`다.
+
+| 장면 | 카메라 목표 |
+|---|---|
+| `run_start` | 결과 전체 범위(`result.bounds`) |
+| `final` | 반환 경로 좌표의 bbox + 여백 15% |
+| 그 밖 | `event.focus.nodes` 좌표의 bbox + 여백 20% |
+
+반지름은 항상 **최소 120m, 최대 `result.bounds.radius`**로 자른다. `focus`가 비어 있거나 좌표를 못 찾으면 카메라를 그대로 둔다(없는 범위를 만들지 않는다). 이동은 250ms 이하 ease-out 보간이며, 재생 중에는 속도 설정의 70%로 더 짧게 잡아 다음 장면과 겹치지 않게 한다. `prefers-reduced-motion`이면 보간 없이 즉시 옮긴다.
+
+휠·드래그·`＋`·`－`·핀치·미니맵 클릭을 쓰면 `manual`로 바뀌고 지도 왼쪽 위에 "자동 확대 꺼짐"과 "자동 확대 켜기" 버튼이 나온다. **`전체보기`는 범위만 되돌리고 자동/수동 상태는 바꾸지 않는다.**
+
+프레임 시계가 진행하지 않는 환경(headless 가상 시간 등)에서 애니메이션이 끝나지 않는 것을 막으려고 두 애니메이션 모두 프레임 수 상한(600프레임)을 둔다. 실제 브라우저에서는 60fps 기준 10초치라 시간이 먼저 찬다.
+
+### 미니맵과 랜드마크 방향
+
+지도 오른쪽 위에 작은 canvas(데스크톱 160px, 모바일 120px)를 얹는다. `result.bounds` 전체를 기준으로 배경 도보망(간격을 넓혀 4개마다), 출발·도착, 최종 장면의 반환 경로, 그리고 **지금 보고 있는 영역 사각형**을 그린다. 클릭하면 그 지점으로 카메라 중심이 옮겨진다(수동 전환).
+
+ALT 랜드마크가 미니맵 범위 밖이면 가장자리에 화살표와 `L3 · 9.2km`처럼 방향·거리만 적는다. 거리는 payload의 랜드마크 좌표와 표시 중심에서 계산한 값이다. `랜드마크까지 보기` 버튼은 카메라를 `bounds ∪ landmarks`로 넓힌다(수동 전환). ALT 결과에서만 보인다.
+
+### kind별 색과 태그
+
+설명 패널 맨 위에 `kind` 태그를 색으로 표시하고 그 아래 `decision.reason`을 굵게 적는다. 태그 문구와 색은 다음과 같다.
+
+| kind | 태그 | 지도 표시 |
+|---|---|---|
+| `run_start` | 시작 | 경로를 그리지 않고 출발·도착 라벨과 "요청 조건" 상자만 표시 |
+| `candidates` | 후보 | 주황 실선 |
+| `evaluate` | 평가 | 하늘색 가는 선 + 변경 전 분홍. 설명에 "채택 아님" 명시 |
+| `select` | 선택 | 하늘색 굵은 선 |
+| `reject` | 기각 | 붉은 점선(`#ff7a7a`) + 같은 반복의 유지 후보를 얇은 하늘색으로 함께 표시 |
+| `route_changed` | 경로 변경 | 변경 전 분홍 → 변경 후 하늘색 |
+| `cleanup` | 정리 | 변경 전 분홍 → 정리 후 하늘색, 제거 노드 수 표시 |
+| `final` | 결과 | 초록 실선(아래 애니메이션) |
+
+기각 장면에 함께 그리는 "유지 후보"는 **직전 `select` 이벤트의 `paths`에서만** 가져온다(같은 `values.iteration`일 때). 없으면 그리지 않는다 — 없는 후보를 만들어 그리지 않기 위해서다.
+
+A* 장면(`select` + `values.f_m`)에서는 현재 지점을 크게 그리고 `frontier_top` 5개의 `f` 값을 지도 위에 직접 적는다(라벨이 겹치면 생략). ALT면 `best_landmark` 방향으로 현재 지점에서 얇은 주황 점선을 그린다.
+
+범례 첫 줄에는 **경유지(보라 점 W1…)·랜드마크(주황 마름모)·도로 경로(실선)** 세 가지 구분을 고정했다.
+
+### 최종 경로 재생
+
+`final` 장면에 들어가면(재생으로 도달하든 `최종 결과` 버튼이든) 카메라를 반환 경로 범위로 옮긴 뒤 **대표 후보(`paths[0]`)를 출발점부터 노드 순서대로 1.8초에 걸쳐 그린다.** 진행은 화면 거리가 아니라 좌표 거리에 비례한다. 다 그린 뒤에 추가 후보를 옅게 얹는다. 다른 장면으로 이동하면 즉시 취소하고, `다시 그리기` 버튼으로 반복한다. `prefers-reduced-motion`이면 처음부터 완성 상태로 보여 준다.
+
+최종 장면에서는 이전 장면의 후보·대기 지점·탐색 트리를 절대 함께 그리지 않는다. **애니메이션 시간은 계산 시간이 아니다** — 화면 아래 문구에 그대로 남아 있다.
+
+### 자가 점검
+
+`routes.html?selftest=1`로 열면 화면이 모든 결과 × 전체 기록의 모든 장면을 순회하며 스스로를 점검하고, 결과를 `<pre id="selftest-result">`에 JSON으로 남긴다. 점검 항목은 여섯 가지다.
+
+1. 순회 중 예외가 없다.
+2. 자동 확대 반지름이 `[120m, bounds.radius]` 안이다.
+3. 기각 장면에 같은 반복의 유지 후보가 있으면 함께 그려진다(그린 경로 수로 확인).
+4. 최종 경로 애니메이션이 완료 상태(`progress === 1`)에 도달한다.
+5. 선택 화면의 `disabled` 항목 수가 `catalog`의 `available=false` 수와 같다.
+6. 미니맵 사각형이 현재 카메라와 일치한다.
+
+```bash
+./.venv/Scripts/python.exe -m pytest visualizations/tests/test_player_selftest.py -q
+```
+
+`test_player_selftest.py`가 toy 격자로 `routes.html`을 만든 뒤 Chrome headless로 데스크톱(1280×800)·모바일(390×844) 두 번 열어 실패가 0인지, 콘솔에 `Uncaught`가 없는지 확인한다. **Chrome 실행 파일이 없으면 건너뛴다** — 다른 개발 환경에서 이 파일 때문에 전체 테스트가 실패하지 않게 하기 위해서다. payload 생성 규칙(지원 목록·시나리오 요약·조건 차이·인라인)은 브라우저 없이 `test_route_view_payload.py`가 확인한다.
+
+자가 점검은 프레임 시계에 기대지 않는다. 최종 경로 애니메이션은 같은 상태 전이를 그대로 밟도록 직접 끝까지 밀어 본 뒤 완료 여부를 본다 — headless 가상 시간에서는 `requestAnimationFrame`의 시각이 진행하지 않기 때문이다.
+
+### 2026-09-13 화면 확인 관측
+
+Windows, Python 3.12.14, NetworkX 3.6, artifact `v2-2026-08-25`, 코드 `f792e37`에서 `--with-grasp --grasp-iterations 4 --seed 42`로 실행한 결과로 확인했다. 기록은 `outputs/algorithm_visualization/routes/sangmyung/20260913-003705/`에 있다(출력 폴더는 Git 제외). 아래는 이 입력 1회 확인의 관측이며 고정 기대값이 아니다.
+
+| 항목 | 관측 |
+|---|---|
+| 결과 수 / 전체 장면 수 | 9개 / 1,137개 |
+| 자가 점검(데스크톱 1280×800) | 2,334개 점검 전부 통과, 실패 0 |
+| 자가 점검(모바일 390×844) | 2,334개 점검 전부 통과, 실패 0 |
+| 브라우저 콘솔 | 두 화면 모두 `Uncaught` 0건 |
+| 회귀 테스트 | 156개 통과, Windows 심볼릭 링크 권한으로 1개 건너뜀 |
+| `routes.html` 크기 | 2.9MB(데이터 포함 단일 파일) |
+
+Chrome 152 headless로 확인했다. 화면 상태별 캡처는 `outputs/algorithm_visualization/player-shots/20260913/`에 있다(선택 화면·비교표, 시작 장면, A*+ALT 선택 장면, Beam 기각 장면, 최종 경로 재생 완료). PNG는 커밋하지 않는다.
+
+확인한 것: 선택 화면의 알고리즘 항목이 `LABELS + settings + 배지`로 나오고 새 실행이 필요한 항목이 `disabled`로 구분되는 것, 시나리오 요약과 실행 조건 표, 순환 비교표에서 GRASP 5행이 "경유지 수 다름"으로 경고되는 것, `run_start`의 요청 조건 상자, A*+ALT 장면의 `f` 라벨·랜드마크 방향 점선·미니맵 가장자리 거리 표시, Beam 기각 장면의 붉은 점선과 같은 반복 유지 후보, 최종 경로가 반환 경로 범위로 확대된 뒤 그려지는 것.
+
+확인하지 못한 것: **실제 모바일 기기와 터치 핀치 확대는 실기기로 검증하지 않았다**(headless의 390×844 뷰포트와 포인터 이벤트까지만 확인). 애니메이션의 부드러움·체감 속도, 여러 seed·반복 실행 비교, 실제 챗봇 응답과의 대조도 이 확인에 포함하지 않았다. headless 가상 시간에서는 `requestAnimationFrame` 시각이 진행하지 않아 자가 점검이 최종 경로 애니메이션을 직접 끝까지 밀어 확인하므로, **실제 브라우저에서 1.8초에 걸쳐 그려지는 모습은 위 캡처(즉시 완성 상태)로는 확인되지 않는다.**
