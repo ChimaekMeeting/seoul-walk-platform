@@ -1,5 +1,5 @@
 import networkx as nx
-from typing import Optional, List
+from typing import Callable, Optional, List
 import logging
 
 from src.route_engine.engines.path_utils import PathUtils, _RETURN_REVISIT_PENALTY
@@ -11,6 +11,7 @@ from src.interfaces.schema.walk_schema import (
 )
 from src.schema.route_schema import OnewayRouteInput, Weights
 from src.route_engine.scoring.scoring_engine import compute_distance_only_lookup
+from src.route_engine.alt_runtime import get_alt_heuristic, get_alt_info
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class OnewayAstarEngine:
         custom_weights: Optional[Weights] = None,
         profile: Optional[ScoringProfile] = None,
         visited_nodes: Optional[set] = None,
+        heuristic: Optional[Callable[[int, int], float]] = None,
     ):
         self.inp           = inp
         self.G             = G  # custom_score를 그래프에 쓰지 않으므로 copy() 불필요
@@ -40,12 +42,30 @@ class OnewayAstarEngine:
         # 실질적으로 [last_path_nodes]와 같지만, WaypointComposerEngine이 leg 엔진 종류와
         # 무관하게 같은 방식으로 후보별 노드열을 조회할 수 있게 해준다.
         self.last_path_nodes_by_candidate: list[list[int]] = []
+        # 휴리스틱 선택 순서: 명시 인자 > 그래프에 부착된 ALT > 기존 Haversine.
+        # 셋 다 admissible하므로 어느 것을 써도 반환 경로의 최적성은 같다 — 바뀌는 것은
+        # 탐색 속도뿐이다(docs/route_engine/README.md "ALT 서비스 연결" 절).
+        if heuristic is not None:
+            self._active_heuristic = heuristic
+            self.heuristic_name = "alt_injected"
+        else:
+            attached = get_alt_heuristic(G)
+            if attached is not None:
+                info = get_alt_info(G) or {}
+                self._active_heuristic = attached
+                self.heuristic_name = f"alt_{info.get('method', 'unknown')}"
+            else:
+                self._active_heuristic = self._heuristic
+                self.heuristic_name = "haversine"
 
     def run(self) -> List[WalkRouteResponse]:
         """
         A* 최단 경로를 생성합니다.
         """
-        logger.info(f"최단 경로 생성 엔진(A*)을 시작합니다: scoring_mode={self.scoring_mode}, weights={self.weights}")
+        logger.info(
+            f"최단 경로 생성 엔진(A*)을 시작합니다: scoring_mode={self.scoring_mode}, "
+            f"weights={self.weights}, heuristic={self.heuristic_name}"
+        )
 
         scored = compute_distance_only_lookup(self.G, self.blocked_tags)
         self._weight_fn    = scored["weight"]
@@ -101,6 +121,9 @@ class OnewayAstarEngine:
         """
         def _weight(u, v, d):
             # PathUtils.connect_to와 동일한 패턴: 도착지 자신은 페널티 대상에서 제외한다.
+            # 이 페널티는 비용을 늘리기만 하므로(배수 >= 1) 페널티 없는 거리로 만든
+            # ALT 하한도 여전히 실제 비용 이하다 — 즉 ALT 휴리스틱은 visited_nodes가
+            # 있어도 admissible하다. Haversine이 admissible한 근거와 같은 구조다.
             base = self._weight_fn(u, v, d)
             if v in self.visited_nodes and v != end:
                 return base * _RETURN_REVISIT_PENALTY
@@ -109,7 +132,7 @@ class OnewayAstarEngine:
         try:
             return [nx.astar_path(
                 self.G, start, end,
-                heuristic=self._heuristic,
+                heuristic=self._active_heuristic,
                 weight=_weight,
             )]
         except nx.NetworkXNoPath:

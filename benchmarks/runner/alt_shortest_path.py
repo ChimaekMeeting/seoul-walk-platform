@@ -65,6 +65,9 @@ from src.route_engine.landmark_shared import (
 # ALT 선택법 중 seed를 받는 것들. planar는 좌표 결정론이라 seed가 없다.
 _SEEDED_ALT = ("random", "farthest", "avoid")
 
+# --methods 없이 돌리면 전부 잰다. 순서는 전처리가 싼 것부터다.
+ALL_METHODS = ("dijkstra", "haversine", "random", "farthest", "planar", "avoid")
+
 CSV_COLUMNS = [
     "scenario_id",
     "tier",
@@ -127,15 +130,31 @@ def haversine_heuristic(graph: nx.Graph):
     return heuristic
 
 
-def iter_configs(ks: list[int], seeds: list[int]) -> list[dict]:
-    """측정할 (방식, k, seed) 조합 목록. 전처리가 싼 것부터 나열한다."""
+def iter_configs(
+    ks: list[int], seeds: list[int], methods: list[str] | None = None
+) -> list[dict]:
+    """측정할 (방식, k, seed) 조합 목록. 전처리가 싼 것부터 나열한다.
+
+    methods를 주면 그 방식만 남긴다(나열 순서는 methods의 순서가 아니라 위 고정
+    순서를 따른다). None이면 ALL_METHODS 전부를 잰다.
+    """
+    selected = None if methods is None else set(methods)
+
+    def wanted(method: str) -> bool:
+        return selected is None or method in selected
+
     configs = [
-        {"method": "dijkstra", "k": None, "seed": None},
-        {"method": "haversine", "k": None, "seed": None},
+        {"method": method, "k": None, "seed": None}
+        for method in ("dijkstra", "haversine")
+        if wanted(method)
     ]
     for k in ks:
-        configs.append({"method": "planar", "k": k, "seed": None})
+        if wanted("planar"):
+            # Planar는 좌표만으로 결정되므로 seed 축이 없다 — k마다 1회.
+            configs.append({"method": "planar", "k": k, "seed": None})
         for method in _SEEDED_ALT:
+            if not wanted(method):
+                continue
             for seed in seeds:
                 configs.append({"method": method, "k": k, "seed": seed})
     return configs
@@ -358,6 +377,13 @@ def main():
     parser.add_argument("--k", type=int, nargs="+", default=[4, 8, 16])
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
     parser.add_argument("--repeats", type=int, default=5)
+    parser.add_argument(
+        "--methods",
+        nargs="+",
+        choices=ALL_METHODS,
+        default=None,
+        help="측정할 방식. 생략하면 6개 전부를 잰다.",
+    )
     parser.add_argument("--out-dir", default=None)
     args = parser.parse_args()
 
@@ -383,7 +409,9 @@ def main():
     pairs = [(sc["start"]["node_id"], sc["end"]["node_id"]) for sc in scenarios]
     baseline = {sc["id"]: sc["dijkstra_m"] for sc in scenarios}
 
-    configs = iter_configs(args.k, args.seeds)
+    configs = iter_configs(args.k, args.seeds, args.methods)
+    if not configs:
+        parser.error("고른 --methods 조합에서 잴 것이 없습니다.")
     print(
         f"그래프 노드 {graph.number_of_nodes()}개 / 시나리오 {len(scenarios)}개 / "
         f"조합 {len(configs)}개 / 반복 {args.repeats}회 → 결과 {out_dir}"
@@ -456,6 +484,7 @@ def main():
         ks=args.k,
         seeds=args.seeds,
         repeats=args.repeats,
+        methods_requested=args.methods or list(ALL_METHODS),
         methods=[c["method"] for c in configs],
         weight="benchmarks.runner.test_oneway_shortest_path.distance_weight",
         elapsed_s=perf_counter() - run_start,
