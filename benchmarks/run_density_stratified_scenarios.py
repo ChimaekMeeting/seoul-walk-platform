@@ -48,13 +48,39 @@ from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 DATASET_PATH = DATASETS_DIR / "circular_density_stratified.json"
 
-# beam/grasp-waypoint 9종 — run_all_scenarios.py::CIRCULAR_ALGOS와 동일 목록. 이 러너
-# 전용으로 다시 정의한 이유는 신규 필드(num_waypoints)를 추가하는 실행 경로를
-# route_engine.json 소비자와 완전히 분리해 두기 위해서다.
+# beam/grasp-waypoint 9종 중 8종 — run_all_scenarios.py::CIRCULAR_ALGOS에서 grasp-wp-vns만
+# 뺀 목록. 2026-09-13 1단계 실측(density_stratified_stage1_results.csv)에서
+# GRASP-Waypoint+VNS가 전체 소요시간의 57.9%를 차지하고 9km+N>=3 16개 조건 전부가 600초
+# 타임아웃이었다 — waypoint_refinement.py::vns_loop()가 "개선되면 shake_level을 1로 리셋"
+# 구조라 반복 횟수 상한이 없고(ALNS의 alns_iterations 같은 자체 종료 조건이 없음), 반복당
+# 비용도 N에 비례해 커져 N을 늘리자 조합적으로 폭증했다(사용자 확인 후 제외 결정).
+# Beam-Waypoint+VNS는 같은 VNS이지만 속도(평균 38.4초)와 게이트통과율(0.892, 최고 동률)이
+# 둘 다 좋아 그대로 유지한다 — GRASP 쪽 vns_loop()의 반복 무제한 구조가 원인이지 VNS
+# 자체가 문제는 아니다.
 ALGOS = [
-    "grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-wp-alns",
+    "grasp-wp-local", "grasp-wp-vnd", "grasp-wp-alns",
     "beam-wp", "beam-wp-local", "beam-wp-vnd", "beam-wp-vns", "beam-wp-alns",
 ]
+
+# 정제 파라미터 튜닝 스윕 결론(2026-09-13, run_refinement_tuning_sweep.py 청크 A/B1/B2/B3,
+# 튜닝 집합 홍대/경복궁/남산/북한산 x {3,7}km x N=4, 통계 검정 근거는 대화 기록 참고).
+# 여기 없는 알고리즘·노브는 전부 무효가 확정돼 엔진 기본값을 그대로 둔다 — 명시하지 않는
+# 것 자체가 의도적 선택이다:
+#   - beam-wp.beam_width: n=8(튜닝 집합)에서 과소검정 의심돼 n=40(전체 8출발지 x 5거리)으로
+#     확장 재검정했으나 여전히 무효(모든 쌍 p>=0.25) — 데이터 부족이 아니라 무효 확정.
+#   - beam-wp-alns.alns_removal_fraction: n=240, 무효(p>=0.68).
+#   - beam-wp-vns.vns_max_shake_level: n=240, 무효(p>=0.13, 모든 beam_width에서 동일).
+TUNED_KNOBS = {
+    # width 8이 4(p<0.0001)·16(p=0.0005)보다 게이트통과율에서 유의미하게 우수.
+    "beam-wp-alns": {"beam_width": 8},
+    # 10/20/30이 통과율·거리편차·최악값까지 통계적으로 동일(p>=0.73)한데 10이 절반 이하
+    # 비용. 단 이 결론은 target_km {3,7}에서만 검증했다 — 9km 이상은 미검증(단일 샘플
+    # 확인에서는 10이 30보다 나빴던 사례가 있어 재검증 전까지 원거리 일반화 금지).
+    "grasp-wp-alns": {"alns_iterations": 10},
+    # width 4가 8과 통계적으로 동급(p=0.068/0.178)이면서 훨씬 저렴. 16은 정밀도가 실제로
+    # 우수하지만(p<0.000001) 비용 중앙값(155초)부터 60초 예산을 넘어 배제.
+    "beam-wp-vns": {"beam_width": 4},
+}
 
 TIMEOUT_SEC = 600.0  # 400 -> 600 (9km grasp-wp-vns 단독 170.8초 실측 + 6워커 경합 여유)
 CHECKPOINT_EVERY = 25
@@ -77,6 +103,7 @@ def _pool_worker_task(solver_key: str, start_node, target_km: float, num_waypoin
         "profile": CIRCULAR_BENCHMARK_PROFILE,
         "time_budget_sec": DEFAULT_TIME_BUDGET_SEC,
         "num_waypoints": num_waypoints,
+        **TUNED_KNOBS.get(solver_key, {}),
     }
     if seed is not None:
         params["seed"] = seed
