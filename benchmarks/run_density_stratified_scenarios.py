@@ -74,6 +74,15 @@ ALGOS = [
 #     (run_grasp_rcl_size_tuning.py, 7km, n=40/값)에서 기존 기본값(8)이 이미 최선으로
 #     확인됨 — 4는 8보다 거리편차 유의미하게 나쁘고(p<0.005), 16은 8과 통계적으로 동급
 #     이면서 더 비쌈(특히 vnd는 12가 8과 동급인데 거의 2배 비쌈, p=0.299).
+#   - grasp-wp-alns.distance_tolerance_ratio: n=40/값, 무효(모든 쌍 p>=0.11) — 기본값
+#     0.05가 숫자상 가장 높지만(0.625) 통계적으로 확정 못 함.
+#   - grasp-wp-alns.grasp_iters: 24 vs 48이 무효(p=0.143, 통계적으로 동급)인데 48은
+#     거의 2배 비쌈(101초→190초) — 8은 24·48 모두보다 유의미하게 나빠 기존 기본값(24)
+#     유지.
+#   - min_waypoint_separation_ratio, alns_candidate_limit: 가벼운 스크리닝만 하고
+#     전체 통계 검증은 안 함(min_waypoint_separation_ratio는 GRASP·Beam이 정반대
+#     방향 신호를 보여 미해결 상태, candidate_limit은 스크리닝조차 안 함) — 시간
+#     제약으로 이번 라운드에서 제외한 명시적 한계.
 TUNED_KNOBS = {
     # width 8이 4(p<0.0001)·16(p=0.0005)보다 게이트통과율에서 유의미하게 우수.
     "beam-wp-alns": {"beam_width": 8},
@@ -83,7 +92,11 @@ TUNED_KNOBS = {
     # rcl_size=16이 4(p=0.0001)·8(p=0.0034) 모두보다 게이트통과율에서 강하게 유의미하게
     # 우수(2026-09-14, 7km, n=40/값) — GRASP 4종 중 기본값을 실제로 바꿔야 했던 유일한
     # 경우.
-    "grasp-wp-alns": {"alns_iterations": 10, "rcl_size": 16},
+    # angle_diversity_weight_m=0.0(완전히 끄기)이 기존 기본값 1500.0·대안 3000.0 모두보다
+    # 강하게 유의미하게 우수(2026-09-14, p<=0.000017, 게이트통과율 1.000 대 0.625/0.400) —
+    # 1500.0은 다른 실험(2026-08-30, N=2 시절)에서 정해진 값이라 N=4·rcl_size=16·
+    # alns_iterations=10이 함께 적용된 지금 조건과 안 맞았던 것으로 보인다.
+    "grasp-wp-alns": {"alns_iterations": 10, "rcl_size": 16, "angle_diversity_weight_m": 0.0},
     # width 4가 8과 통계적으로 동급(p=0.068/0.178)이면서 훨씬 저렴. 16은 정밀도가 실제로
     # 우수하지만(p<0.000001) 비용 중앙값(155초)부터 60초 예산을 넘어 배제.
     "beam-wp-vns": {"beam_width": 4},
