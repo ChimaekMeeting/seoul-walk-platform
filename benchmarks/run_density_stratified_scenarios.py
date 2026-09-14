@@ -79,10 +79,16 @@ ALGOS = [
 #   - grasp-wp-alns.grasp_iters: 24 vs 48이 무효(p=0.143, 통계적으로 동급)인데 48은
 #     거의 2배 비쌈(101초→190초) — 8은 24·48 모두보다 유의미하게 나빠 기존 기본값(24)
 #     유지.
-#   - min_waypoint_separation_ratio, alns_candidate_limit: 가벼운 스크리닝만 하고
-#     전체 통계 검증은 안 함(min_waypoint_separation_ratio는 GRASP·Beam이 정반대
-#     방향 신호를 보여 미해결 상태, candidate_limit은 스크리닝조차 안 함) — 시간
-#     제약으로 이번 라운드에서 제외한 명시적 한계.
+#   - min_waypoint_separation_ratio: 스크리닝 단일 샘플(seed=42)에서 grasp-wp-alns와
+#     beam-wp-vns가 정반대 방향 신호를 보여 미해결로 남겼으나, 240회 통계 검증
+#     (run_min_waypoint_separation_tuning.py, 2026-09-14)으로 노이즈였음을 확인 —
+#     beam-wp-vns는 완전 무효(모든 쌍 p>=0.15), grasp-wp-alns는 0.05·0.20(기본값)이
+#     완전히 동일(p=1.0)하고 0.40만 유의미하게 나쁨(p<0.0001). 두 알고리즘 다 기존
+#     기본값(0.20) 유지로 확정.
+#   - alns_candidate_limit: 스크리닝(단일 샘플)에서 cost·repeated_edge_ratio가 값에
+#     무관하게 완전히 동일(rng.sample 서브샘플링이라 후보 풀이 고르면 결과에 영향
+#     없음) — 품질 튜닝 대상이 아니라 순수 속도 최적화 대상(무제한 대비 3~5배 빠름).
+#     전체 통계 검증은 품질 튜닝 범위 밖이라 생략.
 TUNED_KNOBS = {
     # width 8이 4(p<0.0001)·16(p=0.0005)보다 게이트통과율에서 유의미하게 우수.
     "beam-wp-alns": {"beam_width": 8},
