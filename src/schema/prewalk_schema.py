@@ -1,7 +1,20 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Literal, Optional, Union, List
 from src.interfaces.schema.walk_schema import WalkMode, WalkRouteResponse
+from src.interfaces.validators.dist_validator import validate_target_km_positive
 from src.route_engine.profiles import ScoringProfile
+
+
+class TargetKmPositiveMixin(BaseModel):
+    """
+    target_km 필드가 있는 Preference가 공용으로 쓰는 하한 검증.
+    직접 경로 API(WalkRouteRequest, VAL-DIST-001)와 같은 validate_target_km_positive를
+    재사용해 0 이하 값을 차단한다 — 기준을 두 입구에서 따로 정의하지 않는다.
+    """
+    @field_validator("target_km", mode="before", check_fields=False)
+    @classmethod
+    def _check_target_km_positive(cls, value: object) -> object:
+        return validate_target_km_positive(value)
 
 
 class Location(BaseModel):
@@ -29,7 +42,7 @@ class BasePreference(BaseModel):
     origin: Optional[Location] = None
 
 
-class CircularPreference(BasePreference):
+class CircularPreference(BasePreference, TargetKmPositiveMixin):
     """
     순환 경로(circular_random)일 때 채워야 할 필수 정보입니다.
     """
@@ -37,7 +50,7 @@ class CircularPreference(BasePreference):
     target_km: Optional[float] = None
 
 
-class OnewayPreference(BasePreference):
+class OnewayPreference(BasePreference, TargetKmPositiveMixin):
     """
     편도 우회 경로(oneway_random)일 때 채워야 할 필수 정보입니다.
     """
@@ -54,7 +67,7 @@ class OnewayShortestPreference(BasePreference):
     destination: Optional[Location] = None
 
 
-class GPSArtPreference(BasePreference):
+class GPSArtPreference(BasePreference, TargetKmPositiveMixin):
     """
     GPS Art 기반 경로일 때 채워야 할 필수 정보입니다.
     """
@@ -68,7 +81,7 @@ class GPSArtPreference(BasePreference):
 WaypointLegMode = Literal["oneway_shortest", "oneway_random"]
 
 
-class WaypointLegPreference(BaseModel):
+class WaypointLegPreference(TargetKmPositiveMixin):
     """
     경유지 구간(leg) 하나의 이동 방식입니다. 언급이 없으면 최단 경로로 간주합니다.
     """
