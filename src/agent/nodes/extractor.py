@@ -265,7 +265,7 @@ class Extractor(GPTClient):
             logger.warning(f"출발지가 정해지지 않아, 현 위치를 출발지로 설정합니다: {args['origin']}")
 
         # 예외9. target_km/target_minutes 정리(target_km 필드가 있는 도구에서만 —
-        #   select_oneway_shortest·select_waypoint는 tool_call args에 이 키 자체가 없음).
+        #   select_oneway_shortest·select_waypoint는 이 필드 자체가 없음).
         #   - target_minutes가 있으면(이번 턴에 시간으로 새 거리를 말했다는 뜻) 무조건 최우선으로
         #     _WALK_SPEED_KMH로 환산해 target_km을 덮어쓴다. target_km에 값이 있어도(부분 수정
         #     상황에서 [Current Context]의 옛 km이 그대로 실려 왔을 수 있음) 이번 턴의 시간
@@ -275,7 +275,17 @@ class Extractor(GPTClient):
         #     쓴다. 그마저 없으면(온보딩 미완료 또는 거리 미선택) target_km을 채우지 않고 비워둔다
         #     — 임의 기본값으로 조용히 채우지 않고, Interviewer의 기존 "target_km 없음 → 재질문"
         #     흐름(_is_complete/_get_missing_info)에 맡긴다.
-        if "target_km" in args:
+        #   - 2026-09-14 버그 수정: 이전에는 `if "target_km" in args`로 게이팅했는데, LLM이
+        #     시간만 언급된 첫 요청(예: "45분 편도로 걷고 싶어", [Current Context] 없음)에서는
+        #     tool_call에 target_km 키 자체를 아예 안 넣는 경우가 있어(선택 필드라 생략)
+        #     이 조건이 거짓이 되고, target_minutes가 통째로 버려져(select_circular/
+        #     select_oneway/select_gps_art는 target_minutes를 받아도 쓰지 않고 버림) 거리가
+        #     조용히 사라지는 문제가 있었다. 부분 수정 상황에서만 우연히 안 드러났던 이유는
+        #     예외7(위)이 먼저 실행되며 [Current Context]의 옛 target_km 값을 args에 채워 넣어
+        #     이 조건을 우연히 만족시켰기 때문이다(scripts/eval_extraction.py case_008 참고).
+        #     이제 args에 실제로 그 키가 있는지가 아니라, 이 도구가 애초에 target_km 필드를
+        #     받는지로 판단한다.
+        if "target_km" in self.mode_tool.tool_map[tool_name].args:
             minutes = args.pop("target_minutes", None)
             if minutes is not None:
                 args["target_km"] = minutes * _WALK_SPEED_KMH / 60
