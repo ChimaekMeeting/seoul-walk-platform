@@ -1,15 +1,17 @@
 """
 benchmarks/run_grasp_alns_candidate_limit_check.py
 
-grasp-wp-alns의 alns_candidate_limit이 품질과 무관한지 검증한다. 엔진 기본 동작은
-candidate_limit=cfg.rcl_size라(waypoint_refinement.py::_alns_config) TUNED_KNOBS의
-rcl_size=16이 구축 RCL과 ALNS 복구 후보 수를 함께 올린다. 스크리닝(단일 샘플, 스크립트
+grasp-wp-alns의 alns_candidate_limit이 품질과 무관한지 검증한다. 당시 엔진 기본 동작은
+candidate_limit=cfg.rcl_size라(waypoint_refinement.py::_alns_config) 확정값
+rcl_size=16이 구축 RCL과 ALNS 복구 후보 수를 함께 올렸다(이 검증 뒤 한도 2가 확정돼
+GRASP_ALNS_OPTIONS에 들어갔다). 스크리닝(단일 샘플, 스크립트
 미보존)은 "값에 무관하게 cost가 완전히 동일"이라고만 남겼는데, 이는 (1) ALNS가 구축
 결과를 한 번도 개선하지 못했거나 (2) 옵션이 엔진에 닿지 않았거나(alns_search의
 ValueError는 엔진이 조용히 건너뛴다) 둘 중 하나일 수 있어 ALNS 통계를 함께 남긴다.
 
-TUNED_KNOBS(alns_iterations=10, rcl_size=16, angle_diversity_weight_m=0.0)를 고정하고
-alns_candidate_limit만 바꾼다. 후보값 2는 N=4에서 remove_count=ceil(4*0.3)=2라 허용되는
+나머지 확정값(alns_iterations=10, rcl_size=16, angle_diversity_weight_m=0.0)은 엔진
+알고리즘별 기본값(circular_grasp_waypoint_alns.py)으로 고정되고 alns_candidate_limit만
+params로 덮어쓴다. 후보값 2는 N=4에서 remove_count=ceil(4*0.3)=2라 허용되는
 하한이다(waypoint_alns.py::_validate).
 
 target_km=7, 튜닝 집합 4개 지점 x 시드 5개(BENCHMARK_SEEDS 앞 5개) x 값 3개 = 60회.
@@ -29,7 +31,7 @@ import pandas as pd
 from benchmarks.benchmark import _load_default_graph, SOLVER_REGISTRY
 from benchmarks.config import BENCHMARK_SEEDS, DEFAULT_TIME_BUDGET_SEC
 from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
-from benchmarks.run_density_stratified_scenarios import TUNED_KNOBS
+from benchmarks.run_density_stratified_scenarios import algorithm_defaults
 from benchmarks.run_grasp_alns_param_tuning import TUNING_STARTS
 from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.engines.path_utils import PathUtils
@@ -59,7 +61,6 @@ def _pool_worker_task(value: int, start_node, seed: int) -> dict:
     params = {
         "target_km": TARGET_KM, "num_waypoints": NUM_WAYPOINTS,
         "time_budget_sec": DEFAULT_TIME_BUDGET_SEC, "seed": seed,
-        **TUNED_KNOBS.get(ALGO, {}),
         PARAM: value,
     }
     return run_solver_task(SOLVER_REGISTRY[ALGO], _POOL_GRAPH, start_node, start_node, params)
@@ -88,7 +89,7 @@ def main():
 
     total = len(TUNING_STARTS) * len(VALUES) * len(SEEDS)
     print(f"{ALGO} / {PARAM} {VALUES}: 출발지 {len(TUNING_STARTS)} x 값 {len(VALUES)} x "
-          f"시드 {len(SEEDS)} = 총 {total}회 (target_km={TARGET_KM}, 고정 {TUNED_KNOBS.get(ALGO)})",
+          f"시드 {len(SEEDS)} = 총 {total}회 (target_km={TARGET_KM}, 나머지는 {ALGO} 엔진 기본값)",
           flush=True)
     if args.dry_run:
         return
@@ -151,7 +152,7 @@ def main():
     result_df = pd.DataFrame(rows, columns=columns)
     meta_path = save_run_metadata(
         OUT_PATH, runner="run_grasp_alns_candidate_limit_check",
-        algo=ALGO, param=PARAM, values=VALUES, fixed_knobs=TUNED_KNOBS.get(ALGO),
+        algo=ALGO, param=PARAM, values=VALUES, algorithm_defaults=algorithm_defaults([ALGO]),
         target_km=TARGET_KM, num_waypoints=NUM_WAYPOINTS, tuning_starts=TUNING_STARTS, seeds=SEEDS,
         workers=args.workers, timeout_sec=TIMEOUT_SEC, time_budget_sec=DEFAULT_TIME_BUDGET_SEC,
     )

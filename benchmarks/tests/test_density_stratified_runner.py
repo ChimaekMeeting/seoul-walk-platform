@@ -9,20 +9,15 @@ benchmarks/tests/test_density_stratified_runner.py
 말없이 덮어써 근거를 잃는 것.
 """
 
-import random
+import json
 
 import pytest
 
 from benchmarks import run_density_stratified_scenarios as runner
 from benchmarks.benchmark import SEED_SENSITIVE_SOLVERS
 from benchmarks.config import BENCHMARK_SEEDS
-from benchmarks.solvers.beam_waypoint_refinement_solver import _DEFAULT_BEAM_WIDTH
-from benchmarks.solvers.grasp_waypoint_solver import (
-    _grasp_config_from_params, _refinement_options_from_params,
-)
-from src.route_engine.engines.grasp_waypoint_common import DEFAULT_CONFIG
-from src.route_engine.engines.waypoint_refinement import _alns_config
-from src.route_engine.waypoint_alns import _validate
+from src.route_engine.engines.circular_beam_waypoint_vns import BEAM_VNS_CONFIG
+from src.route_engine.engines.circular_grasp_waypoint_alns import GRASP_ALNS_CONFIG, GRASP_ALNS_OPTIONS
 
 
 def test_algos_defaults_to_the_full_grid():
@@ -68,48 +63,18 @@ def test_existing_output_is_overwritable_only_on_purpose(tmp_path):
     runner._check_output_path(str(tmp_path / "new.csv"), force=False)
 
 
-def test_tuned_knob_that_equals_the_engine_default_stays_visible():
-    """beam-wp-alns의 beam_width=8은 튜닝으로 확정된 값이지만 솔버 기본값과 같다 —
-    즉 노브 없이 돈 과거 실행분과 동작이 같아서 재실행 대상이 아니다. 이 등식이 깨지면
-    (기본값이 바뀌거나 튜닝값이 바뀌면) 재사용 판단도 같이 무너지므로 고정해둔다."""
-    assert runner.TUNED_KNOBS["beam-wp-alns"]["beam_width"] == _DEFAULT_BEAM_WIDTH
+def test_metadata_records_only_algorithms_with_their_own_defaults():
+    """어떤 설정으로 돈 실행인지는 행만 보고 알 수 없어 메타데이터에 남긴다. 공용 기본값을 쓰는
+    알고리즘까지 적으면 "튜닝값이 들어간 알고리즘"을 가려내기 어려워지므로 둘만 남긴다."""
+    recorded = runner.algorithm_defaults(runner.ALGOS)
+
+    assert set(recorded) == {"grasp-wp-alns", "beam-wp-vns"}
+    assert recorded["grasp-wp-alns"]["config"]["rcl_size"] == GRASP_ALNS_CONFIG.rcl_size
+    assert recorded["grasp-wp-alns"]["alns_options"] == dict(GRASP_ALNS_OPTIONS)
+    assert recorded["beam-wp-vns"]["config"]["rcl_size"] == BEAM_VNS_CONFIG.rcl_size
+    json.dumps(recorded)  # save_run_metadata가 그대로 직렬화할 수 있어야 한다
 
 
-def test_grasp_alns_knobs_actually_differ_from_engine_defaults():
-    """반대로 grasp-wp-alns의 구축 노브 2종은 기본값과 달라 재실행이 필요하다는 근거."""
-    knobs = runner.TUNED_KNOBS["grasp-wp-alns"]
-    assert knobs["rcl_size"] != DEFAULT_CONFIG.rcl_size
-    assert knobs["angle_diversity_weight_m"] != DEFAULT_CONFIG.angle_diversity_weight_m
-
-
-def _grasp_alns_config():
-    """솔버와 같은 경로(params → 정제 options → ALNSConfig)로 grasp-wp-alns의 실제 ALNS 설정을 만든다."""
-    knobs = runner.TUNED_KNOBS["grasp-wp-alns"]
-    return _alns_config(
-        target_m=7000.0, cfg=_grasp_config_from_params(knobs), rng=random.Random(0),
-        options=_refinement_options_from_params("alns", knobs),
-    )
-
-
-def test_grasp_alns_candidate_limit_is_decoupled_from_rcl_size():
-    """#434 — 한도를 따로 주지 않으면 엔진은 cfg.rcl_size(=16)를 쓴다. 한도 2가 ALNSConfig까지
-    실제로 닿는지와, rcl_size는 구축 RCL 값으로 그대로 남는지를 함께 고정한다.
-    이 값이 바뀌면 density_stratified_stage1_retuned.csv의 grasp-wp-alns 행 재사용 판단도 바뀐다."""
-    config = _grasp_alns_config()
-
-    assert config.candidate_limit == 2
-    assert config.iterations == runner.TUNED_KNOBS["grasp-wp-alns"]["alns_iterations"]
-    assert config.candidate_limit != runner.TUNED_KNOBS["grasp-wp-alns"]["rcl_size"]
-
-
-@pytest.mark.parametrize("num_waypoints", runner._load_dataset()["num_waypoints"])
-def test_grasp_alns_candidate_limit_is_valid_for_every_grid_n(num_waypoints):
-    """candidate_limit < remove_count면 alns_search가 ValueError를 내고, 엔진은 경고만 남긴 채
-    ALNS를 건너뛴다(waypoint_refinement.py) — 행은 ok로 쌓이지만 사실상 정제 없는 결과다.
-    격자의 모든 N에서 검증을 통과해야 한다."""
-    initial_ids = tuple(range(1, num_waypoints + 1))
-    candidates = [{"node_id": node, "lat": 0.0, "lon": 0.0} for node in range(1, num_waypoints + 4)]
-
-    _, remove_count = _validate(candidates, initial_ids, 0, 0, 7000.0, _grasp_alns_config())
-
-    assert remove_count <= runner.TUNED_KNOBS["grasp-wp-alns"]["alns_candidate_limit"]
+def test_metadata_honours_the_algo_subset():
+    assert runner.algorithm_defaults(["grasp-wp-local", "beam-wp"]) == {}
+    assert set(runner.algorithm_defaults(["beam-wp-vns"])) == {"beam-wp-vns"}

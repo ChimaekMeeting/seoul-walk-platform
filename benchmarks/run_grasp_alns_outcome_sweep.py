@@ -9,9 +9,10 @@ outcome_counts(ALNS_OUTCOMES)·comparison_decided_by로 기각 사유를 분리�
 
 격자: 밀도 층화 데이터셋의 8개 출발지 x target_kms {1,3,5,7,9} x N {2,3,4}
       x BENCHMARK_SEEDS 10개 x alns_candidate_limit {2, 16} = 2,400회.
-      TUNED_KNOBS(alns_iterations=10, rcl_size=16, angle_diversity_weight_m=0.0)는 고정.
-      16은 엔진 기본 동작(candidate_limit=cfg.rcl_size)과 같은 값을 명시한 것이고,
-      2는 N<=4에서 remove_count(최대 2) 이상인 하한이다.
+      나머지 확정값(alns_iterations=10, rcl_size=16, angle_diversity_weight_m=0.0)은 엔진
+      알고리즘별 기본값(circular_grasp_waypoint_alns.py)으로 고정되고 한도만 params로
+      덮어쓴다. 16은 실행 당시 엔진 기본 동작(candidate_limit=cfg.rcl_size)과 같은 값이었고,
+      2는 N<=4에서 remove_count(최대 2) 이상인 하한이다(이 스윕 뒤 2가 기본값으로 확정).
 
 실행 순서: 시드 앞 5개로 전 조건을 한 바퀴 돈 뒤 뒤 5개를 돈다 — 중간에 멈춰도 앞 바퀴는
 조건 균형이 맞는 완결 표본으로 남는다.
@@ -38,7 +39,7 @@ import pandas as pd
 from benchmarks.benchmark import _load_default_graph, SOLVER_REGISTRY
 from benchmarks.config import BENCHMARK_SEEDS, DEFAULT_TIME_BUDGET_SEC
 from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
-from benchmarks.run_density_stratified_scenarios import TUNED_KNOBS, _load_dataset
+from benchmarks.run_density_stratified_scenarios import _load_dataset, algorithm_defaults
 from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.waypoint_refinement import ALNS_OUTCOMES
@@ -68,7 +69,6 @@ def _pool_worker_task(value: int, start_node, target_km: float, num_waypoints: i
     params = {
         "target_km": target_km, "num_waypoints": num_waypoints,
         "time_budget_sec": DEFAULT_TIME_BUDGET_SEC, "seed": seed,
-        **TUNED_KNOBS.get(ALGO, {}),
         PARAM: value,
     }
     return run_solver_task(SOLVER_REGISTRY[ALGO], _POOL_GRAPH, start_node, start_node, params)
@@ -190,7 +190,7 @@ def main():
 
     print(f"{ALGO} / {PARAM} {VALUES}: 출발지 {len(dataset['start_points'])} x 거리 {dataset['target_kms']} x "
           f"N {dataset['num_waypoints']} x 시드 {len(BENCHMARK_SEEDS)} x 값 {len(VALUES)} = 총 {len(conditions)}회 "
-          f"(완료 {len(done)}, 남음 {len(pending)}) 고정 {TUNED_KNOBS.get(ALGO)}", flush=True)
+          f"(완료 {len(done)}, 남음 {len(pending)}) 나머지는 {ALGO} 엔진 기본값", flush=True)
     if args.dry_run or not pending:
         return
 
@@ -246,7 +246,7 @@ def main():
     result_df = pd.DataFrame(rows, columns=columns)
     meta_path = save_run_metadata(
         OUT_PATH, runner="run_grasp_alns_outcome_sweep",
-        algo=ALGO, param=PARAM, values=VALUES, fixed_knobs=TUNED_KNOBS.get(ALGO),
+        algo=ALGO, param=PARAM, values=VALUES, algorithm_defaults=algorithm_defaults([ALGO]),
         start_points=dataset["start_points"], target_kms=dataset["target_kms"],
         num_waypoints=dataset["num_waypoints"], seed_passes=SEED_PASSES,
         workers=args.workers, timeout_sec=TIMEOUT_SEC, time_budget_sec=DEFAULT_TIME_BUDGET_SEC,
