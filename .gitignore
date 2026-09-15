@@ -67,6 +67,11 @@ restore_log.txt
 # untracked로 남았습니다. 실행할 때마다 덮어쓰이는 산출물이라 버전 관리하지 않습니다.
 *.metadata.json
 
+# 벤치마크를 백그라운드로 돌릴 때 표준출력·표준에러를 받아 두는 실행 로그
+# (ex) stage1_retuned_run.log, *_run.err.log). 결과는 CSV와 <csv>.metadata.json에 남고
+# 요약표는 CSV로 다시 계산할 수 있어 버전 관리하지 않습니다.
+*.log
+
 # 점대점 벤치마크(benchmarks/runner/alt_shortest_path.py) 실행 산출물.
 # results.csv는 위 *.csv로, results.metadata.json은 위 *.metadata.json으로 이미
 # 제외되지만 summary.json은 덮이지 않는다. 실행할 때마다 새 타임스탬프 폴더가
