@@ -29,15 +29,18 @@ num_waypoints 곱집합을 돈다 — route_engine.json과 그 소비자(run_all
     python -m benchmarks.run_density_stratified_scenarios --stage 2 --dry-run   # 실행 수만 계산
 
 부분 재실행:
-    TUNED_KNOBS가 바뀌면 값이 실제로 달라진 알고리즘만 다시 돌리면 된다 — 나머지 행은
-    같은 설정으로 이미 돈 결과라 재사용할 수 있다. 2026-09-13 02:39 1단계 실행분은 노브를
-    하나도 주입하지 않은 순수 엔진 기본값이었고(TUNED_KNOBS 도입 커밋 1704ee3은 같은 날
-    18:22), 그 뒤 확정된 값 중 기본값과 실제로 달라진 것은 grasp-wp-alns 4종
-    (alns_iterations 30->10, rcl_size 8->16, angle_diversity_weight_m 1500.0->0.0,
-    alns_candidate_limit 8->2)과 beam-wp-vns의 beam_width(8->4)뿐이다. alns_candidate_limit은
-    따로 주지 않으면 rcl_size를 따라간다(waypoint_refinement.py::_alns_config). beam-wp-alns의
-    beam_width=8은 솔버 기본값(beam_waypoint_refinement_solver.py::_DEFAULT_BEAM_WIDTH)과
-    같아 동작이 바뀌지 않는다.
+    알고리즘별 기본값(circular_grasp_waypoint_alns.py의 GRASP_ALNS_CONFIG·GRASP_ALNS_OPTIONS,
+    circular_beam_waypoint_vns.py의 BEAM_VNS_CONFIG)이 바뀌면 값이 실제로 달라진 알고리즘만
+    다시 돌리면 된다 — 나머지 행은 같은 설정으로 이미 돈 결과라 재사용할 수 있다.
+
+    기존 CSV의 설정 이력: 2026-09-13 02:39 1단계 실행분은 튜닝 전 엔진 기본값이었다(노브 주입
+    커밋 1704ee3은 같은 날 18:22). 그 뒤 확정값은 이 러너의 TUNED_KNOBS로 params에 주입하다가
+    엔진 알고리즘별 기본값으로 옮겼다 — 옮기기 전후 솔버에 실리는 설정은 같다. 튜닝 전 기본값과
+    실제로 달라진 것은 grasp-wp-alns 4종(alns_iterations 30->10, rcl_size 8->16,
+    angle_diversity_weight_m 1500.0->0.0, alns_candidate_limit 8->2)과 beam-wp-vns의
+    beam_width(8->4)뿐이다. alns_candidate_limit은 따로 주지 않으면 rcl_size를 따라간다
+    (waypoint_refinement.py::_alns_config). beam-wp-alns의 beam_width=8은 공용 기본값
+    (DEFAULT_CONFIG.rcl_size)과 같아 동작이 바뀌지 않는다.
 
     alns_candidate_limit=2 반영(2026-09-15, #434) 이후 density_stratified_stage1_retuned.csv의
     grasp-wp-alns 행은 한도 16(rcl_size 연동)으로 돈 결과라 재사용할 수 없다. 같은 파일의
@@ -56,6 +59,7 @@ import itertools
 import json
 import multiprocessing
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 import pandas as pd
@@ -66,6 +70,8 @@ from benchmarks.config import (
 )
 from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
 from benchmarks.run_metadata import save_run_metadata
+from src.route_engine.engines.circular_beam_waypoint_vns import BEAM_VNS_CONFIG
+from src.route_engine.engines.circular_grasp_waypoint_alns import GRASP_ALNS_CONFIG, GRASP_ALNS_OPTIONS
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
@@ -87,8 +93,13 @@ ALGOS = [
 
 # 정제 파라미터 튜닝 스윕 결론(2026-09-13, run_refinement_tuning_sweep.py 청크 A/B1/B2/B3,
 # 튜닝 집합 홍대/경복궁/남산/북한산 x {3,7}km x N=4, 통계 검정 근거는 대화 기록 참고).
-# 여기 없는 알고리즘·노브는 전부 무효가 확정돼 엔진 기본값을 그대로 둔다 — 명시하지 않는
+# 공용 기본값과 달라진 확정값은 엔진 쪽 알고리즘별 상수로 옮겼다(_ALGORITHM_DEFAULTS 참고 —
+# 값과 근거의 원본은 src/). 아래는 튜닝했지만 기본값 유지로 확정된 노브다 — 명시하지 않는
 # 것 자체가 의도적 선택이다:
+#   - beam-wp-alns.beam_width: 8(공용 기본값)이 4(p<0.0001)·16(p=0.0005)보다 게이트통과율에서
+#     유의미하게 우수. beam-wp-vns(4)와 값이 다른 것은 기준이 달라서다 — Beam+ALNS는 ALNS
+#     제안이 최종 경로로 거의 채택되지 않아(폭 8에서 1/240) 구축 품질이 곧 결과이고 폭 16까지도
+#     중앙값 11.5초로 싸서 품질로 골랐다. VNS 쪽 기준은 circular_beam_waypoint_vns.py 참고.
 #   - beam-wp.beam_width: n=8(튜닝 집합)에서 과소검정 의심돼 n=40(전체 8출발지 x 5거리)으로
 #     확장 재검정했으나 여전히 무효(모든 쌍 p>=0.25) — 데이터 부족이 아니라 무효 확정.
 #   - beam-wp-alns.alns_removal_fraction: n=240, 무효(p>=0.68).
@@ -108,34 +119,27 @@ ALGOS = [
 #     beam-wp-vns는 완전 무효(모든 쌍 p>=0.15), grasp-wp-alns는 0.05·0.20(기본값)이
 #     완전히 동일(p=1.0)하고 0.40만 유의미하게 나쁨(p<0.0001). 두 알고리즘 다 기존
 #     기본값(0.20) 유지로 확정.
-TUNED_KNOBS = {
-    # width 8이 4(p<0.0001)·16(p=0.0005)보다 게이트통과율에서 유의미하게 우수.
-    "beam-wp-alns": {"beam_width": 8},
-    # 10/20/30이 통과율·거리편차·최악값까지 통계적으로 동일(p>=0.73)한데 10이 절반 이하
-    # 비용. target_km {3,7}뿐 아니라 9km(단일 지점·rural 교차검증 포함)까지 재확인해도
-    # 유의미한 차이 없음(2026-09-14).
-    # rcl_size=16이 4(p=0.0001)·8(p=0.0034) 모두보다 게이트통과율에서 강하게 유의미하게
-    # 우수(2026-09-14, 7km, n=40/값) — GRASP 4종 중 기본값을 실제로 바꿔야 했던 유일한
-    # 경우.
-    # angle_diversity_weight_m=0.0(완전히 끄기)이 기존 기본값 1500.0·대안 3000.0 모두보다
-    # 강하게 유의미하게 우수(2026-09-14, p<=0.000017, 게이트통과율 1.000 대 0.625/0.400) —
-    # 1500.0은 다른 실험(2026-08-30, N=2 시절)에서 정해진 값이라 N=4·rcl_size=16·
-    # alns_iterations=10이 함께 적용된 지금 조건과 안 맞았던 것으로 보인다.
-    # alns_candidate_limit=2(잠정값, 2026-09-15 #434): 따로 주지 않으면 ALNS 복구 후보 한도가
-    # cfg.rcl_size를 따라가서 위 rcl_size=16이 한도까지 16으로 올린다. 전 격자 스윕
-    # (run_grasp_alns_outcome_sweep.py, 8출발지 x 5거리 x N{2,3,4} x 시드 10 x {2,16})에서
-    # 2는 16보다 약 3.6배 빠르고 게이트 통과율 차이는 유의하지 않았다(9건 대 17건, p=0.169).
-    # 거리편차(3m)·재통행률(0.001) 차이는 16이 근소하게 유리하다. 2는 N=4에서
-    # remove_count=ceil(4*0.3)=2라 허용되는 하한이다 — 더 작으면 alns_search가 ValueError를
-    # 내고 엔진은 경고만 남긴 채 ALNS를 건너뛴다(실행은 성공한 것처럼 보인다).
-    "grasp-wp-alns": {
-        "alns_iterations": 10, "rcl_size": 16, "angle_diversity_weight_m": 0.0,
-        "alns_candidate_limit": 2,
-    },
-    # width 4가 8과 통계적으로 동급(p=0.068/0.178)이면서 훨씬 저렴. 16은 정밀도가 실제로
-    # 우수하지만(p<0.000001) 비용 중앙값(155초)부터 60초 예산을 넘어 배제.
-    "beam-wp-vns": {"beam_width": 4},
+# 공용 기본값과 다른 확정값을 쓰는 알고리즘 → 그 솔버가 기준으로 삼는 엔진 쪽 상수.
+# 값을 여기 다시 적지 않는다(원본은 src/) — 메타데이터 기록과 테스트 대조에만 쓴다.
+_ALGORITHM_DEFAULTS = {
+    "grasp-wp-alns": {"config": GRASP_ALNS_CONFIG, "alns_options": GRASP_ALNS_OPTIONS},
+    "beam-wp-vns": {"config": BEAM_VNS_CONFIG},
 }
+
+
+def algorithm_defaults(algos) -> dict:
+    """algos 중 알고리즘별 확정 기본값을 쓰는 것만 골라 JSON으로 남길 수 있게 편다.
+
+    어떤 설정으로 돈 실행인지는 행만 보고 판정할 수 없어(노브는 결과 컬럼에 안 들어간다)
+    CSV 옆 메타데이터에 남긴다. 여기 없는 알고리즘은 공용 기본값(DEFAULT_CONFIG,
+    waypoint_refinement.py의 _ALNS_*·_MAX_SHAKE_LEVEL)으로 돈다."""
+    return {
+        algo: {
+            name: asdict(value) if name == "config" else dict(value)
+            for name, value in _ALGORITHM_DEFAULTS[algo].items()
+        }
+        for algo in algos if algo in _ALGORITHM_DEFAULTS
+    }
 
 TIMEOUT_SEC = 600.0  # 400 -> 600 (9km grasp-wp-vns 단독 170.8초 실측 + 6워커 경합 여유)
 CHECKPOINT_EVERY = 25
@@ -158,7 +162,6 @@ def _pool_worker_task(solver_key: str, start_node, target_km: float, num_waypoin
         "profile": CIRCULAR_BENCHMARK_PROFILE,
         "time_budget_sec": DEFAULT_TIME_BUDGET_SEC,
         "num_waypoints": num_waypoints,
-        **TUNED_KNOBS.get(solver_key, {}),
     }
     if seed is not None:
         params["seed"] = seed
@@ -234,7 +237,7 @@ def main():
                          help="1=탐색(시드 1회), 2=본실행(SEED_SENSITIVE_SOLVERS는 시드 10회)")
     parser.add_argument("--algos", default=None,
                          help=f"쉼표로 구분한 알고리즘 부분집합(기본: 전체 {len(ALGOS)}종). "
-                              "TUNED_KNOBS가 바뀐 알고리즘만 재실행할 때 쓴다 — 모듈 docstring의 "
+                              "알고리즘별 기본값이 바뀐 알고리즘만 재실행할 때 쓴다 — 모듈 docstring의 "
                               "'부분 재실행' 참고")
     parser.add_argument("--out", default=None,
                          help="결과 CSV 경로(기본: benchmarks/density_stratified_stage{stage}_results.csv). "
@@ -317,9 +320,7 @@ def main():
         stage=args.stage, dataset=str(DATASET_PATH),
         start_points=dataset["start_points"], target_kms=dataset["target_kms"],
         num_waypoints=dataset["num_waypoints"], algos=algos,
-        # 어떤 노브가 실제로 실려 나갔는지를 CSV 옆에 남긴다 — "튜닝값이 반영된 실행인지"를
-        # 나중에 행만 보고는 판정할 수 없기 때문이다(노브는 결과 컬럼에 안 들어간다).
-        tuned_knobs={algo: TUNED_KNOBS[algo] for algo in algos if algo in TUNED_KNOBS},
+        algorithm_defaults=algorithm_defaults(algos),
         seeds=BENCHMARK_SEEDS if args.stage == "2" else [BENCHMARK_SEEDS[0]],
         workers=args.workers, timeout_sec=TIMEOUT_SEC, time_budget_sec=DEFAULT_TIME_BUDGET_SEC,
         circular_profile=CIRCULAR_BENCHMARK_PROFILE,
