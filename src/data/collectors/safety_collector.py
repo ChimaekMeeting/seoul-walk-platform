@@ -110,6 +110,7 @@ class SafetyCollector:
         )
         return records
     
+    # TAAS API 경로, 현재 미사용 — accident_collector.py의 CSV 기반 경로로 대체됨
     def build_accident_records(self) -> list:
         gdf = self.public.get("type", "accident_zone")
         records = []
@@ -123,6 +124,7 @@ class SafetyCollector:
             })
         return records
 
+    # TAAS API 경로, 현재 미사용 — accident_collector.py의 CSV 기반 경로로 대체됨
     def update_accident(self) -> None:
         records = self.build_accident_records()
         if not records:
@@ -150,8 +152,16 @@ class SafetyCollector:
         SafetyRepository.save_all(records)
 
     def update_edge(self) -> None:
+        """
+        safety_score = CCTV(설치목적 필터 적용)·security_light 반경 20m 버퍼 커버리지 비율.
+        이미 0.0~1.0 비율이라 CollectorUtils.update_edge_scores의 log 정규화를 거치지 않고
+        그대로 기록한다.
+        """
         EdgeRepository.ensure_score_column("safety_score")
-        CollectorUtils.update_edge_scores("safety_score", SafetyRepository.get_safety_counts_by_edge())
+        coverage = SafetyRepository.get_safety_coverage_by_edge()
+        EdgeRepository.update_scores(
+            [{"link_id": link_id, "safety_score": ratio} for link_id, ratio in coverage.items()]
+        )
 
     def save(self) -> None:
         self.update_node()

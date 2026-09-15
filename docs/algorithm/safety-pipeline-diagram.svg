@@ -1,0 +1,219 @@
+<svg width="1650" height="1900" viewBox="0 0 1650 1900" xmlns="http://www.w3.org/2000/svg" font-family="'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',Arial,sans-serif">
+  <defs>
+    <marker id="arr-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c1611c"/>
+    </marker>
+    <marker id="arr-rust" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#a3311f"/>
+    </marker>
+    <marker id="arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#26333a"/>
+    </marker>
+    <marker id="arr-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b9188"/>
+    </marker>
+    <marker id="arr-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1f6f5c"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1650" height="1900" fill="#f6f3ec"/>
+
+  <!-- Title -->
+  <text x="50" y="46" font-size="26" font-weight="700" fill="#1c2321">안전 데이터 파이프라인 — safety_score · accident_score</text>
+  <text x="50" y="72" font-size="14" fill="#5d655f">seoul-walk-platform · feat/387 · 실제 코드 기준 (2026-09-14)</text>
+
+  <!-- legend -->
+  <g font-size="12.5" fill="#5d655f">
+    <rect x="1130" y="30" width="14" height="14" rx="3" fill="#c1611c"/><text x="1150" y="41">안전시설 계열</text>
+    <rect x="1290" y="30" width="14" height="14" rx="3" fill="#a3311f"/><text x="1310" y="41">사고다발지역 계열</text>
+    <rect x="1130" y="52" width="14" height="14" rx="3" fill="#26333a"/><text x="1150" y="63">테이블·컬럼</text>
+    <rect x="1290" y="52" width="14" height="14" rx="3" fill="#8b9188"/><text x="1310" y="63">미사용/죽은 코드</text>
+  </g>
+
+  <!-- Entry point strip -->
+  <rect x="50" y="112" width="1550" height="118" rx="12" fill="#dcece5" stroke="#1f6f5c" stroke-width="1.5"/>
+  <text x="70" y="138" font-size="13.5" font-weight="700" fill="#1f6f5c">진입점 — 실제로는 이렇게 트리거됩니다</text>
+  <text x="70" y="163" font-size="13" fill="#1c2321">① python -m src.data.data_collector (--scope v1, 기본값) → collect_v1() → SafetyCollector().save()</text>
+  <text x="70" y="186" font-size="13" fill="#1c2321">② --scope legacy-all → collect_legacy_all() → SafetyCollector().save() + SafetyCollector().update_accident() [미사용 경로 포함]</text>
+  <text x="70" y="209" font-size="13" font-weight="600" fill="#a3311f">③ AccidentCollector().save()는 ①②  어디에도 연결되어 있지 않음 — 사람이 직접 실행해야 함</text>
+
+  <!-- connectors from entry strip to lane heads -->
+  <path d="M 400,230 L 400,258" stroke="#1f6f5c" stroke-width="2.5" fill="none" marker-end="url(#arr-teal)"/>
+  <path d="M 1220,230 L 1220,258" stroke="#a3311f" stroke-width="2.5" stroke-dasharray="6 5" fill="none" marker-end="url(#arr-rust)"/>
+  <text x="410" y="250" font-size="11.5" fill="#1f6f5c">①②</text>
+  <text x="1230" y="250" font-size="11.5" fill="#a3311f">③ 수동 실행</text>
+
+  <!-- Lane headers -->
+  <text x="50" y="253" font-size="15.5" font-weight="700" fill="#c1611c">안전시설 계열 (CCTV·보안등·가로등) → safety_score</text>
+  <text x="870" y="253" font-size="15.5" font-weight="700" fill="#a3311f">사고다발지역 계열 → accident_score</text>
+
+  <!-- ================= LANE A ================= -->
+  <!-- A1 raw sources -->
+  <rect x="50" y="260" width="700" height="160" rx="10" fill="#f3e0c8" stroke="#c1611c" stroke-width="1.5"/>
+  <text x="70" y="286" font-size="13.5" font-weight="700" fill="#1c2321">안전시설 원본 4종 · src/data/raw/</text>
+  <text x="70" y="309" font-size="12.5" fill="#1c2321">전국스마트가로등표준데이터.csv → streetlight</text>
+  <text x="70" y="331" font-size="12.5" fill="#1c2321">서울특별시_가로등 위치 정보_20221108.csv → streetlamp</text>
+  <text x="70" y="353" font-size="12.5" fill="#1c2321">서울시_보안등_전처리.csv → security_light</text>
+  <text x="70" y="375" font-size="12.5" fill="#1c2321">서울시CCTV정보.xlsx → cctv (설치목적구분 컬럼 포함)</text>
+  <text x="70" y="400" font-size="11.5" fill="#8a5a2e">읽는 곳: CSVSource._load_streetlight/streetlamp/security_light/cctv()</text>
+
+  <path d="M400,420 L400,456" stroke="#c1611c" stroke-width="2.5" marker-end="url(#arr-amber)"/>
+
+  <!-- A2 -->
+  <rect x="50" y="456" width="700" height="90" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="70" y="483" font-size="13.5" font-weight="700" fill="#1c2321">CSVSource.get("type", value)</text>
+  <text x="70" y="506" font-size="12.5" fill="#5d655f">파일 읽기 → 정제(clean) → csv_raw 테이블에 캐시 (다음부터는 캐시만 조회)</text>
+  <text x="70" y="527" font-size="12.5" fill="#5d655f">호출: SafetyCollector.build_*_records() 각각이 type별로 호출</text>
+
+  <path d="M400,546 L400,582" stroke="#c1611c" stroke-width="2.5" marker-end="url(#arr-amber)"/>
+
+  <!-- A3 -->
+  <rect x="50" y="582" width="700" height="110" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="70" y="609" font-size="13.5" font-weight="700" fill="#1c2321">SafetyCollector.build_streetlight/cctv/streetlamp/security_light_records()</text>
+  <text x="70" y="632" font-size="12.5" fill="#5d655f">좌표(lat,lon) 완전일치 기준으로 중복 좌표 제거</text>
+  <text x="70" y="654" font-size="12.5" fill="#5d655f">CCTV만: 설치목적구분 → purpose 대표값 선정(CCTV_PURPOSE_PRIORITY)</text>
+  <text x="70" y="676" font-size="12.5" font-weight="600" fill="#a3311f">※ 이 단계에서 목적 필터링은 하지 않음 — 전부 저장</text>
+
+  <path d="M400,692 L400,728" stroke="#c1611c" stroke-width="2.5" marker-end="url(#arr-amber)"/>
+
+  <!-- A4 -->
+  <rect x="50" y="728" width="700" height="110" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="70" y="755" font-size="13.5" font-weight="700" fill="#1c2321">SafetyCollector.update_node()</text>
+  <text x="70" y="778" font-size="12.5" fill="#5d655f">streetlight → cctv → streetlamp → security_light 순서로 결과를 합침</text>
+  <text x="70" y="800" font-size="12.5" fill="#5d655f">→ SafetyRepository.save_all() 호출</text>
+  <text x="70" y="822" font-size="12.5" fill="#5d655f">기존 DB 좌표(반올림 6자리)와 비교해 신규 좌표만 insert</text>
+
+  <path d="M400,838 L400,874" stroke="#c1611c" stroke-width="2.5" marker-end="url(#arr-amber)"/>
+
+  <!-- A5 table -->
+  <rect x="50" y="874" width="700" height="80" rx="10" fill="#26333a"/>
+  <text x="70" y="906" font-size="14.5" font-weight="700" fill="#ffffff">safety_layer 테이블</text>
+  <text x="70" y="930" font-size="12.5" fill="#c7d0cc">id · csv_raw_id · safety_type · purpose · geom(POINT, srid 4326)</text>
+
+  <path d="M400,954 L400,990" stroke="#c1611c" stroke-width="2.5" marker-end="url(#arr-amber)"/>
+
+  <!-- A6 -->
+  <rect x="50" y="990" width="700" height="190" rx="10" fill="#f3e0c8" stroke="#c1611c" stroke-width="1.5"/>
+  <text x="70" y="1017" font-size="13.5" font-weight="700" fill="#1c2321">SafetyCollector.update_edge()</text>
+  <text x="70" y="1039" font-size="12.5" fill="#5d655f">→ EdgeRepository.ensure_score_column("safety_score")</text>
+  <text x="70" y="1059" font-size="12.5" font-weight="700" fill="#1c2321">→ SafetyRepository.get_safety_coverage_by_edge()</text>
+  <text x="90" y="1080" font-size="12.5" fill="#1c2321">① CCTV 중 교통단속·교통정보수집·차량방범 목적 제외</text>
+  <text x="90" y="1100" font-size="12.5" fill="#1c2321">② 강남·용산·마포·도봉·성동 = CCTV만 / 나머지 20구 = CCTV+보안등</text>
+  <text x="90" y="1120" font-size="12.5" fill="#1c2321">③ ST_Buffer(20m) → ④ ST_Union (겹치는 원 먼저 합침)</text>
+  <text x="90" y="1140" font-size="12.5" fill="#1c2321">⑤ ST_Intersection(도로) → 길이 ÷ 도로 전체 길이, LEAST(1.0, …)</text>
+  <text x="70" y="1163" font-size="12.5" fill="#5d655f">→ EdgeRepository.update_scores() 로 dict를 그대로(정규화 없이) 벌크 UPDATE</text>
+
+  <path d="M400,1180 L400,1230" stroke="#c1611c" stroke-width="2.5" marker-end="url(#arr-amber)"/>
+
+  <!-- A7 table highlight -->
+  <rect x="50" y="1230" width="700" height="80" rx="10" fill="#26333a" stroke="#c1611c" stroke-width="2.5"/>
+  <text x="70" y="1262" font-size="14.5" font-weight="700" fill="#ffffff">walk_edges.safety_score 컬럼</text>
+  <text x="70" y="1286" font-size="12.5" fill="#f3e0c8">도로 구간(link_id)별 안전시설 커버리지, 0.0 ~ 1.0</text>
+
+  <!-- ================= LANE B ================= -->
+  <!-- B1 raw source -->
+  <rect x="870" y="260" width="700" height="130" rx="10" fill="#f3ddd6" stroke="#a3311f" stroke-width="1.5"/>
+  <text x="890" y="286" font-size="13.5" font-weight="700" fill="#1c2321">사고다발지역 원본 · src/data/raw/</text>
+  <text x="890" y="309" font-size="12.5" fill="#1c2321">전국교통사고다발지역표준데이터.csv (도로교통공단)</text>
+  <text x="890" y="331" font-size="12.5" fill="#1c2321">사고다발지역폴리곤정보 컬럼 = 원본 Polygon (EPSG:5179)</text>
+  <text x="890" y="353" font-size="12.5" fill="#1c2321">사고유형구분 · 사고연도 · 사망자수 컬럼도 함께 사용</text>
+  <text x="890" y="376" font-size="11.5" fill="#7a2418">읽는 곳: AccidentCollector.build_records()가 pd.read_csv로 직접</text>
+
+  <path d="M1220,390 L1220,426" stroke="#a3311f" stroke-width="2.5" marker-end="url(#arr-rust)"/>
+
+  <!-- B1b annotation dashed -->
+  <rect x="870" y="426" width="700" height="60" rx="10" fill="#f6f3ec" stroke="#8b9188" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="890" y="452" font-size="12.5" font-weight="600" fill="#5d655f">※ CSVSource / csv_raw 캐시를 거치지 않습니다</text>
+  <text x="890" y="472" font-size="12" fill="#5d655f">AccidentCollector가 CSV를 매번 직접 pandas로 읽고 그때그때 파싱합니다</text>
+
+  <path d="M1220,486 L1220,622" stroke="#a3311f" stroke-width="2.5" marker-end="url(#arr-rust)"/>
+
+  <!-- B2 -->
+  <rect x="870" y="622" width="700" height="110" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="890" y="649" font-size="13.5" font-weight="700" fill="#1c2321">AccidentCollector.build_records()</text>
+  <text x="890" y="672" font-size="12.5" fill="#5d655f">서울 + 보행노인·보행어린이·스쿨존어린이 + 2022년 이후만 필터</text>
+  <text x="890" y="694" font-size="12.5" fill="#5d655f">폴리곤 문자열(준-JSON) 보정 후 파싱 → shapely Polygon</text>
+  <text x="890" y="716" font-size="12.5" fill="#5d655f">GeoDataFrame 생성(EPSG:5179) → to_crs("EPSG:4326")</text>
+
+  <path d="M1220,732 L1220,768" stroke="#a3311f" stroke-width="2.5" marker-end="url(#arr-rust)"/>
+
+  <!-- B3 -->
+  <rect x="870" y="768" width="700" height="90" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="890" y="795" font-size="13.5" font-weight="700" fill="#1c2321">AccidentCollector.update_node()</text>
+  <text x="890" y="818" font-size="12.5" fill="#5d655f">→ AccidentRepository.replace_all()</text>
+  <text x="890" y="840" font-size="12.5" fill="#5d655f">한 트랜잭션 안에서 전체 delete 후 to_postgis(append)로 재삽입</text>
+
+  <path d="M1220,858 L1220,894" stroke="#a3311f" stroke-width="2.5" marker-end="url(#arr-rust)"/>
+
+  <!-- B4 table -->
+  <rect x="870" y="894" width="700" height="80" rx="10" fill="#26333a"/>
+  <text x="890" y="926" font-size="14.5" font-weight="700" fill="#ffffff">accident_prone_area 테이블</text>
+  <text x="890" y="950" font-size="12.5" fill="#e6c9c2">accident_type · accident_year · death_count · has_death · geom(POLYGON)</text>
+
+  <path d="M1220,974 L1220,1010" stroke="#a3311f" stroke-width="2.5" marker-end="url(#arr-rust)"/>
+
+  <!-- B5 -->
+  <rect x="870" y="1010" width="700" height="190" rx="10" fill="#f3ddd6" stroke="#a3311f" stroke-width="1.5"/>
+  <text x="890" y="1037" font-size="13.5" font-weight="700" fill="#1c2321">AccidentCollector.update_edge()</text>
+  <text x="890" y="1059" font-size="12.5" fill="#5d655f">→ EdgeRepository.ensure_score_column("accident_score")</text>
+  <text x="890" y="1079" font-size="12.5" font-weight="700" fill="#1c2321">→ AccidentRepository.update_edge_accident_overlap_ratios()</text>
+  <text x="910" y="1100" font-size="12.5" fill="#1c2321">① walk_edges.accident_score 전체 0.0으로 리셋</text>
+  <text x="910" y="1120" font-size="12.5" fill="#1c2321">② 겹치는 사고다발지역 폴리곤을 먼저 ST_Union으로 합침</text>
+  <text x="910" y="1140" font-size="12.5" fill="#1c2321">③ ST_Intersection(도로) → 길이 ÷ 도로 전체 길이, LEAST(1.0, …)</text>
+  <text x="890" y="1163" font-size="12.5" font-weight="600" fill="#7a2418">※ 반경 버퍼 없음 — 원본 폴리곤 모양 그대로 사용</text>
+
+  <path d="M1220,1200 L1220,1230" stroke="#a3311f" stroke-width="2.5" marker-end="url(#arr-rust)"/>
+
+  <!-- B6 table highlight -->
+  <rect x="870" y="1230" width="700" height="80" rx="10" fill="#26333a" stroke="#a3311f" stroke-width="2.5"/>
+  <text x="890" y="1262" font-size="14.5" font-weight="700" fill="#ffffff">walk_edges.accident_score 컬럼</text>
+  <text x="890" y="1286" font-size="12.5" fill="#f3ddd6">도로 구간(link_id)별 사고다발지역 커버리지, 0.0 ~ 1.0</text>
+
+  <!-- merge arrows -->
+  <path d="M400,1310 L400,1345 L820,1345 L820,1370" stroke="#26333a" stroke-width="2.5" fill="none" marker-end="url(#arr-ink)"/>
+  <path d="M1220,1310 L1220,1345 L830,1345" stroke="#26333a" stroke-width="2.5" fill="none"/>
+
+  <!-- merged walk_edges box -->
+  <rect x="330" y="1370" width="990" height="90" rx="12" fill="#1c2321"/>
+  <text x="825" y="1405" font-size="15.5" font-weight="700" fill="#ffffff" text-anchor="middle">walk_edges 테이블</text>
+  <text x="825" y="1430" font-size="12.5" fill="#d8d2c2" text-anchor="middle">link_id · start_node · end_node · length_m · geom(LINESTRING) + safety_score · accident_score (런타임 ALTER TABLE로 추가된 컬럼)</text>
+
+  <path d="M825,1460 L825,1498" stroke="#5d655f" stroke-width="2.5" stroke-dasharray="6 5" marker-end="url(#arr-gray)"/>
+
+  <!-- next-step note -->
+  <rect x="330" y="1498" width="990" height="70" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="825" y="1526" font-size="12.5" fill="#5d655f" text-anchor="middle">→ src/route_engine/graph/graph_loader.py 가 엣지 속성으로 읽음 (알고리즘 쪽, 오늘 조사 범위 밖)</text>
+  <text x="825" y="1548" font-size="12.5" font-weight="600" fill="#a3311f" text-anchor="middle">accident_score는 아직 graph_loader.py 쿼리에 없음 — 알고리즘에서 미사용 상태</text>
+
+  <!-- dead code panel -->
+  <rect x="50" y="1610" width="1550" height="220" rx="12" fill="#ece7db" stroke="#8b9188" stroke-width="1.5" stroke-dasharray="8 6"/>
+  <text x="70" y="1642" font-size="14" font-weight="700" fill="#5d655f">죽은 코드 / 미사용 경로 — collect_v1()에는 없음, collect_legacy_all()에는 아직 남아있음</text>
+
+  <g stroke="#8b9188" stroke-width="2" marker-end="url(#arr-gray)">
+    <path d="M330,1672 L455,1672"/>
+    <path d="M690,1672 L815,1672"/>
+    <path d="M1075,1672 L1200,1672"/>
+  </g>
+  <rect x="70" y="1652" width="260" height="46" rx="8" fill="#ffffff" stroke="#8b9188"/>
+  <text x="200" y="1680" font-size="12" text-anchor="middle" fill="#5d655f">PublicSource._fetch_accident_zone</text>
+  <text x="200" y="1660" font-size="10.5" text-anchor="middle" fill="#8b9188">TAAS API (도로교통공단)</text>
+
+  <rect x="460" y="1652" width="230" height="46" rx="8" fill="#ffffff" stroke="#8b9188"/>
+  <text x="575" y="1680" font-size="12" text-anchor="middle" fill="#5d655f">public_raw 테이블</text>
+
+  <rect x="820" y="1642" width="255" height="66" rx="8" fill="#ffffff" stroke="#8b9188"/>
+  <text x="947" y="1666" font-size="11.5" text-anchor="middle" fill="#5d655f">SafetyCollector.</text>
+  <text x="947" y="1682" font-size="11.5" text-anchor="middle" fill="#5d655f">build_accident_records()</text>
+  <text x="947" y="1698" font-size="10.5" text-anchor="middle" fill="#a3311f">폴리곤 버리고 점 좌표만 남김</text>
+
+  <rect x="1205" y="1642" width="260" height="66" rx="8" fill="#ffffff" stroke="#8b9188"/>
+  <text x="1335" y="1662" font-size="11.5" text-anchor="middle" fill="#5d655f">SafetyCollector.update_accident()</text>
+  <text x="1335" y="1680" font-size="10.5" text-anchor="middle" fill="#a3311f">replace_types(..., {"streetlight","cctv"})</text>
+  <text x="1335" y="1696" font-size="10.5" text-anchor="middle" fill="#a3311f">accident_zone 넣으면서 다른 타입을 지움(오기 의심)</text>
+
+  <text x="70" y="1745" font-size="12.5" fill="#5d655f">→ accident_collector.py(폴리곤 원본 보존 경로)로 대체되어 이 경로는 값을 채우지 않음</text>
+  <text x="70" y="1770" font-size="12.5" fill="#5d655f">→ SafetyRepository.replace_types() 자체도 이 미사용 경로에서만 호출됨</text>
+
+  <text x="825" y="1878" font-size="12" fill="#8b9188" text-anchor="middle">작성: Claude Sonnet 5 · seoul-walk-platform</text>
+</svg>

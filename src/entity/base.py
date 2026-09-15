@@ -25,6 +25,7 @@ def register_entities():
         route_poi,
         seoul_administrative_boundary,
         seoul_water_polygon,
+        accident_prone_area,
     )
     from src.entity.raw import osm_raw, kakao_raw, public_raw, csv_raw
 
