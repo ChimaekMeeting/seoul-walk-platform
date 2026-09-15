@@ -375,3 +375,40 @@ def test_g12_old_schema_csv_warns_instead_of_crashing(tmp_path, capsys):
     captured = capsys.readouterr().out
     assert "passed 컬럼이 없습니다" in captured
     assert "다시 실행하세요" in captured
+
+
+def _density_row(algorithm, start_id, num_waypoints, **kwargs):
+    """밀도 층화 러너 CSV 모양의 행 — start_node가 없고 start_id·num_waypoints로 조건을 구분한다."""
+    row = _row(algorithm, None, 42, **kwargs)
+    del row["start_node"]
+    return {**row, "start_id": start_id, "num_waypoints": num_waypoints, "num_waypoints_used": num_waypoints}
+
+
+def test_g19_density_grid_start_and_n_are_condition_keys():
+    """둘이 빠지면 2026-09-15 stage1_retuned CSV 240행이 target_km 하나로 묶여 조건 10개로 뭉개졌다."""
+    df = pd.DataFrame([_density_row("A", "hongdae", 3)])
+
+    columns = agg.condition_columns(df)
+
+    assert "start_id" in columns and "num_waypoints" in columns
+    assert "num_waypoints_used" not in columns  # 실행 결과 컬럼은 조건이 아니다
+
+
+def test_g19b_different_n_is_not_folded_as_seed_repetition():
+    """N이 다른 실행을 한 조건으로 접으면 평균이 두 문제의 중간값이 되고 정규화 분모도 섞인다."""
+    rows = [
+        _density_row("A", "hongdae", 2, deviation=0.1, circularity=0.3),
+        _density_row("B", "hongdae", 2, deviation=0.1, circularity=0.6),
+        _density_row("A", "hongdae", 4, deviation=0.5, circularity=0.2),
+        _density_row("B", "hongdae", 4, deviation=0.5, circularity=0.4),
+    ]
+    df = agg.add_derived_columns(pd.DataFrame(rows))
+
+    condition_df = agg.per_condition(df).set_index(["algorithm", "num_waypoints"])
+    assert condition_df.loc[("A", 2), "n_runs"] == 1
+    assert condition_df.loc[("A", 2), "distance_deviation_km_mean"] == pytest.approx(0.1)
+    assert condition_df.loc[("A", 4), "distance_deviation_km_mean"] == pytest.approx(0.5)
+
+    rel = df.set_index(["algorithm", "num_waypoints"])["circularity_q_rel"]
+    assert rel.loc[("A", 2)] == pytest.approx(0.5)  # 분모 0.6
+    assert rel.loc[("A", 4)] == pytest.approx(0.5)  # 분모 0.4 — N=2의 0.6에 묶이면 0.333

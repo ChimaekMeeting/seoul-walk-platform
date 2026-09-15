@@ -9,13 +9,20 @@ benchmarks/tests/test_density_stratified_runner.py
 말없이 덮어써 근거를 잃는 것.
 """
 
+import random
+
 import pytest
 
 from benchmarks import run_density_stratified_scenarios as runner
 from benchmarks.benchmark import SEED_SENSITIVE_SOLVERS
 from benchmarks.config import BENCHMARK_SEEDS
 from benchmarks.solvers.beam_waypoint_refinement_solver import _DEFAULT_BEAM_WIDTH
+from benchmarks.solvers.grasp_waypoint_solver import (
+    _grasp_config_from_params, _refinement_options_from_params,
+)
 from src.route_engine.engines.grasp_waypoint_common import DEFAULT_CONFIG
+from src.route_engine.engines.waypoint_refinement import _alns_config
+from src.route_engine.waypoint_alns import _validate
 
 
 def test_algos_defaults_to_the_full_grid():
@@ -73,3 +80,36 @@ def test_grasp_alns_knobs_actually_differ_from_engine_defaults():
     knobs = runner.TUNED_KNOBS["grasp-wp-alns"]
     assert knobs["rcl_size"] != DEFAULT_CONFIG.rcl_size
     assert knobs["angle_diversity_weight_m"] != DEFAULT_CONFIG.angle_diversity_weight_m
+
+
+def _grasp_alns_config():
+    """솔버와 같은 경로(params → 정제 options → ALNSConfig)로 grasp-wp-alns의 실제 ALNS 설정을 만든다."""
+    knobs = runner.TUNED_KNOBS["grasp-wp-alns"]
+    return _alns_config(
+        target_m=7000.0, cfg=_grasp_config_from_params(knobs), rng=random.Random(0),
+        options=_refinement_options_from_params("alns", knobs),
+    )
+
+
+def test_grasp_alns_candidate_limit_is_decoupled_from_rcl_size():
+    """#434 — 한도를 따로 주지 않으면 엔진은 cfg.rcl_size(=16)를 쓴다. 한도 2가 ALNSConfig까지
+    실제로 닿는지와, rcl_size는 구축 RCL 값으로 그대로 남는지를 함께 고정한다.
+    이 값이 바뀌면 density_stratified_stage1_retuned.csv의 grasp-wp-alns 행 재사용 판단도 바뀐다."""
+    config = _grasp_alns_config()
+
+    assert config.candidate_limit == 2
+    assert config.iterations == runner.TUNED_KNOBS["grasp-wp-alns"]["alns_iterations"]
+    assert config.candidate_limit != runner.TUNED_KNOBS["grasp-wp-alns"]["rcl_size"]
+
+
+@pytest.mark.parametrize("num_waypoints", runner._load_dataset()["num_waypoints"])
+def test_grasp_alns_candidate_limit_is_valid_for_every_grid_n(num_waypoints):
+    """candidate_limit < remove_count면 alns_search가 ValueError를 내고, 엔진은 경고만 남긴 채
+    ALNS를 건너뛴다(waypoint_refinement.py) — 행은 ok로 쌓이지만 사실상 정제 없는 결과다.
+    격자의 모든 N에서 검증을 통과해야 한다."""
+    initial_ids = tuple(range(1, num_waypoints + 1))
+    candidates = [{"node_id": node, "lat": 0.0, "lon": 0.0} for node in range(1, num_waypoints + 4)]
+
+    _, remove_count = _validate(candidates, initial_ids, 0, 0, 7000.0, _grasp_alns_config())
+
+    assert remove_count <= runner.TUNED_KNOBS["grasp-wp-alns"]["alns_candidate_limit"]
