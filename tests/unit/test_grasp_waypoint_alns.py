@@ -19,6 +19,7 @@ fixture를 test_grasp_waypoint.py와 동일한 방식으로 이 파일 안에 �
 
 import math
 import random
+from dataclasses import replace
 
 import networkx as nx
 import pytest
@@ -26,6 +27,7 @@ import pytest
 from src.route_engine.engines.circular_grasp_waypoint_alns import CircularGraspWaypointAlnsEngine
 from src.route_engine.engines.grasp_waypoint_common import (
     GraspConfig,
+    RouteObjective,
     SelectionStatus,
     _CostCache,
     construct_initial_route,
@@ -33,8 +35,10 @@ from src.route_engine.engines.grasp_waypoint_common import (
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.waypoint_pool import WaypointPoolGenerator
 from src.route_engine.engines.waypoint_refinement import (
+    ALNS_OUTCOMES,
     AlnsStatsAccumulator,
     _alns_candidates_from_pool,
+    _decisive_key,
     _alns_cost_fn,
     alns as alns_refinement,
 )
@@ -193,9 +197,29 @@ def test_engine_exposes_alns_operator_stats(grid_graph):
     assert set(stats["destroy_operator_uses"].keys()) <= {"random", "sequence"}
     assert set(stats["repair_operator_uses"].keys()) <= {"greedy", "random_order"}
     assert sum(stats["destroy_operator_uses"].values()) == stats["total_iterations"]
+    # alns() 호출마다 결과 사유가 정확히 하나씩 기록된다(search_failed는 record()를 안 거침).
+    assert set(stats["outcome_counts"]) <= set(ALNS_OUTCOMES)
+    assert sum(stats["outcome_counts"].values()) == stats["alns_calls"] + stats["outcome_counts"].get("search_failed", 0)
+    compared = stats["outcome_counts"].get("accepted", 0) + stats["outcome_counts"].get("not_better", 0)
+    assert sum(sum(v.values()) for v in stats["comparison_decided_by"].values()) == compared
     if engine.last_selection_status == SelectionStatus.FEASIBLE:
         assert stats["winning_iteration"] is not None
         assert stats["winning_iteration"]["accepted"] in (True, False)
+        assert stats["winning_iteration"]["outcome"] in ALNS_OUTCOMES
+        assert stats["winning_iteration"]["accepted"] == (stats["winning_iteration"]["outcome"] == "accepted")
+
+
+def test_decisive_key_follows_sort_key_meaning():
+    """sort_key는 feasible이면 (반복률, 거리오차), 아니면 (거리오차, 반복률) 순이라
+    승패를 가른 항목 이름도 그 의미를 따라야 한다."""
+    feasible = RouteObjective(feasible=True, distance_error_m=10.0, repeated_edge_ratio=0.1)
+    infeasible = RouteObjective(feasible=False, distance_error_m=10.0, repeated_edge_ratio=0.1)
+    assert _decisive_key(feasible, infeasible) == "feasibility"
+    assert _decisive_key(feasible, replace(feasible, repeated_edge_ratio=0.2)) == "repeated_edge_ratio"
+    assert _decisive_key(feasible, replace(feasible, distance_error_m=20.0)) == "distance_error_m"
+    assert _decisive_key(infeasible, replace(infeasible, distance_error_m=20.0, repeated_edge_ratio=0.9)) == "distance_error_m"
+    assert _decisive_key(infeasible, replace(infeasible, repeated_edge_ratio=0.9)) == "repeated_edge_ratio"
+    assert _decisive_key(feasible, feasible) == "equal"
 
 
 def test_engine_pool_generation_fails_gracefully_when_pool_is_empty(grid_graph):
@@ -273,6 +297,8 @@ def test_alns_result_violating_min_separation_is_rejected(grid_graph, monkeypatc
         _ENGINE_TEST_TARGET_M, cfg, random.Random(42), stats=stats,
     )
     assert stats.pending_accepted is False
+    assert stats.pending_outcome == "separation_violation"
+    assert stats.outcome_counts == {"separation_violation": 1}
     assert result_route is original_route  # 최소거리를 어긴 ALNS 제안은 기각되고 원래 해가 그대로 유지됨
 
 

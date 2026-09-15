@@ -50,6 +50,7 @@ from src.route_engine.engines.grasp_waypoint_common import (
     BuildCycleRoute,
     GraspConfig,
     Route,
+    RouteObjective,
     _edge_overlap_ratio,
     _sum_edge_length,
     better,
@@ -397,8 +398,15 @@ class AlnsStatsAccumulator:
         self.accepted_alns_calls = 0  # best_route 갱신 시점에 ALNS 결과가 실제 채택된 횟수
         self.winner_alns_result: Optional[ALNSResult] = None
         self.winner_alns_accepted: Optional[bool] = None
+        self.winner_outcome: Optional[str] = None
         self.pending_result: Optional[ALNSResult] = None
         self.pending_accepted: bool = False
+        self.pending_outcome: Optional[str] = None
+        # alns() 호출 1회가 끝난 결과(ALNS_OUTCOMES 중 하나)의 분포 — winning_iteration은
+        # 최종 best를 만든 1회만 보여 주므로, "ALNS 제안이 왜 전부 버려졌는지"는 이 분포로 본다.
+        self.outcome_counts: dict[str, int] = {}
+        # better() 비교까지 간 호출에서 승패를 가른 비교 키(_decisive_key) 분포.
+        self.comparison_decided_by: dict[str, dict[str, int]] = {}
         self.adapter_cache: Optional[tuple[list[dict], Any]] = None  # (candidates, cost_fn)
 
     def record(self, result: Optional[ALNSResult]) -> None:
@@ -418,11 +426,13 @@ class AlnsStatsAccumulator:
         for stat in result.repair_stats:
             self.repair_uses[stat.name] = self.repair_uses.get(stat.name, 0) + stat.uses
 
-    def record_winner(self, result: Optional[ALNSResult], accepted: bool) -> None:
+    def record_winner(self, result: Optional[ALNSResult], accepted: bool,
+                      outcome: Optional[str] = None) -> None:
         """best_route가 이 구축 반복으로 갱신될 때마다 호출 — 최종적으로 채택된 경로를
         만든(또는 시도했으나 기각된) ALNS 실행의 상세를 별도로 남긴다."""
         self.winner_alns_result = result
         self.winner_alns_accepted = accepted
+        self.winner_outcome = outcome
         if accepted:
             self.accepted_alns_calls += 1
 
@@ -438,11 +448,14 @@ class AlnsStatsAccumulator:
             "repair_operator_uses": dict(self.repair_uses),
             "stop_reason_counts": dict(self.stop_reason_counts),
             "remove_count_used": self.remove_count_used,
+            "outcome_counts": dict(self.outcome_counts),
+            "comparison_decided_by": {k: dict(v) for k, v in self.comparison_decided_by.items()},
             # best_route를 만든 마지막 갱신 시점의 ALNS 실행(최종 채택된 경로와 가장
             # 직접적으로 연결된 단일 실행 — winner_alns_accepted=False면 이 실행의 제안은
             # better()에 의해 기각되고 구축 단계 raw 해가 최종 채택됐다는 뜻).
             "winning_iteration": {
                 "accepted": self.winner_alns_accepted,
+                "outcome": self.winner_outcome,
                 "stop_reason": winner.stop_reason if winner else None,
                 "iterations": winner.iterations if winner else None,
                 "accepted_moves": winner.accepted_moves if winner else None,
@@ -454,10 +467,40 @@ class AlnsStatsAccumulator:
         }
 
 
+# alns() 1회 호출이 끝나는 경로. accepted만 교체이고 나머지는 모두 구축 해 유지다.
+ALNS_OUTCOMES = (
+    "search_failed",         # alns_search가 ValueError(설정·입력 검증 실패)
+    "unchanged",             # ALNS best 경유지 순서가 초기 순서와 같음
+    "separation_violation",  # 경유지 최소거리 조건 위반
+    "rebuild_failed",        # BuildCycleRoute(A*) 재연결 실패
+    "not_better",            # 재연결 경로가 better()에서 구축 해를 못 이김
+    "accepted",
+)
+
+
+def _decisive_key(a: RouteObjective, b: RouteObjective) -> str:
+    """a와 b의 sort_key에서 처음 달라지는 항목 이름을 돌려준다(같으면 "equal").
+    sort_key는 feasible 여부에 따라 두 번째·세 번째 항목의 의미가 뒤바뀌므로
+    (RouteObjective.sort_key 참고) 이름도 그에 맞춰 붙인다."""
+    ka, kb = a.sort_key(), b.sort_key()
+    if ka[0] != kb[0]:
+        return "feasibility"
+    names = ("repeated_edge_ratio", "distance_error_m") if ka[0] == 0 else ("distance_error_m", "repeated_edge_ratio")
+    for name, x, y in zip(names, ka[1:], kb[1:]):
+        if x != y:
+            return name
+    return "equal"
+
+
 def _record_pending(stats: Optional[AlnsStatsAccumulator], result: Optional[ALNSResult],
-                    accepted: bool) -> None:
+                    accepted: bool, outcome: str, decided_by: Optional[str] = None) -> None:
     if stats is not None:
         stats.pending_result, stats.pending_accepted = result, accepted
+        stats.pending_outcome = outcome
+        stats.outcome_counts[outcome] = stats.outcome_counts.get(outcome, 0) + 1
+        if decided_by is not None:
+            bucket = stats.comparison_decided_by.setdefault(outcome, {})
+            bucket[decided_by] = bucket.get(decided_by, 0) + 1
 
 
 def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
@@ -500,7 +543,7 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
         )
     except ValueError as e:
         logger.warning("ALNS 실행 실패(%s) — 개선 없이 구축 단계 해를 그대로 씁니다.", e)
-        _record_pending(stats, None, False)
+        _record_pending(stats, None, False, "search_failed")
         return route
 
     if stats is not None:
@@ -508,7 +551,7 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
 
     new_waypoints = list(result.best.waypoint_ids)
     if new_waypoints == route.waypoints:
-        _record_pending(stats, result, False)
+        _record_pending(stats, result, False, "unchanged")
         return route  # ALNS가 개선하지 못함 — 불필요한 재연결 생략
 
     if cfg.min_waypoint_separation_ratio:
@@ -519,17 +562,20 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
                     "ALNS 결과가 경유지 최소거리 조건을 위반해 기각합니다: %.1fm < %.1fm",
                     pair_m, target_m * cfg.min_waypoint_separation_ratio,
                 )
-                _record_pending(stats, result, False)
+                _record_pending(stats, result, False, "separation_violation")
                 return route
 
     improved = BuildCycleRoute(G, cost_cache.astar_path, start_node, new_waypoints)
     if improved is None:
-        _record_pending(stats, result, False)
+        _record_pending(stats, result, False, "rebuild_failed")
         return route
 
     tolerance = target_m * cfg.distance_tolerance_ratio
-    accepted = better(evaluate_route(improved, target_m, tolerance), evaluate_route(route, target_m, tolerance))
-    _record_pending(stats, result, accepted)
+    improved_obj = evaluate_route(improved, target_m, tolerance)
+    route_obj = evaluate_route(route, target_m, tolerance)
+    accepted = better(improved_obj, route_obj)
+    _record_pending(stats, result, accepted, "accepted" if accepted else "not_better",
+                    decided_by=_decisive_key(improved_obj, route_obj))
     return improved if accepted else route  # 기각 시 원래 구축 해 유지
 
 

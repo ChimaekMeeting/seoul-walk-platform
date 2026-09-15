@@ -189,7 +189,8 @@ class WaypointEngine:
             if best_route is None or better(obj, best_obj):
                 best_obj, best_route = obj, route
                 if alns_stats is not None:
-                    alns_stats.record_winner(alns_stats.pending_result, alns_stats.pending_accepted)
+                    alns_stats.record_winner(alns_stats.pending_result, alns_stats.pending_accepted,
+                                             alns_stats.pending_outcome)
 
         self.last_selection_status = determine_selection_status(best_route, best_obj, had_valid_waypoint_pair)
         self.last_route = best_route
