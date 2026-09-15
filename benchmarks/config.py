@@ -104,9 +104,11 @@ SSSP_TO_LOOKUP_RATIO = 27.5
 OBSERVED_CIRCULARITY_Q_MAX_RANGE = (0.572, 0.708)
 
 # 순환 경로 격자에서 고정할 스코어링 프로필.
-# wp 계열(grasp-wp-*/beam-wp-*)은 mode="distance" 고정이라 profile을 아예 읽지 않는
-# 반면 레거시 grasp-circular/beam-circular는 반영한다. 시나리오 데이터셋의 5개
-# 프로필을 그대로 쓰면 두 진영이 서로 다른 목적함수를 최적화한 채 나란히 비교돼
-# 결론이 성립하지 않으므로, 순환 비교에서는 이 값으로 고정한다.
+# 고정 사유였던 "프로필 비대칭"(wp 계열은 mode="distance" 고정이라 profile을 안 읽고,
+# 레거시 grasp-circular/beam-circular는 읽어서 두 진영이 서로 다른 목적함수로 비교됨)은
+# 2026-09-11 커밋 4c7c924에서 레거시 순환 4종이 SOLVER_REGISTRY에서 빠지며 소멸했다.
+# 현재 순환 solver 9종은 전부 profile을 읽지 않으므로 이 값은 결과에 영향이 없고, CSV·
+# 메타데이터에 "프로필 없이 돌았다"를 명시하는 역할만 한다. 순환 solver에 프로필 지원이
+# 추가되면 그때 이 고정의 의미를 다시 정할 것.
 # (편도는 프로필을 정상적으로 쓰므로 시나리오 값을 그대로 둔다.)
 CIRCULAR_BENCHMARK_PROFILE = "default"

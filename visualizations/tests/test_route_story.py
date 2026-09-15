@@ -2,7 +2,7 @@ import networkx as nx
 import pytest
 
 from src.route_engine.engines.grasp_waypoint_common import RouteObjective
-from visualizations.route_story import path_metrics, select_keyframes
+from visualizations.route_story import path_metrics, prepare_story, select_keyframes
 from visualizations.waypoint_trace import objective_decision
 
 
@@ -45,6 +45,26 @@ def test_keyframes_bound_preserves_stages_and_final_without_mutating_raw_events(
     assert indexes[0] == 0 and indexes[-1] == len(events)-1
     assert {events[i]["phase"] for i in indexes} == {e["phase"] for e in events}
     assert len(events) == 245
+
+
+def test_astar_goal_progress_ignores_the_new_values_key():
+    """공통 이벤트의 values는 설명용이다. 도착점 접근도 계산에 끼어들면 안 된다."""
+    graph = nx.Graph()
+    graph.add_edge(1, 2, length=100)
+    graph.nodes[1].update(lat=37.0, lon=127.0)
+    graph.nodes[2].update(lat=37.0005, lon=127.0)
+    graph.add_edge(2, 3, length=100)
+    graph.nodes[3].update(lat=37.001, lon=127.0)
+
+    def story(event):
+        result = {"trace": [dict(event)], "target_m": None, "tolerance_ratio": .1,
+                  "start": {"node": 1}, "end": {"node": 3}}
+        prepare_story(graph, result)
+        return result["trace"][0]["goal_progress"]
+
+    base = {"phase": "astar", "paths": [[1, 2]], "current": 2}
+    assert story(base) == story({**base, "values": {"g_m": 100.0, "h_m": 55.0, "f_m": 155.0}})
+    assert story(base) == pytest.approx(.5, abs=.01)
 
 
 def test_astar_keyframes_keep_first_geographic_progress_crossings():

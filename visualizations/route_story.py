@@ -51,6 +51,10 @@ def select_keyframes(events, limit=26):
         return (priorities.get(e["phase"], 0), change, i)
 
     candidates = {indexes[-1] for indexes in groups.values()}
+    # 공통 이벤트의 판단 장면(kind=select/reject + decision)도 후보에 넣는다. 기존 accepted
+    # 기준과 같은 효과이며, 원본에 accepted 플래그가 없는 어댑터 기록에도 적용된다.
+    candidates.update(i for i, e in enumerate(events)
+                      if e.get("kind") in ("select", "reject") and e.get("decision"))
     # 수락/기각 각각, 실제 개선과 전후 수치가 크게 달라지는 장면도 고려한다.
     for phase, indexes in groups.items():
         if phase in ("improved", "winner", "prune", "refinement_done"):

@@ -3,6 +3,11 @@
 그래프 중심점(centroid) 기준으로 평면을 N개 섹터로 나누고, 섹터마다 중심에서
 가장 먼 노드 1개를 랜드마크로 고른다. 공용 인프라(거리표·휴리스틱·admissibility
 검증)는 landmark_shared.py를 그대로 쓴다.
+
+2026-09-12부터 이 선택법이 최단거리 서비스에 연결됐다 — alt_runtime.py가 기동 때
+select_landmarks_planar(G, n_sectors=WALK_ALT_K)로 랜드마크를 고르고, 그 거리표로 만든
+휴리스틱을 OnewayAstarEngine이 쓴다. 선정 근거와 k 확정 근거는
+analysis/route_engine/alt_landmark_selection_validation.md에 있다.
 """
 
 from __future__ import annotations

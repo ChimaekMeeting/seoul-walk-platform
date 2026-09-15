@@ -13,8 +13,19 @@ from urllib.parse import urlsplit
 
 import networkx as nx
 
+from visualizations.checks import run_checks, violation_summary
 from visualizations.graph_source import load_graph_artifact
-from visualizations.route_experiment import compare_recording, execute, graph_digest, snap, validate_lengths
+from visualizations.route_experiment import (
+    DEFAULT_ALT_K,
+    DEFAULT_ALT_METHOD,
+    DEFAULT_ALT_SEED,
+    SHORTEST_MODES,
+    compare_recording,
+    execute,
+    graph_digest,
+    snap,
+    validate_lengths,
+)
 from visualizations.route_view import write_route_views
 from visualizations.route_story import prepare_story
 from visualizations.run import REPOSITORY_ROOT, _git_value, _load_scenario, _new_run_directory
@@ -41,6 +52,8 @@ def validate_destination(location):
 def run_suite(args):
     if args.grasp_iterations < 1:
         raise ValueError("grasp_iterations는 1 이상이어야 합니다.")
+    if args.alt_k < 1:
+        raise ValueError("alt_k는 1 이상이어야 합니다.")
     for name in ("target_km", "detour_extra_km"):
         if not math.isfinite(getattr(args, name)) or getattr(args, name) <= 0:
             raise ValueError(f"{name}는 0보다 큰 유한한 숫자여야 합니다.")
@@ -58,22 +71,33 @@ def run_suite(args):
         raise ValueError("출발점과 도착점이 같은 도보망 노드입니다. 편도 테스트 지점을 바꾸세요.")
     detour_m = shortest_m + args.detour_extra_km * 1000
     results = []
-    cases = [("shortest", end, None), ("detour", end, detour_m), ("circular", start, args.target_km * 1000)]
+    code_commit = _git_value("rev-parse", "HEAD")
+    artifact_ref = {"data_version": source.manifest.get("data_version"),
+                    "sha256": input_hashes[str(source.artifact_path)]}
+    # 같은 A* 엔진을 Haversine과 ALT로 한 번씩 돌려 같은 경로·다른 탐색량을 비교한다.
+    cases = [("shortest", end, None), ("shortest_alt", end, None),
+             ("detour", end, detour_m), ("circular", start, args.target_km * 1000)]
     if args.with_grasp:
         cases += [(f"grasp_{r}", start, args.target_km * 1000) for r in ("none", "local", "vnd", "vns", "alns")]
     for mode, finish, target in cases:
         print(f"{mode}: 실제 엔진 실행 및 탐색 기록", flush=True)
-        recorded = execute(graph, mode, start, finish, target, grasp_iterations=args.grasp_iterations, seed=args.seed)
-        plain = execute(graph, mode, start, finish, target, record=False, grasp_iterations=args.grasp_iterations, seed=args.seed)
+        shortest_case = mode in SHORTEST_MODES
+        options = {"grasp_iterations": args.grasp_iterations, "seed": args.seed,
+                   "heuristic": "alt" if mode == "shortest_alt" else "haversine",
+                   "alt_method": args.alt_method, "alt_k": args.alt_k, "alt_seed": args.alt_seed}
+        recorded = execute(graph, mode, start, finish, target, code_commit=code_commit,
+                           artifact=artifact_ref, **options)
+        # 기록 실행과 무계측 실행이 같은 휴리스틱 설정을 써야 결과 비교가 의미를 가진다.
+        plain = execute(graph, mode, start, finish, target, record=False, **options)
         recorded["recording_preserves_result"] = compare_recording(recorded, plain)
         recorded["run_seconds"] = plain["run_seconds"]
-        recorded["trace"].insert(0, {"phase": "start", "paths": [[start["node"]]]})
-        if mode == "shortest":
+        # run_start·final은 모든 어댑터가 스스로 만든다(여기서 덧붙이지 않는다).
+        if shortest_case:
             recorded["dijkstra_distance_m"] = shortest_m
             recorded["matches_dijkstra"] = bool(recorded["metrics"]) and math.isclose(
                 recorded["metrics"][0]["distance_m"], shortest_m, abs_tol=1e-6)
             if not recorded["matches_dijkstra"]:
-                raise RuntimeError("A* 경로 거리가 Dijkstra 기준값과 다릅니다.")
+                raise RuntimeError(f"{mode}: A* 경로 거리가 Dijkstra 기준값과 다릅니다.")
         recorded["route_valid"] = bool(recorded["metrics"]) and all(
             m["connected"] and m["endpoints_match"] for m in recorded["metrics"])
         prepare_story(graph, recorded)
@@ -87,7 +111,7 @@ def run_suite(args):
     output = _new_run_directory(Path(args.output_dir), scenario["id"])
     report = {
         "executed_at_utc": datetime.now(timezone.utc).isoformat(),
-        "code_commit": _git_value("rev-parse", "HEAD"),
+        "code_commit": code_commit,
         "worktree_status": _git_value("status", "--short"),
         "runtime": {"python": platform.python_version(), "networkx": nx.__version__},
         "timing_policy": "One untraced engine.run wall-clock measurement after traced run; excludes artifact loading, graph deepcopy, engine construction, trace setup, validation and rendering; includes run preprocessing and response creation. Not a repeated benchmark.",
@@ -98,6 +122,7 @@ def run_suite(args):
         "detour_extra_km": args.detour_extra_km,
         "intent_cases": [
             {"request": "상명대에서 경복궁역 3번 출입구까지 최단거리", "result": "shortest"},
+            {"request": "상명대에서 경복궁역 3번 출입구까지 최단거리 (ALT)", "result": "shortest_alt"},
             {"request": "상명대에서 경복궁역 3번 출입구까지 우회", "result": "detour"},
             {"request": f"상명대에서 {args.target_km:g}km 순환", "result": "circular"},
             {"request": f"상명대에서 그냥 {args.target_km:g}km 걷고 싶어", "result": "circular",
@@ -105,8 +130,8 @@ def run_suite(args):
         ],
         "results": results,
     }
-    if args.with_grasp:
-        for r in results[3:]:
+    for r in results:
+        if r["mode"].startswith("grasp_"):
             report["intent_cases"].append({"request": f"{args.target_km:g}km 순환 · {r['engine']}", "result": r["mode"]})
     (output / "trace.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
     write_route_views(graph, report, output)
@@ -114,6 +139,13 @@ def run_suite(args):
                                     for r in results]}
     (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"재생 화면: {output / 'routes.html'}\n최종 경로 그림: {output / 'routes.png'}", flush=True)
+    # 산출물을 다 쓴 뒤에 기록 불변식을 점검한다. 위반이 있으면 멈추되 결과는 남긴다 —
+    # 무엇이 어긋났는지 checks.json과 trace.json에서 봐야 하기 때문이다.
+    checked = run_checks(output, graph=graph)
+    print(f"기록 점검: {output / 'checks.json'}", flush=True)
+    if not checked["passed"]:
+        raise RuntimeError(f"기록 불변식 점검에 실패했습니다: {violation_summary(checked)}. "
+                           f"자세한 내용은 {output / 'checks.json'}을 보세요.")
     return output
 
 
@@ -125,6 +157,11 @@ def main():
     parser.add_argument("--with-grasp", action="store_true", help="GRASP 구축 및 Local/VND/VNS/ALNS 비교 추가")
     parser.add_argument("--grasp-iterations", type=int, default=4, help="시각화 예제 재시작 횟수(기존 엔진 기본은 24)")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--alt-method", choices=("planar", "random"), default=DEFAULT_ALT_METHOD,
+                        help="ALT 랜드마크 선택법(최단거리 ALT 실행에만 쓰임)")
+    parser.add_argument("--alt-k", type=int, default=DEFAULT_ALT_K,
+                        help="ALT 랜드마크 개수(Planar는 섹터 수라 실제 개수가 더 적을 수 있음)")
+    parser.add_argument("--alt-seed", type=int, default=DEFAULT_ALT_SEED, help="Random 선택법 seed")
     parser.add_argument("--detour-extra-km", type=float, default=1.0, help="편도 목표 = 측정한 최단거리 + 이 거리")
     parser.add_argument("--output-dir", default=str(REPOSITORY_ROOT / "outputs/algorithm_visualization/routes"))
     args = parser.parse_args()

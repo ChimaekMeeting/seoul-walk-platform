@@ -26,7 +26,7 @@ from src.route_engine.engines.circular_grasp_waypoint_alns import CircularGraspW
 from src.route_engine.engines.circular_grasp_waypoint_local import CircularGraspWaypointLocalEngine
 from src.route_engine.engines.circular_grasp_waypoint_vnd import CircularGraspWaypointVndEngine
 from src.route_engine.engines.circular_grasp_waypoint_vns import CircularGraspWaypointVnsEngine
-from src.route_engine.engines.grasp_waypoint_common import RouteGeometryMetrics
+from src.route_engine.engines.grasp_waypoint_common import DEFAULT_CONFIG, GraspConfig, RouteGeometryMetrics
 from src.schema.route_schema import CircularRouteInput
 
 _DEFAULT_TARGET_KM = 3.0
@@ -122,6 +122,27 @@ def _refinement_options_from_params(refinement: str, params: dict) -> Optional[d
     return options or None
 
 
+def _grasp_config_from_params(params: dict) -> GraspConfig:
+    """params의 구축 단계 노브만 골라 GraspConfig를 만든다(이슈 #427 To-Do 3 —
+    beam_waypoint_refinement_solver.py가 Beam 계열에 이미 하던 것과 같은 패턴을 GRASP
+    4종에도 적용). num_waypoints는 여기 안 넣는다 — 각 solver가 별도 kwarg로 엔진에
+    넘기던 기존 경로를 그대로 둔다. 지정 안 한 값은 DEFAULT_CONFIG를 그대로 쓴다."""
+    return GraspConfig(
+        rcl_size=params.get("rcl_size", DEFAULT_CONFIG.rcl_size),
+        grasp_iters=params.get("grasp_iters", DEFAULT_CONFIG.grasp_iters),
+        distance_tolerance_ratio=params.get(
+            "distance_tolerance_ratio", DEFAULT_CONFIG.distance_tolerance_ratio,
+        ),
+        min_waypoint_separation_ratio=params.get(
+            "min_waypoint_separation_ratio", DEFAULT_CONFIG.min_waypoint_separation_ratio,
+        ),
+        pairwise_cache_rows=params.get("pairwise_cache_rows", DEFAULT_CONFIG.pairwise_cache_rows),
+        angle_diversity_weight_m=params.get(
+            "angle_diversity_weight_m", DEFAULT_CONFIG.angle_diversity_weight_m,
+        ),
+    )
+
+
 class CircularGraspWaypointLocalSolver(BasePathSolver):
     def __init__(self, name: str = "GRASP-Waypoint+Local", seed: int = _DEFAULT_SEED):
         super().__init__(name)
@@ -135,6 +156,7 @@ class CircularGraspWaypointLocalSolver(BasePathSolver):
         engine = CircularGraspWaypointLocalEngine(
             inp=inp, G=graph, mode="distance", seed=seed,
             num_waypoints=params.get("num_waypoints"),
+            config=_grasp_config_from_params(params),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 
@@ -160,6 +182,7 @@ class CircularGraspWaypointVndSolver(BasePathSolver):
         engine = CircularGraspWaypointVndEngine(
             inp=inp, G=graph, mode="distance", seed=seed,
             num_waypoints=params.get("num_waypoints"),
+            config=_grasp_config_from_params(params),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 
@@ -185,6 +208,7 @@ class CircularGraspWaypointVnsSolver(BasePathSolver):
         engine = CircularGraspWaypointVnsEngine(
             inp=inp, G=graph, mode="distance", seed=seed,
             num_waypoints=params.get("num_waypoints"),
+            config=_grasp_config_from_params(params),
             vns_options=_refinement_options_from_params("vns", params),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
@@ -211,6 +235,7 @@ class CircularGraspWaypointAlnsSolver(BasePathSolver):
         engine = CircularGraspWaypointAlnsEngine(
             inp=inp, G=graph, mode="distance", seed=seed,
             num_waypoints=params.get("num_waypoints"),
+            config=_grasp_config_from_params(params),
             alns_options=_refinement_options_from_params("alns", params),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)

@@ -1,0 +1,37 @@
+{
+  "meta": {
+    "name": "circular_density_stratified_v1",
+    "created": "2026-09-12",
+    "mode": "circular",
+    "objective": "distance",
+    "note": "프로필 레이어 없음. wp 계열 9종은 mode=distance 고정이라 profile을 읽지 않는다. num_waypoints는 리스트이며 러너가 start_points x target_kms x num_waypoints 곱집합을 돈다.",
+    "density_measured_at": "2026-09-11",
+    "density_fixture_sha256": {
+      "nodes": "111c20320c4d96453ab05314b75fa77f0cb755dd0e84dcf3669f5bffd522666b",
+      "edges": "e3564741530bafabae3268634aaa45334753aff5065139e94feaad1dbbe45b6b"
+    },
+    "density_metric": "edge_km_per_km2 @ r=1000m",
+    "density_tiers": { "dense": ">=30", "medium": "20-30", "sparse": "15-20", "rural": "<10" }
+  },
+  "start_points": [
+    {"id": "mokdong",   "label": "목동 아파트",    "tier": "dense",  "lat": 37.526000, "lon": 126.865000,
+     "density": {"edge_km_per_km2": 33.4, "mean_edge_len_m": 45.4, "deg3plus_ratio": 0.783}},
+    {"id": "hongdae",   "label": "홍대입구역",     "tier": "dense",  "lat": 37.557192, "lon": 126.925381,
+     "density": {"edge_km_per_km2": 31.3, "mean_edge_len_m": 46.3, "deg3plus_ratio": 0.750}},
+    {"id": "yeouido",   "label": "여의도역",       "tier": "medium", "lat": 37.521624, "lon": 126.924191,
+     "density": {"edge_km_per_km2": 24.6, "mean_edge_len_m": 58.4, "deg3plus_ratio": 0.737}},
+    {"id": "gyeongbok", "label": "경복궁역",       "tier": "medium", "lat": 37.575771, "lon": 126.973297,
+     "density": {"edge_km_per_km2": 22.9, "mean_edge_len_m": 42.1, "deg3plus_ratio": 0.619}},
+    {"id": "jamsil",    "label": "잠실 아파트",    "tier": "sparse", "lat": 37.512500, "lon": 127.083000,
+     "density": {"edge_km_per_km2": 19.2, "mean_edge_len_m": 74.8, "deg3plus_ratio": 0.784}},
+    {"id": "namsan",    "label": "남산 N서울타워", "tier": "sparse", "lat": 37.551169, "lon": 126.988227,
+     "density": {"edge_km_per_km2": 17.9, "mean_edge_len_m": 51.1, "deg3plus_ratio": 0.688}},
+    {"id": "eunpyeong", "label": "은평 뉴타운",    "tier": "rural",  "lat": 37.634000, "lon": 126.928000,
+     "density": {"edge_km_per_km2": 9.1,  "mean_edge_len_m": 56.8, "deg3plus_ratio": 0.617}},
+    {"id": "bukhan",    "label": "북한산 우이",    "tier": "rural",  "lat": 37.663000, "lon": 127.011000,
+     "density": {"edge_km_per_km2": 7.2,  "mean_edge_len_m": 46.9, "deg3plus_ratio": 0.643}}
+  ],
+  "target_kms": [1.0, 3.0, 5.0, 7.0, 9.0],
+  "num_waypoints": [2, 3, 4],
+  "seeds_from": "benchmarks.config.BENCHMARK_SEEDS"
+}

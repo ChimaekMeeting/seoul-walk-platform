@@ -76,8 +76,8 @@ solver 자기 신고이며 알고리즘 간 비교에 쓰면 안 되는 컬럼:
 
 실행:
     python -m benchmarks.benchmark --list                  # 등록된 알고리즘 목록만 확인
-    python -m benchmarks.benchmark --algo dummy-a           # 하나만 실행
-    python -m benchmarks.benchmark --algo dummy-a dummy-b   # 여러 개 선택 실행
+    python -m benchmarks.benchmark --algo beam-wp                  # 하나만 실행
+    python -m benchmarks.benchmark --algo beam-wp grasp-wp-local   # 여러 개 선택 실행
     python -m benchmarks.benchmark --algo all               # 전체 실행 (기본값)
     python -m benchmarks.benchmark --timeout 10             # solver별 제한시간(초) 조정
 """
@@ -449,7 +449,15 @@ def main():
 
     solvers = resolve_solvers(args.algo)
 
-    if graph is not None and any(isinstance(s, OnewayAstarSolver) for s in solvers):
+    if graph is not None:
+        # 등록된 9종 전부 WaypointPoolGenerator.build_pool() -> compute_distance_only_lookup()
+        # -> _get_feature_cache() 경로를 타므로, 캐시가 없으면 자식 프로세스마다 lazy로 다시
+        # 짓는다. 부모에서 미리 채워두면 graph가 pickle될 때 캐시도 함께 건너가 그 재계산이
+        # 사라진다 — 풀 기반 러너 4종의 _pool_worker_init()과 같은 모양이다.
+        #
+        # 구 조건은 `any(isinstance(s, OnewayAstarSolver) ...)`였는데, 2026-09-11 커밋
+        # 4c7c924가 편도 solver를 SOLVER_REGISTRY에서 빼면서 import만 사라져 이 줄이
+        # NameError로 남아 있었다(main()이 그래프 로드 직후 무조건 사망).
         logger.info("스코어링 feature 캐시 전처리 중...")
         precompute_scoring_features(graph)
 

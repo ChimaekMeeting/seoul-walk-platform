@@ -430,6 +430,7 @@ Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
 
 - `OnewayDijkstraEngine`(`dijkstra.py`)·`OnewayAstarEngine`(`oneway_astar.py`)·`OnewayBidirectionalAstarEngine`(`oneway_bi_astar.py`)·`OnewayBidirectionalDijkstraEngine`(`oneway_bi_dijkstra.py`) 네 엔진 모두 weight 계산이 `scoring_engine.py`의 `compute_distance_only_lookup(graph, blocked_tags)`로 바뀌었다(또는 처음부터 이걸로 신설됐다). 기존 `compute_custom_score_lookup`(안전·자연·평지 등을 블렌딩한 `custom_score`) 대신 **거리(length)만** weight로 쓰고, `blocked_tags`에 해당하는 edge만 `inf`로 차단한다. `bonus`/`slope_penalty`/`caution_penalty`/`comfort_penalty`는 전혀 반영하지 않는다.
 - `OnewayAstarEngine._heuristic`은 랜드마크 기반 ALT 방식 대신 **Haversine 직선거리**(`PathUtils._haversine_m`)를 쓴다. weight가 거리(length) 그대로이므로 직선거리 ≤ 실제 도로망 거리(삼각부등식)가 항상 성립해 별도 보정(`min_ratio`) 없이 admissible하다.
+- **(2026-09-12 갱신) 휴리스틱이 다시 선택 가능해졌다.** `OnewayAstarEngine`은 이제 다음 순서로 쓸 휴리스틱을 고른다 — ① 생성자에 명시해서 넘긴 `heuristic` 인자 → ② 그래프에 부착된 ALT(`G.graph["alt_heuristic"]`, 기동 때 `alt_runtime.prepare_alt_heuristic()`이 만든다) → ③ 위의 Haversine(`self._heuristic`). 셋 다 admissible해서 최적 비용은 같고 탐색 속도만 달라진다. 설정 키는 `WALK_ALT_ENABLED`(기본 `true`) · `WALK_ALT_METHOD`(기본 `planar`) · `WALK_ALT_K`(기본 `8`) · `WALK_ALT_SEED`(기본 `0`)이며, 준비에 실패하면 자동으로 ③으로 폴백한다. 되돌리려면 `WALK_ALT_ENABLED=false`로 재기동한다. 자세한 계약은 아래 "ALT 서비스 연결 (2026-09-12)" 절 참고.
 - `OnewayBidirectionalAstarEngine`은 `OnewayAstarEngine`을, `OnewayBidirectionalDijkstraEngine`(신설, 2026-08-23)은 `OnewayDijkstraEngine`을 상속하고 `find_path()`만 각각 양방향 탐색(`_bidirectional_astar_path` / `nx.bidirectional_dijkstra`)으로 교체하는 구조라, 둘 다 `run()`을 오버라이드하지 않는다 — weight/휴리스틱 변경이 별도 수정 없이 그대로 상속·적용된다.
 - `precompute_landmarks()`/`_select_landmarks()`/`landmark_dist` 노드 속성은 코드에서 전부 제거됐다(`oneway_astar.py`, `dependencies.py`의 `init_route_service()`, `benchmarks/benchmark.py`, `benchmarks/run_all_scenarios.py`).
 - 설계 배경·검토한 대안(전부 weight 0 vs weight를 length로 완전 대체 vs 채택된 절충안), 양방향 Dijkstra 신설 경위는 [route_engine 최단 경로 가중치 거리 전용 전환 제안](../proposals/route_engine_shortest_weight_distance_only_proposal.md) 참고.
@@ -538,7 +539,8 @@ Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
 ALT(A* + Landmark + Triangle inequality)의 Planar 랜드마크 선택법을 독립 함수로
 구현했다. 공용 인프라는 [landmark_shared.py](../../src/route_engine/landmark_shared.py),
 선택법 자체는 [landmark_planar.py](../../src/route_engine/landmark_planar.py)의
-`select_landmarks_planar()`이다. 어떤 엔진에도 연결하지 않았다 — 현재 프로덕션
+`select_landmarks_planar()`이다. 어떤 엔진에도 연결하지 않았다(2026-09-12에 이 선택법이
+최단거리 서비스에 연결됐다 — 아래 "ALT 서비스 연결" 절 참고). 당시 기준으로는 프로덕션
 `OnewayAstarEngine`은 weight=length(거리 전용)로 바뀌면서 Haversine 휴리스틱만으로도
 admissible해 랜드마크 ALT 자체를 쓰지 않는다(2026-08-23, 아래 "oneway_shortest 엔진"
 절 참고). `precompute_landmarks()`/`_select_landmarks()`/`landmark_dist`가 그 때
@@ -585,7 +587,9 @@ admissible해 랜드마크 ALT 자체를 쓰지 않는다(2026-08-23, 아래 "on
   선택)을 따랐다. 원 논문의 공간 분할(예: quadtree·space-filling curve) 대신
   centroid 기준 각도 섹터로 단순화했다 — 이 단순화가 논문의 실제 성능 특성과
   얼마나 가까운지는 확인하지 않았다.
-- Random/Farthest 선택법은 이번에 구현하지 않았다. 티켓이 요구한 "Random/Farthest
+- Random/Farthest 선택법은 이번에 구현하지 않았다(2026-09-12에 독립 함수로
+  구현했다 — 아래 "Random 랜드마크 선택 독립 함수"·"Farthest 랜드마크 선택
+  독립 함수" 절 참고). 티켓이 요구한 "Random/Farthest
   대비 h(n) 품질·탐색 노드 수 비교 벤치마크"는 그 두 선택법이 없어 아직 수행하지
   못했다 — `landmark_shared.py`의 `LandmarkTable`/`verify_admissible` 등 공용
   인터페이스는 이후 `landmark_random.py`/`landmark_farthest.py`를 같은 패턴으로
@@ -630,7 +634,9 @@ ALT의 Avoid 랜드마크 선택법을 독립 함수로 구현했다. 진입점�
 `select_landmarks_avoid()`이며, 공용 인프라는 Planar와 동일하게
 [landmark_shared.py](../../src/route_engine/landmark_shared.py)를 그대로 쓴다 —
 `weight(v)` 계산에 `alt_heuristic`을 그대로 재사용해서 이번에 공용 모듈에 새로
-추가한 함수는 없다. Planar와 마찬가지로 어떤 엔진에도 연결하지 않았다.
+추가한 함수는 없다. Planar와 마찬가지로 어떤 엔진에도 연결하지 않았다(2026-09-12에
+Planar만 서비스에 연결됐고, Avoid는 전처리 비용 대비 이득이 확인되지 않아
+`alt_runtime`의 지원 목록에서 빠졌다 — 아래 "ALT 서비스 연결" 절 참고).
 
 ### 알고리즘(원 논문 기준)
 
@@ -700,9 +706,499 @@ Avoid로 고른 랜드마크도 admissibility는 삼각부등식으로 항상 �
 - **미확인**: 실제 서울 그래프 규모(15만+ 노드)에서의 선택 시간(위 "전처리
   비용" 참고), Random/Farthest/Planar 대비 h(n) 품질·탐색 노드 수 비교
   벤치마크, 어떤 엔진에도 연결한 실행. Random/Farthest 자체도 아직 구현하지
-  않아 4개 선택법을 한 번에 비교하는 벤치마크는 그것부터 필요하다.
+  않아 4개 선택법을 한 번에 비교하는 벤치마크는 그것부터 필요하다(Random/Farthest는
+  2026-09-12에 구현해 선택법 4종이 모두 갖춰졌고, 비교 벤치마크는 아직 남아 있다).
 - 문제 발생 시 이 두 파일과 단위 테스트부터 확인한다. 어떤 엔진·API·DB도
   변경하지 않아 복구가 필요 없다.
+
+## Random 랜드마크 선택 독립 함수 (2026-09-12)
+
+ALT의 Random 랜드마크 선택법을 독립 함수로 구현했다. 진입점은
+[landmark_random.py](../../src/route_engine/landmark_random.py)의
+`select_landmarks_random()`이며, 공용 인프라는 Planar/Avoid와 동일하게
+[landmark_shared.py](../../src/route_engine/landmark_shared.py)를 그대로 쓴다 —
+이번에 공용 모듈에 새로 추가한 함수는 없다(모듈 docstring의 선택법 목록에 Avoid를
+더한 것이 유일한 수정이다). Planar/Avoid와 마찬가지로 어떤 엔진·API·DB에도
+연결하지 않았다.
+
+### 입력·출력
+
+- 입력: `G`(무방향 그래프), `k`(랜드마크 개수), 키워드 전용 `seed`(기본 0).
+- 출력: 서로 다른 노드 ID `k`개의 `list[int]`. 거리표는 반환하지 않는다 — 호출자가
+  `precompute_landmark_distances(G, landmarks, weight="length")`로 따로 만든다.
+  선택법 4종이 모두 같은 계약이라 서로 교체해 끼울 수 있다.
+- `k < 1`이거나 `k`가 최대 연결요소의 노드 수보다 크면 `ValueError`.
+
+### `select_landmarks_random(G, k, *, seed=0)` 구현 규칙
+
+1. `_largest_component_nodes(G)`로 후보를 최대 연결요소로 제한한다 — 실제 탐색
+   시작점도 이 요소 안에서만 잡히므로, 모든 탐색 쌍에서 도달 가능한 랜드마크가 된다.
+2. `random.Random(seed).sample(nodes, k)`로 중복 없이 k개를 뽑는다. 전역 `random`
+   상태를 건드리지 않아 호출자의 다른 난수 흐름에 영향을 주지 않는다.
+3. SSSP도 좌표 계산도 하지 않는다 — 선택 자체의 비용이 4종 중 가장 낮다
+   (Planar는 좌표 1패스, Farthest는 SSSP k회, Avoid는 반복당 SSSP 2회).
+
+### 논문 대조
+
+- Goldberg & Harrelson, *Computing the Shortest Path: A\* Search Meets Graph
+  Theory* (SODA 2005)가 Farthest/Planar의 성능을 견줄 때 기준선으로 쓴 무작위
+  선택을 그대로 옮겼다. 알고리즘에 해석의 여지가 없어 Planar/Avoid와 달리 원
+  논문과 다르게 구현한 부분이 없다.
+- 이 저장소의 Planar 절은 같은 논문을 *A\* Search Meets Landmarks*로 적었는데
+  원 제목은 *A\* Search Meets Graph Theory*다. 2026-09-12 작업에서 원문 PDF를 다시
+  열어 대조하지는 않았고, Planar 절의 문장도 그대로 두었다 — 표기를 어느 쪽으로
+  통일할지는 남은 판단이다.
+
+### Admissibility 검증
+
+Planar/Avoid와 동일하게 `landmark_shared.py`의 `verify_admissible`을 그대로 쓴다.
+어떤 방식으로 고르든 `alt_heuristic`의 admissibility는 삼각부등식으로 항상
+증명되는 성질이라(`landmark_dist`가 탐색과 같은 weight로 계산된 실제 최단거리인 한)
+새 검증 로직이 필요 없다 — 무작위 선택도 예외가 아니다.
+
+### 실행·검증·복구
+
+```bash
+./.venv/Scripts/python.exe -m pytest tests/unit/test_landmark_random.py -q
+```
+
+- 2026-09-12, 로컬 pytest 실행에서 7개 테스트 전부 통과. 6×6 grid에서 k개 distinct
+  노드 반환, 같은 seed 재현, 다른 seed(0/1)의 결과 불일치, `k < 1` 거부,
+  `k > 최대 연결요소 노드 수` 거부, seed 0/1/2 각각에서 전체 쌍(630쌍)
+  admissibility 위반 0건을 확인했다.
+- **미확인**: 실제 서울 그래프 규모(15만+ 노드)에서의 선택 시간과 h(n) 품질,
+  Farthest/Planar/Avoid 대비 비교 벤치마크, 어떤 엔진에도 연결한 실행.
+- 문제 발생 시 이 파일과 단위 테스트부터 확인한다. 어떤 엔진·API·DB도 변경하지
+  않아 복구가 필요 없다.
+
+## Farthest 랜드마크 선택 독립 함수 (2026-09-12)
+
+ALT의 Farthest 랜드마크 선택법을 독립 함수로 구현했다. 진입점은
+[landmark_farthest.py](../../src/route_engine/landmark_farthest.py)의
+`select_landmarks_farthest()`이며, 공용 인프라는
+[landmark_shared.py](../../src/route_engine/landmark_shared.py)의
+`_largest_component_nodes`/`precompute_landmark_distances`를 그대로 쓴다 — 이번에
+공용 모듈에 새로 추가한 함수는 없다. 다른 세 선택법과 마찬가지로 어떤 엔진·API·DB에도
+연결하지 않았다.
+
+### 입력·출력
+
+- 입력: `G`, `k`, 키워드 전용 `weight`(기본 `"length"`), `seed`(기본 0). `weight`는
+  `precompute_landmark_distances`로 그대로 넘어가므로, 나중에 거리표를 만들 때와
+  **같은 weight**를 써야 선택 기준과 실제 휴리스틱이 어긋나지 않는다.
+- 출력: 서로 다른 노드 ID `k`개의 `list[int]`. **뽑힌 순서를 유지한다** — 앞쪽이
+  먼저 뽑힌, 즉 그 시점의 랜드마크 집합에서 더 멀리 떨어졌던 노드다.
+- `k < 1`이거나 `k`가 최대 연결요소의 노드 수보다 크면 `ValueError`(Random과 동일).
+
+### `select_landmarks_farthest(G, k, *, weight="length", seed=0)` 구현 규칙
+
+1. `_largest_component_nodes(G)`로 후보를 제한하고, 첫 랜드마크를
+   `random.Random(seed).choice`로 무작위로 고른다.
+2. 랜드마크를 추가할 때마다 그 랜드마크 1개에 대해 `precompute_landmark_distances`를
+   1회 호출하고, 그 결과로 노드별 `min_dist(v) = min_{L in S} dist(L, v)`를
+   갱신한다. 전체 SSSP 횟수는 정확히 k회다.
+3. 아직 뽑히지 않은 후보 중 `min_dist(v)`가 가장 큰 노드를 다음 랜드마크로 고른다.
+   동점은 노드 ID가 작은 쪽을 우선한다(재현성을 위한, 원 논문에 없는 이 구현의 결정).
+4. `min_dist`는 그 노드에 **실제로 도달한** 랜드마크만으로 계산하고, 어떤
+   랜드마크에서도 도달하지 못한 노드는 후보에서 아예 제외한다 — 그런 노드는 ALT
+   하한을 전혀 받지 못해 "가장 먼 노드"로 뽑을 이유가 없다. 무방향 그래프는 최대
+   연결요소 안에서 서로 모두 도달 가능하므로 이 제외가 실제로 일어나지 않는다.
+5. (방어적 처리) 4번에도 불구하고 도달 가능한 후보가 다 떨어져 k개를 못 채우면
+   `ValueError`를 낸다. 조용히 k개보다 적게 반환하거나 하한을 못 주는 노드를
+   랜드마크로 넣는 것보다 낫다고 판단한, 원 논문에 없는 이 구현의 결정이다.
+
+### 전처리 비용
+
+- 반복(랜드마크 1개)당 SSSP 1회 + `min_dist` 갱신 O(n)이라 전체 O(k·(SSSP + n)).
+- Avoid(반복당 SSSP 2회 + O(n·|S|))보다 싸고, Planar(SSSP 0회, 좌표 1패스)와
+  Random(SSSP 0회)보다 비싸다. 실제 서울 그래프에서의 절대 시간은 아직 실측하지
+  않았다.
+
+### 논문 대조
+
+- Goldberg & Harrelson (SODA 2005, 제목 표기는 위 Random 절 참고)의 farthest
+  선택법 — "현재 랜드마크 집합까지의 거리가 최대인 노드를 반복해서 더한다" — 의
+  반복 단계를 그대로 따랐다.
+- **첫 랜드마크가 원 논문과 다르다**: 원 논문은 무작위 시작점에서 *가장 먼* 노드를
+  첫 랜드마크로 삼지만, 이 구현은 무작위로 고른 노드 자체를 첫 랜드마크로 쓴다.
+  SSSP 1회를 아끼는 대신 첫 랜드마크가 그래프 외곽으로 밀리지 않는다. 2번째
+  랜드마크부터는 규칙이 같다. 이 차이가 h(n) 품질에 얼마나 영향을 주는지는
+  측정하지 않았다.
+- 동점 처리(노드 ID가 작은 쪽)와 도달 불가 노드 제외는 원 논문에 없는 이 구현의
+  결정이다. 2026-09-12 작업에서 원문 PDF를 다시 열어 대조하지는 않았다.
+
+### Admissibility 검증
+
+Planar/Avoid/Random과 동일하게 `landmark_shared.py`의 `verify_admissible`을 그대로
+쓴다. Farthest가 고르는 "서로 멀리 떨어진" 랜드마크는 h(n)을 크게 만들 뿐
+admissibility 조건 자체를 바꾸지 않는다 — 삼각부등식으로 항상 성립한다.
+
+### 실행·검증·복구
+
+```bash
+./.venv/Scripts/python.exe -m pytest tests/unit/test_landmark_farthest.py -q
+```
+
+- 2026-09-12, 로컬 pytest 실행에서 9개 테스트 전부 통과. 노드 5개를 100m 간격으로
+  이은 일직선 그래프에서 선택 순서를 손계산과 대조했다 — 끝점(0번)에서 시작하면
+  `[0, 4, 2, 1, 3]`, 안쪽 노드(3번)에서 시작하면 `[3, 0, 1, 2]`로, "반대쪽 끝 →
+  가운데 → 동점이면 작은 ID" 순서가 그대로 나온다. 6×6 grid에서는 k개 distinct
+  노드 반환, 같은 seed 재현, 다른 seed(0/1)의 결과 불일치, `k < 1`·`k > 노드 수`
+  거부, seed 0/1/2 각각에서 전체 쌍(630쌍) admissibility 위반 0건을 확인했다.
+- 일직선 그래프 테스트의 첫 랜드마크(seed 2 → 0번, seed 0 → 3번)는
+  `random.Random(seed).choice`가 `_largest_component_nodes`의 반환 순서에 의존한다.
+  그 순서가 바뀌면 테스트 기대값도 다시 계산해야 한다.
+- **미확인**: 실제 서울 그래프 규모(15만+ 노드)에서의 선택 시간(위 "전처리 비용"
+  참고)과 h(n) 품질, Random/Planar/Avoid 대비 비교 벤치마크, 어떤 엔진에도 연결한
+  실행.
+- 문제 발생 시 이 파일과 단위 테스트부터 확인한다. 어떤 엔진·API·DB도 변경하지
+  않아 복구가 필요 없다.
+
+## A*·ALT 점대점 벤치마크 (2026-09-12)
+
+Planar·Avoid·Random·Farthest 4종을 갖춘 뒤, 같은 (출발, 도착) 쌍에 같은 weight를 주고
+휴리스틱만 바꿔가며 Dijkstra / Haversine A* / ALT 4종을 한 번에 비교하는 벤치마크를
+추가했다. 구성 파일은 셋이다.
+
+- [benchmarks/build_shortest_path_scenarios.py](../../benchmarks/build_shortest_path_scenarios.py):
+  시나리오 데이터셋 생성기. 산출물 [benchmarks/datasets/shortest_path.json](../../benchmarks/datasets/shortest_path.json)도 함께 커밋한다.
+- [benchmarks/runner/_astar_instrumented.py](../../benchmarks/runner/_astar_instrumented.py):
+  `nx.astar_path` 복제판. 확장 노드 수를 세기 위한 것이다.
+- [benchmarks/runner/alt_shortest_path.py](../../benchmarks/runner/alt_shortest_path.py): 러너.
+
+### 목적과 경계
+
+- **목적**: 휴리스틱이 탐색 공간을 실제로 얼마나 줄이는지, 그 대가로 전처리에 얼마를
+  쓰는지를 같은 조건에서 관측한다.
+- **경계**: 이 벤치마크는 측정만 한다. `src/` 아래 코드는 읽기만 하고 한 줄도 바꾸지
+  않았으며, 어떤 엔진·API·DB에도 연결하지 않았다. 현재 프로덕션 `OnewayAstarEngine`은
+  weight=length(거리 전용)라 Haversine만으로도 admissible해 랜드마크 ALT를 쓰지 않는다
+  (2026-08-23, 아래 "oneway_shortest 엔진" 절 참고).
+- **어느 방식을 채택할지는 이 문서에서 판단하지 않는다.** 관측값만 남긴다.
+
+### 시나리오 설계
+
+출발 노드는 `landmark_shared._largest_component_nodes(G)`가 주는 최대 연결요소 안에서만
+고른다 — 실제 엔진의 `PathUtils.find_nearest_node`와 같은 규칙이라, 여기서 고른 쌍은
+프로덕션 탐색이 실제로 마주칠 수 있는 쌍이다.
+
+| tier | 직선거리 | 우회 비율 | 개수 | 왜 |
+| --- | --- | --- | ---: | --- |
+| `near` | 0.5 ~ 1.5km | 제한 없음 | 4 | 짧은 탐색에서 전처리 비용이 회수되는지 |
+| `mid` | 3 ~ 5km | 제한 없음 | 4 | 일반적인 편도 요청 규모 |
+| `long` | 8 ~ 12km | 제한 없음 | 4 | 탐색 공간이 가장 커지는 구간 |
+| `detour` | 1 ~ 4km | 1.6 이상 | 4 | 한강·철도 횡단처럼 직선거리가 실제 거리를 크게 밑도는 구간 |
+| `same` | 출발 = 도착 | — | 1 | 즉시 종료(거리 0, 확장 1회)하는지 |
+| `unreachable` | 다른 연결요소 | — | 1 | 모든 방식이 "경로 없음"으로 끝나는지 |
+
+우회 비율은 `실제 도로거리 / 직선거리`이며, 도로거리는 Dijkstra로 직접 계산해 확인한다
+(`build_shortest_path_scenarios.qualifies`). 출발 노드 1개마다 SSSP를 1회만 돌리고 그
+결과로 아직 못 채운 tier를 한 번에 보되, 한 출발 노드에서 tier마다 최대 1쌍만 가져와
+출발지가 한곳에 몰리지 않게 한다.
+
+**`unreachable` tier는 현재 artifact에서 비어 있다.** `walk_graph_v1.pkl`
+(`v2-2026-08-25`)은 연결요소가 1개(전체 160,197노드)라 도달 불가 쌍이 존재하지 않는다.
+생성기는 이때 오류로 멈추지 않고 이유를 `meta.notes`에 남기고 나머지 tier를 정상
+생성한다 — 그래서 데이터셋은 18개가 아니라 **17개**다. 러너의 "경로 없음" 처리 경로는
+[tests/unit/test_alt_shortest_path_runner.py](../../tests/unit/test_alt_shortest_path_runner.py)가
+고립 노드를 붙인 toy 그래프로 따로 검증한다.
+
+```bash
+./.venv/Scripts/python.exe -m benchmarks.build_shortest_path_scenarios --seed 42
+```
+
+### 측정 정의
+
+- **popped**: 우선순위 큐에서 노드를 꺼낸 횟수(= 확장한 노드 수). 같은 노드가 더 나은
+  경로로 다시 들어왔다가 꺼내지면 중복해서 센다. 시간과 달리 같은 입력에서 결정적이라
+  휴리스틱이 탐색 공간을 얼마나 줄였는지를 머신 상태와 무관하게 보여준다.
+- **pushed**: 큐에 넣은 횟수. 시작 노드를 올리는 최초 1회를 포함한다.
+- 두 값은 `_astar_instrumented.astar_path_instrumented`가 센다. `nx.astar_path`를
+  그대로 복제하고 카운터만 더한 것이라 탐색 순서·결과 경로는 원본과 같다
+  (원본 라이선스 BSD-3, 복제 버전은 모듈 docstring에 적어 뒀다).
+  **`dijkstra` 행의 popped/pushed는 h=0으로 돌린 같은 계측판에서 잰다**(A* with h=0은
+  Dijkstra와 같은 탐색이다). 시간은 `nx.shortest_path(method="dijkstra")`로 재므로,
+  `dijkstra` 행의 시간과 확장 노드 수는 서로 다른 구현에서 나온 값이다.
+- **search_mean_s / search_median_s / search_max_s**: 계측 없는 탐색을 warmup 1회 +
+  `--repeats`회 반복해 잰 초 단위 시간. `test_oneway_shortest_path.time_repeated`와 같은
+  방식으로 측정 중 gc를 끈다. 확장 노드 수를 세는 패스는 시간 측정에 섞지 않는다.
+- ⚠ **시간 비교에 섞인 구현 차이**: `haversine`과 ALT 4종의 시간은 모두 위 계측판에서
+  나오지만 `dijkstra`의 시간만 `nx.shortest_path`(라이브러리 구현)에서 나온다. 그래서
+  ALT 사이의 시간 비교와 `haversine` 대비 시간 비교는 같은 구현끼리의 비교지만,
+  `dijkstra` 대비 시간 비교에는 알고리즘 차이와 구현 차이가 함께 들어 있다. popped는
+  6개 방식 모두 같은 계측판에서 세므로 이 문제가 없다 — 방식 간 비교는 popped 쪽이
+  더 깨끗하다.
+- **select_s**: 랜드마크 선정 시간. **table_s**: 거리표(`precompute_landmark_distances`)
+  생성 시간. 둘 다 `(방식, k, seed)` 조합당 전체 실행에서 1회만 수행하고 모든 시나리오가
+  재사용하므로, 행마다 같은 값이 반복해서 찍힌다.
+- **table_entries**: 거리표의 총 항목 수(모든 랜드마크 행의 노드 수 합).
+  **table_bytes**: `pickle.dumps(table)` 바이트 수.
+- **k_actual**: 실제로 뽑힌 랜드마크 수. Planar는 `n_sectors=k`로 호출하는데 노드가 없는
+  섹터는 랜드마크를 내지 않아 `k_requested`보다 적을 수 있어 따로 기록한다.
+- **cost_match**: 그 방식의 경로 비용이 Dijkstra 비용과 1e-6m 이내인지.
+  **path_valid**: 끝점이 맞고 이웃 노드끼리 실제 간선으로 이어져 있는지.
+- **alt_violations / haversine_violations**: `(방식, k, seed)` 조합마다 시나리오 전체
+  `(start, end)` 쌍으로 `landmark_shared.verify_admissible`을 돌려 얻은 위반 수.
+
+weight는 전 구간에서 `test_oneway_shortest_path.distance_weight`(= `max(1.0, length)` m)
+하나로 고정하고, 랜드마크 선정·거리표·admissibility 검증에도 같은 함수를 넘긴다. 거리표를
+다른 weight로 만들면 삼각부등식 하한이 탐색 비용의 하한이 아니게 되어 admissibility가
+깨질 수 있다. Haversine 휴리스틱은 프로덕션 `OnewayAstarEngine._heuristic`과 같은 공식
+(`PathUtils._haversine_m`)이다.
+
+### 실행·검증·복구
+
+```bash
+./.venv/Scripts/python.exe -m benchmarks.build_shortest_path_scenarios --seed 42
+./.venv/Scripts/python.exe -m benchmarks.runner.alt_shortest_path --k 4 8 16 --seeds 0 1 2 --repeats 5
+./.venv/Scripts/python.exe -m pytest tests/unit/test_alt_shortest_path_runner.py -q
+```
+
+- 2026-09-12, 로컬 pytest 실행에서 `test_alt_shortest_path_runner.py` 25개 전부 통과.
+  계측 A*가 `nx.astar_path`와 같은 경로를 내는지, 경로 없음에 `NetworkXNoPath`를 올리는지,
+  6개 방식이 모두 Dijkstra와 비용이 맞고 유효한 경로인지, `same`이 거리 0·확장 1회
+  이하인지, 고립 노드를 붙인 그래프에서 `no_path`가 예외 없이 기록되는지, 장벽
+  grid(강·다리 모형)에서 ALT의 popped가 Haversine 이하인지, 결과 행에 선언된 CSV 컬럼이
+  전부 있는지, 시나리오 생성기의 tier 판정(직선거리 경계·우회 비율 경계)을 확인했다.
+- 결과는 `benchmarks/results/shortest_path/{YYYYMMDD-HHMMSS}/`에 `results.csv`,
+  `summary.json`, `results.metadata.json`(코드 커밋·artifact 해시·패키지 버전)로 남는다.
+  실행할 때마다 새 폴더가 생기는 산출물이라 `.gitignore`로 제외한다 — 커밋하는 것은
+  생성 스크립트와 시나리오 JSON뿐이다.
+- 이 벤치마크는 `src/`를 변경하지 않으므로 복구 절차가 필요 없다. 결과가 이상하면
+  위 세 파일과 단위 테스트부터 확인한다.
+- ⚠ `networkx`를 올릴 때는 원본 `astar_path()`와 `_astar_instrumented.py`를 다시
+  대조해야 한다. 원본이 바뀌면 이 복제본은 조용히 다른 알고리즘이 된다.
+
+### 관측 (2026-09-12)
+
+- 환경: Windows-11-10.0.26200, Python 3.12.14, networkx 3.6, numpy 2.4.3.
+- 입력: `artifacts/walk_graph_v1.pkl` (`v2-2026-08-25`, sha256 `8505108f…`, 노드 160,197 /
+  엣지 223,693), 시나리오 17개(seed 42), `--k 4 8 16 --seeds 0 1 2 --repeats 5`.
+- 결과 폴더: `benchmarks/results/shortest_path/20260912-161456/` (544행, 전체 925초).
+- **아래 값은 이 입력(이 그래프·이 시나리오 데이터셋·이 머신)에서의 관측이며 고정
+  기대값이 아니다.** 특히 시간은 머신 상태에 따라 달라지고, popped 중앙값은 해당
+  tier×method의 모든 k(4/8/16)·seed(0/1/2) 행을 합쳐 낸 값이라 k를 고정하면 달라진다.
+
+popped 중앙값 (tier × method):
+
+| tier | dijkstra | haversine | random | farthest | planar | avoid |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| near | 2,118 | 312 | 88 | 102 | 102 | 88 |
+| mid | 15,137 | 2,844 | 1,768 | 1,658 | 1,384 | 1,501 |
+| long | 60,594 | 11,428 | 5,749 | 6,100 | 6,801 | 6,662 |
+| detour | 6,450 | 1,250 | 439 | 427 | 426 | 460 |
+| same | 1 | 1 | 1 | 1 | 1 | 1 |
+
+`search_median_s` 중앙값(초) (tier × method):
+
+| tier | dijkstra | haversine | random | farthest | planar | avoid |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| near | 0.0072 | 0.0031 | 0.0014 | 0.0011 | 0.0009 | 0.0010 |
+| mid | 0.0548 | 0.0301 | 0.0163 | 0.0142 | 0.0092 | 0.0154 |
+| long | 0.3146 | 0.1280 | 0.0769 | 0.0643 | 0.0802 | 0.0692 |
+| detour | 0.0117 | 0.0122 | 0.0058 | 0.0032 | 0.0033 | 0.0043 |
+| same | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+
+랜드마크 수(k)를 고정했을 때의 popped 중앙값 — 위 표가 k를 합쳐 낸 값이라 함께 남긴다:
+
+| tier | method | k=4 | k=8 | k=16 |
+| --- | --- | ---: | ---: | ---: |
+| near | random / farthest / planar / avoid | 154 / 140 / 139 / 136 | 104 / 114 / 114 / 80 | 72 / 64 / 62 / 62 |
+| mid | random / farthest / planar / avoid | 2,275 / 2,176 / 1,430 / 2,632 | 1,350 / 1,064 / 1,230 / 1,108 | 874 / 944 / 1,167 / 642 |
+| long | random / farthest / planar / avoid | 8,346 / 8,212 / 12,620 / 8,150 | 5,892 / 6,170 / 6,918 / 6,804 | 3,232 / 4,420 / 5,276 / 3,305 |
+| detour | random / farthest / planar / avoid | 920 / 480 / 795 / 564 | 418 / 430 / 374 / 486 | 226 / 316 / 370 / 365 |
+
+전처리 비용(이번 실행의 k/seed 조합 전체 합, 초) 과 거리표 크기:
+
+| 방식 | 선정 시간 합 | 거리표 시간 합 | k=4 거리표 | k=8 거리표 | k=16 거리표 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| random | 2.9 | 101.1 | 640,788항목 / 8.2MB | 1,281,576 / 16.4MB | 2,563,152 / 32.7MB |
+| planar | 4.2 | 33.6 | 〃 | 〃 | 〃 |
+| farthest | 107.6 | 87.5 | 〃 | 〃 | 〃 |
+| avoid | 326.2 | 77.5 | 〃 | 〃 | 〃 |
+
+- 거리표 크기는 랜드마크 수에만 비례하고 선택법과 무관하다 — 이 그래프는 연결요소가
+  1개라 모든 랜드마크가 전체 160,197노드에 도달하기 때문이다(k × 160,197 = 항목 수).
+- 선정 시간은 k=16 기준 1회당 random 0.3초, planar 1.6초, farthest 20~24초,
+  avoid 57~76초로 관측됐다.
+- 정확성: 544행 전부 `status="ok"`, `cost_match` 불일치 0건, `path_valid` 무효 0건.
+- Admissibility: 32개 조합 전부 `alt_violations=0`, `haversine_violations=0`
+  (조합마다 시나리오 17쌍 검사).
+- Planar는 k=4/8/16 모두 `k_actual == k_requested`로, 빈 섹터가 발생하지 않았다.
+
+### 미확인
+
+- `unreachable` tier를 실제 그래프에서 관측하지 못했다(위 "시나리오 설계" 참고). 도달
+  불가 탐색이 실제 규모에서 얼마나 걸리는지는 측정되지 않았다.
+- 시나리오는 seed 42로 뽑은 17쌍뿐이다. 쌍이 바뀌면 수치도 바뀐다 — 표본이 tier당
+  4쌍이라 tier 안의 분산을 논할 수 있는 크기가 아니다.
+- 전처리 시간·탐색 시간은 이 머신에서 1회 측정한 값이고, 러너는 반복 간 변동(CV)을
+  따로 판정하지 않는다. `search_max_s`로만 흔들림을 짐작할 수 있다.
+- 휴리스틱 함수 자체의 호출 비용(Haversine은 노드마다 삼각함수, ALT는 랜드마크 수만큼
+  dict 조회)은 따로 분리해 재지 않았다. 탐색 시간 안에 섞여 있어, popped가 줄었는데
+  시간이 그만큼 줄지 않는 구간의 원인을 이 데이터만으로는 가를 수 없다.
+- 이 실행은 커밋되지 않은 작업 트리에서 돌렸다(`results.metadata.json`의 `dirty=true`).
+  같은 수치를 재현하려면 이 절을 담은 커밋을 체크아웃한 뒤 다시 돌려야 한다.
+- 랜드마크를 프로덕션 경로에서 준비·보관하는 비용(메모리 상주, 그래프 갱신 시 재계산,
+  artifact에 함께 실을지)은 이 벤치마크의 범위 밖이다.
+- 어느 구성을 채택할지는 아직 정하지 않았다.
+
+## ALT 서비스 연결 (2026-09-12)
+
+최단거리(`oneway_shortest`) A*의 휴리스틱을 Haversine에서 ALT(Planar, k=8)로 바꿔 연결했다.
+랜드마크 선택법과 k를 어떻게 정했는지는
+[ALT 랜드마크 선택법·k 선정 근거](../../analysis/route_engine/alt_landmark_selection_validation.md)에
+있고, 이 절은 "지금 코드가 무엇을 하는가"만 적는다.
+
+### 책임
+
+서버 기동 때 랜드마크를 고르고 거리표를 메모리에 만들어, 최단거리 A*가 쓸 휴리스틱을
+그래프에 붙여 둔다. 준비에 실패하면 조용히 Haversine으로 돌아간다.
+
+### 입력·출력
+
+- 입력: 런타임 그래프 `G`와 설정 4개.
+
+  | 설정 키 | 기본값 | 의미 |
+  |---|---|---|
+  | `WALK_ALT_ENABLED` | `true` | 끄면 Haversine만 쓴다(되돌리기 스위치) |
+  | `WALK_ALT_METHOD` | `planar` | `planar` \| `random`. Farthest·Avoid는 지원하지 않는다 |
+  | `WALK_ALT_K` | `8` | 랜드마크 수. Planar에서는 섹터 수 의미 |
+  | `WALK_ALT_SEED` | `0` | `random`에만 쓰인다. Planar는 좌표 결정론이라 무시 |
+
+- 출력: `(heuristic, AltRuntimeInfo)` 또는 `(None, None)`. `AltRuntimeInfo`는
+  `method`, `k_requested`, `k_actual`, `landmarks`, `select_s`, `table_s`,
+  `table_entries`를 담는다.
+- 거리표는 **파일로 저장하지 않는다.** 그래프 로드 직후 메모리에 1회 만들고 프로세스
+  수명 동안 재사용한다.
+
+### 실행 진입점
+
+| 파일 | 역할 |
+|---|---|
+| [alt_runtime.py](../../src/route_engine/alt_runtime.py) | `prepare_alt_heuristic()`(선정+거리표), `attach_alt_heuristic()`/`get_alt_heuristic()`(그래프 부착·조회) |
+| [dependencies.py](../../src/interfaces/dependencies.py) | `init_route_service()`에서 `precompute_scoring_features(G)` 직후, `RouteService` 생성 **전에** 준비·부착 |
+| [oneway_astar.py](../../src/route_engine/engines/oneway_astar.py) | `__init__`에서 쓸 휴리스틱을 정하고 `find_path()`의 `nx.astar_path(heuristic=...)`에 넘긴다 |
+
+휴리스틱 선택 규칙(위에서부터 먼저 이기는 순서):
+
+1. `OnewayAstarEngine(..., heuristic=...)`로 **명시해서 넘긴 함수** → 로그 `heuristic=alt_injected`
+2. 그래프에 부착된 ALT(`G.graph["alt_heuristic"]`) → 로그 `heuristic=alt_planar`
+3. 기존 Haversine(`self._heuristic`) → 로그 `heuristic=haversine`
+
+`_heuristic` 메서드는 삭제하지 않고 그대로 남겼다 — 3번 경로가 이것을 쓴다.
+
+### 의존 영역
+
+`landmark_planar`/`landmark_random`(선정)과 `landmark_shared`(거리표·휴리스틱)에만 의존한다.
+`landmark_*` 모듈은 `alt_runtime` 안에서 **지연 import**한다 — 최상단에서 가져오면
+`landmark_* → engines.path_utils → engines/__init__ → oneway_astar → alt_runtime`로
+순환 import가 닫힌다.
+
+### 변경 영향
+
+- **순환 경로 엔진(`CircularBeamEngine` 등)과 경유지 엔진: 영향 없다.** 부착된 휴리스틱을
+  읽는 코드는 `OnewayAstarEngine.__init__` 한 곳뿐이고, 다른 엔진은 `get_alt_heuristic`을
+  호출하지 않는다. `PathUtils.astar_path`도 바꾸지 않았다.
+- `WaypointComposerEngine`은 leg를 `OnewayAstarEngine`으로 채우므로 그 leg는 ALT를 쓴다.
+  응답 계약은 아래 이유로 달라지지 않는다.
+- **응답 계약**: ALT와 Haversine은 둘 다 admissible하므로 A*가 찾는 **최적 비용은 항상
+  같다**. `visited_nodes` 페널티가 있어도 마찬가지다 — 그 페널티는 비용을 늘리기만 해서
+  (배수 ≥ 1) 페널티 없는 거리로 만든 ALT 하한이 여전히 실제 비용 이하다.
+  ⚠ 다만 **최단경로가 여럿이면(동점) 어느 것을 고르는지는 달라질 수 있다.** 2026-09-12
+  확인: 간선 길이가 전부 같은 toy grid에서는 두 휴리스틱이 비용은 같고 노드열이 다른
+  경로를 냈고, 길이를 서로 다르게 해 동점을 없애면 노드열까지 같아졌다. 실제 서울
+  도보망은 `length`가 실수값이라 동점이 드물고, 아래 확인에서도 좌표가 완전히 같았다.
+- **메모리**: 거리표가 k=8 기준 약 16MB(128만 항목) 상주한다. `G.graph`에는 dict가 아니라
+  **함수 객체만** 올려서 `visualizations/route_experiment.py`의 `copy.deepcopy(graph)`가
+  표를 복제하지 않는다(`copy.deepcopy`는 함수를 원자값으로 취급한다).
+- ⚠ 휴리스틱이 붙은 그래프는 **pickle되지 않는다**(로컬 클로저). 그래프를 pickle하는
+  `GraphArtifactRepository.save()`의 호출자는 새로 만든 그래프만 저장하므로 현재는
+  문제가 없다. 런타임 그래프를 pickle하는 코드가 생기면 이 제약을 먼저 확인할 것.
+
+### 실패·복구
+
+- **되돌리기**: `.env`에 `WALK_ALT_ENABLED=false`를 넣고 재기동한다. 코드 변경 없이
+  기존 Haversine 동작으로 완전히 돌아간다.
+- **자동 폴백**: 랜드마크 선정이나 거리표 생성이 어떤 이유로든 실패하면
+  `prepare_alt_heuristic`이 예외 종류·메시지를 warning 로그로 남기고 `(None, None)`을
+  돌려준다. 그래프에는 아무것도 붙지 않고 엔진이 Haversine을 쓴다 — **기동은 막히지
+  않는다.** 지원하지 않는 `method`만 `ValueError`로 올린다(설정 오타를 조용히 넘기면 안
+  되기 때문이며, `Literal` 타입이라 pydantic이 먼저 막는다).
+- 기동 로그에서 `ALT 휴리스틱 준비 완료: method=... k_actual=... 선정 ...s 거리표 ...s`를
+  확인한다. 이 줄이 없고 warning만 있으면 폴백된 것이다.
+
+### 검증
+
+```bash
+./.venv/Scripts/python.exe -m pytest tests/unit/test_alt_runtime.py tests/unit/test_oneway_astar_alt.py -q
+./.venv/Scripts/python.exe -m pytest tests/unit -q --ignore=tests/unit/test_oneway_random.py
+./.venv/Scripts/python.exe -m pytest visualizations/tests -q --basetemp outputs/algorithm_visualization/tests
+```
+
+- 2026-09-12: 신규 28개 통과(`test_alt_runtime.py` 14개, `test_oneway_astar_alt.py` 14개).
+  `tests/unit` 전체는 600 통과, `visualizations/tests`는 52 통과 1 skip.
+  `tests/unit`에 남은 실패·에러 57건은 전부 이 변경 전(HEAD)에서도 같게 실패하는
+  기존 항목이다(인증·배너·수집기·graph repository 등, 별도 worktree에서 HEAD와 대조).
+- `tests/integration/test_api.py`: 2026-09-12 실행 결과 28개 통과, 6개 실패. 실패 6건은 전부 인증
+  토큰 테스트이고 원인이 이 변경과 무관한 기존 드리프트다
+  (`AuthService.get_access_token() missing 1 required positional argument: 'provider_id'`,
+  `check_access_token` mock이 2-튜플을 돌려주는데 호출부는 3개를 푼다).
+  `POST /api/walk/route` 관련 테스트는 통과했다.
+
+### 관측: 연결 후 실제 호출 (2026-09-12)
+
+환경: Windows-11, Python 3.12.14, networkx 3.6.
+입력: `artifacts/walk_graph_v1.pkl`(`v2-2026-08-25`, 노드 160,197 / 엣지 223,693),
+시나리오는 `benchmarks/datasets/shortest_path.json`의 `near-1`·`long-1`·`same-1`.
+**이 입력·이 머신에서의 관측이며 고정 기대값이 아니다.**
+
+기동 시 ALT 준비(2회 관측): 선정 1.02~1.24초, 거리표 6.75~6.92초, **합계 7.9~8.0초**.
+`k_actual=8`(요청 8개 전부 확보, 빈 섹터 없음), 거리표 항목 1,281,576개.
+
+`WALK_ALT_ENABLED` on/off 응답 비교(`RouteService.get_route`, `oneway_shortest`, 각 3회):
+
+| 시나리오 | status | total_km | 좌표 수 | on/off 응답 동일 | 3회 반복 일관 |
+|---|---|---:|---:|---|---|
+| `near-1` | success | 1.77 | 40 | 예 | 예 |
+| `long-1` | success | 10.36 | 173 | 예 | 예 |
+| `same-1` | success | 0.00 | 1 | 예 | 예 |
+
+`status`·`total_km`·좌표열이 모두 완전히 같았고, 노드열(`last_path_nodes`)까지 같았다.
+기동 로그에서 부착 시 `heuristic=alt_planar`, 떼면 `heuristic=haversine`이 찍히는 것도
+확인했다.
+
+탐색 자체의 시간(엔진 `nx.astar_path` 호출만, 5회 중 최소):
+
+| 시나리오 | ALT | Haversine | 배속 |
+|---|---:|---:|---:|
+| `near-1` | 0.0006s | 0.0022s | 3.73x |
+| `long-1` | 0.0166s | 0.0628s | 3.79x |
+| `same-1` | 0.0000s | 0.0000s | 1.04x |
+
+⚠ **그런데 요청 전체 시간에서 탐색이 차지하는 비중이 작다.** `OnewayAstarEngine.run()`은
+매 호출마다 `compute_distance_only_lookup(G, blocked_tags)`로 전체 엣지의 weight 조회표를
+다시 만드는데, 같은 환경에서 이 한 번이 **0.408초**였다. ALT가 아낀 절대 시간은
+`near-1` 0.0016초, `long-1` 0.046초로 그 조회표 1회 비용의 0.4%·11.3%에 그친다.
+실제로 `same-1`(탐색이 즉시 끝나는 경우)의 `run()`도 1.5초 넘게 걸렸다. 즉 **탐색은
+3.7배 빨라졌지만 요청 한 건의 체감 시간은 그만큼 줄지 않는다** — 병목이 탐색 밖에 있다.
+이 조회표 비용을 줄이는 것은 이 작업의 범위가 아니라 별도 과제다.
+
+### 미확인
+
+- **실제 서버를 띄워 HTTP로 확인하지는 못했다.** Docker/PostgreSQL이 떠 있지 않아
+  `src.main`의 lifespan(`init_db()`)을 통과하는 기동을 할 수 없었다. 위 on/off 비교는
+  `RouteService`를 직접 만들고 인증을 스텁으로 대체해서 잰 것이다.
+  `tests/integration/test_api.py`의 `POST /api/walk/route` 테스트는 통과하지만 그 테스트는
+  `route_service`를 mock으로 갈아끼우므로 ALT 경로를 타지 않는다 — 즉 **라우터·쿠키 인증을
+  통과해 ALT가 실제로 쓰이는 경로는 아직 확인되지 않았다.**
+- **PostgreSQL을 그래프 소스로 쓸 때**(`WALK_GRAPH_SOURCE=database`)의 기동 시간은
+  측정하지 않았다. 위 수치는 artifact 로드 기준이다.
+- **거리표 파일 저장은 구현하지 않았다.** 기동 때마다 다시 만든다. 콜드 스타트가 잦은
+  환경(Cloud Run 등)은 이 구조의 전제 밖이다.
+- 동시 요청 부하에서의 메모리·지연은 재지 않았다. 거리표는 읽기 전용이라 요청 간
+  공유되지만, 실측하지는 않았다.
+- 경유지(`waypoint`) 모드에서 leg마다 ALT를 쓸 때의 전체 응답 시간 변화는 재지 않았다.
 
 ## Waypoint(경유지) 조합 엔진
 

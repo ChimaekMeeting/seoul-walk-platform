@@ -6,7 +6,9 @@ class PydanticUtils:
     @staticmethod
     def dump(obj: Any) -> Any:
         if isinstance(obj, BaseModel):
-            return obj.model_dump()
+            # mode="json": Enum(WalkMode 등)을 .value 문자열로, 그 외 JSON 비호환 타입도
+            # JSON 네이티브 값으로 바꾼다. 중첩된 BaseModel(예: Location)도 함께 재귀 변환된다.
+            return obj.model_dump(mode="json")
         elif isinstance(obj, list):
             return [PydanticUtils.dump(item) for item in obj]
         elif isinstance(obj, dict):
@@ -39,6 +41,6 @@ class PromptUtils:
         # 딕셔너리나 리스트인 경우 JSON 문자열로 예쁘게 변환
         if isinstance(obj, (dict, list)):
             json_str = json.dumps(obj, ensure_ascii=False, indent=2)
-            self.escape_braces(json_str)
-        
+            return self.escape_braces(json_str)
+
         return self.escape_braces(str(obj))
