@@ -144,7 +144,18 @@ DERIVED_COLUMNS = frozenset({"path_lookups", "search_work", "circularity_q_rel"}
 
 # 조건(= 같은 문제 인스턴스)을 식별하는 컬럼 후보. 파일마다 있는 것만 쓴다.
 # algorithm과 seed는 조건이 아니라 "그 조건 위에서 무엇을 몇 번 돌렸는가"이므로 제외한다.
-_CONDITION_CANDIDATES = ("scenario_id", "mode", "start_node", "target_km")
+#
+# start_id·num_waypoints(2026-09-15): 밀도 층화 러너와 튜닝 스윕 러너들의 CSV에는
+# scenario_id·mode·start_node가 없고 출발지를 start_id로만 남긴다. 둘이 빠지면 조건 키가
+# target_km 하나로 줄어 서로 다른 출발지·경유지 수가 "같은 조건의 시드 반복"으로 합쳐진다
+# — density_stratified_stage1_retuned.csv 240행(2종 x 8출발지 x 5거리 x N 3개)이 조건
+# 10개로 뭉개지는 것을 실측으로 확인했다. N이 다르면 탐색 공간과 ALNS 제거 개수
+# (ceil(N*removal_fraction))가 달라지므로 다른 문제 인스턴스다. circularity_q_rel의
+# 분모도 이 키로 나뉜다.
+# num_waypoints_used는 엔진이 실제로 쓴 값을 기록한 결과 컬럼이라 여기 넣지 않는다.
+_CONDITION_CANDIDATES = (
+    "scenario_id", "mode", "start_node", "start_id", "target_km", "num_waypoints",
+)
 
 # 스윕 러너가 붙이는 노브 컬럼(alns_iterations 등)도 조건의 일부다 — 설정이 다르면
 # 다른 조건이다. 다만 결과 스키마(RESULT_COLUMNS)에 이미 있는 컬럼은 제외해야 한다:
