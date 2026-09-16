@@ -612,6 +612,35 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
     return improved if accepted else route  # 기각 시 원래 구축 해 유지
 
 
+def shared_refinement_defaults() -> dict[str, dict[str, Any]]:
+    """정제별 공용 기본값(알고리즘별 확정값이 없을 때 실제로 쓰이는 값)을 실행 메타데이터에
+    남기기 위한 단일 창구다(2026-09-16).
+
+    벤치마크 CSV의 행만 보고는 어떤 상한·반복 수로 돈 결과인지 알 수 없다 — 노브는 결과
+    컬럼에 들어가지 않고, 러너가 남기던 algorithm_defaults()는 공용 기본값과 달라진
+    알고리즘만 적기 때문이다. 그래서 이 모듈의 상수가 바뀌면(ex) _MAX_ITERATIONS 도입)
+    과거 CSV와 새 CSV를 구분할 근거가 사라진다.
+
+    호출 문맥에서 정해지는 값은 담지 않는다 — ALNS의 start_temperature_m(target_m 비례),
+    candidate_limit(cfg.rcl_size), seed(호출마다 rng에서 새로 뽑음)는 _alns_config()가
+    매번 계산하므로 고정값이 아니다. 키는 OPTIONS_AWARE_REFINEMENTS와 같아야 한다 —
+    주입으로 덮어쓸 수 있는 노브가 곧 기록해야 할 기본값이다."""
+    return {
+        "vns": {
+            "max_shake_level": _MAX_SHAKE_LEVEL,
+            "max_iterations": _MAX_ITERATIONS,
+        },
+        "alns": {
+            "iterations": _ALNS_ITERATIONS,
+            "removal_fraction": _ALNS_REMOVAL_FRACTION,
+            "cooling_rate": _ALNS_COOLING_RATE,
+            "segment_length": _ALNS_SEGMENT_LENGTH,
+            "reaction_factor": _ALNS_REACTION_FACTOR,
+            "max_cost_calls": _ALNS_MAX_COST_CALLS,
+        },
+    }
+
+
 REFINEMENT_REGISTRY = {
     "none": none,
     "local": local,

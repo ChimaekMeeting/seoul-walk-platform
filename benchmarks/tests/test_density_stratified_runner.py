@@ -18,6 +18,13 @@ from benchmarks.benchmark import SEED_SENSITIVE_SOLVERS
 from benchmarks.config import BENCHMARK_SEEDS
 from src.route_engine.engines.circular_beam_waypoint_vns import BEAM_VNS_CONFIG
 from src.route_engine.engines.circular_grasp_waypoint_alns import GRASP_ALNS_CONFIG, GRASP_ALNS_OPTIONS
+from src.route_engine.engines.waypoint_refinement import (
+    _ALNS_ITERATIONS,
+    _MAX_ITERATIONS,
+    _MAX_SHAKE_LEVEL,
+    OPTIONS_AWARE_REFINEMENTS,
+    shared_refinement_defaults,
+)
 
 
 def test_algos_defaults_to_the_full_grid():
@@ -73,6 +80,24 @@ def test_metadata_records_only_algorithms_with_their_own_defaults():
     assert recorded["grasp-wp-alns"]["alns_options"] == dict(GRASP_ALNS_OPTIONS)
     assert recorded["beam-wp-vns"]["config"]["rcl_size"] == BEAM_VNS_CONFIG.rcl_size
     json.dumps(recorded)  # save_run_metadata가 그대로 직렬화할 수 있어야 한다
+
+
+def test_metadata_records_the_shared_refinement_defaults():
+    """알고리즘별 확정값과 달리 공용 기본값은 CSV·algorithm_defaults 어디에도 남지 않는다 —
+    상한 상수가 바뀌면(ex) _MAX_ITERATIONS 도입) 과거 실행분과 구분할 근거가 사라지므로
+    러너가 따로 기록한다."""
+    recorded = shared_refinement_defaults()
+
+    assert recorded["vns"] == {
+        "max_shake_level": _MAX_SHAKE_LEVEL, "max_iterations": _MAX_ITERATIONS,
+    }
+    assert recorded["alns"]["iterations"] == _ALNS_ITERATIONS
+    json.dumps(recorded)  # save_run_metadata가 그대로 직렬화할 수 있어야 한다
+
+
+def test_shared_refinement_defaults_cover_every_injectable_refinement():
+    """주입으로 덮어쓸 수 있는 정제가 늘면 그 기본값도 함께 기록돼야 한다."""
+    assert set(shared_refinement_defaults()) == set(OPTIONS_AWARE_REFINEMENTS)
 
 
 def test_metadata_honours_the_algo_subset():

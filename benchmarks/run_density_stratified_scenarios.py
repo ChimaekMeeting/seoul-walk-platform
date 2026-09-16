@@ -73,6 +73,7 @@ from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.engines.circular_beam_waypoint_vns import BEAM_VNS_CONFIG
 from src.route_engine.engines.circular_grasp_waypoint_alns import GRASP_ALNS_CONFIG, GRASP_ALNS_OPTIONS
 from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.engines.waypoint_refinement import shared_refinement_defaults
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 DATASET_PATH = DATASETS_DIR / "circular_density_stratified.json"
@@ -80,12 +81,17 @@ DATASET_PATH = DATASETS_DIR / "circular_density_stratified.json"
 # beam/grasp-waypoint 9종 중 8종 — run_all_scenarios.py::CIRCULAR_ALGOS에서 grasp-wp-vns만
 # 뺀 목록. 2026-09-13 1단계 실측(density_stratified_stage1_results.csv)에서
 # GRASP-Waypoint+VNS가 전체 소요시간의 57.9%를 차지하고 9km+N>=3 16개 조건 전부가 600초
-# 타임아웃이었다 — waypoint_refinement.py::vns_loop()가 "개선되면 shake_level을 1로 리셋"
-# 구조라 반복 횟수 상한이 없고(ALNS의 alns_iterations 같은 자체 종료 조건이 없음), 반복당
-# 비용도 N에 비례해 커져 N을 늘리자 조합적으로 폭증했다(사용자 확인 후 제외 결정).
+# 타임아웃이었다(사용자 확인 후 제외 결정).
+#
+# 당시 원인으로 적었던 "vns_loop()의 반복 무제한 구조"는 2026-09-16 종료 조건 추가
+# (waypoint_refinement.py::_MAX_ITERATIONS)로 막혔지만 제외는 그대로 둔다 — 같은 날 계측
+# (홍대·경복궁 9km, seed=42, 단독 실행)에서 실행시간을 지배하는 것이 반복 횟수가 아니라
+# 구축 24회(grasp_iters) x 교란 1회당 VND 3~11초임이 확인됐고, 상한 12의 절감폭은 20%
+# 안팎이라 600초 예산에 들어오지 않기 때문이다. 재투입 여부는 "VNS 조합 재검토 스크리닝"
+# 에서 판단한다.
 # Beam-Waypoint+VNS는 같은 VNS이지만 속도(평균 38.4초)와 게이트통과율(0.892, 최고 동률)이
-# 둘 다 좋아 그대로 유지한다 — GRASP 쪽 vns_loop()의 반복 무제한 구조가 원인이지 VNS
-# 자체가 문제는 아니다.
+# 둘 다 좋아 그대로 유지한다 — GRASP 쪽은 구축 반복마다 VNS를 거는 조합 구조가 원인이지
+# VNS 자체가 문제는 아니다(Beam은 구축 결과 1개에만 건다).
 ALGOS = [
     "grasp-wp-local", "grasp-wp-vnd", "grasp-wp-alns",
     "beam-wp", "beam-wp-local", "beam-wp-vnd", "beam-wp-vns", "beam-wp-alns",
@@ -132,7 +138,10 @@ def algorithm_defaults(algos) -> dict:
 
     어떤 설정으로 돈 실행인지는 행만 보고 판정할 수 없어(노브는 결과 컬럼에 안 들어간다)
     CSV 옆 메타데이터에 남긴다. 여기 없는 알고리즘은 공용 기본값(DEFAULT_CONFIG,
-    waypoint_refinement.py의 _ALNS_*·_MAX_SHAKE_LEVEL·_MAX_ITERATIONS)으로 돈다."""
+    waypoint_refinement.py의 _ALNS_*·_MAX_SHAKE_LEVEL·_MAX_ITERATIONS)으로 돈다 — 그
+    공용 기본값 자체는 shared_refinement_defaults()가 메타데이터의 refinement_defaults로
+    따로 남긴다(2026-09-16). 둘을 나눠 적어야 "튜닝값이 들어간 알고리즘"과 "그때의 공용
+    기본값"을 구분할 수 있다."""
     return {
         algo: {
             name: asdict(value) if name == "config" else dict(value)
@@ -321,6 +330,7 @@ def main():
         start_points=dataset["start_points"], target_kms=dataset["target_kms"],
         num_waypoints=dataset["num_waypoints"], algos=algos,
         algorithm_defaults=algorithm_defaults(algos),
+        refinement_defaults=shared_refinement_defaults(),
         seeds=BENCHMARK_SEEDS if args.stage == "2" else [BENCHMARK_SEEDS[0]],
         workers=args.workers, timeout_sec=TIMEOUT_SEC, time_budget_sec=DEFAULT_TIME_BUDGET_SEC,
         circular_profile=CIRCULAR_BENCHMARK_PROFILE,
