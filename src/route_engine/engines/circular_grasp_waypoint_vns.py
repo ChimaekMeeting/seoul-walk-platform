@@ -41,8 +41,8 @@ class CircularGraspWaypointVnsEngine(WaypointEngine):
         num_waypoints: Optional[int] = None,
         vns_options: Optional[Mapping[str, Any]] = None,
     ):
-        """vns_options는 {"max_shake_level": N} 형태의 정제 설정 주입구다(기본값은
-        waypoint_refinement.py의 _MAX_SHAKE_LEVEL). 하이퍼파라미터 스윕 전용이며 서비스
+        """vns_options는 {"max_shake_level": N, "max_iterations": N} 형태의 정제 설정
+        주입구다(기본값은 waypoint_refinement.py의 _MAX_SHAKE_LEVEL·_MAX_ITERATIONS). 하이퍼파라미터 스윕 전용이며 서비스
         경로는 None이다 — alns_options와 같은 관례."""
         super().__init__(
             inp, G, mode=mode, seed=seed, config=config, num_waypoints=num_waypoints,

@@ -110,7 +110,7 @@ _REFINEMENT_PARAM_KEYS = {
         "iterations", "removal_fraction", "start_temperature_m", "cooling_rate",
         "segment_length", "reaction_factor", "candidate_limit", "max_cost_calls", "seed",
     ),
-    "vns": ("max_shake_level",),
+    "vns": ("max_shake_level", "max_iterations"),
 }
 
 
