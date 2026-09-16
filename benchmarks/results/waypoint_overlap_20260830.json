@@ -1,0 +1,2603 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-08-30",
+  "metadata": {
+    "python": "3.12.13",
+    "networkx": "3.6",
+    "artifact_sha256": "8505108f95a9baa70acd361ebf17f5acd37ae81ed2e1b4be9a46ec83aeb7f8c3",
+    "graph_nodes": 160197,
+    "graph_edges": 223693,
+    "stations": {
+      "gyeongbokgung": {
+        "input_lat": 37.57567,
+        "input_lon": 126.97358,
+        "node_id": 131971,
+        "snapped_lat": 37.575645458343345,
+        "snapped_lon": 126.97384594837742,
+        "snap_m": 23.595674613275634
+      },
+      "seodaemun": {
+        "input_lat": 37.56577,
+        "input_lon": 126.96649,
+        "node_id": 78002,
+        "snapped_lat": 37.56576169959952,
+        "snapped_lon": 126.96637459053282,
+        "snap_m": 10.213874344405117
+      },
+      "jonggak": {
+        "input_lat": 37.57017,
+        "input_lon": 126.98308,
+        "node_id": 86877,
+        "snapped_lat": 37.57006909538062,
+        "snapped_lon": 126.9832544108207,
+        "snap_m": 19.03086286428172
+      }
+    },
+    "station_source": "User supplied screenshots; not independently sourced station entrance coordinates",
+    "previous_runner_available": false,
+    "waypoint_count": 3,
+    "alns_seeds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "alns_iterations": 200,
+    "max_cost_calls": 20000,
+    "temperature_score": 0.05,
+    "pool_rule": "distance-sorted quantile sample of 12 within target/2 of start; exclude start/end",
+    "oneway_pool_status": "new diagnostic fixture, not validated team oneway candidate generator",
+    "cold_cache_timing": true,
+    "no_revisit_penalty": true,
+    "code_sha256": {
+      "src/route_engine/waypoint_beam.py": "a30a006b477f50895d5fa3e32e1e6ebe019131913fd9b3a9c3377405b7d724c4",
+      "src/route_engine/waypoint_alns.py": "e281f10b077e1e9d1f246141c19b261986cc31a22754c3e340c490e31f5de016",
+      "src/route_engine/waypoint_evaluation.py": "cff9e7518174f6b6b73bdb7243fc94b89a0945b7bbf46431e0cdc5f70fba123e",
+      "src/route_engine/engines/path_utils.py": "9e07ffd91dd3b2b1c278799ea71bea8672bd60d0435b02a666efd438ce3244b8"
+    }
+  },
+  "shortest": {
+    "warmup_per_algorithm": 3,
+    "repetitions_per_algorithm": 30,
+    "results": {
+      "dijkstra": {
+        "distance_m": 1575.246,
+        "nodes": [
+          131971,
+          131970,
+          131969,
+          131984,
+          131988,
+          131989,
+          166688,
+          132289,
+          132272,
+          132274,
+          132151,
+          132147,
+          132075,
+          132074,
+          132068,
+          132067,
+          132066,
+          132053,
+          131998,
+          131997,
+          132489,
+          132473,
+          127834,
+          127835,
+          72193,
+          72192,
+          72220,
+          72223,
+          72222,
+          72216,
+          72215,
+          72212,
+          72217,
+          130020,
+          130067,
+          71454,
+          71455,
+          71738,
+          129122,
+          167333,
+          84484,
+          84482,
+          77988,
+          77998,
+          78000,
+          78002
+        ],
+        "samples_seconds": [
+          0.009852600000158418,
+          0.007128199998987839,
+          0.006267400000069756,
+          0.008679200000187848,
+          0.008634500001790002,
+          0.007684500000323169,
+          0.00681809999878169,
+          0.006691300000966294,
+          0.008763200003159,
+          0.011613999999099178,
+          0.010665400001016678,
+          0.010368999999627704,
+          0.010606499999994412,
+          0.010409299997263588,
+          0.010086599999340251,
+          0.009105899996939115,
+          0.009049899999808986,
+          0.008772600001975661,
+          0.009065900001587579,
+          0.00915549999990617,
+          0.008300599998619873,
+          0.008955799999966985,
+          0.0078080999992380384,
+          0.009553800002322532,
+          0.010349799998948583,
+          0.009944800000084797,
+          0.009213799999997718,
+          0.007609500000398839,
+          0.007821100000001024,
+          0.006048300001566531
+        ],
+        "p50_seconds": 0.009002849999887985,
+        "p95_seconds": 0.010665400001016678
+      },
+      "astar": {
+        "distance_m": 1575.246,
+        "nodes": [
+          131971,
+          131970,
+          131969,
+          131984,
+          131988,
+          131989,
+          166688,
+          132289,
+          132272,
+          132274,
+          132151,
+          132147,
+          132075,
+          132074,
+          132068,
+          132067,
+          132066,
+          132053,
+          131998,
+          131997,
+          132489,
+          132473,
+          127834,
+          127835,
+          72193,
+          72192,
+          72220,
+          72223,
+          72222,
+          72216,
+          72215,
+          72212,
+          72217,
+          130020,
+          130067,
+          71454,
+          71455,
+          71738,
+          129122,
+          167333,
+          84484,
+          84482,
+          77988,
+          77998,
+          78000,
+          78002
+        ],
+        "samples_seconds": [
+          0.0019947000000684056,
+          0.0016374000006180722,
+          0.0013055999988864642,
+          0.002203799998824252,
+          0.0017470000020693988,
+          0.0023306000002776273,
+          0.0012210999993840232,
+          0.0023340999978245236,
+          0.0022064000004320405,
+          0.002414499998849351,
+          0.0022277999996731523,
+          0.0023795999986759853,
+          0.0021095999982208014,
+          0.002467499998601852,
+          0.0021492000014404766,
+          0.0018546999999671243,
+          0.0023135000010370277,
+          0.0022564999999303836,
+          0.0017712000008032192,
+          0.0015098999974725302,
+          0.0012114000019209925,
+          0.0020699000015156344,
+          0.002414800001133699,
+          0.0024754999976721592,
+          0.0019164000004820991,
+          0.0024229000009654555,
+          0.0019971000001532957,
+          0.002361800001381198,
+          0.0020828999986406416,
+          0.001664100000198232
+        ],
+        "p50_seconds": 0.002129399999830639,
+        "p95_seconds": 0.002467499998601852
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "name": "circular",
+      "start_id": 131971,
+      "end_id": 131971,
+      "target_m": 4000,
+      "pool": [
+        {
+          "node_id": 131967,
+          "lat": 37.5759396351665,
+          "lon": 126.97387245723222
+        },
+        {
+          "node_id": 129946,
+          "lat": 37.57387168545594,
+          "lon": 126.97026553196758
+        },
+        {
+          "node_id": 167337,
+          "lat": 37.570404073851954,
+          "lon": 126.977454883741
+        },
+        {
+          "node_id": 133685,
+          "lat": 37.573773020582216,
+          "lon": 126.9830955744114
+        },
+        {
+          "node_id": 133648,
+          "lat": 37.572438613454935,
+          "lon": 126.9831727541415
+        },
+        {
+          "node_id": 134651,
+          "lat": 37.57343218687249,
+          "lon": 126.98633640268916
+        },
+        {
+          "node_id": 128602,
+          "lat": 37.573693136692675,
+          "lon": 126.96043499358656
+        },
+        {
+          "node_id": 6241,
+          "lat": 37.567821189584166,
+          "lon": 126.98292143886361
+        },
+        {
+          "node_id": 134910,
+          "lat": 37.56895333628895,
+          "lon": 126.98574262610059
+        },
+        {
+          "node_id": 135593,
+          "lat": 37.57252275920372,
+          "lon": 126.99126510829929
+        },
+        {
+          "node_id": 135487,
+          "lat": 37.57397598776913,
+          "lon": 126.99158722787283
+        },
+        {
+          "node_id": 93255,
+          "lat": 37.56873845493187,
+          "lon": 126.9901745738491
+        }
+      ],
+      "population": 3048,
+      "exhaustive": [
+        {
+          "tolerance": null,
+          "feasible_orders": null,
+          "ids": [
+            133648,
+            135487,
+            134651
+          ],
+          "distance_m": 3993.508,
+          "error_m": 6.492000000000189,
+          "repeated_m": 1385.748,
+          "overlap_pct": 34.70001812942406
+        },
+        {
+          "tolerance": 0.025,
+          "feasible_orders": 58,
+          "ids": [
+            129946,
+            134910,
+            133648
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121
+        },
+        {
+          "tolerance": 0.05,
+          "feasible_orders": 146,
+          "ids": [
+            129946,
+            134910,
+            133648
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121
+        },
+        {
+          "tolerance": 0.075,
+          "feasible_orders": 246,
+          "ids": [
+            129946,
+            134910,
+            133648
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121
+        }
+      ],
+      "astar_vs_shortest_path_differences": [],
+      "initial": {
+        "ids": [
+          135487,
+          133648,
+          133685
+        ],
+        "distance_m": 3975.226,
+        "error_m": 24.773999999999887,
+        "repeated_m": 1419.407,
+        "overlap_pct": 35.70632210596328
+      },
+      "runs": [
+        {
+          "algorithm": "beam",
+          "width": 2,
+          "tolerance": null,
+          "seed": null,
+          "ids": [
+            135487,
+            133648,
+            133685
+          ],
+          "distance_m": 3975.226,
+          "error_m": 24.773999999999887,
+          "repeated_m": 1419.407,
+          "overlap_pct": 35.70632210596328,
+          "seconds": 0.34553909999885946,
+          "cost_calls": 108,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 2,
+          "tolerance": 0.025,
+          "seed": null,
+          "ids": [
+            135487,
+            133648,
+            133685
+          ],
+          "distance_m": 3975.226,
+          "error_m": 24.773999999999887,
+          "repeated_m": 1419.407,
+          "overlap_pct": 35.70632210596328,
+          "seconds": 0.4559184000027017,
+          "cost_calls": 108,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 2,
+          "tolerance": 0.05,
+          "seed": null,
+          "ids": [
+            93255,
+            134910,
+            167337
+          ],
+          "distance_m": 4194.248,
+          "error_m": 194.2479999999996,
+          "repeated_m": 90.87299999999999,
+          "overlap_pct": 2.166610081235064,
+          "seconds": 0.4635545000019192,
+          "cost_calls": 108,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 2,
+          "tolerance": 0.075,
+          "seed": null,
+          "ids": [
+            93255,
+            134910,
+            167337
+          ],
+          "distance_m": 4194.248,
+          "error_m": 194.2479999999996,
+          "repeated_m": 90.87299999999999,
+          "overlap_pct": 2.166610081235064,
+          "seconds": 0.4782688999985112,
+          "cost_calls": 108,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 8,
+          "tolerance": null,
+          "seed": null,
+          "ids": [
+            133648,
+            135487,
+            134651
+          ],
+          "distance_m": 3993.508,
+          "error_m": 6.492000000000189,
+          "repeated_m": 1385.748,
+          "overlap_pct": 34.70001812942406,
+          "seconds": 0.5696504000006826,
+          "cost_calls": 360,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 8,
+          "tolerance": 0.025,
+          "seed": null,
+          "ids": [
+            134910,
+            129946,
+            131967
+          ],
+          "distance_m": 4076.6719999999996,
+          "error_m": 76.67199999999957,
+          "repeated_m": 560.8420000000001,
+          "overlap_pct": 13.75734913184088,
+          "seconds": 0.8119155999993382,
+          "cost_calls": 360,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 8,
+          "tolerance": 0.05,
+          "seed": null,
+          "ids": [
+            93255,
+            134910,
+            167337
+          ],
+          "distance_m": 4194.248,
+          "error_m": 194.2479999999996,
+          "repeated_m": 90.87299999999999,
+          "overlap_pct": 2.166610081235064,
+          "seconds": 0.8152126999993925,
+          "cost_calls": 360,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 8,
+          "tolerance": 0.075,
+          "seed": null,
+          "ids": [
+            93255,
+            134910,
+            167337
+          ],
+          "distance_m": 4194.248,
+          "error_m": 194.2479999999996,
+          "repeated_m": 90.87299999999999,
+          "overlap_pct": 2.166610081235064,
+          "seconds": 0.7673606999996991,
+          "cost_calls": 360,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 1320,
+          "tolerance": null,
+          "seed": null,
+          "ids": [
+            134651,
+            135487,
+            133648
+          ],
+          "distance_m": 3993.508,
+          "error_m": 6.492000000000189,
+          "repeated_m": 1385.748,
+          "overlap_pct": 34.70001812942406,
+          "seconds": 0.5461102000008395,
+          "cost_calls": 2928,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 1320,
+          "tolerance": 0.025,
+          "seed": null,
+          "ids": [
+            133648,
+            134910,
+            129946
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.7239742999990995,
+          "cost_calls": 2928,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 1320,
+          "tolerance": 0.05,
+          "seed": null,
+          "ids": [
+            133648,
+            134910,
+            129946
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.750750600000174,
+          "cost_calls": 2928,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 1320,
+          "tolerance": 0.075,
+          "seed": null,
+          "ids": [
+            133648,
+            134910,
+            129946
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.705300099998567,
+          "cost_calls": 2928,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 0,
+          "ids": [
+            134910,
+            167337,
+            129946
+          ],
+          "distance_m": 4011.2039999999997,
+          "error_m": 11.203999999999724,
+          "repeated_m": 528.108,
+          "overlap_pct": 13.165822531090418,
+          "seconds": 0.3420244000008097,
+          "cost_calls": 14284,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 1,
+          "ids": [
+            134651,
+            135487,
+            133648
+          ],
+          "distance_m": 3993.508,
+          "error_m": 6.492000000000189,
+          "repeated_m": 1385.748,
+          "overlap_pct": 34.70001812942406,
+          "seconds": 0.5896479999973963,
+          "cost_calls": 12556,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 2,
+          "ids": [
+            134651,
+            135487,
+            133648
+          ],
+          "distance_m": 3993.508,
+          "error_m": 6.492000000000189,
+          "repeated_m": 1385.748,
+          "overlap_pct": 34.70001812942406,
+          "seconds": 0.6227657999988878,
+          "cost_calls": 14608,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 3,
+          "ids": [
+            134651,
+            135487,
+            133648
+          ],
+          "distance_m": 3993.508,
+          "error_m": 6.492000000000189,
+          "repeated_m": 1385.748,
+          "overlap_pct": 34.70001812942406,
+          "seconds": 0.6192141999999876,
+          "cost_calls": 15256,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 4,
+          "ids": [
+            134651,
+            135487,
+            133648
+          ],
+          "distance_m": 3993.508,
+          "error_m": 6.492000000000189,
+          "repeated_m": 1385.748,
+          "overlap_pct": 34.70001812942406,
+          "seconds": 0.5259129000005487,
+          "cost_calls": 13420,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 5,
+          "ids": [
+            133648,
+            135487,
+            134651
+          ],
+          "distance_m": 3993.508,
+          "error_m": 6.492000000000189,
+          "repeated_m": 1385.748,
+          "overlap_pct": 34.70001812942406,
+          "seconds": 0.6633733999988181,
+          "cost_calls": 14716,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 6,
+          "ids": [
+            134651,
+            135487,
+            133648
+          ],
+          "distance_m": 3993.508,
+          "error_m": 6.492000000000189,
+          "repeated_m": 1385.748,
+          "overlap_pct": 34.70001812942406,
+          "seconds": 0.47952499999883,
+          "cost_calls": 14932,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 7,
+          "ids": [
+            134651,
+            135487,
+            133648
+          ],
+          "distance_m": 3993.508,
+          "error_m": 6.492000000000189,
+          "repeated_m": 1385.748,
+          "overlap_pct": 34.70001812942406,
+          "seconds": 0.45000849999996717,
+          "cost_calls": 15904,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 8,
+          "ids": [
+            134651,
+            135487,
+            133648
+          ],
+          "distance_m": 3993.508,
+          "error_m": 6.492000000000189,
+          "repeated_m": 1385.748,
+          "overlap_pct": 34.70001812942406,
+          "seconds": 0.3965487999994366,
+          "cost_calls": 13204,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 9,
+          "ids": [
+            134651,
+            135487,
+            133648
+          ],
+          "distance_m": 3993.508,
+          "error_m": 6.492000000000189,
+          "repeated_m": 1385.748,
+          "overlap_pct": 34.70001812942406,
+          "seconds": 0.45404710000002524,
+          "cost_calls": 14284,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 0,
+          "ids": [
+            133648,
+            135593,
+            135487
+          ],
+          "distance_m": 4071.742,
+          "error_m": 71.74200000000019,
+          "repeated_m": 809.9259999999999,
+          "overlap_pct": 19.89138801034053,
+          "seconds": 0.7157372000001487,
+          "cost_calls": 14608,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 1,
+          "ids": [
+            133648,
+            135593,
+            135487
+          ],
+          "distance_m": 4071.742,
+          "error_m": 71.74200000000019,
+          "repeated_m": 809.9259999999999,
+          "overlap_pct": 19.89138801034053,
+          "seconds": 0.5423005000011472,
+          "cost_calls": 12772,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 2,
+          "ids": [
+            133648,
+            135593,
+            135487
+          ],
+          "distance_m": 4071.742,
+          "error_m": 71.74200000000019,
+          "repeated_m": 809.9259999999999,
+          "overlap_pct": 19.89138801034053,
+          "seconds": 0.6558722000008856,
+          "cost_calls": 16228,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 3,
+          "ids": [
+            133648,
+            135593,
+            135487
+          ],
+          "distance_m": 4071.742,
+          "error_m": 71.74200000000019,
+          "repeated_m": 809.9259999999999,
+          "overlap_pct": 19.89138801034053,
+          "seconds": 0.6480493999988539,
+          "cost_calls": 14500,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 4,
+          "ids": [
+            133648,
+            135593,
+            135487
+          ],
+          "distance_m": 4071.742,
+          "error_m": 71.74200000000019,
+          "repeated_m": 809.9259999999999,
+          "overlap_pct": 19.89138801034053,
+          "seconds": 0.5990691000006336,
+          "cost_calls": 14716,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 5,
+          "ids": [
+            133648,
+            135593,
+            135487
+          ],
+          "distance_m": 4071.742,
+          "error_m": 71.74200000000019,
+          "repeated_m": 809.9259999999999,
+          "overlap_pct": 19.89138801034053,
+          "seconds": 0.6339204999967478,
+          "cost_calls": 14932,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 6,
+          "ids": [
+            133648,
+            135593,
+            135487
+          ],
+          "distance_m": 4071.742,
+          "error_m": 71.74200000000019,
+          "repeated_m": 809.9259999999999,
+          "overlap_pct": 19.89138801034053,
+          "seconds": 0.6181541000005382,
+          "cost_calls": 15040,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 7,
+          "ids": [
+            133648,
+            135593,
+            135487
+          ],
+          "distance_m": 4071.742,
+          "error_m": 71.74200000000019,
+          "repeated_m": 809.9259999999999,
+          "overlap_pct": 19.89138801034053,
+          "seconds": 0.5997825000013108,
+          "cost_calls": 16444,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 8,
+          "ids": [
+            133648,
+            135593,
+            135487
+          ],
+          "distance_m": 4071.742,
+          "error_m": 71.74200000000019,
+          "repeated_m": 809.9259999999999,
+          "overlap_pct": 19.89138801034053,
+          "seconds": 0.6541043000033824,
+          "cost_calls": 14716,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 9,
+          "ids": [
+            133648,
+            135593,
+            135487
+          ],
+          "distance_m": 4071.742,
+          "error_m": 71.74200000000019,
+          "repeated_m": 809.9259999999999,
+          "overlap_pct": 19.89138801034053,
+          "seconds": 0.6480274000023201,
+          "cost_calls": 13960,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 0,
+          "ids": [
+            93255,
+            133648,
+            133685
+          ],
+          "distance_m": 4181.338999999999,
+          "error_m": 181.33899999999903,
+          "repeated_m": 1231.724,
+          "overlap_pct": 29.457645027107343,
+          "seconds": 0.47343089999776566,
+          "cost_calls": 11692,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 1,
+          "ids": [
+            133648,
+            134910,
+            129946
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.8487407000029634,
+          "cost_calls": 14932,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 2,
+          "ids": [
+            93255,
+            133648,
+            133685
+          ],
+          "distance_m": 4181.338999999999,
+          "error_m": 181.33899999999903,
+          "repeated_m": 1231.724,
+          "overlap_pct": 29.457645027107343,
+          "seconds": 0.5254512000028626,
+          "cost_calls": 12448,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 3,
+          "ids": [
+            129946,
+            134910,
+            133685
+          ],
+          "distance_m": 4098.939,
+          "error_m": 98.9390000000003,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.8241729000001214,
+          "cost_calls": 15364,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": true
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 4,
+          "ids": [
+            167337,
+            134910,
+            93255
+          ],
+          "distance_m": 4194.248,
+          "error_m": 194.2479999999996,
+          "repeated_m": 90.87299999999999,
+          "overlap_pct": 2.1666100812350617,
+          "seconds": 0.8474212999972224,
+          "cost_calls": 15040,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 5,
+          "ids": [
+            129946,
+            134910,
+            133648
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.8805457999987993,
+          "cost_calls": 14284,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 6,
+          "ids": [
+            6241,
+            134910,
+            134651
+          ],
+          "distance_m": 3935.864,
+          "error_m": 64.13599999999997,
+          "repeated_m": 125.826,
+          "overlap_pct": 3.1969092427990398,
+          "seconds": 0.657750099999248,
+          "cost_calls": 15148,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 7,
+          "ids": [
+            133648,
+            134910,
+            129946
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.7789136999999755,
+          "cost_calls": 16660,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 8,
+          "ids": [
+            129946,
+            134910,
+            133648
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.8280182999988028,
+          "cost_calls": 16120,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 9,
+          "ids": [
+            93255,
+            133648,
+            133685
+          ],
+          "distance_m": 4181.338999999999,
+          "error_m": 181.33899999999903,
+          "repeated_m": 1231.724,
+          "overlap_pct": 29.457645027107343,
+          "seconds": 0.5560917000002519,
+          "cost_calls": 14392,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 0,
+          "ids": [
+            134651,
+            167337,
+            129946
+          ],
+          "distance_m": 3789.503,
+          "error_m": 210.49699999999984,
+          "repeated_m": 42.93,
+          "overlap_pct": 1.132866236020924,
+          "seconds": 0.6774672999999893,
+          "cost_calls": 13636,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 1,
+          "ids": [
+            133648,
+            134910,
+            129946
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.7465639000001829,
+          "cost_calls": 12232,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 2,
+          "ids": [
+            129946,
+            167337,
+            134651
+          ],
+          "distance_m": 3789.503,
+          "error_m": 210.49699999999984,
+          "repeated_m": 42.93,
+          "overlap_pct": 1.132866236020924,
+          "seconds": 0.7129488999999012,
+          "cost_calls": 13852,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 3,
+          "ids": [
+            129946,
+            134910,
+            133648
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.8431549999986601,
+          "cost_calls": 15040,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 4,
+          "ids": [
+            129946,
+            134910,
+            133648
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.9541802999992797,
+          "cost_calls": 14932,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 5,
+          "ids": [
+            129946,
+            167337,
+            134651
+          ],
+          "distance_m": 3789.503,
+          "error_m": 210.49699999999984,
+          "repeated_m": 42.93,
+          "overlap_pct": 1.132866236020924,
+          "seconds": 0.7387741999991704,
+          "cost_calls": 13204,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 6,
+          "ids": [
+            133648,
+            134910,
+            129946
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.782809799999086,
+          "cost_calls": 13960,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 7,
+          "ids": [
+            133648,
+            134910,
+            129946
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.8552309000006062,
+          "cost_calls": 16660,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 8,
+          "ids": [
+            133648,
+            134910,
+            129946
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.6632766999973683,
+          "cost_calls": 14824,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 9,
+          "ids": [
+            133648,
+            134910,
+            129946
+          ],
+          "distance_m": 4098.938999999999,
+          "error_m": 98.9389999999994,
+          "repeated_m": 26.908,
+          "overlap_pct": 0.6564625626290121,
+          "seconds": 0.6028645000005781,
+          "cost_calls": 14824,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        }
+      ]
+    },
+    {
+      "name": "oneway",
+      "start_id": 131971,
+      "end_id": 86877,
+      "target_m": 3000,
+      "pool": [
+        {
+          "node_id": 131967,
+          "lat": 37.5759396351665,
+          "lon": 126.97387245723222
+        },
+        {
+          "node_id": 129871,
+          "lat": 37.57483980800262,
+          "lon": 126.97046067501334
+        },
+        {
+          "node_id": 130852,
+          "lat": 37.58066023553874,
+          "lon": 126.97275304397772
+        },
+        {
+          "node_id": 127903,
+          "lat": 37.57338613037354,
+          "lon": 126.96745963839535
+        },
+        {
+          "node_id": 129062,
+          "lat": 37.57302338692614,
+          "lon": 126.96635762161006
+        },
+        {
+          "node_id": 133028,
+          "lat": 37.571268481083365,
+          "lon": 126.98022508356048
+        },
+        {
+          "node_id": 133446,
+          "lat": 37.580063545176344,
+          "lon": 126.98123400424991
+        },
+        {
+          "node_id": 72186,
+          "lat": 37.56868519949996,
+          "lon": 126.96834619917735
+        },
+        {
+          "node_id": 144064,
+          "lat": 37.57504428851772,
+          "lon": 126.96324030539758
+        },
+        {
+          "node_id": 134256,
+          "lat": 37.57506984645538,
+          "lon": 126.98662850782058
+        },
+        {
+          "node_id": 167299,
+          "lat": 37.572497592904924,
+          "lon": 126.960338054169
+        },
+        {
+          "node_id": 5646,
+          "lat": 37.56570099905666,
+          "lon": 126.96727331307947
+        }
+      ],
+      "population": 1826,
+      "exhaustive": [
+        {
+          "tolerance": null,
+          "feasible_orders": null,
+          "ids": [
+            131967,
+            129871,
+            72186
+          ],
+          "distance_m": 3010.3050000000003,
+          "error_m": 10.305000000000291,
+          "repeated_m": 480.82500000000005,
+          "overlap_pct": 15.97263400220243
+        },
+        {
+          "tolerance": 0.025,
+          "feasible_orders": 11,
+          "ids": [
+            131967,
+            130852,
+            129871
+          ],
+          "distance_m": 3032.2430000000004,
+          "error_m": 32.24300000000039,
+          "repeated_m": 0,
+          "overlap_pct": 0
+        },
+        {
+          "tolerance": 0.05,
+          "feasible_orders": 19,
+          "ids": [
+            131967,
+            130852,
+            129871
+          ],
+          "distance_m": 3032.2430000000004,
+          "error_m": 32.24300000000039,
+          "repeated_m": 0,
+          "overlap_pct": 0
+        },
+        {
+          "tolerance": 0.075,
+          "feasible_orders": 25,
+          "ids": [
+            131967,
+            130852,
+            129871
+          ],
+          "distance_m": 3032.2430000000004,
+          "error_m": 32.24300000000039,
+          "repeated_m": 0,
+          "overlap_pct": 0
+        }
+      ],
+      "astar_vs_shortest_path_differences": [],
+      "initial": {
+        "ids": [
+          129062,
+          129871,
+          133028
+        ],
+        "distance_m": 3084.957,
+        "error_m": 84.95699999999988,
+        "repeated_m": 19.536,
+        "overlap_pct": 0.6332665252708543
+      },
+      "runs": [
+        {
+          "algorithm": "beam",
+          "width": 2,
+          "tolerance": null,
+          "seed": null,
+          "ids": [
+            129062,
+            129871,
+            133028
+          ],
+          "distance_m": 3084.957,
+          "error_m": 84.95699999999988,
+          "repeated_m": 19.536,
+          "overlap_pct": 0.6332665252708543,
+          "seconds": 0.4176532000019506,
+          "cost_calls": 108,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 2,
+          "tolerance": 0.025,
+          "seed": null,
+          "ids": [
+            129062,
+            129871,
+            133028
+          ],
+          "distance_m": 3084.957,
+          "error_m": 84.95699999999988,
+          "repeated_m": 19.536,
+          "overlap_pct": 0.6332665252708543,
+          "seconds": 0.5391514000002644,
+          "cost_calls": 108,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 2,
+          "tolerance": 0.05,
+          "seed": null,
+          "ids": [
+            129062,
+            129871,
+            133028
+          ],
+          "distance_m": 3084.957,
+          "error_m": 84.95699999999988,
+          "repeated_m": 19.536,
+          "overlap_pct": 0.6332665252708543,
+          "seconds": 0.6121751999999105,
+          "cost_calls": 108,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 2,
+          "tolerance": 0.075,
+          "seed": null,
+          "ids": [
+            129062,
+            72186,
+            133028
+          ],
+          "distance_m": 3370.353,
+          "error_m": 370.35300000000007,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.5624072999999044,
+          "cost_calls": 108,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 8,
+          "tolerance": null,
+          "seed": null,
+          "ids": [
+            127903,
+            131967,
+            133028
+          ],
+          "distance_m": 3046.037,
+          "error_m": 46.03699999999981,
+          "repeated_m": 826.6139999999998,
+          "overlap_pct": 27.137359132538425,
+          "seconds": 0.5369910000008531,
+          "cost_calls": 360,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 8,
+          "tolerance": 0.025,
+          "seed": null,
+          "ids": [
+            127903,
+            131967,
+            133028
+          ],
+          "distance_m": 3046.037,
+          "error_m": 46.03699999999981,
+          "repeated_m": 826.6139999999998,
+          "overlap_pct": 27.137359132538425,
+          "seconds": 0.6584388000010222,
+          "cost_calls": 360,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 8,
+          "tolerance": 0.05,
+          "seed": null,
+          "ids": [
+            129062,
+            129871,
+            133028
+          ],
+          "distance_m": 3084.957,
+          "error_m": 84.95699999999988,
+          "repeated_m": 19.536,
+          "overlap_pct": 0.6332665252708543,
+          "seconds": 0.6757825999993656,
+          "cost_calls": 360,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 8,
+          "tolerance": 0.075,
+          "seed": null,
+          "ids": [
+            129062,
+            129871,
+            133028
+          ],
+          "distance_m": 3084.957,
+          "error_m": 84.95699999999988,
+          "repeated_m": 19.536,
+          "overlap_pct": 0.6332665252708543,
+          "seconds": 0.6822083999977622,
+          "cost_calls": 360,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 1320,
+          "tolerance": null,
+          "seed": null,
+          "ids": [
+            131967,
+            129871,
+            72186
+          ],
+          "distance_m": 3010.3050000000003,
+          "error_m": 10.305000000000291,
+          "repeated_m": 480.82500000000005,
+          "overlap_pct": 15.97263400220243,
+          "seconds": 0.7183909000013955,
+          "cost_calls": 2928,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 1320,
+          "tolerance": 0.025,
+          "seed": null,
+          "ids": [
+            131967,
+            130852,
+            129871
+          ],
+          "distance_m": 3032.2430000000004,
+          "error_m": 32.24300000000039,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 1.1003686000003654,
+          "cost_calls": 2928,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 1320,
+          "tolerance": 0.05,
+          "seed": null,
+          "ids": [
+            131967,
+            130852,
+            129871
+          ],
+          "distance_m": 3032.2430000000004,
+          "error_m": 32.24300000000039,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.8100107999998727,
+          "cost_calls": 2928,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "beam",
+          "width": 1320,
+          "tolerance": 0.075,
+          "seed": null,
+          "ids": [
+            131967,
+            130852,
+            129871
+          ],
+          "distance_m": 3032.2430000000004,
+          "error_m": 32.24300000000039,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.7901080000010552,
+          "cost_calls": 2928,
+          "iterations": null,
+          "stop_reason": null,
+          "catalog_comparison_disagrees": null
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 0,
+          "ids": [
+            129871,
+            129062,
+            133028
+          ],
+          "distance_m": 2975.5729999999994,
+          "error_m": 24.42700000000059,
+          "repeated_m": 265.4,
+          "overlap_pct": 8.91929050303924,
+          "seconds": 0.37688250000064727,
+          "cost_calls": 13420,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 1,
+          "ids": [
+            131967,
+            129871,
+            72186
+          ],
+          "distance_m": 3010.3050000000003,
+          "error_m": 10.305000000000291,
+          "repeated_m": 480.82500000000005,
+          "overlap_pct": 15.97263400220243,
+          "seconds": 0.43460130000312347,
+          "cost_calls": 13420,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 2,
+          "ids": [
+            127903,
+            129871,
+            131967
+          ],
+          "distance_m": 3018.334999999999,
+          "error_m": 18.334999999999127,
+          "repeated_m": 647.7069999999999,
+          "overlap_pct": 21.45908257367058,
+          "seconds": 0.40201209999941057,
+          "cost_calls": 14068,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 3,
+          "ids": [
+            131967,
+            129871,
+            72186
+          ],
+          "distance_m": 3010.3050000000003,
+          "error_m": 10.305000000000291,
+          "repeated_m": 480.82500000000005,
+          "overlap_pct": 15.97263400220243,
+          "seconds": 0.42530400000032387,
+          "cost_calls": 13852,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 4,
+          "ids": [
+            129871,
+            129062,
+            133028
+          ],
+          "distance_m": 2975.5729999999994,
+          "error_m": 24.42700000000059,
+          "repeated_m": 265.4,
+          "overlap_pct": 8.91929050303924,
+          "seconds": 0.3491033999998763,
+          "cost_calls": 13852,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 5,
+          "ids": [
+            129871,
+            129062,
+            133028
+          ],
+          "distance_m": 2975.5729999999994,
+          "error_m": 24.42700000000059,
+          "repeated_m": 265.4,
+          "overlap_pct": 8.91929050303924,
+          "seconds": 0.3624049999998533,
+          "cost_calls": 12988,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 6,
+          "ids": [
+            131967,
+            129871,
+            72186
+          ],
+          "distance_m": 3010.3050000000003,
+          "error_m": 10.305000000000291,
+          "repeated_m": 480.82500000000005,
+          "overlap_pct": 15.97263400220243,
+          "seconds": 0.5404130999995687,
+          "cost_calls": 14500,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 7,
+          "ids": [
+            131967,
+            129871,
+            72186
+          ],
+          "distance_m": 3010.3050000000003,
+          "error_m": 10.305000000000291,
+          "repeated_m": 480.82500000000005,
+          "overlap_pct": 15.97263400220243,
+          "seconds": 0.4407031000009738,
+          "cost_calls": 16336,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 8,
+          "ids": [
+            129871,
+            129062,
+            133028
+          ],
+          "distance_m": 2975.5729999999994,
+          "error_m": 24.42700000000059,
+          "repeated_m": 265.4,
+          "overlap_pct": 8.91929050303924,
+          "seconds": 0.3260338000000047,
+          "cost_calls": 12880,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": null,
+          "seed": 9,
+          "ids": [
+            127903,
+            129871,
+            131967
+          ],
+          "distance_m": 3018.334999999999,
+          "error_m": 18.334999999999127,
+          "repeated_m": 647.7069999999999,
+          "overlap_pct": 21.45908257367058,
+          "seconds": 0.3768554000016593,
+          "cost_calls": 14176,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 0,
+          "ids": [
+            131967,
+            130852,
+            129871
+          ],
+          "distance_m": 3032.2430000000004,
+          "error_m": 32.24300000000039,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.7260208999978204,
+          "cost_calls": 14068,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 1,
+          "ids": [
+            131967,
+            130852,
+            129871
+          ],
+          "distance_m": 3032.2430000000004,
+          "error_m": 32.24300000000039,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.7556547000021965,
+          "cost_calls": 13852,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 2,
+          "ids": [
+            131967,
+            129062,
+            133028
+          ],
+          "distance_m": 2967.0399999999995,
+          "error_m": 32.96000000000049,
+          "repeated_m": 32.734,
+          "overlap_pct": 1.1032544219154439,
+          "seconds": 0.6060168000003614,
+          "cost_calls": 14608,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 3,
+          "ids": [
+            131967,
+            129062,
+            133028
+          ],
+          "distance_m": 2967.0399999999995,
+          "error_m": 32.96000000000049,
+          "repeated_m": 32.734,
+          "overlap_pct": 1.1032544219154439,
+          "seconds": 0.5219216000004963,
+          "cost_calls": 12772,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 4,
+          "ids": [
+            131967,
+            130852,
+            129871
+          ],
+          "distance_m": 3032.2430000000004,
+          "error_m": 32.24300000000039,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.8342947999990429,
+          "cost_calls": 12988,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 5,
+          "ids": [
+            131967,
+            129062,
+            133028
+          ],
+          "distance_m": 2967.0399999999995,
+          "error_m": 32.96000000000049,
+          "repeated_m": 32.734,
+          "overlap_pct": 1.1032544219154439,
+          "seconds": 0.7720700000027136,
+          "cost_calls": 12880,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 6,
+          "ids": [
+            131967,
+            129062,
+            133028
+          ],
+          "distance_m": 2967.0399999999995,
+          "error_m": 32.96000000000049,
+          "repeated_m": 32.734,
+          "overlap_pct": 1.1032544219154439,
+          "seconds": 0.7857239000004483,
+          "cost_calls": 14500,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 7,
+          "ids": [
+            131967,
+            130852,
+            129871
+          ],
+          "distance_m": 3032.2430000000004,
+          "error_m": 32.24300000000039,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.649142700000084,
+          "cost_calls": 15904,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 8,
+          "ids": [
+            131967,
+            129062,
+            133028
+          ],
+          "distance_m": 2967.0399999999995,
+          "error_m": 32.96000000000049,
+          "repeated_m": 32.734,
+          "overlap_pct": 1.1032544219154439,
+          "seconds": 0.5750602000007348,
+          "cost_calls": 13960,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.025,
+          "seed": 9,
+          "ids": [
+            131967,
+            129062,
+            133028
+          ],
+          "distance_m": 2967.0399999999995,
+          "error_m": 32.96000000000049,
+          "repeated_m": 32.734,
+          "overlap_pct": 1.1032544219154439,
+          "seconds": 0.630658999998559,
+          "cost_calls": 14500,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 0,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.6539415000006557,
+          "cost_calls": 13636,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 1,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.6543349000021408,
+          "cost_calls": 12772,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 2,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.6564701999996032,
+          "cost_calls": 13528,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 3,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.5700152999997954,
+          "cost_calls": 13852,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 4,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.576834699997562,
+          "cost_calls": 14392,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 5,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.6409060999976646,
+          "cost_calls": 13852,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 6,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.6276657000016712,
+          "cost_calls": 14068,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 7,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.7474449000001187,
+          "cost_calls": 15904,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 8,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.5751086000018404,
+          "cost_calls": 13636,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.05,
+          "seed": 9,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.5954339999989315,
+          "cost_calls": 14716,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 0,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.6450318000024708,
+          "cost_calls": 13636,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 1,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.5955226000005496,
+          "cost_calls": 12772,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 2,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.7726313999992271,
+          "cost_calls": 13528,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 3,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.8314509999981965,
+          "cost_calls": 13852,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 4,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.7766894999986107,
+          "cost_calls": 14392,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 5,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.8965631999999459,
+          "cost_calls": 13852,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 6,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.8031112999997276,
+          "cost_calls": 14068,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 7,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.7291722000009031,
+          "cost_calls": 15904,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 8,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.6661095999988902,
+          "cost_calls": 13636,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        },
+        {
+          "algorithm": "alns",
+          "width": null,
+          "tolerance": 0.075,
+          "seed": 9,
+          "ids": [
+            129062,
+            127903,
+            133028
+          ],
+          "distance_m": 2901.5719999999997,
+          "error_m": 98.42800000000034,
+          "repeated_m": 0,
+          "overlap_pct": 0,
+          "seconds": 0.6544813000000431,
+          "cost_calls": 14716,
+          "iterations": 200,
+          "stop_reason": "iterations",
+          "catalog_comparison_disagrees": false
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "Historical measurements, not fixed expected values or service guarantees.",
+    "Original third-party one-way pool was unavailable: one-way uses a new diagnostic fixture.",
+    "Full untracked raw data remains local; runner regenerates timestamped raw files.",
+    "Approximate 9e-13 m accumulation difference can affect exact ties; code unchanged."
+  ]
+}

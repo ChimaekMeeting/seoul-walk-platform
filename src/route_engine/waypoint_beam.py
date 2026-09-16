@@ -7,8 +7,11 @@ from dataclasses import dataclass
 from heapq import nsmallest
 from math import inf, isfinite
 
+from src.route_engine.waypoint_evaluation import WaypointObjective, attach_route_metrics
 from src.route_engine.waypoint_types import (
     CostFunction,
+    RouteEvaluation,
+    RouteMetrics,
     WaypointCandidate,
     WaypointOrder,
 )
@@ -16,12 +19,16 @@ from src.route_engine.waypoint_types import (
 
 @dataclass(frozen=True)
 class BeamResult:
-    # 목표 오차순으로 정렬된 최대 beam_width개의 조합. 미발견 시 빈 튜플.
+    # 설정된 평가 기준으로 정렬된 최대 beam_width개의 조합. 미발견 시 빈 튜플.
     orders: tuple[WaypointOrder, ...]
     # 도달 불가로 제외된 시도도 포함한다.
     evaluated_candidates: int
     # 캐시 적중을 포함한 cost 호출 수이며, A* 실행 횟수는 아니다.
     cost_calls: int
+    route_evaluations: int = (
+        0  # 경로 평가 callback 호출 수. 구간 경로 계산 횟수와 다르다.
+    )
+    penalty_calls: int = 0  # rank_penalty 호출 수(캐시 적중 포함 아님 — 콜러블 자체가 담당).
 
 
 @dataclass(frozen=True)
@@ -29,6 +36,13 @@ class _State:
     waypoint_ids: tuple[int, ...]
     partial_m: float  # 출발지부터 마지막 경유지까지의 누적 거리
     closed_m: float  # 지금 도착지까지 연결했을 때의 총거리
+    route_metrics: RouteMetrics | None = None
+    penalty_so_far: float = 0.0  # 랭킹 전용 누적 보정항(예: 방향 다양성). 실제 거리에는 섞이지 않는다.
+    rank_m: float = 0.0
+    # 랭킹 전용 추정 총거리(2026-09-09 버그픽스). 아직 고를 경유지가 남아 있으면 closed_m은
+    # 남은 경유지들의 거리를 0으로 본 하한이라, 그 값을 target_m에 맞추려 하면 앞쪽 구간이
+    # 예산을 전부 써버린다. 마지막 단계에서는 rank_m == closed_m이므로, 최종 완성 조합끼리의
+    # 비교 기준은 바뀌지 않는다. WaypointOrder.distance_m/error_m에는 절대 쓰지 않는다.
 
 
 def beam_search(
@@ -40,13 +54,38 @@ def beam_search(
     target_m: float,
     waypoint_count: int,
     beam_width: int,
+    tolerance_ratio: float | None = None,
+    evaluate_route: RouteEvaluation | None = None,
+    rank_penalty: CostFunction | None = None,
 ) -> BeamResult:
     """외부 후보 풀에서 정확히 waypoint_count개의 경유지와 순서를 선택한다.
 
     cost는 동일한 그래프의 대칭 거리(m)를 반환하며, 도달 불가는 inf이다.
     순환 경로는 end_id=start_id로 지정한다.
-    완성 조합을 찾지 못하면 orders는 비어 있다. 목표 허용 오차는 별도 판정한다.
-    """
+    tolerance_ratio와 evaluate_route를 함께 지정하면 재통행 평가를 사용한다.
+    미완성 순서는 남은 구간 수를 반영한 추정 총거리로 랭킹하며(_State.rank_m), 반환되는
+    orders의 distance_m은 도착지로 임시 연결한 실거리(closed_m)다. 어느 쪽도 최종 품질을
+    보장하지 않는다.
+    완성 조합을 찾지 못하면 orders는 비어 있다.
+
+    rank_penalty(prev_id, next_id)는 랭킹 전용 보정항이다(GRASP의
+    _rank_next_waypoint_candidates가 쓰는 "score = 거리오차 + 방향다양성 페널티"
+    구조와 동일하게, 페널티를 실제 거리(partial_m/closed_m, 따라서
+    WaypointOrder.distance_m/error_m)와 분리해서 관리한다 — 목표거리 비교는 항상
+    순수 실거리 기준으로 유지된다. 각 확장 단계에서 정확히 한 번(직전 경유지→다음
+    후보) 호출되며, 도착지로 닫는 임시 연결(next_id→end_id)에는 적용되지 않는다 —
+    GRASP도 폐합 구간에는 방향 페널티를 적용하지 않는다. 호출부가 첫 경유지 선택
+    (prev_id == start_id)에 페널티를 줄지 말지는 콜러블 자체가 정한다.
+    tolerance_ratio와 함께 쓸 수 없다 — WaypointObjective.quality()가 재통행
+    모드에서 반환하는 첫 성분은 무차원 비율(overlap)이라, 미터 단위인 페널티를
+    그대로 더하면 단위가 어긋난다. 이 훅은 아직 waypoint_alns.py::alns_search()에는
+    없다(의도적 — 두 함수의 계약을 항상 동시에 맞출 필요는 없다는 판단)."""
+    if rank_penalty is not None and tolerance_ratio is not None:
+        raise ValueError(
+            "rank_penalty는 tolerance_ratio와 함께 쓸 수 없습니다(단위가 다른 값을 더하게 됩니다)."
+        )
+    objective = WaypointObjective(target_m, tolerance_ratio)
+    objective.validate_provider(evaluate_route)
     if not isfinite(target_m) or target_m <= 0:
         raise ValueError("target_m은 유한한 양수여야 합니다.")
     for name, value in (
@@ -81,8 +120,11 @@ def beam_search(
     pool.sort()
     evaluated_candidates = 0
     cost_calls = 0
+    route_evaluations = 0
+    penalty_calls = 0
 
     def distance(a: int, b: int) -> float:
+        """거리 공급자 호출을 집계하고 거리값을 검사한다."""
         nonlocal cost_calls
         cost_calls += 1
         value = float(cost(a, b))
@@ -92,15 +134,50 @@ def beam_search(
             raise ValueError("cost는 0 이상의 거리 또는 양의 inf여야 합니다.")
         return value
 
-    def rank(state: _State) -> tuple[float, tuple[int, ...]]:
+    def penalty(a: int, b: int) -> float:
+        """랭킹 전용 보정항 호출을 집계하고 값을 검사한다. 실제 거리에는 섞이지 않는다."""
+        nonlocal penalty_calls
+        penalty_calls += 1
+        value = float(rank_penalty(a, b))
+        if not isfinite(value) or value < 0:
+            raise ValueError("rank_penalty는 0 이상의 유한한 값이어야 합니다.")
+        return value
+
+    def as_order(state: _State) -> WaypointOrder:
+        """탐색 상태를 현재 도착 연결 기준의 경유지 조합으로 변환한다."""
         # 목표 거리와 비교하므로 cost의 합은 실제 이동 거리(m)여야 한다.
         # 선호 가중 비용으로 확장할 때는 선택한 구간의 실제 거리도 별도로 받아,
         # 목표 거리 오차와 선호 비용을 분리해 평가해야 한다.
-        # 오차가 같으면 ID 순서로 비교해 결과를 일정하게 유지한다.
-        return abs(state.closed_m - target_m), state.waypoint_ids
+        return WaypointOrder(
+            state.waypoint_ids,
+            state.closed_m,
+            abs(state.closed_m - target_m),
+            state.route_metrics,
+        )
+
+    def as_rank_order(state: _State) -> WaypointOrder:
+        """랭킹 전용 변환 — 미완성 순서에서는 closed_m 대신 rank_m(남은 구간을 반영한
+        추정 총거리)을 쓴다. 반환되는 BeamResult.orders는 as_order()가 만들므로 실제
+        거리 보고값은 그대로다."""
+        return WaypointOrder(
+            state.waypoint_ids,
+            state.rank_m,
+            abs(state.rank_m - target_m),
+            state.route_metrics,
+        )
+
+    def rank(state: _State):
+        """거리 전용 또는 허용 범위 안 재통행 우선 기준으로 상태를 비교하고,
+        rank_penalty가 있으면 그 값을 주 비교값에 더한다(실거리에는 반영하지 않음)."""
+        key = objective.rank(as_rank_order(state))
+        if rank_penalty is None:
+            return key
+        primary, *rest = key
+        return (primary + state.penalty_so_far, *rest)
 
     def expand(states: Sequence[_State]) -> Iterator[_State]:
-        nonlocal evaluated_candidates
+        """미선택 경유지를 붙이고 임시 도착 연결까지 평가한 상태를 생성한다."""
+        nonlocal evaluated_candidates, route_evaluations
         for state in states:
             last_id = state.waypoint_ids[-1] if state.waypoint_ids else start_id
             for next_id in pool:
@@ -121,11 +198,53 @@ def beam_search(
                 if not isfinite(closed_m):
                     raise ValueError("누적 거리 계산이 유한 범위를 넘었습니다.")
 
-                yield _State(
+                # 남은 경유지를 0m로 보지 않는다(2026-09-09 버그픽스). next_id를 붙이면
+                # 경유지가 chosen개가 되고, 거기서 도착지까지 남는 구간은
+                # w_chosen→w_{chosen+1} ... w_N→end의 waypoint_count - chosen + 1개다.
+                # 2개 이상 남았으면 tail_m(=dist(next_id, end), 삼각부등식상 하한)을
+                # 균형 순환 가정값 target_m*(남은 구간 수)/(N+1)로 끌어올려 조준점을 옮기되,
+                # max로 하한은 깨지 않는다. 마지막 단계(남은 구간 1개)에서는 tail_m이 곧
+                # 정확한 값이므로 rank_m == closed_m이 되어 기존 동작과 같다.
+                # (GRASP의 grasp_waypoint_common.py::_remaining_distance_estimate_m와 동일한 식 —
+                # 두 구축의 공정 비교 조건을 유지하려면 한쪽만 고칠 수 없다.)
+                chosen = len(state.waypoint_ids) + 1
+                remaining_legs = waypoint_count - chosen + 1
+                if remaining_legs > 1:
+                    balanced_tail_m = target_m * remaining_legs / (waypoint_count + 1)
+                    rank_m = partial_m + max(tail_m, balanced_tail_m)
+                else:
+                    rank_m = closed_m
+
+                next_state = _State(
                     waypoint_ids=state.waypoint_ids + (next_id,),
                     partial_m=partial_m,
                     closed_m=closed_m,
+                    penalty_so_far=(
+                        state.penalty_so_far + penalty(last_id, next_id)
+                        if rank_penalty is not None
+                        else 0.0
+                    ),
+                    rank_m=rank_m,
                 )
+                if evaluate_route is not None:
+                    route_evaluations += 1
+                    order = attach_route_metrics(
+                        as_order(next_state),
+                        evaluate_route,
+                        start_id,
+                        end_id,
+                    )
+                    if order is None:
+                        continue
+                    # 이전 단계의 임시 복귀 경로는 버리고 새 순서 전체를 평가한다.
+                    next_state = _State(
+                        order.waypoint_ids,
+                        partial_m,
+                        closed_m,
+                        order.route_metrics,
+                        rank_m=rank_m,
+                    )
+                yield next_state
 
     # 시작 상태의 closed_m은 평가하지 않는다. 첫 확장부터 계산한다.
     beam = [_State(waypoint_ids=(), partial_m=0.0, closed_m=0.0)]
@@ -136,16 +255,11 @@ def beam_search(
         if not beam:
             break
 
-    orders = tuple(
-        WaypointOrder(
-            waypoint_ids=state.waypoint_ids,
-            distance_m=state.closed_m,
-            error_m=abs(state.closed_m - target_m),
-        )
-        for state in beam
-    )
+    orders = tuple(as_order(state) for state in beam)
     return BeamResult(
         orders=orders,
         evaluated_candidates=evaluated_candidates,
         cost_calls=cost_calls,
+        route_evaluations=route_evaluations,
+        penalty_calls=penalty_calls,
     )
