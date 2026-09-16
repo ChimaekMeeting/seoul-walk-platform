@@ -1,5 +1,6 @@
 import math
 import random
+from dataclasses import dataclass
 from typing import TypeVar
 
 import networkx as nx
@@ -12,6 +13,89 @@ _R2_M: float = 300.0  # ROUT-NODE 2차 탐색 반경 (m)
 _NETWORK_FACTOR: float = 1.4          # 직선 거리 → 도로망 거리 추정 계수 (서울 도심 블록 구조 기준)
 _TOLERANCE_RATIO: float = 0.1         # 허용 오차 범위 10%
 _RETURN_REVISIT_PENALTY: float = 5.0  # 연결 경로가 기방문 노드를 재사용할 때의 거리 가중 배수
+
+_EARTH_RADIUS_M: float = 6_371_000.0
+
+
+def latlon_to_local_xy(lat: float, lon: float, *, lat_ref: float) -> tuple[float, float]:
+    """도보 엣지 스케일(수십~수백 m) 전제의 등장방형(equirectangular) 근사 투영.
+    lat_ref 위도에서의 경도 1도 실거리(cos(lat_ref) 보정)를 반영해, 위경도를 그대로
+    평면 좌표로 쓸 때 생기는 동서 방향 왜곡을 없앤다. 구간이 수 km 이상으로 길어지거나
+    넓은 지역을 가로지르면 이 근사의 오차도 커지므로 그때는 재검토가 필요하다."""
+    lat_rad, lon_rad, ref_rad = math.radians(lat), math.radians(lon), math.radians(lat_ref)
+    return (lon_rad * math.cos(ref_rad) * _EARTH_RADIUS_M, lat_rad * _EARTH_RADIUS_M)
+
+
+def turn_angle(
+    prev_xy: tuple[float, float],
+    curr_xy: tuple[float, float],
+    next_xy: tuple[float, float],
+) -> float | None:
+    """평면(또는 동일 기준으로 투영된) 좌표 3개에서 curr 지점의 회전각(도, 0~180)을
+    반환한다. 0=직진, 90=직각 회전, 180=완전한 유턴(좌우 방향은 구분하지 않음).
+    원시 위경도(도)는 직접 넣지 않는다 — latlon_to_local_xy로 투영한 뒤 넣을 것.
+    직전==현재 또는 현재==다음(길이 0 벡터)이면 회전을 정의할 수 없어 None을 반환한다."""
+    v1x, v1y = curr_xy[0] - prev_xy[0], curr_xy[1] - prev_xy[1]
+    v2x, v2y = next_xy[0] - curr_xy[0], next_xy[1] - curr_xy[1]
+    n1, n2 = math.hypot(v1x, v1y), math.hypot(v2x, v2y)
+    if n1 == 0.0 or n2 == 0.0:
+        return None
+    cosine = max(-1.0, min(1.0, (v1x * v2x + v1y * v2y) / (n1 * n2)))  # acos 정의역([-1,1]) clamp
+    return math.degrees(math.acos(cosine))
+
+
+def _undefined_turn_reason(G: nx.Graph, prev_node, curr_node, next_node) -> str:
+    """turn_angle_at이 None을 반환했을 때만 호출되는 원인 분류(예외 경로라 비용 무시 가능)."""
+    for nd_id in (prev_node, curr_node, next_node):
+        nd = G.nodes[nd_id]
+        if "lat" not in nd or "lon" not in nd:
+            return "missing_coordinate"
+    return "zero_length_segment"
+
+
+def turn_angle_at(G: nx.Graph, prev_node, curr_node, next_node) -> float | None:
+    """그래프 노드 3개(직전·현재·다음)에서 curr 지점의 회전각(도). turn_angle의 그래프
+    래퍼 — 노드 lat/lon을 curr 위도 기준 로컬 평면으로 투영한 뒤 turn_angle에 넘긴다.
+    좌표 누락 또는 길이 0 벡터면 None. 특정 탐색 엔진에 종속되지 않는 공용 함수이지만
+    그래프 좌표 상태에는 의존한다(엄밀한 순수 함수는 turn_angle/latlon_to_local_xy 쪽).
+    calc_distance(엣지 속성 length 합산)와는 좌표 소스가 무관한 별개 계산이다."""
+    pn, cn, nn = G.nodes[prev_node], G.nodes[curr_node], G.nodes[next_node]
+    if any(k not in nd for nd in (pn, cn, nn) for k in ("lat", "lon")):
+        return None
+    lat_ref = cn["lat"]
+    p_xy = latlon_to_local_xy(pn["lat"], pn["lon"], lat_ref=lat_ref)
+    c_xy = latlon_to_local_xy(cn["lat"], cn["lon"], lat_ref=lat_ref)
+    n_xy = latlon_to_local_xy(nn["lat"], nn["lon"], lat_ref=lat_ref)
+    return turn_angle(p_xy, c_xy, n_xy)
+
+
+def count_turns_at_or_above(angles_deg, threshold_deg: float) -> int:
+    """회전각 목록에서 threshold_deg 이상인 것의 개수. 45/60/90도 등은 아직 검증된
+    인간공학적 기준이 아니라 잠정 운영 임계값이므로, TurnMetrics에 특정 값을 필드로
+    고정하지 않고 분석 단계에서 원하는 후보값마다 이 함수로 동적 계산한다."""
+    return sum(1 for a in angles_deg if a >= threshold_deg)
+
+
+@dataclass(frozen=True)
+class TurnAngleResult:
+    """turn_angle_result()의 상세 반환값. angles_deg는 정의 가능했던 회전각만 담고,
+    undefined_reasons는 정의 불가 지점의 원인별 개수를 담는다(0으로 숨기지 않음)."""
+    angles_deg: list[float]
+    undefined_reasons: dict[str, int]
+
+
+@dataclass(frozen=True)
+class TurnMetrics:
+    """경로의 회전 관련 통계(진단·비교용, 엔진 accept/reject 기준에는 미사용).
+    급회전 개수(45/60/90도 등)는 여기 필드로 두지 않는다 — count_turns_at_or_above를
+    후보 임계값마다 별도 호출해서 구한다(임계값 근거가 아직 확정되지 않았기 때문)."""
+    total_turn_deg: float
+    max_turn_deg: float
+    candidate_turn_count: int
+    defined_turn_count: int
+    undefined_turn_count: int
+    undefined_turn_reasons: dict[str, int]
+    turn_deg_per_km: float | None
 
 
 class PathUtils:
@@ -135,14 +219,100 @@ class PathUtils:
             G.remove_nodes_from(dead_ends)
         return G
 
+    def _edge_distance_m(self, u: int, v: int) -> float:
+        """calc_distance와 동일한 규칙으로 u-v 엣지의 길이를 반환한다(무방향 단순
+        그래프라 u,v 순서 무관). 엣지가 없거나 length 속성이 없으면 조용히 0으로
+        처리한다(기존 호출부와의 동작 일관성 우선 — 실제 엔진이 만드는 경로는 항상
+        유효한 연속 엣지로 구성되므로 이 경우가 발생하지 않는다는 전제)."""
+        return (self.G.get_edge_data(u, v) or {}).get("length", 0)
+
     def calc_distance(self, nodes: list[int]) -> float:
         """
         노드 목록의 총 이동 거리(미터)를 반환합니다.
         """
         return sum(
-            (self.G.get_edge_data(nodes[i], nodes[i + 1]) or {}).get("length", 0)
+            self._edge_distance_m(nodes[i], nodes[i + 1])
             for i in range(len(nodes) - 1)
         )  # 인접 노드 쌍의 length 합산
+
+    @staticmethod
+    def _normalized_nodes(path: list[int], *, closed: bool) -> list[int]:
+        """closed=True일 때, 시작 노드가 끝에 중복된 표현([n0,..,nk,n0])과 중복 없는
+        표현([n0,..,nk])을 동일하게 처리하기 위해 마지막 중복을 제거한다."""
+        nodes = list(path)
+        if closed and len(nodes) > 1 and nodes[0] == nodes[-1]:
+            nodes.pop()
+        return nodes
+
+    def path_distance_m(self, path: list[int], *, closed: bool = False) -> float:
+        """경로의 총 이동 거리(m). closed=True면 입력이 시작 노드 중복 여부와 무관하게
+        마지막→시작 이음매 구간 거리를 정확히 1회만 더한다(중복 계산도 누락도 없음).
+        거리는 노드 좌표가 아니라 엣지 length 속성(DB 사전계산값)을 합산한다 —
+        회전각(노드 좌표 기반)과는 데이터 소스가 무관한 별개 계산이다."""
+        nodes = self._normalized_nodes(path, closed=closed)
+        if len(nodes) < 2:
+            return 0.0
+        distance_m = self.calc_distance(nodes)
+        if closed:
+            distance_m += self._edge_distance_m(nodes[-1], nodes[0])
+        return distance_m
+
+    def turn_angle_result(self, path: list[int], *, closed: bool = False) -> TurnAngleResult:
+        """회전각 목록과 정의 불가능한 원인별 집계를 반환한다.
+
+        closed=True면 시작 노드 중복 여부(있든 없든)와 무관하게 경로를 닫힌 루프로
+        보고, 서로 다른 노드가 3개 미만이면 계산하지 않는다. 닫힌 루프는 "메인 구간 +
+        이음매 패치" 방식이 아니라 전체 노드를 모듈러 인덱스로 순회해, n개 노드에
+        대해 정확히 n개의 회전을 빠짐없이 계산한다(패치 방식은 마지막 노드의 회전이
+        누락되는 버그가 있었음 — 삼각형 순환으로 검증: 메인+패치는 2개, 모듈러 순회는
+        3개가 나와야 정답).
+
+        내부 노드 재방문(닫힌 경로 여부와 무관하게, 예: [n0,n1,n2,n1])이 있어도 노드
+        ID가 아니라 리스트 위치 기준으로 그대로 회전량을 계산한다 — 회전량은 실제
+        이동 순서의 방향 변화를 재는 지표이고, 자기중첩 여부는 edge_overlap_ratio 등
+        별도 지표가 맡는다."""
+        nodes = self._normalized_nodes(path, closed=closed)
+        n = len(nodes)
+        if closed:
+            if len(set(nodes)) < 3:
+                return TurnAngleResult([], {})
+            index_range = range(n)
+        else:
+            if n < 3:
+                return TurnAngleResult([], {})
+            index_range = range(1, n - 1)
+
+        angles: list[float] = []
+        undefined_reasons: dict[str, int] = {}
+        for i in index_range:
+            prev_node, curr_node, next_node = nodes[(i - 1) % n], nodes[i], nodes[(i + 1) % n]
+            angle = turn_angle_at(self.G, prev_node, curr_node, next_node)
+            if angle is None:
+                reason = _undefined_turn_reason(self.G, prev_node, curr_node, next_node)
+                undefined_reasons[reason] = undefined_reasons.get(reason, 0) + 1
+            else:
+                angles.append(angle)
+        return TurnAngleResult(angles, undefined_reasons)
+
+    def turn_angles(self, path: list[int], *, closed: bool = False) -> list[float]:
+        """경로에서 정의 가능한 회전각만 도 단위 목록으로 반환한다(편의 함수)."""
+        return self.turn_angle_result(path, closed=closed).angles_deg
+
+    def turn_metrics(self, path: list[int], *, closed: bool = False) -> TurnMetrics:
+        """경로의 회전 관련 통계(진단·비교용, 엔진 accept/reject 기준에는 미사용)."""
+        result = self.turn_angle_result(path, closed=closed)
+        angles, undefined_reasons = result.angles_deg, result.undefined_reasons
+        undefined_count = sum(undefined_reasons.values())
+        distance_km = self.path_distance_m(path, closed=closed) / 1000.0
+        return TurnMetrics(
+            total_turn_deg=sum(angles),
+            max_turn_deg=max(angles, default=0.0),
+            candidate_turn_count=len(angles) + undefined_count,
+            defined_turn_count=len(angles),
+            undefined_turn_count=undefined_count,
+            undefined_turn_reasons=undefined_reasons,
+            turn_deg_per_km=(sum(angles) / distance_km) if distance_km > 1e-6 else None,
+        )
 
     # ── 경로 엔진 공통 평가 도구 (beam / grasp 공유) ─────────────────────────────
     def est_network_dist(self, node: int, target: int) -> float:
