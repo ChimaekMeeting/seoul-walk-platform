@@ -1,13 +1,13 @@
 """
-turn_cost(turn_metrics) 실측 분포 확인 스크립트 — v2 (현재 활성 엔진 9종).
+turn_cost(turn_metrics) 실측 분포 확인 스크립트 — 현재 활성 순환 엔진 9종
+(grasp-wp-local/vnd/vns/alns, beam-wp, beam-wp-local/vnd/vns/alns) 대상.
 
-2026-09-16 1차 분석(turn_cost_distribution_check.py)은 legacy 순환 4종(beam/grasp/
-alns/rcsp-circular)을 대상으로 했는데, 그중 3종은 같은 날짜에 이미 팀이 폐기 결정한
-엔진이었다(commit 4c7c924, "되살릴 계획이 없다"). 이 스크립트는 dev 최신 상태 기준
-SOLVER_REGISTRY의 실제 활성 엔진 9종(grasp-wp-*, beam-wp-*)으로 다시 측정한다.
+임계값(30/45/60/75/90/120도) 민감도 분석을 위해 회전각 원본 리스트를
+angles_deg_json 컬럼에 함께 저장한다 — 나중에 다른 임계값 후보가 필요해도
+엔진을 다시 돌리지 않고 이 CSV만 다시 읽으면 된다.
 
-실행: python -m analysis.turn_cost.turn_cost_distribution_v2_check (레포 루트에서)
-출력: turn_cost_distribution_v2.csv (이 스크립트와 같은 디렉터리)
+실행: python analysis/turn_cost/turn_cost_distribution_check.py (레포 루트에서)
+출력: turn_cost_distribution.csv (이 스크립트와 같은 디렉터리)
 """
 import json
 import sys
@@ -25,7 +25,7 @@ from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 from src.route_engine.engines.path_utils import PathUtils, count_turns_at_or_above
 
 SEED = 42  # benchmarks/solvers/*.py의 _DEFAULT_SEED와 동일 — 재현성 위해 명시적으로 고정
-THRESHOLDS = (45.0, 60.0, 90.0)
+THRESHOLDS = (30.0, 45.0, 60.0, 75.0, 90.0, 120.0)  # 임계값 민감도 분석용 후보(잠정)
 
 
 def main():
@@ -71,6 +71,7 @@ def main():
                 "defined_turn_count": metrics.defined_turn_count,
                 "undefined_turn_count": metrics.undefined_turn_count,
                 "undefined_turn_reasons": json.dumps(metrics.undefined_turn_reasons, ensure_ascii=False),
+                "angles_deg_json": json.dumps([round(a, 2) for a in angles]),
             }
             for t in THRESHOLDS:
                 row[f"turn_count_ge_{int(t)}"] = count_turns_at_or_above(angles, t)
@@ -80,12 +81,12 @@ def main():
               f"성공 {ok_count}/{len(CIRCULAR_ALGOS)})", flush=True)
 
     df = pd.DataFrame(rows)
-    out_path = Path(__file__).parent / "turn_cost_distribution_v2.csv"
+    out_path = Path(__file__).parent / "turn_cost_distribution.csv"
     df.to_csv(out_path, index=False, encoding="utf-8-sig")
     print(f"\n총 소요 시간: {time.time()-t_start:.0f}초, 결과 {len(df)}행 저장: {out_path}", flush=True)
 
     print("\n=== 알고리즘별 회전량 통계 ===", flush=True)
-    summary = df.groupby("algorithm").agg(
+    agg_kwargs = dict(
         시도수=("scenario_id", "count"),
         평균총회전량=("total_turn_deg", "mean"),
         p50_총회전량=("total_turn_deg", lambda s: s.quantile(0.5)),
@@ -93,10 +94,10 @@ def main():
         평균최대회전각=("max_turn_deg", "mean"),
         평균거리당회전량=("turn_deg_per_km", "mean"),
         undefined합계=("undefined_turn_count", "sum"),
-        평균45도이상횟수=("turn_count_ge_45", "mean"),
-        평균60도이상횟수=("turn_count_ge_60", "mean"),
-        평균90도이상횟수=("turn_count_ge_90", "mean"),
-    ).round(2).sort_values("평균거리당회전량")
+    )
+    for t in THRESHOLDS:
+        agg_kwargs[f"평균{int(t)}도이상횟수"] = (f"turn_count_ge_{int(t)}", "mean")
+    summary = df.groupby("algorithm").agg(**agg_kwargs).round(2).sort_values("평균거리당회전량")
     print(summary.to_string(), flush=True)
 
     total_candidate = df["candidate_turn_count"].sum()
