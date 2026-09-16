@@ -90,6 +90,12 @@ def _segment_metrics(engine, start_node: int, target_km: float) -> dict:
         "min_waypoint_separation_m": round(min_separation_m, 4),
         "repeated_edge_ratio": r(gm.repeated_edge_ratio, 4),
         "waypoint_angle_diff_deg": r(angles[0], 2) if angles else None,
+        # 부호를 잃지 않는 원본 방위각. angle_diff는 [0,180] 정규화라 되돌아온 배치를
+        # 구분하지 못한다(RouteGeometryMetrics.waypoint_bearings_deg docstring 참고).
+        "waypoint_bearings_deg": (
+            json.dumps([round(b, 2) for b in gm.waypoint_bearings_deg])
+            if gm.waypoint_bearings_deg else None
+        ),
         "segment_balance_ratio": r(gm.segment_balance_ratio, 4),
         "is_degenerate_loop": gm.is_degenerate_loop,
         "num_waypoints_used": engine.config.num_waypoints,

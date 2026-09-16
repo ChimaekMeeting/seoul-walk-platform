@@ -642,6 +642,11 @@ class RouteGeometryMetrics:
     waypoint_angle_diffs_deg: 연속한 두 경유지의 p1 기준 방위각차(0~180도) 목록, 길이
         N-1. N=2에서는 원소 1개짜리 리스트가 되어 기존 waypoint_angle_diff_deg(스칼라)와
         같은 값을 담는다. 경유지가 1개뿐이면 빈 리스트.
+    waypoint_bearings_deg: p1 기준 각 경유지의 방위각(0~360도, 정북=0, 시계방향) 목록,
+        길이 N. waypoint_angle_diffs_deg는 이 값에서 부호를 버린 인접 차이라
+        "+90도, -90도로 되돌아온 배치"와 "+90도, +90도로 계속 도는 배치"를 구분하지
+        못한다. 전역 배치(원형 배치) 진단에는 부호가 필요해 원본 방위각을 그대로 남긴다
+        (2026-09-16 추가). 좌표가 없으면 None.
     segment_balance_ratio: min(segment_lengths_m) / max(segment_lengths_m), 0~1.
     effective_waypoint_count: Route.effective_waypoints의 개수 — 선언한 N과 다르면
         pruning이 경유지를 지웠다는 뜻이다(진단 전용, 탐색 기준에는 쓰지 않는다).
@@ -659,6 +664,9 @@ class RouteGeometryMetrics:
     prune_diagnostics: Optional["PruneDiagnostics"] = None
     # prune_dead_ends가 이 경로에서 무엇을 왜 잘라냈는지(진단 전용, PruneDiagnostics 참고).
     # 구간 거리를 못 구한 경우(path_finder 실패)에는 채우지 않는다.
+    waypoint_bearings_deg: Optional[list[float]] = None
+    # 위 docstring 참고. 이 dataclass를 위치인자로 만드는 곳이 solver 2개와
+    # compute_route_geometry_metrics 내부에 있어, 중간에 끼우지 않고 맨 뒤에 기본값과 함께 둔다.
 
 
 _DEGENERATE_REPEATED_EDGE_RATIO = 0.35
@@ -745,12 +753,16 @@ def compute_route_geometry_metrics(
         "lat" in G.nodes[n] and "lon" in G.nodes[n] for n in (start_node, *route.waypoints)
     )
     angle_diffs_deg: Optional[list[float]] = None
+    bearings_deg: Optional[list[float]] = None
     if have_coords:
         p1_data = G.nodes[start_node]
         bearings = [
             _bearing_rad(p1_data["lat"], p1_data["lon"], G.nodes[w]["lat"], G.nodes[w]["lon"])
             for w in route.waypoints
         ]
+        # _bearing_rad는 atan2 결과라 (-π, π]다. 0~360으로 접어 CSV에서 부호 해석이 필요
+        # 없게 만든다 — 인접 차이의 부호는 읽는 쪽에서 wrap180으로 복원한다.
+        bearings_deg = [math.degrees(b) % 360.0 for b in bearings]
         angle_diffs_deg = [
             math.degrees(_angular_separation_rad(bearings[i], bearings[i + 1]))
             for i in range(len(bearings) - 1)
@@ -773,6 +785,7 @@ def compute_route_geometry_metrics(
         is_degenerate_loop=degenerate,
         effective_waypoint_count=route.effective_waypoint_count,
         prune_diagnostics=compute_prune_diagnostics(G, raw_nodes, route.waypoints),
+        waypoint_bearings_deg=bearings_deg,
     )
 
 

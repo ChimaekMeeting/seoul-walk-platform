@@ -74,7 +74,7 @@ RESULT_COLUMNS = [
     # 되살리지 않는다.
     "selection_status", "feasible",
     "waypoint_separation_m", "min_waypoint_separation_m",
-    "waypoint_angle_diff_deg", "segment_balance_ratio", "is_degenerate_loop",
+    "waypoint_angle_diff_deg", "waypoint_bearings_deg", "segment_balance_ratio", "is_degenerate_loop",
     "num_waypoints_used", "effective_waypoints_used",
     "prune_branch_count", "prune_branch_length_m",
     "prune_clean_branch_count", "prune_clean_branch_length_m",
@@ -98,7 +98,7 @@ _OPTIONAL_FLOAT_KEYS = (
     "prune_branch_length_m", "prune_clean_branch_length_m",
 )
 _OPTIONAL_BOOL_KEYS = ("feasible", "is_degenerate_loop")
-_OPTIONAL_STR_KEYS = ("selection_status", "alns_operator_stats")
+_OPTIONAL_STR_KEYS = ("selection_status", "alns_operator_stats", "waypoint_bearings_deg")
 
 # overlap_ratio / repeated_edge_ratio는 build_result_row가 별도 규칙으로 채우므로 제외한다.
 _PASSTHROUGH_KEYS = tuple(
