@@ -119,16 +119,22 @@ alns-circular(682.2) < grasp-wp-vns(744.6, n=2) < grasp-wp-alns(756.9) < beam-ci
 
 이 5개 시나리오만 보면 전체 25개 평균과 순위가 다르다(예: alns-circular가 이 5개에서는 최상위) — **표본이 다르면 순위가 바뀐다는 것 자체가 "25개 전체 대비 일반화하면 안 된다"는 근거**다.
 
-### 발견: `grasp-wp-vnd`가 `grasp-wp-local`과 동일한 경로를 반환함
+### 조사 완료: `grasp-wp-vnd` == `grasp-wp-local` 현상의 원인 (2026-09-16 추가 조사)
 
-5개 시나리오 전부에서 `grasp-wp-vnd`의 회전량 수치가 `grasp-wp-local`과 정확히 일치해 의심스러워 원시 경로(노드ID 리스트)를 직접 비교했다(`circular_20` 기준). **완전히 동일한 경로(길이 61, 전체 노드 일치)였다.** 우연이 아니라 재현 가능한 사실이다.
+5개 시나리오 전부에서 `grasp-wp-vnd`의 최종 결과가 `grasp-wp-local`과 노드ID까지 완전히 일치해, 실제 `vnd()`/`_local_search()` 메서드를 GRASP 반복(`grasp_iters=24`) 단위로 직접 호출해 비교했다(`circular_20` 기준, 재현 스크립트는 이 조사 전용으로 별도 저장하지 않고 1회성으로 실행함 — 필요시 아래 커맨드로 재현 가능).
 
-이는 (a) VND의 지역 탐색이 이 시나리오들에서 개선 이동을 하나도 찾지 못했거나(정당한 결과일 수 있음), (b) VND solver 어댑터가 실제로 VND 탐색 로직을 타지 않고 있을 가능성(버그일 수 있음)을 시사한다. **이번 turn_cost 작업 범위 밖(GRASP-Waypoint 엔진 내부 문제)이라 원인 조사는 하지 않았다** — GRASP-Waypoint 엔진 담당자에게 별도로 전달이 필요하다.
+**결론: 버그가 아니다.** 다음이 모두 코드로 직접 확인됐다.
+
+- **VND는 실제로 실행되고 실제로 개선한다**: 24회 반복 중 9회에서 VND가 Local과 다른(그리고 목적함수 기준 명백히 더 나은) 경로를 만들었다. 예: 반복 0에서 Local은 `distance_error=84.4m, repeated_edge_ratio=0.122`, VND는 `distance_error=60.8m, repeated_edge_ratio=0.045`.
+- **다만 "최종 채택 반복"이 우연히 겹쳤다**: GRASP은 24회 중 하나만 최종 채택하는데, 채택 기준(`RouteObjective.sort_key()`)이 `repeated_edge_ratio`(자기중첩)를 `distance_error_m`(거리 오차)보다 **우선** 순위로 둔다. 이 시나리오에서는 반복 1번(`repeated_edge_ratio=0.033`)이 최종 승자였는데, 하필 반복 1번은 VND가 추가 개선을 못 찾은(=Local과 이미 같은) 9회 중 하나가 아니었다. VND가 다른 22개 반복에서는 분명히 더 나은 경로를 찾았지만, 그중 어느 것도 반복 1번의 낮은 `repeated_edge_ratio`를 이기지 못해 최종 결과만 우연히 같아진 것이다.
+- **호출 경로·어댑터 버그 없음**: `SOLVER_REGISTRY`가 서로 다른 클래스(`CircularGraspWaypointLocalEngine`/`CircularGraspWaypointVndEngine`)를 정확히 가리키며, 결과를 덮어쓰는 코드도 없다.
+
+**일반화 주의**: 이건 `seed=42`·`rcl_size=8`·`grasp_iters=24`라는 특정 설정과 "자기중첩 최소화를 거리 정확도보다 우선"하는 목적함수 설계가 겹쳐 생긴, **이번 5개 샘플에 한정된 관측**이다. 다른 시나리오·시드에서는 VND가 Local을 실제로 앞지르는 결과가 나올 수 있다 — "VND와 Local이 항상 같다"고 일반화하면 안 된다.
 
 ## 다음 단계
 
 - [완료] grasp-wp-local/grasp-circular/alns-circular 대표 샘플 반복 실행(분산 확인)
 - [완료] grasp-wp-vnd/alns/vns 대표 시나리오 소수 실행
+- [완료] grasp-wp-vnd == grasp-wp-local 경로 동일 현상 원인 조사 — 버그 아님, 최종 채택 반복이 우연히 겹친 것으로 확인(위 참고)
 - [보류·차단] beam-circular 어댑터 반환 타입 버그 — `gh` CLI 미설치로 이슈 미등록, 초안만 작성([beam_circular_adapter_issue_draft.md](beam_circular_adapter_issue_draft.md))
-- [팀 전달 필요] grasp-wp-vnd == grasp-wp-local 경로 동일 현상(위 참고) — GRASP-Waypoint 담당자 확인 필요
 - [보류] 후보 임계값(30/45/60/75/90/120) 민감도 분석, 사용자 행동 데이터 기반 검증
