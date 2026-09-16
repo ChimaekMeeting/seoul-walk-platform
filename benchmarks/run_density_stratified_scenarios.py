@@ -132,7 +132,7 @@ def algorithm_defaults(algos) -> dict:
 
     어떤 설정으로 돈 실행인지는 행만 보고 판정할 수 없어(노브는 결과 컬럼에 안 들어간다)
     CSV 옆 메타데이터에 남긴다. 여기 없는 알고리즘은 공용 기본값(DEFAULT_CONFIG,
-    waypoint_refinement.py의 _ALNS_*·_MAX_SHAKE_LEVEL)으로 돈다."""
+    waypoint_refinement.py의 _ALNS_*·_MAX_SHAKE_LEVEL·_MAX_ITERATIONS)으로 돈다."""
     return {
         algo: {
             name: asdict(value) if name == "config" else dict(value)

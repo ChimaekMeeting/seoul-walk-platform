@@ -54,10 +54,13 @@ from src.route_engine.engines.circular_grasp_waypoint_vnd import CircularGraspWa
 from src.route_engine.engines.circular_grasp_waypoint_vns import CircularGraspWaypointVnsEngine
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.waypoint_pool import WaypointPoolGenerator
+import src.route_engine.engines.waypoint_refinement as _wr  # monkeypatch 대상 모듈 네임스페이스
 from src.route_engine.engines.waypoint_refinement import (
+    _MAX_ITERATIONS,
     _MAX_SHAKE_LEVEL,
     vnd as _vnd_refine,
     vns as _vns_refine,
+    vns_loop as _vns_loop_refine,
 )
 from src.schema.route_schema import CircularRouteInput
 
@@ -829,6 +832,127 @@ def test_vns_options_reject_unknown_key(grid_graph):
         _vns_refine(
             engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config,
             random.Random(7), options={"iterations": 30},
+        )
+
+
+def test_vns_max_iterations_caps_the_number_of_shakes(grid_graph, monkeypatch):
+    """반복 상한은 교란 시도 횟수를 실제로 제한해야 한다 — 개선될 때마다 shake_level이 1로
+    돌아가는 구조라 이 상한이 없으면 호출 1회의 반복 수에 상한이 없다."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    original_shake = _wr._shake
+    calls = []
+
+    def counting_shake(*args, **kwargs):
+        calls.append(1)
+        return original_shake(*args, **kwargs)
+
+    for cap in (1, 2, 3):
+        calls.clear()
+        monkeypatch.setattr(_wr, "_shake", counting_shake)
+        _vns_refine(
+            engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config,
+            random.Random(7), options={"max_iterations": cap},
+        )
+        assert len(calls) <= cap
+
+
+def test_vns_max_iterations_none_means_no_cap(grid_graph):
+    """None은 상한 도입 전 동작(레벨 소진만으로 종료)과 완전히 같아야 한다 — 과거 결과를
+    재현할 때 쓰는 탈출구다."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    uncapped = _vns_refine(
+        engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config,
+        random.Random(7), options={"max_iterations": None},
+    )
+    # 상한 인자 자체를 끈 직접 호출(vns()가 조립하는 vnd() → vns_loop() 순서를 그대로 재현).
+    vnd_first = _vnd_refine(
+        engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config,
+    )
+    reference = _vns_loop_refine(
+        engine.G, engine.cost_cache, pool_result, start_node, vnd_first, target_m, engine.config,
+        random.Random(7), max_iterations=None,
+    )
+    assert uncapped.node_ids == reference.node_ids
+
+
+def test_vns_explicit_default_max_iterations_matches_no_options(grid_graph):
+    """기본값을 그대로 주입한 실행은 주입하지 않은 실행과 같아야 한다(max_shake_level과 동일한 회귀 보호)."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    args = (engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config)
+    without = _vns_refine(*args, random.Random(7))
+    with_default = _vns_refine(*args, random.Random(7), options={"max_iterations": _MAX_ITERATIONS})
+    assert with_default.node_ids == without.node_ids
+
+
+def test_vns_lower_max_iterations_still_never_worsens_vnd_result(grid_graph):
+    """반복 상한을 낮춰도 VNS는 VND 단독 결과보다 나빠지지 않아야 한다 — 상한은 탐색을
+    일찍 끊을 뿐 채택 규칙을 건드리지 않는다."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    tolerance = target_m * engine.config.distance_tolerance_ratio
+    vnd_only = _vnd_refine(engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config)
+    obj_vnd = evaluate_route(vnd_only, target_m, tolerance)
+
+    for cap in (1, 2, 4, 8):
+        result = _vns_refine(
+            engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config,
+            random.Random(7), options={"max_iterations": cap},
+        )
+        assert not better(obj_vnd, evaluate_route(result, target_m, tolerance))
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 2.5, "3"])
+def test_vns_options_reject_invalid_max_iterations(grid_graph, bad):
+    """None만 예외로 허용하고(상한 없음), 나머지 비정수·0 이하 값은 즉시 실패한다."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = CircularGraspWaypointVnsEngine(inp=inp, G=grid_graph, seed=42)
+    start_node, target_m = _node_id(2, 2), _ENGINE_TEST_TARGET_M
+    pool_result = _pool(grid_graph, 2, 2, target_km=_ENGINE_TEST_TARGET_KM)
+    assert pool_result is not None
+
+    initial = _first_initial_route(engine, pool_result, start_node, target_m)
+    if initial is None:
+        pytest.skip("24회 재시도 후에도 이 격자/목표거리 조합에서 초기 해를 못 만듦")
+
+    with pytest.raises(ValueError, match="max_iterations"):
+        _vns_refine(
+            engine.G, engine.cost_cache, pool_result, start_node, initial, target_m, engine.config,
+            random.Random(7), options={"max_iterations": bad},
         )
 
 

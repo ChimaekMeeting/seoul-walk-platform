@@ -45,8 +45,9 @@ BEAM_VNS_CONFIG = replace(DEFAULT_CONFIG, rcl_size=4)
 
 
 class CircularBeamWaypointVnsEngine(WaypointEngine):
-    """vns_options는 {"max_shake_level": N} 형태의 정제 설정 주입구다(기본값은
-    waypoint_refinement.py의 _MAX_SHAKE_LEVEL) — CircularGraspWaypointVnsEngine과 같은 관례."""
+    """vns_options는 {"max_shake_level": N, "max_iterations": N} 형태의 정제 설정 주입구다
+    (기본값은 waypoint_refinement.py의 _MAX_SHAKE_LEVEL·_MAX_ITERATIONS) —
+    CircularGraspWaypointVnsEngine과 같은 관례."""
 
     def __init__(
         self,

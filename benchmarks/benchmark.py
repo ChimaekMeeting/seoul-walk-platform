@@ -287,6 +287,7 @@ _REFINEMENT_CLI_KNOBS = (
     ("alns", "candidate_limit", int, "복구 후보 풀 상한. 미지정이면 제한 없음"),
     ("alns", "max_cost_calls", int, "cost 콜백 호출 상한 (기본 3000)"),
     ("vns", "max_shake_level", int, "VNS 교란 레벨 상한. 4 이상은 전체 재구축 반복"),
+    ("vns", "max_iterations", int, "VNS 1회 호출의 총 교란 반복 상한 (기본 12)"),
 )
 
 
