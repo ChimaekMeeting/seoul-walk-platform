@@ -1,51 +1,31 @@
 """
-turn_cost(turn_metrics) 실측 분포 확인 스크립트.
+turn_cost(turn_metrics) 실측 분포 확인 스크립트 — v2 (현재 활성 엔진 9종).
 
-목적: 새로 추가한 PathUtils.turn_metrics를 실제 서울 도보 그래프 + 기존 벤치마크
-순환 시나리오(benchmarks/datasets/route_engine.json)의 실제 생성 경로에 적용해,
-회전량 분포(총회전량/최대회전각/거리당 회전량)와 정의 불가 회전 비율을 확인한다.
+2026-09-16 1차 분석(turn_cost_distribution_check.py)은 legacy 순환 4종(beam/grasp/
+alns/rcsp-circular)을 대상으로 했는데, 그중 3종은 같은 날짜에 이미 팀이 폐기 결정한
+엔진이었다(commit 4c7c924, "되살릴 계획이 없다"). 이 스크립트는 dev 최신 상태 기준
+SOLVER_REGISTRY의 실제 활성 엔진 9종(grasp-wp-*, beam-wp-*)으로 다시 측정한다.
 
-범위: grasp-wp-vnd/vns/alns는 1회 호출에 100초 이상 걸려(사전 확인) 25개 시나리오
-전수 실행이 비현실적이라 이번 배치에서 제외한다(별도 후속 작업으로 남김).
-beam-circular는 benchmarks/solvers/_circular_engine_common.py::run_circular_engine이
-CircularBeamEngine.find_path()의 반환 타입(list[list[int]], 후보 3개)을 그대로
-prune_dead_ends에 넘기는 기존 버그가 있어(이번 작업과 무관, 별도 보고 대상) 그
-어댑터를 우회하고 engine.find_path()[0](대표 후보)을 직접 사용한다.
-
-실행: python turn_cost_distribution_check.py (레포 루트에서, PYTHONPATH에 레포 루트 필요)
-출력: turn_cost_distribution.csv (이 스크립트와 같은 디렉터리)
+실행: python -m analysis.turn_cost.turn_cost_distribution_v2_check (레포 루트에서)
+출력: turn_cost_distribution_v2.csv (이 스크립트와 같은 디렉터리)
 """
 import json
 import sys
 import time
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]  # analysis/turn_cost/ 기준 레포 루트
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 import pandas as pd
 
 from benchmarks.benchmark import _load_default_graph, SOLVER_REGISTRY
-from src.route_engine.scoring.scoring_engine import precompute_scoring_features, calculate_custom_score
+from benchmarks.run_all_scenarios import CIRCULAR_ALGOS
+from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 from src.route_engine.engines.path_utils import PathUtils, count_turns_at_or_above
-from src.route_engine.engines.circular_beam import CircularBeamEngine
-from src.schema.route_schema import CircularRouteInput
 
-FAST_ALGOS = ["grasp-circular", "alns-circular", "rcsp-circular"]
-SLOW_ALGOS = ["grasp-wp-local"]  # grasp-wp-vnd/vns/alns는 시간 예산상 제외(개별 확인 필요)
+SEED = 42  # benchmarks/solvers/*.py의 _DEFAULT_SEED와 동일 — 재현성 위해 명시적으로 고정
 THRESHOLDS = (45.0, 60.0, 90.0)
-
-
-def get_beam_path(g, engine_utils, start_node, target_km, profile):
-    """run_circular_engine의 기존 list[list[int]] 처리 버그를 우회해 대표 후보(0번)만 사용."""
-    inp = CircularRouteInput(start_lat=0.0, start_lon=0.0, target_km=target_km)
-    engine = CircularBeamEngine(inp=inp, G=g, custom_weights=None, profile=profile)
-    calculate_custom_score(engine.G, {
-        "mode": engine.scoring_mode, "weights": engine.weights, "blocked_tags": engine.blocked_tags,
-    })
-    candidates = engine.find_path(start_node, target_km)
-    nodes = candidates[0]
-    return engine.utils.prune_dead_ends(nodes)
 
 
 def main():
@@ -57,31 +37,26 @@ def main():
     with open(REPO_ROOT / "benchmarks" / "datasets" / "route_engine.json", encoding="utf-8") as f:
         dataset = json.load(f)
     scenarios = [s for s in dataset["scenarios"] if s["mode"] == "circular"]
-    print(f"순환 시나리오 {len(scenarios)}개, 알고리즘 {['beam-circular'] + FAST_ALGOS + SLOW_ALGOS}", flush=True)
+    print(f"순환 시나리오 {len(scenarios)}개, 알고리즘(현재 SOLVER_REGISTRY 활성 9종) {CIRCULAR_ALGOS}", flush=True)
 
     rows = []
     t_start = time.time()
     for i, sc in enumerate(scenarios, 1):
         start_node = utils.find_nearest_node(sc["start_lat"], sc["start_lon"])
-        target_km, profile = sc["target_km"], sc["profile"]
-        params = {"target_km": target_km, "profile": profile}
+        target_km = sc["target_km"]
+        params = {"target_km": target_km, "seed": SEED}
 
-        algo_paths = {}
-        try:
-            algo_paths["beam-circular"] = get_beam_path(g, utils, start_node, target_km, profile)
-        except Exception as e:
-            print(f"  [{sc['id']}] beam-circular FAILED: {e!r}", flush=True)
-
-        for key in FAST_ALGOS + SLOW_ALGOS:
+        ok_count = 0
+        for algo in CIRCULAR_ALGOS:
             try:
-                r = SOLVER_REGISTRY[key].solve(g, start_node, start_node, params)
-                algo_paths[key] = r["paths"][0]
+                r = SOLVER_REGISTRY[algo].solve(g, start_node, start_node, params)
+                path = r["paths"][0]
             except Exception as e:
-                print(f"  [{sc['id']}] {key} FAILED: {e!r}", flush=True)
-
-        for algo, path in algo_paths.items():
+                print(f"  [{sc['id']}] {algo} FAILED: {e!r}", flush=True)
+                continue
             if not path:
                 continue
+            ok_count += 1
             closed = len(path) > 1 and path[0] == path[-1]
             metrics = utils.turn_metrics(path, closed=closed)
             angles = utils.turn_angles(path, closed=closed)
@@ -102,10 +77,10 @@ def main():
             rows.append(row)
 
         print(f"[{i}/{len(scenarios)}] {sc['id']} 완료 (누적 {time.time()-t_start:.0f}초, "
-              f"성공 {len(algo_paths)}/{1+len(FAST_ALGOS)+len(SLOW_ALGOS)})", flush=True)
+              f"성공 {ok_count}/{len(CIRCULAR_ALGOS)})", flush=True)
 
     df = pd.DataFrame(rows)
-    out_path = Path(__file__).parent / "turn_cost_distribution.csv"
+    out_path = Path(__file__).parent / "turn_cost_distribution_v2.csv"
     df.to_csv(out_path, index=False, encoding="utf-8-sig")
     print(f"\n총 소요 시간: {time.time()-t_start:.0f}초, 결과 {len(df)}행 저장: {out_path}", flush=True)
 
@@ -117,17 +92,18 @@ def main():
         p90_총회전량=("total_turn_deg", lambda s: s.quantile(0.9)),
         평균최대회전각=("max_turn_deg", "mean"),
         평균거리당회전량=("turn_deg_per_km", "mean"),
-        평균undefined비율=("undefined_turn_count", lambda s: (s.sum())),
+        undefined합계=("undefined_turn_count", "sum"),
         평균45도이상횟수=("turn_count_ge_45", "mean"),
         평균60도이상횟수=("turn_count_ge_60", "mean"),
         평균90도이상횟수=("turn_count_ge_90", "mean"),
-    ).round(2)
+    ).round(2).sort_values("평균거리당회전량")
     print(summary.to_string(), flush=True)
 
     total_candidate = df["candidate_turn_count"].sum()
     total_undefined = df["undefined_turn_count"].sum()
-    print(f"\n전체 candidate_turn_count 합계: {total_candidate}, undefined 합계: {total_undefined} "
-          f"({100*total_undefined/total_candidate:.3f}% 정의 불가)" if total_candidate else "", flush=True)
+    if total_candidate:
+        print(f"\n전체 candidate_turn_count 합계: {total_candidate}, undefined 합계: {total_undefined} "
+              f"({100*total_undefined/total_candidate:.3f}% 정의 불가)", flush=True)
 
 
 if __name__ == "__main__":
