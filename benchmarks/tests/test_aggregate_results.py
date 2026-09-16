@@ -135,16 +135,21 @@ def test_g6b_conditions_with_nan_keys_are_not_silently_dropped():
     assert len(paired) == 2
 
 
-def test_g7_win_rate_is_decided_by_circularity_not_by_the_gate():
-    """순위 1순위는 정규화 원형성이다(2026-09-11 규칙 변경).
+def test_g7_win_rate_is_decided_by_distance_error_not_by_circularity():
+    """순위 1순위는 거리 오차다(2026-09-17 규칙 변경).
 
-    게이트 4항목 중 3항목이 정상 동작에서 상수라, pass_rate를 1순위에 두면 전 알고리즘이
-    동점이 되어 2순위가 단독으로 승자를 정했다. 게이트는 참가 자격으로 내렸다.
+    circularity_q는 자기 교차 경로에서 신발끈 부호 상쇄로 값이 32배까지 틀리는데,
+    그 오차가 승자를 가르고 있었다. 원형성은 관측 전용으로 내리고 순위에서 뺐다
+    (aggregate_results.py 모듈 docstring "순위 규칙" 참고).
+
+    A는 원형성이 월등하지만 거리 오차가 크다 — 옛 규칙이라면 A가 이긴다. 새 규칙에서는
+    B가 이겨야 한다.
     """
     rows = [
-        # 같은 조건에서 B가 더 원형이다(거리편차는 동일) → B가 이겨야 한다
-        _row("A", 1, 1, circularity=0.2), _row("A", 1, 2, circularity=0.2),
-        _row("B", 1, 1, circularity=0.6), _row("B", 1, 2, circularity=0.6),
+        _row("A", 1, 1, deviation=0.3, circularity=0.9),
+        _row("A", 1, 2, deviation=0.3, circularity=0.9),
+        _row("B", 1, 1, deviation=0.1, circularity=0.2),
+        _row("B", 1, 2, deviation=0.1, circularity=0.2),
     ]
     condition_df = agg.per_condition(agg.add_derived_columns(pd.DataFrame(rows)))
 
@@ -327,7 +332,7 @@ def test_g17_paired_permutation_test_is_exact_for_small_condition_counts():
     """
     rows = []
     for start_node in (1, 2):
-        rows += [_row("A", start_node, 1, circularity=0.6), _row("B", start_node, 1, circularity=0.3)]
+        rows += [_row("A", start_node, 1, deviation=0.3), _row("B", start_node, 1, deviation=0.1)]
     condition_df = agg.per_condition(agg.add_derived_columns(pd.DataFrame(rows)))
 
     tests = agg.paired_tests(condition_df)
@@ -343,7 +348,7 @@ def test_g17b_permutation_test_detects_a_consistent_difference_given_enough_cond
     """조건이 충분히 많고 한쪽이 매번 이기면 유의해진다(2^10 = 1,024가지 중 2가지)."""
     rows = []
     for start_node in range(1, 11):
-        rows += [_row("A", start_node, 1, circularity=0.6), _row("B", start_node, 1, circularity=0.3)]
+        rows += [_row("A", start_node, 1, deviation=0.3), _row("B", start_node, 1, deviation=0.1)]
     condition_df = agg.per_condition(agg.add_derived_columns(pd.DataFrame(rows)))
 
     tests = agg.paired_tests(condition_df)
