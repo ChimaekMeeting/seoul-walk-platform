@@ -40,6 +40,7 @@ import numpy as np
 import pandas as pd
 
 from benchmarks.aggregate_results import condition_columns, load_results
+from benchmarks.analyze_bearing_spread import describe, parse_bearings
 from benchmarks.stats import percentile
 
 GROUND_TRUTH = "circularity_q"
@@ -77,6 +78,13 @@ PROXIES = (
         "구간 균등만으로는 원형이 보장되지 않는다. 방위각이 고르게 퍼져야 정다각형에 "
         "가까워지므로 함께 잰다.",
     ),
+    Proxy(
+        "bearing_span_ratio",
+        "방위각 전역 폭 비 (span / 이상값)",
+        "기존 waypoint_angle_diff_deg는 N=2 전용 스칼라라 N>2에서 첫 쌍만 본다. 원 위 "
+        "균등 배치의 이상 폭 (N-1)*180/(N+1)을 1로 두고 실제 폭의 비를 잰다 — 절대 위치 "
+        "기반 원형성 항이 실제로 원형성을 예측하는지의 직접 지표다(2026-09-16 추가).",
+    ),
 )
 
 
@@ -94,6 +102,16 @@ def prepare(df: pd.DataFrame) -> pd.DataFrame:
     if {"waypoint_separation_m", "target_km"} <= set(work.columns):
         target_m = work["target_km"] * 1000
         work["separation_ratio"] = work["waypoint_separation_m"] / target_m.where(target_m > 0)
+
+    if "waypoint_bearings_deg" in work.columns:
+        # 방위각 전역 폭 — 부호 있는 배치를 보려면 방위각차가 아니라 원본 방위각이 필요하다
+        # (RouteGeometryMetrics.waypoint_bearings_deg docstring 참고).
+        parsed = work["waypoint_bearings_deg"].map(parse_bearings)
+        work["bearing_span_ratio"] = parsed.map(
+            lambda bearings: describe(bearings)["span_ratio"] if bearings else None
+        )
+    else:
+        work["bearing_span_ratio"] = pd.NA
 
     if {"num_waypoints_used", "effective_waypoints_used"} <= set(work.columns):
         # 선언한 경유지를 전부 지났는가. False면 기하 지표가 최종 경로와 다른 것을 서술한다.
