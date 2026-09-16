@@ -1,9 +1,24 @@
 # turn_cost 경로 형상 분포 — 탐색적 1차 관측
 
 > **주의**: 이 폴더의 결과는 **확정된 결론이 아니라 탐색적(exploratory) 1차 관측**입니다.
-> 반복 측정 없이 각 엔진 1회 실행만 수행했고, 일부 엔진은 공식 어댑터를 우회해서
-> 얻은 값입니다. 엔진 우열이나 보행 편안함의 확정 근거로 인용하지 마세요.
-> (후속 반복 실행·어댑터 수정 이후 이 폴더 내용은 갱신될 수 있습니다.)
+> 반복 측정 없이 각 엔진 1회 실행만 수행했습니다. 엔진 우열이나 보행 편안함의
+> 확정 근거로 인용하지 마세요.
+
+## ⚠ v1(아래) vs v2 — 어느 쪽을 봐야 하는가
+
+**아래 "실행 개요"~"느린 엔진" 절(2026-09-16 오전 작성)은 legacy 순환 4종
+(`beam-circular`/`grasp-circular`/`alns-circular`/`rcsp-circular`)을 포함합니다.
+그런데 이 4종 중 3종(beam/grasp/alns-circular)은 같은 날 이미 팀이 폐기 결정한
+엔진이었습니다**(commit `4c7c924`, "레거시 순환 4종... 되살릴 계획이 없다 — 신세대
+(grasp_waypoint_common 계열 / waypoint_beam+adapter) 9종으로 대체됐다"). 당시엔 이
+사실을 모른 채 분석했습니다.
+
+**현재 실제로 쓰이는 엔진은 9종**(`grasp-wp-local/vnd/vns/alns`,
+`beam-wp`/`beam-wp-local/vnd/vns/alns`)이고, 이 9종에 대한 재측정 결과는
+**[turn_cost_distribution_v2.csv](turn_cost_distribution_v2.csv)와 아래
+"v2: 현재 활성 엔진 9종" 절**에 있습니다. **엔진 비교가 목적이면 v1이 아니라 v2를
+봐야 합니다.** v1은 "turn_cost 구현이 실제 경로에서 작동하는지"를 처음 확인한
+기록으로만 남겨둡니다(legacy 엔진 자체의 특성 비교로는 더 이상 의미가 없음).
 
 ## 실행 정보
 
@@ -136,5 +151,70 @@ alns-circular(682.2) < grasp-wp-vns(744.6, n=2) < grasp-wp-alns(756.9) < beam-ci
 - [완료] grasp-wp-local/grasp-circular/alns-circular 대표 샘플 반복 실행(분산 확인)
 - [완료] grasp-wp-vnd/alns/vns 대표 시나리오 소수 실행
 - [완료] grasp-wp-vnd == grasp-wp-local 경로 동일 현상 원인 조사 — 버그 아님, 최종 채택 반복이 우연히 겹친 것으로 확인(위 참고)
-- [보류·차단] beam-circular 어댑터 반환 타입 버그 — `gh` CLI 미설치로 이슈 미등록, 초안만 작성([beam_circular_adapter_issue_draft.md](beam_circular_adapter_issue_draft.md))
+- [철회] beam-circular 어댑터 반환 타입 버그 수정 — `beam-circular`가 commit `4c7c924`로 이미 `SOLVER_REGISTRY`에서 빠져 아무 데서도 안 쓰이는 죽은 코드임을 확인(`beam_solver.py`를 import하는 곳이 자기 자신 말고 없음). 죽은 코드 수정은 의미가 없어 이슈 등록·수정 모두 철회. 이슈 초안([beam_circular_adapter_issue_draft.md](beam_circular_adapter_issue_draft.md))은 기록으로만 남김.
+- [완료] 현재 활성 엔진 9종으로 25개 시나리오 재측정 — 아래 "v2" 절 참고
 - [보류] 후보 임계값(30/45/60/75/90/120) 민감도 분석, 사용자 행동 데이터 기반 검증
+
+---
+
+## v2: 현재 활성 엔진 9종 재측정 (2026-09-16, dev 최신 상태 기준)
+
+### 실행 정보
+
+| 항목 | 내용 |
+|---|---|
+| 실행일 | 2026-09-16 |
+| 코드 기준 | `feature/turn-cost-metric` = `dev`(`331cad6`) + turn_cost 작업 병합 후 |
+| 그래프 | 서울 도보 그래프 fixture(160,328노드 / 223,927엣지) |
+| 시나리오 | `benchmarks/datasets/route_engine.json`의 순환 시나리오 25개(전수) |
+| 엔진 | `run_all_scenarios.py::CIRCULAR_ALGOS` 9종(현재 `SOLVER_REGISTRY`의 순환 전체) — `grasp-wp-local/vnd/vns/alns`, `beam-wp`, `beam-wp-local/vnd/vns/alns` |
+| seed | 42(각 solver `_DEFAULT_SEED`와 동일, 명시적으로 고정) |
+| 스크립트 / 원본 결과 | [turn_cost_distribution_v2_check.py](turn_cost_distribution_v2_check.py) / [turn_cost_distribution_v2.csv](turn_cost_distribution_v2.csv) |
+| 성공률 | **225/225 (25×9 전부 성공, 실패 0건)** — v1(legacy 4종, alns 2건 실패)보다 안정적 |
+| 총 소요시간 | 3,972초(약 66분) |
+
+### 엔진별 회전량 통계 (거리당 회전량 오름차순)
+
+| 엔진 | 평균 총회전량(°) | p50(°) | p90(°) | 평균 최대회전각(°) | 평균 거리당회전량(°/km) | 45°↑ | 60°↑ | 90°↑ |
+|---|---|---|---|---|---|---|---|---|
+| grasp-wp-vns | 2667.1 | 2431.9 | 3852.5 | 119.5 | **740.7** | 26.4 | 21.6 | 7.7 |
+| beam-wp-alns | 2685.4 | 2824.7 | 3581.3 | 133.8 | **788.0** | 26.6 | 22.4 | 7.1 |
+| beam-wp-local | 2751.9 | 2918.8 | 3646.1 | 125.8 | **789.3** | 27.7 | 23.3 | 7.1 |
+| beam-wp-vnd | 2791.1 | 2918.8 | 3706.8 | 126.2 | **792.3** | 28.0 | 24.0 | 7.8 |
+| grasp-wp-alns | 2868.7 | 2910.7 | 3847.5 | 132.3 | **795.7** | 28.1 | 24.2 | 7.9 |
+| beam-wp | 2780.4 | 2563.9 | 4114.2 | 158.0 | **797.5** | 27.5 | 22.6 | 6.9 |
+| grasp-wp-local | 2865.9 | 2737.1 | 4064.5 | 126.1 | **800.7** | 28.8 | 24.7 | 8.5 |
+| grasp-wp-vnd | 2874.8 | 2958.9 | 4064.5 | 126.1 | **803.3** | 29.0 | 24.9 | 8.6 |
+| beam-wp-vns | 2949.2 | 2979.9 | 3803.1 | 131.9 | **845.4** | 29.6 | 25.0 | 8.9 |
+
+**전체 candidate_turn_count 19,396건 중 undefined 0건(0.000%)** — v1과 동일하게 정의 불가 회전이 실측 데이터에서 발생하지 않았다.
+
+### v1과 다른 점 — 엔진 간 편차가 훨씬 작다
+
+v1(legacy 4종)의 거리당 회전량은 739.6~1288.0(°/km)로 **1.7배** 차이가 났는데, v2(현재 9종)는 740.7~845.4로 **1.14배**밖에 차이 나지 않는다. 즉 **현재 쓰이는 9종은 회전 형태 면에서 서로 꽤 비슷하다** — v1에서 관측된 "RCSP/GRASP이 훨씬 꼬불꼬불하다"는 큰 격차는 이미 폐기된 엔진들 사이의 차이였고, 지금 남은 9종끼리는 그 정도로 벌어지지 않는다.
+
+### 지표 간 순위 불일치 — v1과 동일한 패턴 재확인
+
+v1에서 본 "누적 회전량과 급회전 지표는 순위가 다르다"는 현상이 v2에서도 그대로 나타난다.
+
+```
+turn_deg_per_km 순위(완만한 순):
+  grasp-wp-vns < beam-wp-alns < beam-wp-local < beam-wp-vnd < grasp-wp-alns
+  < beam-wp < grasp-wp-local < grasp-wp-vnd < beam-wp-vns
+
+turn_count_ge_90 순위(급회전 적은 순):
+  beam-wp < beam-wp-local < beam-wp-alns < grasp-wp-vns < beam-wp-vnd
+  < grasp-wp-alns < grasp-wp-local < grasp-wp-vnd < beam-wp-vns
+
+max_turn_deg 순위(최대 단일회전 작은 순):
+  grasp-wp-vns < beam-wp-local < grasp-wp-local < grasp-wp-vnd < beam-wp-vnd
+  < beam-wp-vns < grasp-wp-alns < beam-wp-alns < beam-wp
+```
+
+`beam-wp`가 대표적 예다 — 거리당 회전량은 중위권(6위)인데, **급회전(90°↑) 횟수는 9종 중 가장 적고(6.9회)**, 동시에 **평균 최대 단일회전각은 가장 크다(158.0°)**. 즉 `beam-wp`는 "크게 한 번씩 꺾이지만 잦은 급회전은 없는" 유형이고, 반대로 `beam-wp-vns`는 거리당 회전량·급회전 횟수 모두 최하위(가장 나쁨)다. 역시 **누적 지표 하나로 엔진을 줄 세우면 안 되고, 여러 지표를 함께 봐야 한다.**
+
+### v2의 한계 (v1과 동일)
+
+1. 각 엔진 1회 실행(seed=42 고정)이라 반복 측정 분산은 확인하지 않았다.
+2. 45°/60°/90° 임계값은 여전히 잠정 운영 임계값이다.
+3. 회전량을 엔진 선택의 목적함수에 연결하지 않았다 — 진단·비교용으로만 사용.
