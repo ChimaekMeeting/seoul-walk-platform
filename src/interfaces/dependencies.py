@@ -16,6 +16,7 @@ from src.service import (
 from src.agent.nodes import (
     WeatherChecker,
     Extractor,
+    WeightExtractor,
     Interviewer,
     ConfirmationClassifier,
     RouteExecutor
@@ -86,6 +87,7 @@ def init_route_service():
         kakao_client            = kakao_client,
         auth_service            = auth_service,
         extractor               = Extractor(),
+        weight_extractor        = WeightExtractor(),
         interviewer             = Interviewer(),
         confirmation_classifier = ConfirmationClassifier(),
         route_executor          = RouteExecutor(),
