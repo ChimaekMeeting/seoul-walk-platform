@@ -10,6 +10,7 @@ test_grasp_waypoint.py / test_grasp_waypoint_alns.py가 이미 검증하므로 �
 import networkx as nx
 import pytest
 
+import src.route_engine.engines.waypoint_engine_assembly as assembly
 from src.interfaces.schema.walk_schema import WalkRouteStatus
 from src.route_engine.engines.grasp_waypoint_common import RouteObjective
 from src.route_engine.engines.path_utils import PathUtils
@@ -265,23 +266,22 @@ def test_single_candidate_combo_returns_one_response(grid_graph):
     assert engine.last_alternative_routes == []
 
 
-def test_final_route_is_unchanged_by_candidate_collection(grid_graph):
+def test_final_route_is_unchanged_by_candidate_collection(grid_graph, monkeypatch):
     """후보 수집이 최종 경로 선택에 끼어들지 않는다 — 같은 seed에서 후보를 내는 조합과
-    내지 않는 조합의 find_path() 결과가 같아야 한다(정제가 같으므로)."""
+    내지 않는 조합의 find_path() 결과가 같아야 한다(정제가 같으므로).
+
+    이 변경의 핵심 회귀 방지선이다. 벤치마크 CSV가 최종 경로 하나만 보므로, 후보 수집이
+    승자 선택에 끼어들면 지표가 조용히 달라진다."""
     common = dict(inp=_grid_inp(), G=grid_graph, construction="grasp", refinement="local")
     multi = WaypointEngine(**common)
     start = PathUtils(grid_graph).find_nearest_node(multi.inp.start_lat, multi.inp.start_lon)
     with_candidates = multi.find_path(start, multi.inp.target_km)
+    assert multi.last_alternative_routes, "후보를 내는 조합이어야 비교에 의미가 있다"
 
+    # 같은 조합을 "후보를 안 내는" 상태로만 돌려 비교한다(monkeypatch가 자동 복원).
+    monkeypatch.setattr(assembly, "MULTI_CANDIDATE_COMBOS", frozenset())
     solo = WaypointEngine(**common)
-    solo_nodes = None
-    try:
-        import src.route_engine.engines.waypoint_engine_assembly as assembly
-        original = assembly.MULTI_CANDIDATE_COMBOS
-        assembly.MULTI_CANDIDATE_COMBOS = frozenset()
-        solo_nodes = solo.find_path(start, solo.inp.target_km)
-    finally:
-        assembly.MULTI_CANDIDATE_COMBOS = original
+    solo_nodes = solo.find_path(start, solo.inp.target_km)
 
     assert with_candidates == solo_nodes
     assert solo.last_alternative_routes == []
