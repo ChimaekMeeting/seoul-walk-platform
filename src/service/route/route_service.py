@@ -22,7 +22,7 @@ from src.route_engine.engines import (
     WaypointComposerEngine,
 )
 from src.route_engine.engines.path_utils import PathUtils
-from src.route_engine.profiles import ScoringProfile, get_profile, merge_weights
+from src.route_engine.profiles import ScoringProfile, get_profile
 from src.route_engine.weighted_cost_runtime import build_request_cost_context
 from src.config.settings import settings
 from src.schema.route_schema import (
@@ -30,6 +30,7 @@ from src.schema.route_schema import (
     GpsArtPoint,
     GpsArtRouteInput,
     OnewayRouteInput,
+    SafetyComfortPreference,
     WaypointCoordinate,
     WaypointLegMode,
     WaypointRouteInput,
@@ -66,6 +67,7 @@ class RouteService:
         waypoints: Optional[List[Coordinate]] = None,
         leg_modes: Optional[List[WaypointLegMode]] = None,
         leg_target_km: Optional[List[Optional[float]]] = None,
+        preference: Optional[SafetyComfortPreference] = None,
     ) -> List[WalkRouteResponse]:
         """
         context에 적합한 경로 생성 엔진을 호출합니다.
@@ -140,7 +142,7 @@ class RouteService:
         try:
             engine = self._build_engine(
                 mode, origin, destination, target_km, custom_weights, profile, shape_points,
-                waypoints, leg_modes, leg_target_km,
+                waypoints, leg_modes, leg_target_km, preference,
             )
         except ValueError:
             logger.warning("walk route invalid destination: mode=%s", mode)
@@ -197,7 +199,9 @@ class RouteService:
 
         return results
 
-    # 가중 비용을 적용하는 모드. 나머지는 거리 전용으로 남는다.
+    # 안전·편안 가중 연결을 쓸 수 있는 모드. 실제 적용 여부는 leg 단위로 정해진다
+    # (_resolve_fill_leg_mode) — 모드가 waypoint여도 사용자가 모든 구간을 명시했거나
+    # 선호가 없으면 가중 연결은 생기지 않는다.
     #
     # ONEWAY_SHORTEST가 빠져 있는 것은 의도다(#445 설계 결정 A) — "최단"은 물리
     # 최단거리로 유지하고, 가중 경로가 얼마나 돌아갔는지 재는 기준선이자 상한 초과
@@ -212,7 +216,7 @@ class RouteService:
     def _build_cost_context(
         self,
         mode: WalkMode,
-        custom_weights: Optional[Weights],
+        preference: Optional[SafetyComfortPreference],
         profile: Optional[ScoringProfile],
     ):
         """요청 하나가 쓸 가중 비용 객체. 해당 없으면 None(거리 전용).
@@ -220,21 +224,49 @@ class RouteService:
         **요청당 한 번만** 만들고 그 요청의 모든 구간이 같은 객체를 공유한다.
         전역에 캐시하지 않는다 — 다른 사용자의 가중치와 섞이면 안 된다.
 
+        Weights가 아니라 SafetyComfortPreference를 받는다. Weights는 8축 전체에
+        기본값이 있어(safety=0.5, slope=0.5) 아무 말도 하지 않은 사용자에게까지
+        가중치가 걸린다 — 가중 비용은 사용자가 실제로 표현한 선호에만 적용한다.
+
         그래프를 훑지 않는다. 기동 때 붙여 둔 적재율·중앙값만 읽으므로 상수 시간이다.
         """
-        if mode not in self._WEIGHTED_MODES:
+        if mode not in self._WEIGHTED_MODES or preference is None or not preference.is_active:
             return None
 
+        safety, comfort = preference.as_coefficients()
         profile_config = get_profile(profile)
-        weights = merge_weights(profile_config.weights, custom_weights)
         return build_request_cost_context(
             self.G,
-            safety_preference=weights.safety,
-            slope_preference=weights.slope,
+            safety_preference=safety,
+            slope_preference=comfort,
             weight_limit=settings.WALK_WEIGHT_LIMIT,
             accident_ratio=settings.WALK_UNSAFE_ACCIDENT_RATIO,
             blocked_tags=profile_config.blocked_tags,
         )
+
+    @staticmethod
+    def _resolve_fill_leg_mode(
+        given_modes: List[WaypointLegMode],
+        preference: Optional[SafetyComfortPreference],
+        cost_context,
+    ) -> tuple[str, Optional[str]]:
+        """방식을 지정하지 않은 구간을 무엇으로 채울지와, 가중 연결을 쓰지 못한 사유.
+
+        패딩 **전에** 판단해야 한다 — 먼저 oneway_shortest로 채워 버리면 "사용자가
+        고른 최단"과 "서비스가 채운 연결"을 더 이상 구분할 수 없다.
+
+        Beam 구간(oneway_random)이 섞인 요청은 이번 가중 연결 대상에서 제외한다.
+        Beam은 아직 custom_score(할인 모델)로 탐색하는데 두 모델은 방향이 반대라
+        한 요청 안에서 섞으면 구간별 후보 비교가 불공정해진다.
+        """
+        if "oneway_random" in given_modes:
+            return "oneway_shortest", "beam_leg_present"
+        if preference is None or not preference.is_active:
+            return "oneway_shortest", "no_preference"
+        if cost_context is None:
+            # 선호는 있지만 점수 커버리지가 부족해 가중 모드가 꺼져 있다.
+            return "oneway_shortest", "scores_unavailable"
+        return "oneway_preferred", None
 
     def _build_engine(
         self,
@@ -248,9 +280,10 @@ class RouteService:
         waypoints: Optional[List[Coordinate]] = None,
         leg_modes: Optional[List[WaypointLegMode]] = None,
         leg_target_km: Optional[List[Optional[float]]] = None,
+        preference: Optional[SafetyComfortPreference] = None,
     ):
         """profile/custom_weights를 엔진에 주입해 경로 생성 엔진 인스턴스를 반환합니다."""
-        cost_context = self._build_cost_context(mode, custom_weights, profile)
+        cost_context = self._build_cost_context(mode, preference, profile)
 
         if mode == WalkMode.CIRCULAR_RANDOM:
             inp = CircularRouteInput(
@@ -281,11 +314,18 @@ class RouteService:
             stop_waypoints = waypoints or []
             expected_legs  = len(stop_waypoints) + 1
 
-            # 지정하지 않은 구간은 최단 경로(oneway_shortest)로 채운다.
-            padded_modes = list(leg_modes or [])
-            padded_modes += ["oneway_shortest"] * (expected_legs - len(padded_modes))
+            given_modes = list(leg_modes or [])
+            fill_mode, skipped_reason = self._resolve_fill_leg_mode(
+                given_modes, preference, cost_context,
+            )
+            # 지정하지 않은 구간만 채운다. 사용자가 명시적으로 고른 최단 구간을
+            # 저장된 선호 때문에 가중 연결로 바꾸지 않는다.
+            padded_modes = given_modes + [fill_mode] * (expected_legs - len(given_modes))
             padded_target_km = list(leg_target_km or [])
             padded_target_km += [None] * (expected_legs - len(padded_target_km))
+
+            if "oneway_preferred" not in padded_modes:
+                cost_context = None
 
             inp = WaypointRouteInput(
                 start_lat=origin.lat,
@@ -299,6 +339,7 @@ class RouteService:
             return self.base_engines[mode](
                 inp, self.G, custom_weights=custom_weights, profile=profile,
                 cost_context=cost_context,
+                preference_skipped_reason=skipped_reason,
             )
 
         if destination is None:

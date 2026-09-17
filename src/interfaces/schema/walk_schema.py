@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 from enum import Enum
 
@@ -142,6 +142,15 @@ class RoutePoiItem(BaseModel):
     distance_to_route_m: float
 
 
+PreferenceSkippedReason = Literal[
+    "no_preference",
+    "beam_leg_present",
+    "scores_unavailable",
+    "detour_cap_exceeded",
+    "baseline_failed",
+]
+
+
 class WalkRouteResponse(BaseModel):
     status: WalkRouteStatus
     mode: WalkMode
@@ -151,3 +160,13 @@ class WalkRouteResponse(BaseModel):
     # 저장에 실패했거나 애초에 저장 대상이 아닌 응답(에러 상태 등)에서는 None.
     id: Optional[int] = None
     nearby_pois: list[RoutePoiItem] = Field(default_factory=list)
+    # 안전·편안 선호가 실제로 경로에 반영됐는지(#445). waypoint 모드에서만 True가 될 수
+    # 있고, 기본값이 False이므로 기존 응답 생성부는 그대로 동작한다.
+    preference_applied: bool = False
+    # 반영하지 못한 사유. preference_applied=True면 None이다.
+    #   no_preference       사용자가 표현한 안전·편안 선호가 없음
+    #   beam_leg_present    oneway_random 구간이 섞여 이번 가중 연결 대상에서 제외
+    #   scores_unavailable  그래프 점수 커버리지가 부족해 가중 모드가 꺼짐
+    #   detour_cap_exceeded 가중 경로가 우회 상한을 넘겨 거리 기준으로 되돌림
+    #   baseline_failed     비교할 거리 기준 경로를 만들지 못해 상한을 검증하지 못함
+    preference_skipped_reason: Optional[PreferenceSkippedReason] = None

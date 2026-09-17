@@ -43,7 +43,7 @@ from src.route_engine.weighted_cost_runtime import (
     get_coverage_report,
     prepare_weighted_cost,
 )
-from src.schema.route_schema import Weights, WaypointRouteInput
+from src.schema.route_schema import SafetyComfortPreference, WaypointRouteInput
 from src.schema.route_schema import WaypointCoordinate
 
 K = 0.5
@@ -217,6 +217,9 @@ def service():
     return RouteService(G=prepared(scored_graph()), auth_service=MagicMock())
 
 
+ACTIVE = SafetyComfortPreference(safety=0.8, comfort=0.2)
+
+
 @pytest.mark.parametrize("mode", [
     WalkMode.ONEWAY_SHORTEST,
     WalkMode.ONEWAY_RANDOM,
@@ -225,22 +228,73 @@ def service():
 ])
 def test_only_waypoint_mode_gets_a_cost_context(service, mode):
     """설계 결정 A: oneway_shortest는 물리 최단으로 남는다. Beam 계열은 후속 작업."""
-    assert service._build_cost_context(mode, None, None) is None
+    assert service._build_cost_context(mode, ACTIVE, None) is None
 
 
-def test_waypoint_mode_gets_a_cost_context(service):
-    context = service._build_cost_context(WalkMode.WAYPOINT, None, None)
+def test_waypoint_mode_with_active_preference_gets_a_cost_context(service):
+    context = service._build_cost_context(WalkMode.WAYPOINT, ACTIVE, None)
 
     assert context is not None
     assert context.enabled is True
 
 
-def test_zero_custom_weights_keep_waypoint_on_distance(service):
+@pytest.mark.parametrize("preference", [
+    None,
+    SafetyComfortPreference(),                          # 축 둘 다 미지정
+])
+def test_inactive_preference_keeps_waypoint_on_distance(service, preference):
+    """Weights 기본값(0.5)만 있는 사용자에게 가중치를 걸지 않는다."""
+    assert service._build_cost_context(WalkMode.WAYPOINT, preference, None) is None
+
+
+def test_unspecified_axis_contributes_zero(service):
+    """안전만 말했다면 편안함은 기본값 0.5가 아니라 0으로 들어가야 한다."""
     context = service._build_cost_context(
-        WalkMode.WAYPOINT, Weights(safety=0.0, slope=0.0), None,
+        WalkMode.WAYPOINT, SafetyComfortPreference(safety=0.8), None,
     )
 
-    assert context is None
+    assert context.alpha > 0
+    assert context.beta == 0.0
+
+
+# ── leg 방식 결정 (패딩 전) ─────────────────────────────────────────────────
+
+
+def test_unspecified_legs_become_preferred_when_preference_is_active(service):
+    context = service._build_cost_context(WalkMode.WAYPOINT, ACTIVE, None)
+
+    assert service._resolve_fill_leg_mode([], ACTIVE, context) == ("oneway_preferred", None)
+
+
+def test_unspecified_legs_stay_shortest_without_preference(service):
+    assert service._resolve_fill_leg_mode([], None, None) == ("oneway_shortest", "no_preference")
+
+
+def test_beam_leg_excludes_the_whole_request(service):
+    """oneway_random이 섞이면 가중 연결 대상에서 빼되 사유를 남긴다."""
+    context = service._build_cost_context(WalkMode.WAYPOINT, ACTIVE, None)
+
+    assert service._resolve_fill_leg_mode(
+        ["oneway_random"], ACTIVE, context,
+    ) == ("oneway_shortest", "beam_leg_present")
+
+
+def test_missing_scores_are_reported_as_such(service):
+    """선호는 있는데 그래프 점수가 없어 가중 모드가 꺼진 경우."""
+    assert service._resolve_fill_leg_mode([], ACTIVE, None) == (
+        "oneway_shortest", "scores_unavailable",
+    )
+
+
+def test_explicit_shortest_legs_are_never_rewritten(service):
+    """명시적으로 고른 최단 구간은 저장된 선호가 있어도 그대로 둔다."""
+    context = service._build_cost_context(WalkMode.WAYPOINT, ACTIVE, None)
+    given = ["oneway_shortest"]
+
+    fill, reason = service._resolve_fill_leg_mode(given, ACTIVE, context)
+
+    assert given == ["oneway_shortest"]   # 입력을 바꾸지 않는다
+    assert (fill, reason) == ("oneway_preferred", None)  # 채우는 구간만 가중
 
 
 # ── WaypointComposerEngine 전달 ─────────────────────────────────────────────
@@ -250,7 +304,7 @@ def _waypoint_input() -> WaypointRouteInput:
     return WaypointRouteInput(
         start_lat=37.50, start_lon=127.00, end_lat=37.51, end_lon=127.01,
         waypoints=[WaypointCoordinate(lat=37.505, lon=127.005)],
-        leg_modes=["oneway_shortest", "oneway_random"],
+        leg_modes=["oneway_preferred", "oneway_random"],
         leg_target_km=[None, 1.0],  # oneway_random leg는 target_km이 필수다
     )
 
@@ -261,7 +315,8 @@ def test_composer_passes_context_to_astar_legs_only():
     context = request_context(G)
     composer = WaypointComposerEngine(_waypoint_input(), G, cost_context=context)
 
-    assert composer._leg_cost_kwargs("oneway_shortest") == {"cost_context": context}
+    assert composer._leg_cost_kwargs("oneway_preferred") == {"cost_context": context}
+    assert composer._leg_cost_kwargs("oneway_shortest") == {}
     assert composer._leg_cost_kwargs("oneway_random") == {}
 
 
@@ -269,7 +324,7 @@ def test_composer_without_context_passes_nothing():
     composer = WaypointComposerEngine(_waypoint_input(), prepared(scored_graph()))
 
     assert composer.cost_context is None
-    assert composer._leg_cost_kwargs("oneway_shortest") == {}
+    assert composer._leg_cost_kwargs("oneway_preferred") == {}
 
 
 def test_leg_engine_accepts_the_forwarded_context():

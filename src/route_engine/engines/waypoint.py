@@ -22,7 +22,13 @@ logger = logging.getLogger(__name__)
 _LEG_ENGINES = {
     "oneway_shortest": OnewayAstarEngine,
     "oneway_random": OnewayBeamEngine,
+    # 같은 A* 엔진에 안전·편안 가중 비용만 주입한 구간(#445). 엔진을 새로 만들지 않는다.
+    "oneway_preferred": OnewayAstarEngine,
 }
+
+# 가중 비용을 적용하는 leg 방식. oneway_shortest는 사용자가 **명시적으로 고른** 최단
+# 구간이므로 저장된 선호가 있어도 가중 연결로 바꾸지 않는다(#445 설계 결정 A).
+_PREFERRED_LEG_MODE = "oneway_preferred"
 
 
 class WaypointComposerEngine:
@@ -47,6 +53,7 @@ class WaypointComposerEngine:
         custom_weights: Optional[Weights] = None,
         profile: Optional[ScoringProfile] = None,
         cost_context: Optional[WeightedEdgeCost] = None,
+        preference_skipped_reason: Optional[str] = None,
     ):
         self.inp            = inp
         # 그래프를 직접 mutate하지 않고 leg 엔진에 그대로 넘기기만 하므로 복사가 필요 없다.
@@ -62,10 +69,16 @@ class WaypointComposerEngine:
         # scoring_engine.custom_score(할인 모델)로 탐색하는데, 두 모델은 방향이 반대라
         # 한 요청 안에서 섞으면 leg별 후보 비교가 불공정해진다(#445 설계 결정 A).
         self.cost_context    = cost_context
+        # 가중 연결을 쓰지 못한 사유(RouteService가 판단해 넘긴다). 응답에 그대로 싣는다.
+        self.preference_skipped_reason = preference_skipped_reason
+
+    def _preference_applied(self) -> bool:
+        """이 요청에서 안전·편안 가중 연결이 실제로 쓰였는가."""
+        return self.cost_context is not None and _PREFERRED_LEG_MODE in self.inp.leg_modes
 
     def _leg_cost_kwargs(self, mode: str) -> dict:
-        """leg 엔진에 넘길 비용 인자. cost_context를 받지 않는 엔진에는 넘기지 않는다."""
-        if self.cost_context is None or _LEG_ENGINES[mode] is not OnewayAstarEngine:
+        """leg 엔진에 넘길 비용 인자. oneway_preferred 구간에만 가중 비용을 넘긴다."""
+        if self.cost_context is None or mode != _PREFERRED_LEG_MODE:
             return {}
         return {"cost_context": self.cost_context}
 
@@ -112,10 +125,11 @@ class WaypointComposerEngine:
             if result.status != WalkRouteStatus.SUCCESS and mode != "oneway_shortest":
                 logger.warning("leg %d(%s)에서 실패해 최단 경로로 대체합니다: status=%s",
                                i + 1, mode, result.status.value)
+                # 대체는 순수 거리 기준이다 — 가중치도 재방문 페널티도 걸지 않는다.
+                # 앞선 시도가 이미 실패했으므로 추가 제약을 남겨 두면 대체까지 같은
+                # 이유로 실패할 수 있다(#445).
                 engine = OnewayAstarEngine(
                     leg_inp, self.G, custom_weights=self.custom_weights, profile=self.profile,
-                    visited_nodes=visited_nodes,
-                    cost_context=self.cost_context,
                 )
                 leg_responses  = engine.run()
                 leg_node_paths = engine.last_path_nodes_by_candidate
@@ -208,4 +222,8 @@ class WaypointComposerEngine:
             mode        = self.mode,
             coordinates = coordinates,
             total_km    = total_km,
+            preference_applied        = self._preference_applied(),
+            preference_skipped_reason = (
+                None if self._preference_applied() else self.preference_skipped_reason
+            ),
         )
