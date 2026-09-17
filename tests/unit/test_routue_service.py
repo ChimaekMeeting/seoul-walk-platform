@@ -332,7 +332,7 @@ class TestWaypointRouting:
         assert captured["inp"].leg_target_km == [None]
 
 
-def _chat_state(themes=None, profile=None):
+def _chat_state(feature_labels=None, profile=None):
     origin = Location(lat=37.5, lon=127.0)
     return State(
         user_id=1,
@@ -340,62 +340,48 @@ def _chat_state(themes=None, profile=None):
         access_token="token",
         mode=WalkMode.CIRCULAR_RANDOM,
         user_context=CircularPreference(origin=origin, target_km=2.0),
-        themes=themes or [],
+        feature_labels=feature_labels or {},
         profile=profile,
     )
 
 
-class TestRouteProfilePropagation:
-    def test_계단이_불편한_테마는_accessible_프로필을_선택한다(self):
-        assert (
-            RouteExecutor._select_profile(_chat_state(["계단이 불편한"]))
-            == ScoringProfile.ACCESSIBLE
-        )
+class TestRouteWeightPersonalization:
+    """
+    2026-09-17: 테마 기반 자동 프로필 선택(_select_profile)이 제거되고 safety/comfort
+    두 축만 개인화하는 방식으로 바뀐 뒤의 RouteExecutor 동작을 검증한다.
+    """
 
-    def test_활기찬_테마는_convenient_프로필을_선택한다(self):
-        assert (
-            RouteExecutor._select_profile(_chat_state(["활기찬"]))
-            == ScoringProfile.CONVENIENT
-        )
-
-    def test_명시한_프로필이_테마보다_우선한다(self):
-        state = _chat_state(["계단이 불편한"], ScoringProfile.NATURE)
-        assert RouteExecutor._select_profile(state) == ScoringProfile.NATURE
-
-    def test_접근성_프로필과_설문_delta를_함께_반영한다(self):
-        preference = MagicMock()
-        for key in (
-            "safety",
-            "nature",
-            "slope",
-            "running",
-            "landmark",
-            "child",
-            "convenience",
-            "accessibility",
-        ):
-            setattr(preference, f"weights_{key}", None)
-        preference.weights_nature = 0.2
+    def test_설문_safety_comfort_delta만_반영되고_나머지_축은_스키마_기본값이다(self):
+        preference = MagicMock(weights_safety=0.8, weights_comfort=0.9)
 
         with patch(
             "src.agent.nodes.route_executor.UserPreferenceRepository.get_by_user_id",
             return_value=preference,
         ):
-            weights = RouteExecutor()._build_weights(
-                _chat_state(),
-                ScoringProfile.ACCESSIBLE,
-            )
+            weights = RouteExecutor()._build_weights(_chat_state())
 
-        assert weights.accessibility == pytest.approx(0.8)
-        assert weights.nature == pytest.approx(0.6)
+        assert weights.safety == pytest.approx(0.8)
+        assert weights.slope == pytest.approx(0.9)  # comfort -> route_schema.Weights.slope
+        assert weights.nature == pytest.approx(0.0)
+        assert weights.accessibility == pytest.approx(0.0)
 
-    def test_run이_선택한_프로필을_route_tool에_전달한다(self):
+    def test_설문값이_없으면_스키마_기본값을_사용한다(self):
+        with patch(
+            "src.agent.nodes.route_executor.UserPreferenceRepository.get_by_user_id",
+            return_value=None,
+        ):
+            weights = RouteExecutor()._build_weights(_chat_state())
+
+        assert weights.safety == pytest.approx(0.5)
+        assert weights.slope == pytest.approx(0.5)
+
+    def test_명시한_profile이_있으면_그대로_사용된다(self):
         executor = RouteExecutor.__new__(RouteExecutor)
         route_call = AsyncMock(return_value=None)
         executor.route_tool = MagicMock(
             tool_map={"circular_random_route": MagicMock(ainvoke=route_call)}
         )
-        state = _chat_state(["계단이 불편한"])
+        state = _chat_state(profile=ScoringProfile.NATURE)
 
         with patch(
             "src.agent.nodes.route_executor.UserPreferenceRepository.get_by_user_id",
@@ -403,8 +389,25 @@ class TestRouteProfilePropagation:
         ):
             result = asyncio.run(executor.run(state))
 
-        assert result.profile == ScoringProfile.ACCESSIBLE
-        assert route_call.await_args.args[0]["profile"] == ScoringProfile.ACCESSIBLE
+        assert result.profile == ScoringProfile.NATURE
+        assert route_call.await_args.args[0]["profile"] == ScoringProfile.NATURE
+
+    def test_profile이_없으면_DEFAULT를_사용한다(self):
+        executor = RouteExecutor.__new__(RouteExecutor)
+        route_call = AsyncMock(return_value=None)
+        executor.route_tool = MagicMock(
+            tool_map={"circular_random_route": MagicMock(ainvoke=route_call)}
+        )
+        state = _chat_state()
+
+        with patch(
+            "src.agent.nodes.route_executor.UserPreferenceRepository.get_by_user_id",
+            return_value=None,
+        ):
+            result = asyncio.run(executor.run(state))
+
+        assert result.profile == ScoringProfile.DEFAULT
+        assert route_call.await_args.args[0]["profile"] == ScoringProfile.DEFAULT
 
 
 class TestRoutePoiLookup:

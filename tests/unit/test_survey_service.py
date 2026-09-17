@@ -5,16 +5,14 @@ SurveyService 단위 테스트
 검증 항목:
   - 인증 실패 시 status 반환
   - 사용자 미존재 시 USER_NOT_FOUND 반환
-  - 태그 없을 때 모든 가중치 기본값 0.5
-  - 단일 태그 가중치 적용
-  - 동일 가중치 여러 태그 누적
-  - 가중치 최대값 1.0 클램핑
-  - 음수 델타 적용 (slope -)
-  - 가중치 최소값 0.0 클램핑
+  - 태그 없을 때 safety/comfort 기본값 0.5
+  - "안전"/"편안" 태그 각각 safety/comfort에 적용
+  - 동일 태그 누적, 최대값 1.0 클램핑
   - 알 수 없는 태그 무시
-  - 이중 dimension 태그
-  - slope 양수/음수 태그 혼합
   - 거리 선택지 → default_target_km 매핑
+
+2026-09-17: 온보딩 태그가 "안전"/"편안" 두 개로 단순화되면서, 그 외 축(nature 등)을
+겨냥하던 케이스는 대상 태그 자체가 없어져 제거했다.
 """
 
 import pytest
@@ -52,13 +50,7 @@ def mock_preference():
     pref.survey_completed = True
     pref.default_target_km = None
     pref.weights_safety = None
-    pref.weights_nature = None
-    pref.weights_slope = None
-    pref.weights_running = None
-    pref.weights_landmark = None
-    pref.weights_child = None
-    pref.weights_convenience = None
-    pref.weights_accessibility = None
+    pref.weights_comfort = None
     return pref
 
 
@@ -105,67 +97,57 @@ class TestSubmitAuth:
 
 
 class TestCalculateWeights:
-    def test_태그_없으면_Weights_기본값을_사용한다(
+    def test_태그_없으면_기본값을_사용한다(
         self, service, auth_service, mock_user, mock_preference
     ):
         kwargs = _get_upsert_kwargs(service, auth_service, mock_user, mock_preference, tags=[])
-        assert kwargs["weights_safety"]   == pytest.approx(0.5)
-        assert kwargs["weights_nature"]   == pytest.approx(0.0)
-        assert kwargs["weights_slope"]    == pytest.approx(0.5)
-        assert kwargs["weights_running"]  == pytest.approx(0.0)
-        assert kwargs["weights_landmark"] == pytest.approx(0.0)
-        assert kwargs["weights_child"]    == pytest.approx(0.0)
-        assert kwargs["weights_convenience"] == pytest.approx(0.0)
-        assert kwargs["weights_accessibility"] == pytest.approx(0.0)
+        assert kwargs["weights_safety"] == pytest.approx(0.5)
+        assert kwargs["weights_comfort"] == pytest.approx(0.5)
 
-    def test_단일_태그가_가중치에_적용된다(
+    def test_안전_태그가_safety에_적용된다(
         self, service, auth_service, mock_user, mock_preference
     ):
-        # "나무 많은" → nature +0.2
         kwargs = _get_upsert_kwargs(
-            service, auth_service, mock_user, mock_preference, tags=["나무 많은"]
+            service, auth_service, mock_user, mock_preference, tags=["안전"]
         )
-        assert kwargs["weights_nature"] == pytest.approx(0.2)
+        assert kwargs["weights_safety"] == pytest.approx(0.7)
+        assert kwargs["weights_comfort"] == pytest.approx(0.5)  # 나머지 불변
+
+    def test_편안_태그가_comfort에_적용된다(
+        self, service, auth_service, mock_user, mock_preference
+    ):
+        kwargs = _get_upsert_kwargs(
+            service, auth_service, mock_user, mock_preference, tags=["편안"]
+        )
+        assert kwargs["weights_comfort"] == pytest.approx(0.7)
         assert kwargs["weights_safety"] == pytest.approx(0.5)  # 나머지 불변
 
-    def test_같은_가중치_여러_태그가_누적된다(
+    def test_안전_편안을_함께_선택하면_둘_다_적용된다(
         self, service, auth_service, mock_user, mock_preference
     ):
-        # "나무 많은"(+0.2) + "꽃길"(+0.2) → nature 0.4
         kwargs = _get_upsert_kwargs(
-            service, auth_service, mock_user, mock_preference, tags=["나무 많은", "꽃길"]
+            service, auth_service, mock_user, mock_preference, tags=["안전", "편안"]
         )
-        assert kwargs["weights_nature"] == pytest.approx(0.4)
+        assert kwargs["weights_safety"] == pytest.approx(0.7)
+        assert kwargs["weights_comfort"] == pytest.approx(0.7)
+
+    def test_같은_태그가_반복되면_누적된다(
+        self, service, auth_service, mock_user, mock_preference
+    ):
+        # "안전"(+0.2) 두 번 → 0.5 + 0.2 + 0.2 = 0.9
+        kwargs = _get_upsert_kwargs(
+            service, auth_service, mock_user, mock_preference, tags=["안전", "안전"]
+        )
+        assert kwargs["weights_safety"] == pytest.approx(0.9)
 
     def test_가중치_최대값이_1_0으로_클램핑된다(
         self, service, auth_service, mock_user, mock_preference
     ):
-        # nature 태그 반복 → 1.0 초과분 클램핑
         kwargs = _get_upsert_kwargs(
             service, auth_service, mock_user, mock_preference,
-            tags=["나무 많은"] * 6,
+            tags=["안전"] * 6,
         )
-        assert kwargs["weights_nature"] == pytest.approx(1.0)
-
-    def test_음수_델타가_적용된다(
-        self, service, auth_service, mock_user, mock_preference
-    ):
-        # "뛰고 싶은" → running +0.2, slope 0.5 - 0.1
-        kwargs = _get_upsert_kwargs(
-            service, auth_service, mock_user, mock_preference, tags=["뛰고 싶은"]
-        )
-        assert kwargs["weights_running"] == pytest.approx(0.2)
-        assert kwargs["weights_slope"]   == pytest.approx(0.4)
-
-    def test_가중치_최소값이_0_0으로_클램핑된다(
-        self, service, auth_service, mock_user, mock_preference
-    ):
-        # slope 음수 태그 10개 → 0.0 미만 방지
-        kwargs = _get_upsert_kwargs(
-            service, auth_service, mock_user, mock_preference,
-            tags=["뛰고 싶은"] * 10,
-        )
-        assert kwargs["weights_slope"] >= 0.0
+        assert kwargs["weights_safety"] == pytest.approx(1.0)
 
     def test_알_수_없는_태그는_무시된다(
         self, service, auth_service, mock_user, mock_preference
@@ -173,44 +155,8 @@ class TestCalculateWeights:
         kwargs = _get_upsert_kwargs(
             service, auth_service, mock_user, mock_preference, tags=["존재하지않는태그"]
         )
-        assert kwargs["weights_nature"] == pytest.approx(0.0)
-
-    def test_반려동물은_자연_선호에만_반영된다(
-        self, service, auth_service, mock_user, mock_preference
-    ):
-        # 반려동물은 자연 선호이며 어린이보호구역 차량 주의와 무관합니다.
-        kwargs = _get_upsert_kwargs(
-            service, auth_service, mock_user, mock_preference, tags=["반려동물"]  # "반려동물과" → "반려동물"
-        )
-        assert kwargs["weights_nature"] == pytest.approx(0.1)
-        assert kwargs["weights_child"]  == pytest.approx(0.0)
-
-    def test_계단이_불편한_태그는_이동편의_가중치를_높인다(
-        self, service, auth_service, mock_user, mock_preference
-    ):
-        kwargs = _get_upsert_kwargs(
-            service, auth_service, mock_user, mock_preference, tags=["계단이 불편한"]
-        )
-        assert kwargs["weights_accessibility"] == pytest.approx(0.4)
-
-    def test_활기찬은_편의성_가중치를_높인다(
-        self, service, auth_service, mock_user, mock_preference
-    ):
-        kwargs = _get_upsert_kwargs(
-            service, auth_service, mock_user, mock_preference, tags=["활기찬"]
-        )
-        assert kwargs["weights_convenience"] == pytest.approx(0.2)
-
-
-    def test_slope_양수_음수_태그가_함께_적용된다(
-        self, service, auth_service, mock_user, mock_preference
-    ):
-        # "숨 안 차는"(+0.3) + "뛰고 싶은"(-0.1) → 0.5 + 0.3 - 0.1 = 0.7
-        kwargs = _get_upsert_kwargs(
-            service, auth_service, mock_user, mock_preference,
-            tags=["숨 안 차는", "뛰고 싶은"],
-        )
-        assert kwargs["weights_slope"] == pytest.approx(0.7)
+        assert kwargs["weights_safety"] == pytest.approx(0.5)
+        assert kwargs["weights_comfort"] == pytest.approx(0.5)
 
     def test_설문_완료_시_survey_completed가_True다(
         self, service, auth_service, mock_user, mock_preference

@@ -537,14 +537,14 @@ class TestSurveyAPI:
         mock_service.submit.return_value = SurveyResponse(
             status=SurveyStatus.SUCCESS,
             default_target_km=3.0,
-            weights_nature=0.9,
-            weights_slope=0.5,
+            weights_safety=0.7,
+            weights_comfort=0.5,
         )
         with patch("src.interfaces.dependencies.survey_service", mock_service):
             response = client.post(
                 "/api/user/survey",
                 json={
-                    "tags": ["나무 많은", "초록초록"],
+                    "tags": ["안전", "편안"],
                     "distance": "normal",
                 },
             )
@@ -552,7 +552,8 @@ class TestSurveyAPI:
         body = response.json()
         assert body["status"] == "success"
         assert body["default_target_km"] == 3.0
-        assert body["weights_nature"] == 0.9
+        assert body["weights_safety"] == 0.7
+        assert body["weights_comfort"] == 0.5
 
     def test_태그_없이_제출하면_성공(self, client):
         mock_service = MagicMock()
