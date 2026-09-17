@@ -3,7 +3,7 @@
 > 상태: Current  
 > 기준일: 2026-09-17  
 > 관련 코드: `src/agent/`, `src/service/chat/prewalk_service.py`, `src/schema/prewalk_schema.py`  
-> 검증 상태: 코드 정적 대조 완료(2026-07-30, `ConfirmationClassifier` 추가·Graph 재배선·dev PR #310 profile/nearby_pois 반영) + `ConfirmationClassifier`·조건부 진입점 실행 검증 완료(2026-07-30, 로컬 PostgreSQL·Valkey·실제 Kakao·OpenAI, 프런트엔드 연동 안드로이드 기기 테스트). profile/nearby_pois(dev PR #310)는 정적 대조만 했고 격리 환경 실행 검증은 별도로 안 함. GPS Art 모드 배선(2026-08-06)은 정적 대조·문법 체크만 했고 실행 검증은 안 함(전용 테스트도 아직 없음) — 상세는 [경로 생성 엔진 GPS Art](../route_engine/README.md#gps-art) 참고. Waypoint 모드 배선(2026-08-07)은 정적 대조 + 단위 테스트(mock 엔진 기반)까지 확인했고, 추출·인터뷰 prompt 가이드(2026-08-07 추가)도 정적 대조(YAML 파싱·렌더링 확인)만 했다 — 실제 LLM·Kakao·그래프 실행 검증은 아직 없다 — 상세는 [경로 생성 엔진](../route_engine/README.md) 참고. `circular_random`/`oneway_random`의 후보 다양화(벡터 score, 2026-08-08)는 toy 그래프로 직접 실행 검증했지만 정식 `tests/` 회귀 테스트와 실서비스 그래프 검증은 아직 없다 — 상세는 [경로 생성 엔진](../route_engine/README.md)의 "후보 다양화(벡터 score 기반)" 절 참고. `Interviewer` 하드코딩 문구 전면 제거(2026-08-20, 확인·검색실패·서울밖 안내를 `interview.yaml` LLM 생성으로 통합 + LLM/Kakao 오류 시 raw exception 노출)는 문법·정적 대조만 했고 실제 LLM·Kakao 실행 검증은 아직 없다. `extraction.yaml`/`interview.yaml` 구조 개편과 `extractor.py` 결정론적 후처리 추가(2026-09-14, PR #429/refactor#400)는 `scripts/eval_extraction.py`·`scripts/eval_interviewer.py`로 실제 OpenAI 호출까지 실행 검증했다(DB·Kakao·Valkey는 쓰지 않음) — 상세와 실행 결과는 §9 "2026-09-14" 절 참고. `themes`/`TAG_WEIGHT_MAP` 기반 테마 추출과 `RouteExecutor._select_profile`(자동 accessible/convenient 선택)을 제거하고, `WeightExtractor` Node(`weight_extraction.yaml`, `PydanticOutputParser`)가 feature(`safety`/`comfort`)별 `preference_label`·`explicitness_label`을 추출해 `State.feature_labels`에 저장하도록 Graph를 `Extractor → WeightExtractor → Interviewer`로 재배선했다(2026-09-17). `RouteExecutor._build_weights`도 이 라벨을 EMA 블렌딩(`_PREFERENCE_TARGET_MAP`, `_EXPLICITNESS_ALPHA_MAP`, `_FEATURE_TO_WEIGHTS_KEY`)으로 반영하도록 바뀌었다 — 코드 정적 대조와 격리 단위 실행(schema round-trip, EMA 계산, 그래프 import 순서, 프롬프트 렌더링)까지는 확인했다. 온보딩 설문(`UserPreference`, `survey_service.py`)도 같은 날 후속 작업으로 safety/comfort 두 축만 남기게 정리했고, 그 과정에서 깨졌던 `TestRouteProfilePropagation`(옛 `_select_profile` 기준) 4개는 `TestRouteWeightPersonalization`으로 재작성해 전부 통과로 되돌렸으며, 컴파일된 LangGraph를 직접 실행해 `Extractor → WeightExtractor → Interviewer → RouteExecutor` 배선과 State 전달까지 확인했다 — 실제 OpenAI 호출·실제 DB/Kakao를 쓰는 전체 대화 흐름 실행 검증은 아직 없다 — 상세는 §9 "2026-09-17" 및 "2026-09-17 후속" 절 참고
+> 검증 상태: 코드 정적 대조 완료(2026-07-30, `ConfirmationClassifier` 추가·Graph 재배선·dev PR #310 profile/nearby_pois 반영) + `ConfirmationClassifier`·조건부 진입점 실행 검증 완료(2026-07-30, 로컬 PostgreSQL·Valkey·실제 Kakao·OpenAI, 프런트엔드 연동 안드로이드 기기 테스트). profile/nearby_pois(dev PR #310)는 정적 대조만 했고 격리 환경 실행 검증은 별도로 안 함. GPS Art 모드 배선(2026-08-06)은 정적 대조·문법 체크만 했고 실행 검증은 안 함(전용 테스트도 아직 없음) — 상세는 [경로 생성 엔진 GPS Art](../route_engine/README.md#gps-art) 참고. Waypoint 모드 배선(2026-08-07)은 정적 대조 + 단위 테스트(mock 엔진 기반)까지 확인했고, 추출·인터뷰 prompt 가이드(2026-08-07 추가)도 정적 대조(YAML 파싱·렌더링 확인)만 했다 — 실제 LLM·Kakao·그래프 실행 검증은 아직 없다 — 상세는 [경로 생성 엔진](../route_engine/README.md) 참고. `circular_random`/`oneway_random`의 후보 다양화(벡터 score, 2026-08-08)는 toy 그래프로 직접 실행 검증했지만 정식 `tests/` 회귀 테스트와 실서비스 그래프 검증은 아직 없다 — 상세는 [경로 생성 엔진](../route_engine/README.md)의 "후보 다양화(벡터 score 기반)" 절 참고. `Interviewer` 하드코딩 문구 전면 제거(2026-08-20, 확인·검색실패·서울밖 안내를 `interview.yaml` LLM 생성으로 통합 + LLM/Kakao 오류 시 raw exception 노출)는 문법·정적 대조만 했고 실제 LLM·Kakao 실행 검증은 아직 없다. `extraction.yaml`/`interview.yaml` 구조 개편과 `extractor.py` 결정론적 후처리 추가(2026-09-14, PR #429/refactor#400)는 `scripts/eval_extraction.py`·`scripts/eval_interviewer.py`로 실제 OpenAI 호출까지 실행 검증했다(DB·Kakao·Valkey는 쓰지 않음) — 상세와 실행 결과는 §9 "2026-09-14" 절 참고. `themes`/`TAG_WEIGHT_MAP` 기반 테마 추출과 `RouteExecutor._select_profile`(자동 accessible/convenient 선택)을 제거하고, `WeightExtractor` Node(`weight_extraction.yaml`, `PydanticOutputParser`)가 feature(`safety`/`comfort`)별 `preference_label`·`explicitness_label`을 추출해 `State.feature_labels`에 저장하도록 Graph를 `Extractor → WeightExtractor → Interviewer`로 재배선했다(2026-09-17). `RouteExecutor._build_weights`도 이 라벨을 EMA 블렌딩(`_PREFERENCE_TARGET_MAP`, `_EXPLICITNESS_ALPHA_MAP`, `_FEATURE_TO_WEIGHTS_KEY`)으로 반영하도록 바뀌었다 — 코드 정적 대조와 격리 단위 실행(schema round-trip, EMA 계산, 그래프 import 순서, 프롬프트 렌더링)까지는 확인했다. 온보딩 설문(`UserPreference`, `survey_service.py`)도 같은 날 후속 작업으로 safety/comfort 두 축만 남기게 정리했고, 그 과정에서 깨졌던 `TestRouteProfilePropagation`(옛 `_select_profile` 기준) 4개는 `TestRouteWeightPersonalization`으로 재작성해 전부 통과로 되돌렸으며, 컴파일된 LangGraph를 직접 실행해 `Extractor → WeightExtractor → Interviewer → RouteExecutor` 배선과 State 전달까지 확인했다 — 실제 OpenAI 호출·실제 DB/Kakao를 쓰는 전체 대화 흐름 실행 검증은 아직 없다. 같은 날 `origin/dev`(팀원의 waypoint 안전·편안 가중 연결 기능, #445)와 `route_executor.py`에서 병합 충돌이 나 두 기능을 모두 살리는 방향으로 정리했고(격리 단위 실행으로 재확인), `POST /api/prewalk/intent`에 `lat`/`lon`을 추가해 좌표가 바뀐 턴에만 서울 폴리곤·수계·고속도로 검증과 Kakao 역지오코딩을 다시 하도록 바꿨다(직접 호출 검증 완료) — 상세는 §9 "2026-09-17", "2026-09-17 후속", "2026-09-17 dev 병합", "2026-09-17 intent 좌표 수신" 절 참고
 
 ## 1. 책임
 
@@ -18,14 +18,14 @@ HTTP 입력:
 | 진입점 | 입력 |
 |---|---|
 | `POST /api/prewalk/init` | `lat`, `lon`, `access_token` cookie |
-| `POST /api/prewalk/intent` | `thread_id`, 공백이 아닌 `user_prompt`, `access_token` cookie |
+| `POST /api/prewalk/intent` | `thread_id`, 공백이 아닌 `user_prompt`, `lat`, `lon`(2026-09-17부터 필수), `access_token` cookie |
 
 공유 `State` 계약:
 
 | 필드 | 최초 작성자 | 주요 소비·변경 주체 |
 |---|---|---|
 | `user_id` | Orchestrator init | 소유권 확인, `RouteExecutor` |
-| `current_location` | Orchestrator init | `Extractor`, `Interviewer` |
+| `current_location` | Orchestrator init, intent Orchestrator(좌표가 이전 턴과 다를 때만 갱신, 2026-09-17부터) | `Extractor`, `Interviewer` |
 | `access_token` | intent Orchestrator | `RouteExecutor` → `RouteService` |
 | `user_prompt` | intent Orchestrator | `Extractor`, `Interviewer` |
 | `mode` | `Extractor` | `RouteExecutor` |
@@ -109,7 +109,7 @@ src/prompt/                                      # LLM Prompt
 | `WeightExtractor.run` | `State` | `feature_labels`(GPS Art·최단경로는 `custom_weights`를 안 쓰므로 호출 자체를 건너뛰고 `{}`) | OpenAI(`PydanticOutputParser`, tool 미바인딩) |
 | `Interviewer.run` | `State` | 후보 위치, 보완된 context, `response`, 확인 상태 | OpenAI, `PlaceTool` |
 | `ConfirmationClassifier.run` | `State` | `is_complete`(긍정/부정 판정 결과), `awaiting_confirmation=False` | OpenAI(`PydanticOutputParser`, tool 미바인딩) |
-| `RouteExecutor.run` | `State` | `profile`, `route_result` | 사용자 설문, `RouteTool`(GPS Art는 내부에서 `GpsArtService`도 호출) |
+| `RouteExecutor.run` | `State` | `profile`, `route_result` | 사용자 설문, `RouteTool`(GPS Art는 내부에서 `GpsArtService`도 호출; waypoint 모드는 `_build_preference_signal`로 만든 `SafetyComfortPreference`도 `args["preference"]`로 함께 전달, 2026-09-17 dev 병합·#445) |
 
 모든 대화 Node는 전달받은 State 객체를 변경해 반환한다. Node별 별도 입출력 schema는 없다.
 
@@ -215,6 +215,7 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 | 확인 상태 | `ConfirmationClassifier` LLM 판정(`confirmation.yaml`), `is_complete`, Graph 조건부 Edge, RouteExecutor 진입 |
 | Mode/Preference | ModeTool, Extractor prompt, Interviewer 완료 조건, RouteTool |
 | 장소 필드 | Kakao schema, 후보 선택, 서울 bbox 검증 |
+| intent 좌표(`current_location` 갱신) | `ChatRequest.lat/lon` 검증(coord/water/highway validator), `PrewalkOrchestrator.orchestrator()`의 동일 좌표 스킵 조건, Kakao 역지오코딩, `prewalk_router.py`의 `ValueError`→400 매핑 |
 | `feature_labels`·가중치 | `WeightExtractor` prompt(`weight_extraction.yaml`), `FeatureTag`/`FeatureLabel`/`FeatureLabelMap` 스키마, `RouteExecutor._build_weights`(`_PREFERENCE_TARGET_MAP`, `_EXPLICITNESS_ALPHA_MAP`, `_FEATURE_TO_WEIGHTS_KEY`), 설문 `Weights` delta, 경로 scoring |
 | Prompt | tool 이름·인자, parser, fallback, LLM 검증 |
 | 저장 방식 | TTL, 세션 소유권, 만료·복구, API 응답 |
@@ -225,6 +226,8 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 |---|---|---|
 | init 인증 실패 | 인증 상태 반환 | refresh·재로그인 |
 | 날씨·주소 실패 | 빈 환경·기본 인사 또는 좌표 Location | 새 init 또는 계속 진행 |
+| intent 좌표 검증 실패(서울 밖·수계·고속도로, 2026-09-17부터) | `ValueError` → HTTP 400(`prewalk_router.py`). 좌표가 이전 턴과 같으면 이 검증 자체를 건너뛰므로, 같은 위치를 유지하는 후속 턴에서는 발생하지 않는다 | 유효한 좌표로 재요청 |
+| intent Kakao 역지오코딩 실패(좌표가 바뀐 턴에서만) | 주소·장소명 없이 좌표만 있는 Location으로 대체, 대화는 계속됨 | 다음 intent에서 재시도 |
 | State 없음·만료 | `session_not_found` | init부터 재시작 |
 | 타 사용자 State | `unaccessible` | 자신의 thread 사용 |
 | Extractor LLM 실패 | 기존 State 유지 | 다음 intent에서 재시도 |
@@ -298,6 +301,21 @@ HTTP 200만으로 성공을 판단하지 않는다. `status`, `awaiting_confirma
 - **실행 검증**: `tests/unit/test_survey_service.py` + `tests/unit/test_routue_service.py` 42/42 통과, `tests/integration/test_api.py` 통과(단 `AuthService.get_access_token()` 인자 불일치로 인한 기존 실패 6건은 이번 작업과 무관, 위 "알려진 미해결" 항목 참고). `tests/unit` 전체 644 passed / 42 failed — 실패 42개는 전부 `graph_repository`/`base_collector`/`banner_service` 등 다른 도메인이라 무관함을 확인.
 - **전체 그래프 실행 시뮬레이션**: 각 Node의 LLM 호출부만 얇게 대체하고 `PrewalkOrchestrator._build_graph`가 만든 실제 컴파일된 LangGraph를 직접 `ainvoke`로 실행 — (1) `Extractor → WeightExtractor → Interviewer → RouteExecutor` 정상 흐름에서 `weight_extractor`가 채운 `feature_labels`가 `route_executor._build_weights`까지 그대로 전달돼 `safety=0.905`로 정확히 계산됨을 확인 (2) `awaiting_confirmation=True → ConfirmationClassifier(부정) → Extractor 재진입 → WeightExtractor → Interviewer` 재진입 경로도 정확한 순서로 실행됨을 확인.
 - **아직 확인 안 된 것**: 실제 OpenAI 호출로 `weight_extraction.yaml`이 발화에서 `preference_label`/`explicitness_label`을 얼마나 정확히 뽑는지(전용 eval 스크립트 없음), `scripts/test_prewalk_conversation.py`/실기기 연동으로 본 실제 LLM·Kakao·DB 기반 전체 대화 흐름 실행 검증.
+
+**2026-09-17 dev 병합 (`route_executor.py` 충돌 해소, 이슈 #445 waypoint 가중 연결 반영, 정적 대조 + 격리 단위 실행)**
+
+- `refactor/448`(이 문서가 다루는 챗봇 EMA 개인화 작업)과 `origin/dev`(팀원의 waypoint "안전·편안 가중 연결" 기능, #445)가 `route_executor.py`의 같은 자리를 각자 고쳐 병합 충돌이 났다. 두 작업은 경쟁하지 않는 별개 기능이라(계산 로직은 우리, 그 결과의 새 소비처는 dev) 전부 살리는 방향으로 정리했다: `_build_weights`의 safety/comfort EMA 계산은 그대로 두고, `run()`이 계산된 `weights`를 재사용해 waypoint 모드에서만 `_build_preference_signal(weights)`로 `SafetyComfortPreference`를 만들어 `args["preference"]`로 추가 전달한다. dev 쪽의 `Weights(**base)`(`base`에 `"comfort"` 키가 있어 `TypeError`가 나는 버그)는 채택하지 않고 우리 쪽 `Weights(safety=..., slope=base["comfort"])`를 유지했다.
+- `preference` 인자는 waypoint 모드에서 사용자가 leg 이동 방식을 명시하지 않은 구간에만 영향을 준다 — `route_service.py::_resolve_fill_leg_mode`가 그 구간을 기존 `oneway_shortest`(순수 거리 최단) 대신 `oneway_preferred`(같은 `OnewayAstarEngine`이지만 `weighted_edge_cost.py`의 페널티형 비용 함수 사용)로 채운다. 사용자가 명시한 leg, `oneway_random`이 섞인 요청, 선호가 없거나 0인 요청, 그래프 점수 커버리지가 부족한 경우는 그대로 `oneway_shortest`를 쓴다.
+- `tests/unit/test_weighted_cost_runtime.py::test_executor_forwards_survey_and_conversation_blend` 중 2개가 mock `UserPreference`에 `weights_slope`(dev 쪽이 작성 당시 쓰던 옛 컬럼명)를 쓰고 있어 실패한다 — 우리 엔티티는 이미 `weights_comfort`로 확정돼 있어(§9 "2026-09-17 후속" 참고) 이 테스트가 낡은 것으로 보이나, 팀원의 새 테스트 파일이라 임의로 고치지 않고 **사용자 판단 대기 중**이다.
+- 이 과정에서 함께 병합된 `docs/proposals/route_engine_detour_policy_proposal.md`/`detour_cap.py`(우회 상한 정책)는 **팀 미합의 실험**으로 명시돼 있고 실제 파이프라인에는 연결돼 있지 않다 — 이 문서의 범위 밖이며 참고만 한다.
+- **실행 검증**: `git merge-tree`로 사전에 충돌 파일이 `route_executor.py` 하나뿐임을 확인, 충돌 해소 후 `tests/unit/test_routue_service.py`+`tests/unit/test_survey_service.py` 42/42 통과, dev가 새로 가져온 `test_weighted_cost_runtime.py`/`test_waypoint_detour_cap.py`/`test_oneway_astar_weighted.py`/`test_weighted_edge_cost.py`/`test_graph_repository_scores.py` 262개 중 260 통과(위 2개 제외).
+- **아직 확인 안 된 것**: `weights_slope`/`weights_comfort` 불일치를 어느 쪽 기준으로 맞출지(팀 확인 필요), 실제 waypoint 요청으로 `oneway_preferred` 분기가 프런트엔드까지 연동된 상태에서 정상 동작하는지.
+
+**2026-09-17 intent 좌표 수신 (`/api/prewalk/intent`에 `lat`/`lon` 추가, 정적 대조 + 격리 단위 실행)**
+
+- `ChatRequest`(`lat`, `lon` 필수, `InitRequest`와 동일한 검증 체인 재사용), `prewalk_router.py`(`/intent`가 좌표를 `orchestrator()`에 전달, `ValueError`→400 매핑 추가 — 이전엔 `/init`에만 있던 처리), `prewalk_service.py::orchestrator()`(`state.current_location`과 새 좌표가 다를 때만 `validate_seoul_polygon_contains`→`snap_coordinate_from_water`→`validate_no_highway`→Kakao 역지오코딩을 실행, 같으면 전부 건너뜀)까지 반영했다.
+- **실행 검증**: `orchestrator()`를 직접 두 번 호출 — 동일 좌표로 재호출 시 DB 세션·검증 함수·Kakao 호출이 전혀 발생하지 않음을 확인, 다른 좌표로 호출 시 전부 정상 실행됨을 확인. `tests/integration/test_api.py::TestPrewalkIntentAPI`(요청 바디에 좌표 추가) + `scripts/test_prewalk_conversation.py`(`orchestrator()` 호출에 `LAT`/`LON` 추가)도 같이 고쳐 `tests/integration/test_api.py` 전체 재실행(70 passed, 무관한 기존 auth 실패 6건 제외) 확인.
+- **아직 확인 안 된 것**: 실제 이동 중인 사용자가 여러 턴에 걸쳐 좌표를 바꿔 보내는 실기기 시나리오, FE가 이미 `/intent`를 호출하고 있다면 `lat`/`lon` 필수화가 breaking change라는 점(FE 쪽 반영 여부는 별도 확인 필요).
 
 ## 10. 완료 기준
 
