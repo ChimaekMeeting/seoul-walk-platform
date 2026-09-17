@@ -37,6 +37,25 @@ class Settings(BaseSettings):
     # Random 선택법에만 쓰인다. Planar는 좌표 결정론이라 무시한다.
     WALK_ALT_SEED: int = 0
 
+    # 안전·편안 가중 탐색 비용(#445)
+    # cost = length * (1 + alpha * unsafe + beta * discomfort)
+    # false로 재기동하면 새 가중 연결을 끈다. Beam의 기존 custom_score는 유지한다.
+    WALK_WEIGHTED_COST_ENABLED: bool = True
+    # alpha + beta의 상한(k). 엣지 비용이 최대 몇 배까지 늘어날 수 있는지를 정한다.
+    # 경로의 실제 우회 거리 제한과는 다른 값이다.
+    WALK_WEIGHT_LIMIT: float = 0.5
+    # unsafe = lambda * (1 - safety_score) + (1 - lambda) * accident_score 의 lambda.
+    # 안전시설 부족과 사고위험을 섞는 비율이며 서비스 의미에 해당한다. 데이터팀이
+    # 결합된 단일 점수를 제공하기로 하면 이 값은 사라진다.
+    WALK_UNSAFE_ACCIDENT_RATIO: float = 0.5
+    # 세 점수 각각이 이 비율 이상 적재돼 있어야 가중 모드를 켠다. 미달이면 거리
+    # 전용으로 폴백한다 — 결측을 엣지 단위로 0 처리하면 점수가 없는 도로가 가장
+    # 안전한 도로로 읽히기 때문이다. 실제 적재율을 보고 조정한다.
+    WALK_SCORE_COVERAGE_MIN: float = 0.95
+    # 우회 상한과 초과 시 대체 정책은 미합의다. 운영 설정으로 활성화하지 않는다.
+    # 실험 코드는 WaypointComposerEngine.experimental_detour_max_ratio와
+    # docs/proposals/route_engine_detour_policy_proposal.md에 보존한다.
+
     # Valkey
     VALKEY_URI: str = "redis://localhost:6379"
 

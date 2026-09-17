@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 from enum import Enum
 
@@ -142,6 +142,18 @@ class RoutePoiItem(BaseModel):
     distance_to_route_m: float
 
 
+PreferenceSkippedReason = Literal[
+    "no_preference",
+    "beam_leg_present",
+    "scores_unavailable",
+    "detour_cap_exceeded",
+    "baseline_failed",
+    "partial_route",
+    "preferred_search_failed",
+    "zero_weights",
+]
+
+
 class WalkRouteResponse(BaseModel):
     status: WalkRouteStatus
     mode: WalkMode
@@ -151,3 +163,16 @@ class WalkRouteResponse(BaseModel):
     # 저장에 실패했거나 애초에 저장 대상이 아닌 응답(에러 상태 등)에서는 None.
     id: Optional[int] = None
     nearby_pois: list[RoutePoiItem] = Field(default_factory=list)
+    # 요청한 새 가중 연결이 최종 전체 경로에 적용됐는지(#445).
+    # 선호 구간 중 하나라도 거리 기준 대체로 바뀌면 False이며 사유를 함께 반환한다.
+    preference_applied: bool = False
+    # 반영하지 못한 사유. preference_applied=True면 보통 None이지만, baseline_failed는
+    # 예외다 — 선호는 반영됐는데 우회 상한을 검증하지 못한 상태라 둘 다 채워진다.
+    #   no_preference       호출자가 안전·편안 선호 신호를 전달하지 않음
+    #   zero_weights        두 축의 계수가 모두 0이라 거리 기준으로 탐색
+    #   beam_leg_present    oneway_random 구간이 섞여 이번 가중 연결 대상에서 제외
+    #   scores_unavailable  그래프 점수 커버리지가 부족해 가중 모드가 꺼짐
+    #   preferred_search_failed 선호 탐색 실패 후 거리 기준 경로로 대체
+    #   partial_route       일부 구간 실패로 선호가 적용된 전체 경로를 반환하지 못함
+    #   detour_cap_exceeded / baseline_failed는 보존한 실험 정책 전용이다.
+    preference_skipped_reason: Optional[PreferenceSkippedReason] = None

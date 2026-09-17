@@ -12,47 +12,13 @@ from src.interfaces.schema.survey_schema import DistanceOption, SurveyRequest, S
 from src.schema.route_schema import Weights
 
 
+# 2026-09-17: 온보딩/챗봇 테마 태그가 "안전"/"편안" 둘로 통일되면서, 여러 키워드가
+# 각자 델타를 더하던 예전 방식(나무 많은/유모차/활기찬 등 20여 개 태그)을 걷어냈다.
+# extractor.py(대화에서 테마 태그 추출)/route_executor.py(태그별 가중치 EMA 블렌딩)도
+# 이 딕셔너리 키 집합을 그대로 참조하므로 두 축만 남는다.
 TAG_WEIGHT_MAP: dict[str, dict[str, float]] = {
-    # nature: 자연 친화도
-    "나무 많은":     {"nature":   +0.2},
-    "꽃길":          {"nature":   +0.2},
-    "햇살 좋은":     {"nature":   +0.2},
-    "그늘이 많은":   {"nature":   +0.1},
-
-    # safety: 안전성 (조용하거나 골목길은 안전 가중치 하향 또는 분리)
-    "밤에도 안전한": {"safety":   +0.2},
-    "큰길":          {"safety":   +0.2},
-    "밝은 길":       {"safety":   +0.2},
-    "골목골목":      {"safety":  -0.1},
-
-    # slope & running: 경사도 및 활동성
-    "숨 안 차는":    {"slope":    +0.3}, # 평지 선호 (상승고도 회피)
-    "평탄한":        {"slope":    +0.2},
-    "뛰고 싶은":     {"running":  +0.2, "slope":  -0.1}, # 경사 수용, 러닝 적합
-    "운동":         {"running":  +0.2, "slope":  -0.2}, # 가파른 경사도 수용
-
-    # landmark: 볼거리 및 혼잡도
-    "볼거리 많은":   {"landmark": +0.2},
-    "인스타 감성":   {"landmark": +0.2},
-    "조용한":       {"landmark": -0.2, "safety":  -0.1}, # 한적하지만 인적이 드물 수 있음
-    "야경이 예쁜":   {"landmark": +0.2, "safety":  +0.1},  # 야간 안전 확보된 명소
-
-    # 동반자 중심 복합 필터
-    "어린이":       {"child": +0.2, "slope": +0.1},
-    "반려동물":     {"nature": +0.1},
-    "유모차":       {"child": +0.1, "slope": +0.3, "safety": +0.1, "accessibility": +0.3},
-    "계단이 불편한": {"slope": +0.3, "safety": +0.1, "accessibility": +0.4},
-
-    # 감성 / 분위기 (Mood)
-    "활기찬":        {"landmark": +0.2, "safety": +0.1, "convenience": +0.2},
-    "사색하기 좋은":  {"landmark": -0.2, "slope":   +0.1},  # 조용하고 평탄하여 걷기 좋은 길
-    "힙한":          {"landmark": +0.25, "convenience": +0.25},
-
-    # 색상 / 시각적 이미지 (Visual Color)
-    "노랑":          {"nature":   +0.15, "landmark": +0.1}, # 따뜻함, 은행나무, 봄꽃, 조명
-    "분홍":          {"nature":   +0.25, "landmark": +0.1}, # 벚꽃길, 장미터널 등 개화 시기 저격
-    "파랑":          {"nature": +0.1},                      # 청량함, 한강변, 호수공원, 해안도로
-    "초록":          {"nature":   +0.3}                     # 숲길, 대형 공원 등 자연 극대화
+    "안전": {"safety":  +0.2},
+    "편안": {"comfort": +0.2},
 }
 
 DISTANCE_MAP: dict[DistanceOption, float] = {
@@ -94,15 +60,8 @@ def _safety_comfort_deltas(selected_safety: bool, selected_comfort: bool) -> tup
         return d, r + d
     return d, d
 
-# 온보딩 설문 UI에 노출할 태그 목록. TAG_WEIGHT_MAP의 부분집합.
-SURVEY_TAGS: list[str] = [
-    "나무 많은", "꽃길", "초록",
-    "밤에도 안전한", "큰길",
-    "숨 안 차는", "뛰고 싶은", "운동",
-    "볼거리 많은", "야경이 예쁜", "힙한",
-    "조용한", "활기찬",
-    "어린이", "반려동물", "유모차", "계단이 불편한",
-]
+# 온보딩 설문 UI에 노출할 태그 목록. TAG_WEIGHT_MAP과 동일(안전/편안 둘뿐).
+SURVEY_TAGS: list[str] = ["안전", "편안"]
 
 class SurveyService:
     """
@@ -119,12 +78,11 @@ class SurveyService:
 
         두 축 다 request.tags에 "안전"/"편안"이 포함됐는지로 _safety_comfort_deltas()가
         계산한 (γ_안전, β_편안) 델타를 각각의 baseline(안전 0.5, 편안 0.0)에 더해
-        정합니다 — 지금 프론트가 보내는 온보딩 태그는 "안전"/"편안" 이 둘뿐이라,
-        기존 TAG_WEIGHT_MAP의 세부 태그 델타(±0.2 등)는 더 이상 weights_safety/
-        weights_comfort에 반영되지 않습니다(장기 프로필이 추적하는 축이 정확히 이
-        두 개라서 온보딩 초기값도 이 공식 하나로 통일함). tags는 selected_tags로
-        참고용으로만 그대로 저장됩니다. TAG_WEIGHT_MAP 자체는 챗봇 테마 추출
-        (extractor.py)/가중치 블렌딩(route_executor.py)이 여전히 쓰므로 그대로 둔다.
+        정합니다 — TAG_WEIGHT_MAP은 안전/편안 +0.2 델타만 갖고 있을 뿐 이 계산에는
+        쓰이지 않습니다(장기 프로필 초기값은 이 공식 하나로만 정해짐). tags는
+        selected_tags로 참고용으로만 그대로 저장됩니다. TAG_WEIGHT_MAP은 챗봇 테마
+        추출(extractor.py)/가중치 블렌딩(route_executor.py)이 안전/편안 두 키로만
+        참조합니다.
         최종값은 [0.0, 1.0]으로 클램핑됩니다.
         """
 

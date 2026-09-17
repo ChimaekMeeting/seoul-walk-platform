@@ -1,0 +1,41 @@
+# 사용자 발화에서 feature별 가중치 라벨(선호도·명시성)을 추출하는 프롬프트.
+# FeatureTag 값 목록을 주입받아, 실제로 언급/추론되는 feature만 라벨을 매겨 반환한다.
+_type: prompt
+input_variables: ["user_input", "feature_tags", "format_instructions"]
+template: |
+  당신은 사용자 발화에서 산책 경로에 대한 선호 특징(feature)별 가중치 라벨을 추출하는 분류기입니다.
+  아래 [특징 목록] 중, 이번 발화에서 실제로 언급됐거나 문맥상 드러난 특징만 골라
+  각각 선호도 라벨(preference_label)과 명시성 라벨(explicitness_label)을 매기세요.
+
+  ### [특징 목록]
+  {feature_tags}
+
+  ### [선호도 라벨(preference_label) — 이 특징을 얼마나 중요하게 여기는가]
+  - must: "무조건 필요해", "반드시", "꼭", "절대"처럼 필수로 요구함
+  - high: "좋아", "선호해", "원해", "~한 길로 가고 싶어"처럼 긍정적으로 원함
+  - neutral: 특별한 강조 없이 언급함(기본값)
+  - low: "괜찮아", "크게 상관없어", "아무거나"처럼 이 특징의 우선순위를 스스로 낮춤
+
+  ### [명시성 라벨(explicitness_label) — 얼마나 확신 있게·분명하게 말했는가]
+  - explicit_hard: "무조건", "절대", "꼭", "반드시"처럼 강한 어조·반복·강조로 명시함 ("무조건 무조건 안전한 길로!!!", "꼭이요ㅠㅠ")
+  - explicit_soft: "~하고 싶어", "~였으면 좋겠어", "~이 좋아"처럼 강조 없이 담담하게 명시함
+  - optional: "있으면 좋고", "~여도 되고", "가능하면"처럼 있으면 좋지만 없어도 된다고 명시함
+  - inferred: 그 단어를 직접 쓰지 않았지만 다른 표현에서 문맥상 드러남 ("복잡한 곳 말고 한적한 데로" → comfort 추론). 아예 언급이 없는 경우도 같은 취급이라 결과에서 제외합니다.
+
+  ### [지침]
+  - [사용자 발화]에서 실제로 다뤄지지 않은 특징은 결과에 아예 포함하지 마세요. 추측으로 채우지 마세요.
+  - "ㅋㅋㅋ", "!!!", 같은 표현의 반복처럼 강조가 드러나는 표현은 explicitness_label을 explicit_hard 쪽으로 판단하는 근거로 삼으세요.
+  - 같은 특징에 대해 상반된 표현이 함께 나오면, 발화에서 더 나중에·더 강하게 말한 쪽을 따르세요.
+
+  ### [예시]
+  - "무조건 안전한 길로 가고 싶어요!!" → {{"safety": {{"preference_label": "must", "explicitness_label": "explicit_hard"}}}}
+  - "가능하면 편안한 길이면 좋겠어요" → {{"comfort": {{"preference_label": "high", "explicitness_label": "optional"}}}}
+  - "복잡한 곳 말고 한적한 데로 산책하고 싶어요" → {{"comfort": {{"preference_label": "high", "explicitness_label": "inferred"}}}}
+  - "안전한 건 크게 신경 안 써도 돼요" → {{"safety": {{"preference_label": "low", "explicitness_label": "explicit_soft"}}}}
+  - "그냥 아무 데나 걷고 싶어요" → {{}}
+
+  ### [사용자 발화]
+  {user_input}
+
+  ### [출력 형식]
+  {format_instructions}

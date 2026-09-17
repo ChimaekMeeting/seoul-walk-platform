@@ -429,6 +429,25 @@ Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
 
 **아직 확인 안 된 것**: 실제 그래프 규모에서 이 다양화가 실제로 서로 다른 "의미 있는" 3개(예: 정말 확연히 다른 동선)를 만들어내는지는 toy 그래프 검증까지만 했고, 실서비스 규모 그래프·프런트엔드 노출까지는 확인하지 않았다. `tests/`에 정식 회귀 테스트도 아직 없다.
 
+## 방향 전환(turn_cost) 진단 지표 (2026-09-16)
+
+**왜 필요한가**: 순환 경로 엔진 비교에 쓰던 지표(거리 오차, 자기중첩 비율, 실행시간)에는 "이 경로가 걷기에 얼마나 편안한가"를 나타내는 축이 없었다. 회전은 도로 하나(edge)의 속성이 아니라 "직전 도로 + 교차로 + 다음 도로"의 관계에서만 정의되므로 edge에 미리 저장할 수 없고, 특정 엔진에 종속시키지 않기 위해 `PathUtils`에 엔진 독립 함수로 구현했다. **엔진의 accept/reject 기준이나 목적함수에는 아직 연결하지 않았다** — 진단·비교 전용이다.
+
+**핵심 함수 — `path_utils.py`**
+
+- `latlon_to_local_xy(lat, lon, *, lat_ref)`: 노드 위경도를 `lat_ref` 위도 기준 로컬 평면(등장방형 근사)으로 투영한다. 도보 edge 스케일(수십~수백 m)을 전제하며, 원시 위경도를 직접 벡터 계산에 쓰지 않기 위한 투영 단계다.
+- `turn_angle(prev_xy, curr_xy, next_xy) -> float | None`: 평면 좌표 3점의 회전각(도, 0~180, 좌우 미구분). 직전==현재 또는 현재==다음(길이 0 벡터)이면 `None`.
+- `turn_angle_at(G, prev_node, curr_node, next_node) -> float | None`: 위 두 함수를 그래프 노드에 적용하는 래퍼. 그래프 좌표 상태에 의존하므로 `turn_angle`과 달리 엄밀한 순수 함수는 아니다.
+- `PathUtils.path_distance_m(path, *, closed=False) -> float`: 닫힌 경로는 시작 노드 중복 여부와 무관하게 이음매 구간 거리를 정확히 1회만 포함한다(`_normalized_nodes`로 정규화).
+- `PathUtils.turn_angle_result(path, *, closed=False) -> TurnAngleResult`: 회전각 목록(`angles_deg`)과 정의 불가 원인별 집계(`undefined_reasons`)를 반환한다. 닫힌 경로는 전체 노드를 모듈러 인덱스로 순회해 n개 노드 모두의 회전을 계산한다 — "메인 구간 + 이음매 패치 1개" 방식은 n-1개만 계산하는 버그가 있었다(회귀 테스트로 고정, `tests/unit/test_path_utils.py::TestTurnAngleResult`).
+- `PathUtils.turn_angles(path, *, closed=False) -> list[float]`: `turn_angle_result`의 각도 목록만 반환하는 편의 함수.
+- `PathUtils.turn_metrics(path, *, closed=False) -> TurnMetrics`: `total_turn_deg`/`max_turn_deg`/`turn_deg_per_km`/`candidate_turn_count`/`defined_turn_count`/`undefined_turn_count`/`undefined_turn_reasons`를 담은 통계.
+- `count_turns_at_or_above(angles_deg, threshold_deg) -> int`: 특정 임계값 이상 회전 개수. 45°/60°/90° 등은 검증된 인간공학적 기준이 아니라 잠정 운영 임계값이므로 `TurnMetrics`에 필드로 고정하지 않고, 필요할 때 이 함수로 동적 계산한다.
+
+**실측 검증**: 서울 도보 그래프·현재 활성 순환 엔진 9종(`grasp-wp-*`, `beam-wp-*`)·시나리오 25개 전수(225회) 기준 정의 불가 회전 0건, 거리당 회전량 740.7~845.4°/km. 지표 간(누적 회전량 vs 급회전 패턴) 순위 불일치, 일부 엔진(`grasp-wp-alns`/`beam-wp-alns`/`beam-wp-vns`)의 seed 의존성, 임계값별 순위 민감도 등 세부 결과는 [analysis/turn_cost/](../../analysis/turn_cost/)(탐색적 분석, 확정 결론 아님) 참고.
+
+**아직 확인 안 된 것**: 45°/60°/90° 등 후보 임계값이 실제 보행 속도·주관적 불편도와 상관관계가 있는지는 사용자 행동 데이터가 없어 검증하지 못했다. 순환 엔진이 최종 확정된 뒤 이 지표를 목적함수에 연결할지도 아직 판단하지 않았다.
+
 ## oneway_shortest 엔진: 거리 전용(distance-only) weight + Haversine 휴리스틱
 
 **무엇이 바뀌었나(2026-08-23)**
@@ -439,6 +458,138 @@ Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
 - `OnewayBidirectionalAstarEngine`은 `OnewayAstarEngine`을, `OnewayBidirectionalDijkstraEngine`(신설, 2026-08-23)은 `OnewayDijkstraEngine`을 상속하고 `find_path()`만 각각 양방향 탐색(`_bidirectional_astar_path` / `nx.bidirectional_dijkstra`)으로 교체하는 구조라, 둘 다 `run()`을 오버라이드하지 않는다 — weight/휴리스틱 변경이 별도 수정 없이 그대로 상속·적용된다.
 - `precompute_landmarks()`/`_select_landmarks()`/`landmark_dist` 노드 속성은 코드에서 전부 제거됐다(`oneway_astar.py`, `dependencies.py`의 `init_route_service()`, `benchmarks/benchmark.py`, `benchmarks/run_all_scenarios.py`).
 - 설계 배경·검토한 대안(전부 weight 0 vs weight를 length로 완전 대체 vs 채택된 절충안), 양방향 Dijkstra 신설 경위는 [route_engine 최단 경로 가중치 거리 전용 전환 제안](../proposals/route_engine_shortest_weight_distance_only_proposal.md) 참고.
+
+**(2026-09-17 갱신) `OnewayAstarEngine`은 더 이상 `compute_distance_only_lookup`을 호출하지 않는다**
+
+- `run()`마다 2*E 크기 lookup dict를 새로 만들던 것을 `_make_distance_weight(blocked_tags)`가 만드는 콜러블로 바꿨다. A*가 실제로 확인한 edge에서 바로 읽으며, 누락 `length`는 1.0, 1m 미만은 1.0으로 올림, 차단 태그는 `inf`로 **기존 lookup과 값이 같다**(실측 2026-09-17, artifact 엣지 223,693개 전부 일치, 차이 0건).
+- 같은 실측에서 재생성 비용은 feature cache가 준비된 상태에서도 0.68~0.77초였고 변경 후 약 10μs다. `WaypointComposerEngine`은 leg마다 엔진을 새로 만들므로 leg 수만큼 반복되던 비용이다.
+- `path_cost()`는 **항상 거리**를 돌려준다(벤치마크가 엔진끼리 비교하는 기준). 탐색에 쓴 비용 합이 필요하면 `weighted_path_cost()`를 쓴다.
+- 나머지 세 엔진(`dijkstra.py`, `oneway_bi_astar.py`, `oneway_bi_dijkstra.py`)은 아직 `compute_distance_only_lookup`을 쓴다.
+
+## 안전·편안 가중 비용 (#445, 2026-09-17)
+
+**비용식과 ALT 재사용 근거**
+
+```
+cost       = length × (1 + α × unsafe + β × discomfort)
+unsafe     = λ × (1 - safety_score) + (1 - λ) × accident_score
+discomfort = 1 - slope_score
+```
+
+- `scoring/weighted_edge_cost.py::WeightedEdgeCost`. `custom_score`가 비용을 `length` 아래로 내릴 수 있는 **할인 모델**인 것과 달리 **페널티 전용 모델**이라 항상 `cost >= length`가 성립한다.
+- 그래서 기동 때 `length`로 준비한 ALT Planar 거리표를 **사용자 가중치가 바뀌어도 다시 만들지 않고** admissible heuristic으로 그대로 쓴다. 이 불변식이 이 모듈의 존재 이유이므로 수식을 바꿀 때 가장 먼저 확인한다(`tests/unit/test_weighted_edge_cost.py::test_weight_is_never_below_length`).
+- `visited_nodes` 재방문 페널티(배수 >= 1)는 가중 비용 **위에** 곱해지므로 admissibility가 유지된다.
+
+**선호도와 비용 계수의 분리**
+
+- `Weights.safety` / `Weights.slope`(0~1 선호 강도)를 그대로 α·β로 쓰지 않는다. 선호도는 "얼마나 원하는가", α·β는 "탐색 비용을 몇 배까지 올릴 것인가"로 의미가 다르다.
+- `normalize_preference_weights(safety, slope, weight_limit)`가 상대 비율을 지키며 `α+β <= k`로 비례 축소한다. 가중치 산출 로직(#444/#448)이 바뀌어도 비용 수식이 흔들리지 않게 하기 위한 분리다.
+
+**적용 범위 (설계 결정 A)**
+
+| 모드 | 비용 |
+|---|---|
+| `waypoint`의 `oneway_preferred` leg | 가중 |
+| `waypoint`의 `oneway_shortest` leg | 새 선호 가중치 미적용. 기존 재방문 페널티는 유지 |
+| `oneway_shortest` | 거리 기준 최단 유지 |
+| `gps_art` | 새 선호 가중치 미적용. 기존 경유지 연결 방식 유지 |
+| `oneway_random`, `circular_random` | 아직 `custom_score`(할인 모델). Beam 계열 전환은 전후 벤치마크와 함께 별도 진행 |
+
+Beam이 섞인 요청은 이번 새 가중 연결 대상에서 제외한다. 자동으로 채운 구간과
+명시된 `oneway_preferred` 모두 같은 규칙을 따른다. Beam의 목표 거리와 기존
+`custom_weights`는 유지한다. 두 비용 모델의 통합은 별도 작업이다.
+
+**설문 기본값과 대화 선호 전달 (`SafetyComfortPreference`)**
+
+설문은 사용자 기본 선호이며, 이번 대화에서 나온 요구를 기존 `_build_weights`의
+혼합 로직으로 반영한다. 기본 안전·편안 값 `0.5`도 유효한 선호다. 사용자가 이번에
+언급하지 않았다는 이유로 해당 축을 0으로 바꾸지 않는다.
+
+```
+RouteExecutor -> RouteTool -> RouteService -> WaypointComposerEngine
+```
+
+`RouteExecutor._build_preference_signal(weights)`는 최종 `Weights.safety`와
+`Weights.slope`를 그대로 전달한다. 설문 기록이 없으면 기존 프로필 기본값을 사용한다.
+설문 조회는 요청당 한 번이며 기본값·혼합 계산식은 변경하지 않았다.
+직접 서비스 호출에서 `preference`를 생략한 경우는 거리 기준이다. 직접 전달한
+신호에서 생략한 축은 계수 0이며, 챗봇은 혼합 결과의 두 축을 모두 전달한다.
+
+**leg 방식 결정 (패딩 전)**
+
+| 요청 | 채우는 방식 | 사유 |
+|---|---|---|
+| `oneway_random`이 섞임 | `oneway_shortest` | `beam_leg_present` |
+| 미지정 + 선호 신호 없음(직접 호출) | `oneway_shortest` | `no_preference` |
+| 미지정 + 두 축 모두 0 | `oneway_shortest` | `zero_weights` |
+| 미지정 + 선호 있음 + 점수 없음 | `oneway_shortest` | `scores_unavailable` |
+| 미지정 + 선호 있음 + 점수 있음 | `oneway_preferred` | — |
+
+자동 패딩 **전에** 판단한다. 먼저 `oneway_shortest`로 채워 버리면 "사용자가 고른
+최단"과 "서비스가 채운 연결"을 더 이상 구분할 수 없다. 명시적으로 고른 구간은
+저장된 선호가 있어도 바꾸지 않는다.
+
+leg 실패 시의 대체 경로는 **가중치도 재방문 페널티도 걸지 않는** 순수 거리 기준이다.
+앞선 시도가 이미 실패했는데 제약을 남겨 두면 대체까지 같은 이유로 실패할 수 있다.
+선호 구간 중 하나라도 거리 기준으로 대체되면 `preference_applied=False`,
+`preference_skipped_reason=preferred_search_failed`를 반환한다. 성공한 다른 구간의
+선호 경로는 유지하되, 전체 요청의 선호 적용 완료라고 표시하지 않는다.
+
+**기동 준비와 요청 격리**
+
+- 점수 적재 상태 검사(`check_coverage`, O(E), 실측 0.28~0.30초)는 **기동 때 1회**만 돌려 `G.graph["weighted_cost_coverage"]`에 붙인다(`weighted_cost_runtime.py`, `alt_runtime.py`와 같은 prepare → attach → get 구조).
+- 요청은 붙어 있는 적재율·중앙값만 읽어 자기 α·β로 객체를 만든다 — 실측 1000회 0.5ms(요청당 약 0.5μs), 그래프 순회 없음.
+- 그래프에 붙는 것은 **사용자와 무관한 데이터**뿐이다. α·β는 붙이지 않는다. 요청당 하나 만들어 그 요청의 모든 구간이 공유한다.
+
+**결측 처리**
+
+- 세 점수 컬럼은 nullable이고 server default가 없다. NULL은 "미계산", `0.0`은 "계산했고 0"이다.
+- 결측을 엣지 단위로 `0`으로 대체하지 않는다 — 그러면 점수가 없는 도로가 가장 안전한 도로로 읽혀 안전 가중치를 올릴수록 데이터 없는 길로 몰린다.
+- 그래프 단위 커버리지 게이트가 판정하고(`WALK_SCORE_COVERAGE_MIN`, 기본 `0.95`), 통과한 뒤 남은 NULL만 중앙값으로 대체하며 횟수를 센다.
+- 점수가 `0~1`을 벗어나면 clamp하지 않고 엣지 정보를 담아 예외를 던진다.
+
+**우회 상한은 실험용으로 보존, 일반 요청에는 미적용**
+
+일반 요청은 길다는 이유로 선호 경로를 최단 경로로 강제 대체하지 않는다. 우회 상한용
+기준 경로 탐색도 수행하지 않는다. 이전 운영 설정 `WALK_DETOUR_MAX_RATIO`는 제거했으며,
+환경변수에 남아 있더라도 이 정책을 활성화하지 않는다.
+
+`scoring/detour_cap.py`와 Composer의 기준 경로·대체 구현, 관련 테스트는 보존했다.
+`experimental_detour_max_ratio`를 직접 명시한 실험만 해당 정책을 실행한다(기본 `None`).
+RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·초과 시 처리·Beam 혼합은
+[우회 정책 검토안](../proposals/route_engine_detour_policy_proposal.md)에서 팀이 논의한다.
+현재 구현 위치와 재현 방법도 이 문서에 있다.
+
+**응답 필드**
+
+| 필드 | 의미 |
+|---|---|
+| `preference_applied` | 요청한 새 가중 연결이 전체 경로에 적용됐는가. 일부 거리 대체나 부분 경로면 `False` |
+| `preference_skipped_reason` | 반영하지 못한 사유 |
+
+일반 요청의 사유 값은 `no_preference`, `zero_weights`, `beam_leg_present`,
+`scores_unavailable`, `preferred_search_failed`, `partial_route`다.
+`detour_cap_exceeded`, `baseline_failed`는 보존한 실험에서만 사용한다.
+실험의 `baseline_failed`는 선호 경로를 유지하지만 상한을 검증하지 못했다는 뜻으로,
+`preference_applied=True`와 함께 반환될 수 있다.
+
+**설정과 복구**
+
+| 키 | 기본값 | 의미 |
+|---|---|---|
+| `WALK_WEIGHTED_COST_ENABLED` | `true` | `false`면 새 가중 연결 비활성. Beam의 기존 비용은 유지 |
+| `WALK_WEIGHT_LIMIT` | `0.5` | `α+β` 상한(k) |
+| `WALK_UNSAFE_ACCIDENT_RATIO` | `0.5` | `unsafe` 결합 비율(λ) |
+| `WALK_SCORE_COVERAGE_MIN` | `0.95` | 게이트 통과 기준 |
+
+준비 실패·커버리지 미달·설정 비활성 시 새 가중 연결은 거리 기준으로 처리하고 기동을
+막지 않는다. 기존 Beam 비용과 재방문 페널티는 이 설정으로 비활성화되지 않는다.
+
+**현재 상태 (2026-09-17 실측)**
+
+운영 artifact에는 세 점수가 아직 없어 적재율이 모두 `0.0`이다. 게이트가 가중 모드를 끄므로 **데이터 적재와 artifact 재빌드 전까지 경로 결과는 변하지 않는다.** 데이터 계약과 실측 수치는 [graph_contract.md](graph_contract.md) 참고.
+
+`λ`(`WALK_UNSAFE_ACCIDENT_RATIO`)는 안전시설 부족과 사고위험의 결합 비율로 서비스 의미에 해당한다. 데이터팀이 결합된 단일 점수를 제공하기로 하면 이 설정은 사라진다. 알고리즘 코드에는 기본값을 두지 않고 설정으로만 주입한다.
 
 **Haversine 휴리스틱의 admissibility 전제 — 새 테스트 그래프를 만들 때 주의**
 

@@ -1,11 +1,11 @@
 import logging
 
-from src.schema.prewalk_schema import State
+from src.schema.prewalk_schema import State, FeatureTag
 from src.interfaces.schema.walk_schema import WalkMode, Coordinate
 from src.agent.tools.route_tools import RouteTool
-from src.schema.route_schema import Weights
+from src.schema.route_schema import SafetyComfortPreference, Weights
 from src.repository.user.user_preference_repository import UserPreferenceRepository
-from src.route_engine.profiles import ScoringProfile, get_profile
+from src.route_engine.profiles import ScoringProfile
 
 logger = logging.getLogger(__name__)
 
@@ -17,21 +17,29 @@ MODE_TOOL_MAP: dict[WalkMode, str] = {
     WalkMode.WAYPOINT:        "waypoint_route",
 }
 
-# 테마·설문이 없을 때의 기본 가중치(baseline).
-# route_schema.Weights 기본값을 단일 출처(SSOT)로 사용함.
-#   (안전/평지 0.5, 미관·활동·동반 0.0 → 일반 경로 = 해당 특성 무편향)
-_BASELINE_WEIGHTS = Weights().model_dump()
+_SURVEY_AXES = ("safety", "comfort")
 
-# 대화 테마(state.themes)를 가중치에 반영하는 EMA 블렌딩 강도(0~1)와 목표값.
-# base[key] = alpha * _THEME_TARGET + (1 - alpha) * base[key] — 클수록 테마가 base를 더 세게 끌어당김.
-# TODO(임시): TAG_WEIGHT_MAP은 "이 테마가 어떤 축에 영향을 주는지"(키 집합)만 참고하고
-# delta 값 자체는 쓰지 않음 — 모든 축이 같은 고정 target으로 끌려감(태그별 크기 구분 없음).
-# 추후 delta/weights 체계를 한 번에 다시 설계할 때 함께 정리 예정.
-_THEME_EMA_ALPHA  = 0.6
-_THEME_TARGET     = 1.0
+_PREFERENCE_TARGET_MAP: dict[str, float] = {
+    "must":    0.95,
+    "high":    0.75,
+    "neutral": 0.50,
+    "low":     0.25,
+}
+_EXPLICITNESS_ALPHA_MAP: dict[str, float] = {
+    "explicit_hard": 0.90,
+    "explicit_soft": 0.70,
+    "optional":      0.40,
+    "inferred":      0.00,
+}
 
-_ACCESSIBLE_THEMES = {"유모차", "계단이 불편한"}
-_CONVENIENT_THEMES = {"활기찬", "힙한"}
+_FEATURE_TO_WEIGHTS_KEY: dict[FeatureTag, str] = {
+    FeatureTag.SAFETY:  "safety",
+    FeatureTag.COMFORT: "comfort",
+}
+
+# _build_weights(preference=...)의 "안 넘김" 표식. None은 "선호 행이 없음"이라는
+# 유효한 값이라 기본값으로 쓸 수 없다.
+_FETCH_PREFERENCE = object()
 
 class RouteExecutor:
     def __init__(self):
@@ -40,7 +48,7 @@ class RouteExecutor:
 
     async def run(self, state: State) -> State:
         """
-        UserPreference와 테마 태그를 반영한 가중치로 경로를 생성합니다.
+        UserPreference와 feature 라벨을 반영한 가중치로 경로를 생성합니다.
         """
         # 예외1. 모드와 매핑되는 경로 생성 엔진이 없는 경우
         tool_name = MODE_TOOL_MAP.get(state.mode)
@@ -62,16 +70,24 @@ class RouteExecutor:
 
         if legs is not None:
             args["leg_modes"]     = [leg["mode"] for leg in legs]
-            args["leg_target_km"] = [leg["target_km"] for leg in legs]
+            args["leg_target_km"] = [leg.get("target_km") for leg in legs]
 
         args["access_token"]   = state.access_token or ""
-        profile = self._select_profile(state)
+        profile = state.profile or ScoringProfile.DEFAULT
         state.profile = profile
         args["profile"] = profile
-        args["custom_weights"] = self._build_weights(state, profile)
+        # 설문을 사용자 기본값으로 삼고 이번 대화 선호와 섞는다. 조회·계산은 한 번만 한다.
+        preference = UserPreferenceRepository.get_by_user_id(state.user_id)
+        weights = self._build_weights(state, preference=preference)
+        args["custom_weights"] = weights
+        # waypoint 모드만 안전·편안 가중 연결을 쓴다(#445). 다른 모드의 도구는 이
+        # 인자를 받지 않으므로 넣지 않는다.
+        if tool_name == MODE_TOOL_MAP.get(WalkMode.WAYPOINT):
+            args["preference"] = self._build_preference_signal(weights)
 
         logger.info(f"mode: {state.mode}")
         logger.info(f"custom_weights: {args['custom_weights']}")
+        logger.info(f"preference: {args.get('preference')}")
 
         # 경로 생성
         try:
@@ -83,52 +99,38 @@ class RouteExecutor:
 
         return state
 
-    @staticmethod
-    def _select_profile(state: State) -> ScoringProfile:
-        """명시 프로필을 우선하고, 없으면 대화 테마에서 결정합니다."""
-        if state.profile is not None:
-            return state.profile
-        themes = set(state.themes)
-        if themes & _ACCESSIBLE_THEMES:
-            return ScoringProfile.ACCESSIBLE
-        if themes & _CONVENIENT_THEMES:
-            return ScoringProfile.CONVENIENT
-        return ScoringProfile.DEFAULT
-
-    def _build_weights(
-        self,
-        state: State,
-        profile: ScoringProfile = ScoringProfile.DEFAULT,
-    ) -> Weights:
+    def _build_weights(self, state: State, preference=_FETCH_PREFERENCE) -> Weights:
         """
-        UserPreference base weights에 state.themes의 delta를 합산해 최종 Weights를 반환합니다.
-        UserPreference가 없으면 _BASELINE_WEIGHTS를 사용합니다.
-        (안전/평지는 0.5, 미관·활동·동반 특성은 0.0 → 일반 경로는 해당 특성 무편향)
+        safety/comfort 두 feature에 대해 온보딩 설문 값과 state.feature_labels의
+        EMA 블렌딩으로 가중치를 누적하여 반환합니다.
+
+        preference를 넘기면 다시 조회하지 않습니다. 넘기지 않으면 직접 조회합니다.
         """
-        from src.service.user.survey_service import TAG_WEIGHT_MAP  # 순환 import 방지(지연 로드)
+        if preference is _FETCH_PREFERENCE:
+            preference = UserPreferenceRepository.get_by_user_id(state.user_id)
+        base = {"safety": 0.5, "comfort": 0.5}  # route_schema.Weights의 safety/slope 기본값과 동일
 
-        preference = UserPreferenceRepository.get_by_user_id(state.user_id)
-        if preference is None:
-            logger.debug("UserPreference가 없어, baseline 가중치를 사용합니다.")
-
-        # 선택 프로필을 기준으로, 저장된 설문값은 전역 baseline과의 차이만 반영합니다.
-        # 따라서 사용자 개인화가 convenient/accessible 프로필 자체를 덮어쓰지 않습니다.
-        base = get_profile(profile).weights.model_dump()
-        for key, default in _BASELINE_WEIGHTS.items():
-            stored = (
-                getattr(preference, f"weights_{key}", None)
-                if preference is not None
-                else None
-            )
+        for key in _SURVEY_AXES:
+            stored = getattr(preference, f"weights_{key}", None) if preference is not None else None
             if stored is not None:
-                base[key] = max(0.0, min(1.0, base[key] + stored - default))
+                base[key] = max(0.0, min(1.0, stored))
 
-        # 테마는 EMA 블렌딩으로 반영. TAG_WEIGHT_MAP의 delta 값은 쓰지 않고, 이 테마가
-        # 건드리는 축(key)인지만 참고해 고정된 _THEME_TARGET 쪽으로 alpha만큼 끌어당김
-        # (임시 방식, 위 TODO 참고).
-        for tag in state.themes:
-            for key in TAG_WEIGHT_MAP.get(tag, {}):
-                base[key] = _THEME_EMA_ALPHA * _THEME_TARGET + (1 - _THEME_EMA_ALPHA) * base[key]
+        # 가중치 누적
+        for tag, label in state.feature_labels.items():
+            key = _FEATURE_TO_WEIGHTS_KEY.get(tag)
+            if key is None:
+                continue
+            target = _PREFERENCE_TARGET_MAP[label.preference_label]     # 선호도 라벨 -> 챗봇 가중치로 사용
+            alpha  = _EXPLICITNESS_ALPHA_MAP[label.explicitness_label]  # 명시적 라벨 -> alpha값으로 사용
+            base[key] = alpha * target + (1 - alpha) * base[key]
 
-        weights = Weights(**base)
-        return weights
+        return Weights(safety=base["safety"], slope=base["comfort"])
+
+    @staticmethod
+    def _build_preference_signal(weights: Weights) -> SafetyComfortPreference:
+        """설문·프로필 기본값과 대화 선호를 섞은 결과를 가중 연결에 전달한다.
+
+        기본값도 서비스가 사용하는 선호다. 출처가 설문/이번 발화인지로 축을 끄거나
+        0으로 바꾸지 않는다. 기존 _build_weights의 혼합 계산 결과를 그대로 사용한다.
+        """
+        return SafetyComfortPreference(safety=weights.safety, comfort=weights.slope)

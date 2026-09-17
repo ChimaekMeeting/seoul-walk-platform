@@ -354,6 +354,8 @@ class TestPrewalkIntentAPI:
                 json={
                     "thread_id": "thread-abc-123",
                     "user_prompt": "한강 근처로 3km 산책하고 싶어요",
+                    "lat": 37.5,
+                    "lon": 127.0,
                 },
             )
         assert response.status_code == 200
@@ -369,7 +371,7 @@ class TestPrewalkIntentAPI:
     def test_공백_user_prompt_시_422_반환(self, client):
         response = client.post(
             "/api/prewalk/intent",
-            json={"thread_id": "thread-abc-123", "user_prompt": "   "},
+            json={"thread_id": "thread-abc-123", "user_prompt": "   ", "lat": 37.5, "lon": 127.0},
         )
         assert response.status_code == 422
 
@@ -383,7 +385,7 @@ class TestPrewalkIntentAPI:
         with patch("src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator):
             response = client.post(
                 "/api/prewalk/intent",
-                json={"thread_id": "invalid-thread", "user_prompt": "산책 추천해줘"},
+                json={"thread_id": "invalid-thread", "user_prompt": "산책 추천해줘", "lat": 37.5, "lon": 127.0},
             )
         assert response.status_code == 200
         assert response.json()["status"] == "session_not_found"
@@ -396,7 +398,7 @@ class TestPrewalkIntentAPI:
         with patch("src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator):
             response = client.post(
                 "/api/prewalk/intent",
-                json={"thread_id": "thread-abc-123", "user_prompt": "산책 추천해줘"},
+                json={"thread_id": "thread-abc-123", "user_prompt": "산책 추천해줘", "lat": 37.5, "lon": 127.0},
             )
         assert response.status_code == 500
 

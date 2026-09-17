@@ -10,7 +10,7 @@ from src.interfaces.schema.walk_schema import (
     WalkRouteResponse
 )
 from src.schema.route_schema import OnewayRouteInput, Weights
-from src.route_engine.scoring.scoring_engine import compute_distance_only_lookup
+from src.route_engine.scoring.weighted_edge_cost import WeightedEdgeCost
 from src.route_engine.alt_runtime import get_alt_heuristic, get_alt_info
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ class OnewayAstarEngine:
         profile: Optional[ScoringProfile] = None,
         visited_nodes: Optional[set] = None,
         heuristic: Optional[Callable[[int, int], float]] = None,
+        cost_context: Optional[WeightedEdgeCost] = None,
     ):
         self.inp           = inp
         self.G             = G  # custom_score를 그래프에 쓰지 않으므로 copy() 불필요
@@ -33,7 +34,17 @@ class OnewayAstarEngine:
         self.weights       = merge_weights(profile_config.weights, custom_weights)
         self.blocked_tags  = profile_config.blocked_tags
         self.scoring_mode  = profile_config.scoring_mode
-        self._weight_fn    = None
+        # 거리 전용 weight. path_cost()의 기준이자, 가중 탐색의 물리 최단 비교 기준이다.
+        # 항상 이 값을 유지한다(cost_context가 있어도 교체하지 않는다).
+        self._distance_weight = self._make_distance_weight(self.blocked_tags)
+        # 실제 탐색에 쓰는 weight. cost_context가 활성 상태면 그쪽 가중 비용을 쓴다.
+        # RouteService의 oneway_shortest는 cost_context를 넘기지 않으므로 물리 최단을
+        # 유지하고, WaypointComposerEngine이 leg 엔진으로 쓸 때만 가중 비용이 주입된다.
+        self.cost_context = cost_context if (cost_context and cost_context.enabled) else None
+        self._weight_fn = self.cost_context.weight if self.cost_context else self._distance_weight
+        # 레거시: 벤치마크 solver(benchmarks/solvers/astar_solver.py)가 여전히 여기에
+        # 전체 간선 lookup을 대입한다. 엔진은 더 이상 읽지 않는다 — 요청마다 2*E 크기
+        # dict를 만드는 비용을 없애려고 직접 edge 속성을 읽는 방식으로 바꿨다.
         self._score_lookup: dict = {}
         # WaypointComposerEngine이 leg 간 경로 겹침을 페널티로 방지할 때 채워줌. 기본(빈 set)이면 기존 동작과 동일.
         self.visited_nodes = visited_nodes or set()
@@ -65,12 +76,9 @@ class OnewayAstarEngine:
         """
         logger.info(
             f"최단 경로 생성 엔진(A*)을 시작합니다: scoring_mode={self.scoring_mode}, "
-            f"weights={self.weights}, heuristic={self.heuristic_name}"
+            f"weights={self.weights}, heuristic={self.heuristic_name}, "
+            f"cost={'weighted' if self.cost_context else 'distance'}"
         )
-
-        scored = compute_distance_only_lookup(self.G, self.blocked_tags)
-        self._weight_fn    = scored["weight"]
-        self._score_lookup = scored["lookup"]
 
         # 출발 노드와 도착 노드 탐색
         start = self.utils.find_nearest_node(self.inp.start_lat, self.inp.start_lon)
@@ -120,21 +128,11 @@ class OnewayAstarEngine:
         """
         A* 알고리즘으로 최단 경로 노드 목록을 반환합니다.
         """
-        def _weight(u, v, d):
-            # PathUtils.connect_to와 동일한 패턴: 도착지 자신은 페널티 대상에서 제외한다.
-            # 이 페널티는 비용을 늘리기만 하므로(배수 >= 1) 페널티 없는 거리로 만든
-            # ALT 하한도 여전히 실제 비용 이하다 — 즉 ALT 휴리스틱은 visited_nodes가
-            # 있어도 admissible하다. Haversine이 admissible한 근거와 같은 구조다.
-            base = self._weight_fn(u, v, d)
-            if v in self.visited_nodes and v != end:
-                return base * _RETURN_REVISIT_PENALTY
-            return base
-
         try:
             return [nx.astar_path(
                 self.G, start, end,
                 heuristic=self._active_heuristic,
-                weight=_weight,
+                weight=self._build_search_weight(end),
             )]
         except nx.NetworkXNoPath:
             logger.warning("출발-도착 노드 사이에 연결된 경로가 없습니다")
@@ -143,12 +141,61 @@ class OnewayAstarEngine:
             logger.exception("최단 경로 생성에 실패했습니다")
             return []
 
+    def _build_search_weight(self, end: int):
+        """탐색에 넘길 weight 콜러블. 기본 비용(거리 또는 가중) 위에 재방문 페널티를 곱한다.
+
+        PathUtils.connect_to와 동일한 패턴: 도착지 자신은 페널티 대상에서 제외한다.
+        이 페널티는 비용을 늘리기만 하므로(배수 >= 1) 페널티 없는 거리로 만든 ALT
+        하한도 여전히 실제 비용 이하다 — 즉 ALT 휴리스틱은 visited_nodes가 있어도,
+        가중 비용을 써도 admissible하다(가중 비용 >= length이므로). Haversine이
+        admissible한 근거와 같은 구조다.
+        """
+        def _weight(u, v, d):
+            base = self._weight_fn(u, v, d)
+            if v in self.visited_nodes and v != end:
+                return base * _RETURN_REVISIT_PENALTY
+            return base
+
+        return _weight
+
     def path_cost(self, path: list[int]) -> float:
-        """경로(노드 리스트)의 누적 거리(m). 경로에 blocked edge가 있으면 inf. 벤치마크 solver의 cost 계산용."""
+        """경로(노드 리스트)의 누적 거리(m). 경로에 blocked edge가 있으면 inf.
+
+        cost_context가 주입돼 탐색이 가중 비용으로 돌았더라도 **항상 거리**를 돌려준다
+        — 벤치마크가 엔진끼리 비교하는 기준이라 요청 가중치에 따라 단위가 바뀌면
+        비교가 조용히 깨진다. 가중 비용 합이 필요하면 weighted_path_cost()를 쓴다.
+        """
+        return self._sum_along(path, self._distance_weight)
+
+    def weighted_path_cost(self, path: list[int]) -> float:
+        """실제 탐색에 쓴 비용의 합. cost_context가 없으면 path_cost()와 같다."""
+        return self._sum_along(path, self._weight_fn)
+
+    def _sum_along(self, path: list[int], weight_fn) -> float:
         return sum(
-            self._score_lookup.get((path[i], path[i + 1]), 1.0)
+            weight_fn(path[i], path[i + 1], self.G[path[i]][path[i + 1]])
             for i in range(len(path) - 1)
         )
+
+    @staticmethod
+    def _make_distance_weight(blocked_tags: Optional[list[str]]):
+        """length만 보는 weight 콜러블.
+
+        기존 compute_distance_only_lookup()과 값이 완전히 같도록 맞췄다 — 누락된
+        length는 1.0, 1m 미만은 1.0으로 올림(scoring_engine._build_feature_cache의
+        max(1.0, length)와 동일), blocked tag는 inf. 달라진 것은 요청마다 2*E 크기
+        lookup dict를 만들지 않고 A*가 확인한 edge에서 바로 읽는다는 점뿐이다.
+        """
+        blocked = tuple(blocked_tags or ())
+
+        def _weight(u, v, d):
+            if blocked:
+                tags = d.get("tags") or ()
+                if any(tag in tags for tag in blocked):
+                    return float("inf")
+            return max(1.0, float(d.get("length", 1.0) or 1.0))
+
+        return _weight
 
     def _heuristic(self, node: int, target: int) -> float:
         """

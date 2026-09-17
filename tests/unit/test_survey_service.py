@@ -16,7 +16,13 @@ weights_safety/weights_comfort는 둘 다 request.tags에 "안전"/"편안"이 �
   - 사용자 미존재 시 USER_NOT_FOUND 반환
   - tags에 "안전"/"편안" 포함 조합 → γ/β 배분 공식(_safety_comfort_deltas)
   - 그 외 세부 태그는 더 이상 weights_safety/weights_comfort에 영향을 주지 않음(회귀 가드)
+  - "안전"/"편안" 태그 각각 safety/comfort에 적용
+  - 동일 태그 누적, 최대값 1.0 클램핑
+  - 알 수 없는 태그 무시
   - 거리 선택지 → default_target_km 매핑
+
+2026-09-17: 온보딩 태그가 "안전"/"편안" 두 개로 단순화되면서, 그 외 축(nature 등)을
+겨냥하던 케이스는 대상 태그 자체가 없어져 제거했다.
 """
 
 import pytest
