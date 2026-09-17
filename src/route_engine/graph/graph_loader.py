@@ -18,12 +18,14 @@ def load_route_graph(request: dict[str, Any]) -> nx.Graph:
 
     Returns:
         nx.Graph: route_engine 표준 node/edge attribute를 가진 그래프
-            node 속성: lon, lat, node_type, is_underground, is_overpass
-            edge 속성: link_id, length, safety_score, nature_score, slope_score,
-                       running_score, landmark_score, child_score,
-                       park_overlap_ratio, convenience_score,
-                       is_school_zone, is_vehicle_caution,
+            node 속성: lon, lat
+            edge 속성: link_id, length,
+                       safety_score, accident_score, slope_score (NULL 가능),
                        toilet_count, transit_count, accessibility_poi_count
+
+        전체 계약과 각 점수의 방향·결측 규칙은 docs/route_engine/graph_contract.md
+        참고. node_type·is_underground·is_overpass와 나머지 점수·태그는
+        c5d8c13(2026-08-25)에서 제거돼 더 이상 전달되지 않는다.
 
     금지:
         custom_score 계산, profile 선택, route algorithm 호출 금지

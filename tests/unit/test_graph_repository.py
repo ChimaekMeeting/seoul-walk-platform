@@ -24,6 +24,8 @@ def make_edge_row(**overrides):
         "raw_is_park_green": False,
         "raw_is_building_inside": False,
         "safety_score": 0.7,
+        # #445에서 추가된 컬럼. 이 줄이 없으면 _edge_attributes가 AttributeError를 낸다.
+        "accident_score": 0.2,
         "nature_score": 0.6,
         "slope_score": 0.5,
         "running_score": 0.4,
