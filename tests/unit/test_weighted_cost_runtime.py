@@ -1,0 +1,285 @@
+"""
+tests/unit/test_weighted_cost_runtime.py
+가중 비용의 기동 준비·요청별 생성과 RouteService 배선 — #445 6단계
+
+핵심은 두 가지다.
+  1. 그래프를 훑는 O(E) 커버리지 검사는 기동 때 1회만 돈다(실측 약 0.30초).
+     요청은 붙어 있는 적재율·중앙값만 읽는다.
+  2. 사용자별 alpha/beta는 그래프에 붙지 않는다. 요청 범위를 벗어나 공유되면
+     다른 사용자의 가중치가 섞인다.
+
+검증 항목:
+  - WALK_WEIGHTED_COST_ENABLED=false면 준비를 건너뛴다
+  - 커버리지 미달이면 report.ok=False로 붙고 요청 context는 만들어지지 않는다
+  - 준비 실패(예외)해도 기동을 막지 않고 거리 전용으로 폴백한다
+  - attach(None)은 이전 상태를 지운다
+  - build_request_cost_context는 그래프를 다시 훑지 않는다
+  - 선호도가 0이면 context를 만들지 않는다(거리 전용과 동일하므로)
+  - 선호도 합이 상한을 넘으면 비례 축소된 alpha/beta가 들어간다
+  - 커버리지가 계산한 중앙값이 요청 context로 전달된다
+  - RouteService는 oneway_shortest에 context를 넘기지 않는다(설계 결정 A)
+  - RouteService는 요청당 context를 하나만 만들어 모든 leg가 공유한다
+  - WaypointComposerEngine은 OnewayAstarEngine leg에만 context를 넘긴다
+"""
+
+from unittest.mock import MagicMock
+
+import networkx as nx
+import pytest
+
+from src.interfaces.schema.walk_schema import WalkMode
+from src.route_engine.engines.oneway_astar import OnewayAstarEngine
+from src.route_engine.engines.waypoint import WaypointComposerEngine
+from src.route_engine.scoring.weighted_edge_cost import (
+    ACCIDENT_ATTR,
+    SAFETY_ATTR,
+    SLOPE_ATTR,
+    WeightedEdgeCost,
+)
+from src.route_engine.weighted_cost_runtime import (
+    COVERAGE_KEY,
+    attach_weighted_cost,
+    build_request_cost_context,
+    get_coverage_report,
+    prepare_weighted_cost,
+)
+from src.schema.route_schema import Weights, WaypointRouteInput
+from src.schema.route_schema import WaypointCoordinate
+
+K = 0.5
+LAMBDA = 0.5
+
+# ── 그래프 헬퍼 ─────────────────────────────────────────────────────────────
+
+
+def scored_graph(n_edges: int = 10, missing: int = 0, safety=0.4) -> nx.Graph:
+    """앞쪽 missing개 엣지만 safety_score가 None인 그래프."""
+    G = nx.Graph()
+    for i in range(n_edges):
+        data = {
+            "length": 10.0 + i,
+            SAFETY_ATTR: safety,
+            ACCIDENT_ATTR: 0.2,
+            SLOPE_ATTR: 0.6,
+        }
+        if i < missing:
+            data[SAFETY_ATTR] = None
+        G.add_edge(i, i + 1, **data)
+    return G
+
+
+def bare_graph() -> nx.Graph:
+    """현재 운영 artifact처럼 점수가 하나도 없는 그래프."""
+    G = nx.Graph()
+    G.add_edge(0, 1, length=100.0)
+    G.add_edge(1, 2, length=50.0)
+    return G
+
+
+def prepared(G: nx.Graph, min_ratio: float = 0.9) -> nx.Graph:
+    attach_weighted_cost(G, prepare_weighted_cost(G, enabled=True, coverage_min_ratio=min_ratio))
+    return G
+
+
+def request_context(G: nx.Graph, safety=0.5, slope=0.5):
+    return build_request_cost_context(
+        G,
+        safety_preference=safety, slope_preference=slope,
+        weight_limit=K, accident_ratio=LAMBDA,
+    )
+
+
+# ── 기동 준비 ───────────────────────────────────────────────────────────────
+
+
+def test_disabled_setting_skips_preparation():
+    assert prepare_weighted_cost(scored_graph(), enabled=False, coverage_min_ratio=0.9) is None
+
+
+def test_prepared_report_is_attached_and_readable():
+    G = prepared(scored_graph())
+
+    report = get_coverage_report(G)
+    assert report is not None and report.ok is True
+    assert report.ratios[SAFETY_ATTR] == pytest.approx(1.0)
+
+
+def test_coverage_shortfall_is_attached_with_ok_false():
+    """왜 꺼졌는지 진단할 수 있어야 하므로 미달이어도 report 자체는 남긴다."""
+    G = prepared(scored_graph(10, missing=5))
+
+    report = get_coverage_report(G)
+    assert report is not None
+    assert report.ok is False
+    assert report.missing_attrs() == [SAFETY_ATTR]
+
+
+def test_bare_graph_disables_weighted_mode(caplog):
+    """점수가 하나도 없는 현재 artifact 상태에서는 거리 전용으로 내려간다."""
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        G = prepared(bare_graph())
+
+    assert get_coverage_report(G).ok is False
+    assert request_context(G) is None
+    assert any("커버리지" in r.message for r in caplog.records)
+
+
+def test_preparation_failure_does_not_block_startup(caplog, monkeypatch):
+    import logging
+
+    monkeypatch.setattr(
+        WeightedEdgeCost, "check_coverage",
+        classmethod(lambda cls, G, min_ratio: (_ for _ in ()).throw(RuntimeError("boom"))),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = prepare_weighted_cost(scored_graph(), enabled=True, coverage_min_ratio=0.9)
+
+    assert result is None
+    assert any("거리 전용으로 폴백" in r.message for r in caplog.records)
+
+
+def test_attaching_none_clears_previous_state():
+    G = prepared(scored_graph())
+    assert COVERAGE_KEY in G.graph
+
+    attach_weighted_cost(G, None)
+
+    assert COVERAGE_KEY not in G.graph
+    assert get_coverage_report(G) is None
+
+
+# ── 요청별 생성 ─────────────────────────────────────────────────────────────
+
+
+def test_request_context_does_not_rescan_the_graph(monkeypatch):
+    """요청마다 O(E) 순회가 되살아나면 안 된다."""
+    G = prepared(scored_graph())
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("요청 경로에서 커버리지를 다시 재면 안 된다")
+
+    monkeypatch.setattr(WeightedEdgeCost, "check_coverage", classmethod(_boom))
+
+    assert request_context(G) is not None
+
+
+def test_unprepared_graph_yields_no_context():
+    assert request_context(scored_graph()) is None
+
+
+def test_zero_preferences_yield_no_context():
+    """비용이 정확히 length와 같아지므로 거리 전용과 구분할 이유가 없다."""
+    G = prepared(scored_graph())
+
+    assert request_context(G, safety=0.0, slope=0.0) is None
+
+
+def test_preferences_over_limit_are_scaled_into_the_context():
+    G = prepared(scored_graph())
+
+    context = request_context(G, safety=0.5, slope=0.5)  # 합 1.0 > 상한 0.5
+
+    assert context.alpha + context.beta == pytest.approx(K)
+    assert context.alpha == pytest.approx(context.beta)
+
+
+def test_medians_from_startup_reach_the_request_context():
+    G = prepared(scored_graph(10, missing=1, safety=0.4))
+
+    context = request_context(G)
+
+    assert context.enabled is True
+    assert context.medians[SAFETY_ATTR] == pytest.approx(0.4)
+    # NULL 엣지도 중앙값으로 대체돼 탐색이 진행된다
+    context.weight(0, 1, G[0][1])
+    assert context.median_substitutions == 1
+
+
+def test_context_is_not_stored_on_the_graph():
+    """사용자별 가중치가 그래프에 남으면 다음 요청과 섞인다."""
+    G = prepared(scored_graph())
+
+    request_context(G, safety=0.9, slope=0.1)
+
+    assert not any(isinstance(v, WeightedEdgeCost) for v in G.graph.values())
+
+
+# ── RouteService 배선 ───────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def service():
+    from src.service.route.route_service import RouteService
+
+    return RouteService(G=prepared(scored_graph()), auth_service=MagicMock())
+
+
+@pytest.mark.parametrize("mode", [
+    WalkMode.ONEWAY_SHORTEST,
+    WalkMode.ONEWAY_RANDOM,
+    WalkMode.CIRCULAR_RANDOM,
+    WalkMode.GPS_ART,
+])
+def test_only_waypoint_mode_gets_a_cost_context(service, mode):
+    """설계 결정 A: oneway_shortest는 물리 최단으로 남는다. Beam 계열은 후속 작업."""
+    assert service._build_cost_context(mode, None, None) is None
+
+
+def test_waypoint_mode_gets_a_cost_context(service):
+    context = service._build_cost_context(WalkMode.WAYPOINT, None, None)
+
+    assert context is not None
+    assert context.enabled is True
+
+
+def test_zero_custom_weights_keep_waypoint_on_distance(service):
+    context = service._build_cost_context(
+        WalkMode.WAYPOINT, Weights(safety=0.0, slope=0.0), None,
+    )
+
+    assert context is None
+
+
+# ── WaypointComposerEngine 전달 ─────────────────────────────────────────────
+
+
+def _waypoint_input() -> WaypointRouteInput:
+    return WaypointRouteInput(
+        start_lat=37.50, start_lon=127.00, end_lat=37.51, end_lon=127.01,
+        waypoints=[WaypointCoordinate(lat=37.505, lon=127.005)],
+        leg_modes=["oneway_shortest", "oneway_random"],
+        leg_target_km=[None, 1.0],  # oneway_random leg는 target_km이 필수다
+    )
+
+
+def test_composer_passes_context_to_astar_legs_only():
+    """OnewayBeamEngine은 아직 custom_score(할인 모델)로 탐색한다 — 섞으면 안 된다."""
+    G = prepared(scored_graph())
+    context = request_context(G)
+    composer = WaypointComposerEngine(_waypoint_input(), G, cost_context=context)
+
+    assert composer._leg_cost_kwargs("oneway_shortest") == {"cost_context": context}
+    assert composer._leg_cost_kwargs("oneway_random") == {}
+
+
+def test_composer_without_context_passes_nothing():
+    composer = WaypointComposerEngine(_waypoint_input(), prepared(scored_graph()))
+
+    assert composer.cost_context is None
+    assert composer._leg_cost_kwargs("oneway_shortest") == {}
+
+
+def test_leg_engine_accepts_the_forwarded_context():
+    """전달 인자명이 실제 엔진 시그니처와 맞는지 고정한다."""
+    G = prepared(scored_graph())
+    context = request_context(G)
+
+    from src.schema.route_schema import OnewayRouteInput
+
+    inp = OnewayRouteInput(start_lat=0.0, start_lon=0.0, end_lat=0.0, end_lon=0.0, target_km=1.0)
+    engine = OnewayAstarEngine(inp, G, **{"cost_context": context})
+
+    assert engine.cost_context is context

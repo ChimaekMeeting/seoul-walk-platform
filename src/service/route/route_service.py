@@ -22,7 +22,9 @@ from src.route_engine.engines import (
     WaypointComposerEngine,
 )
 from src.route_engine.engines.path_utils import PathUtils
-from src.route_engine.profiles import ScoringProfile
+from src.route_engine.profiles import ScoringProfile, get_profile, merge_weights
+from src.route_engine.weighted_cost_runtime import build_request_cost_context
+from src.config.settings import settings
 from src.schema.route_schema import (
     CircularRouteInput,
     GpsArtPoint,
@@ -195,6 +197,45 @@ class RouteService:
 
         return results
 
+    # 가중 비용을 적용하는 모드. 나머지는 거리 전용으로 남는다.
+    #
+    # ONEWAY_SHORTEST가 빠져 있는 것은 의도다(#445 설계 결정 A) — "최단"은 물리
+    # 최단거리로 유지하고, 가중 경로가 얼마나 돌아갔는지 재는 기준선이자 상한 초과
+    # 시의 폴백 경로로 쓴다. GPS_ART도 내부적으로 oneway_shortest만 쓰므로 같다.
+    #
+    # CIRCULAR_RANDOM(CircularBeamEngine)과 ONEWAY_RANDOM(OnewayBeamEngine)은 아직
+    # scoring_engine.custom_score(할인 모델)로 탐색한다. 두 모델은 방향이 반대라
+    # 한 요청 안에서 섞으면 후보 비교가 불공정해지므로, Beam 계열 전환은 전후
+    # 벤치마크와 함께 별도로 진행한다.
+    _WEIGHTED_MODES = frozenset({WalkMode.WAYPOINT})
+
+    def _build_cost_context(
+        self,
+        mode: WalkMode,
+        custom_weights: Optional[Weights],
+        profile: Optional[ScoringProfile],
+    ):
+        """요청 하나가 쓸 가중 비용 객체. 해당 없으면 None(거리 전용).
+
+        **요청당 한 번만** 만들고 그 요청의 모든 구간이 같은 객체를 공유한다.
+        전역에 캐시하지 않는다 — 다른 사용자의 가중치와 섞이면 안 된다.
+
+        그래프를 훑지 않는다. 기동 때 붙여 둔 적재율·중앙값만 읽으므로 상수 시간이다.
+        """
+        if mode not in self._WEIGHTED_MODES:
+            return None
+
+        profile_config = get_profile(profile)
+        weights = merge_weights(profile_config.weights, custom_weights)
+        return build_request_cost_context(
+            self.G,
+            safety_preference=weights.safety,
+            slope_preference=weights.slope,
+            weight_limit=settings.WALK_WEIGHT_LIMIT,
+            accident_ratio=settings.WALK_UNSAFE_ACCIDENT_RATIO,
+            blocked_tags=profile_config.blocked_tags,
+        )
+
     def _build_engine(
         self,
         mode: WalkMode,
@@ -209,6 +250,8 @@ class RouteService:
         leg_target_km: Optional[List[Optional[float]]] = None,
     ):
         """profile/custom_weights를 엔진에 주입해 경로 생성 엔진 인스턴스를 반환합니다."""
+        cost_context = self._build_cost_context(mode, custom_weights, profile)
+
         if mode == WalkMode.CIRCULAR_RANDOM:
             inp = CircularRouteInput(
                 start_lat=origin.lat,
@@ -253,7 +296,10 @@ class RouteService:
                 leg_modes=padded_modes,
                 leg_target_km=padded_target_km,
             )
-            return self.base_engines[mode](inp, self.G, custom_weights=custom_weights, profile=profile)
+            return self.base_engines[mode](
+                inp, self.G, custom_weights=custom_weights, profile=profile,
+                cost_context=cost_context,
+            )
 
         if destination is None:
             raise ValueError(f"{mode} 모드에서는 destination이 필요합니다")

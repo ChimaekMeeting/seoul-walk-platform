@@ -37,6 +37,26 @@ class Settings(BaseSettings):
     # Random 선택법에만 쓰인다. Planar는 좌표 결정론이라 무시한다.
     WALK_ALT_SEED: int = 0
 
+    # 안전·편안 가중 탐색 비용(#445)
+    # cost = length * (1 + alpha * unsafe + beta * discomfort)
+    # false로 재기동하면 준비 자체를 건너뛰고 모든 경로가 거리 전용으로 돌아간다.
+    WALK_WEIGHTED_COST_ENABLED: bool = True
+    # alpha + beta의 상한(k). 엣지 비용이 최대 몇 배까지 늘어날 수 있는지를 정한다.
+    # 아래 WALK_DETOUR_MAX_RATIO(최종 경로의 실제 거리 증가 폭)와는 단위가 다른
+    # 별개 설정이다 — 같은 값으로 묶지 않는다.
+    WALK_WEIGHT_LIMIT: float = 0.5
+    # unsafe = lambda * (1 - safety_score) + (1 - lambda) * accident_score 의 lambda.
+    # 안전시설 부족과 사고위험을 섞는 비율이며 서비스 의미에 해당한다. 데이터팀이
+    # 결합된 단일 점수를 제공하기로 하면 이 값은 사라진다.
+    WALK_UNSAFE_ACCIDENT_RATIO: float = 0.5
+    # 세 점수 각각이 이 비율 이상 적재돼 있어야 가중 모드를 켠다. 미달이면 거리
+    # 전용으로 폴백한다 — 결측을 엣지 단위로 0 처리하면 점수가 없는 도로가 가장
+    # 안전한 도로로 읽히기 때문이다. 실제 적재율을 보고 조정한다.
+    WALK_SCORE_COVERAGE_MIN: float = 0.95
+    # 가중 경로가 물리 최단 대비 허용하는 실제 거리 증가 비율. 넘으면 물리 최단으로
+    # 되돌린다(재탐색하지 않는다).
+    WALK_DETOUR_MAX_RATIO: float = 0.3
+
     # Valkey
     VALKEY_URI: str = "redis://localhost:6379"
 

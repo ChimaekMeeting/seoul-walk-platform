@@ -440,6 +440,79 @@ Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
 - `precompute_landmarks()`/`_select_landmarks()`/`landmark_dist` 노드 속성은 코드에서 전부 제거됐다(`oneway_astar.py`, `dependencies.py`의 `init_route_service()`, `benchmarks/benchmark.py`, `benchmarks/run_all_scenarios.py`).
 - 설계 배경·검토한 대안(전부 weight 0 vs weight를 length로 완전 대체 vs 채택된 절충안), 양방향 Dijkstra 신설 경위는 [route_engine 최단 경로 가중치 거리 전용 전환 제안](../proposals/route_engine_shortest_weight_distance_only_proposal.md) 참고.
 
+**(2026-09-17 갱신) `OnewayAstarEngine`은 더 이상 `compute_distance_only_lookup`을 호출하지 않는다**
+
+- `run()`마다 2*E 크기 lookup dict를 새로 만들던 것을 `_make_distance_weight(blocked_tags)`가 만드는 콜러블로 바꿨다. A*가 실제로 확인한 edge에서 바로 읽으며, 누락 `length`는 1.0, 1m 미만은 1.0으로 올림, 차단 태그는 `inf`로 **기존 lookup과 값이 같다**(실측 2026-09-17, artifact 엣지 223,693개 전부 일치, 차이 0건).
+- 같은 실측에서 재생성 비용은 feature cache가 준비된 상태에서도 0.68~0.77초였고 변경 후 약 10μs다. `WaypointComposerEngine`은 leg마다 엔진을 새로 만들므로 leg 수만큼 반복되던 비용이다.
+- `path_cost()`는 **항상 거리**를 돌려준다(벤치마크가 엔진끼리 비교하는 기준). 탐색에 쓴 비용 합이 필요하면 `weighted_path_cost()`를 쓴다.
+- 나머지 세 엔진(`dijkstra.py`, `oneway_bi_astar.py`, `oneway_bi_dijkstra.py`)은 아직 `compute_distance_only_lookup`을 쓴다.
+
+## 안전·편안 가중 비용 (#445, 2026-09-17)
+
+**비용식과 ALT 재사용 근거**
+
+```
+cost       = length × (1 + α × unsafe + β × discomfort)
+unsafe     = λ × (1 - safety_score) + (1 - λ) × accident_score
+discomfort = 1 - slope_score
+```
+
+- `scoring/weighted_edge_cost.py::WeightedEdgeCost`. `custom_score`가 비용을 `length` 아래로 내릴 수 있는 **할인 모델**인 것과 달리 **페널티 전용 모델**이라 항상 `cost >= length`가 성립한다.
+- 그래서 기동 때 `length`로 준비한 ALT Planar 거리표를 **사용자 가중치가 바뀌어도 다시 만들지 않고** admissible heuristic으로 그대로 쓴다. 이 불변식이 이 모듈의 존재 이유이므로 수식을 바꿀 때 가장 먼저 확인한다(`tests/unit/test_weighted_edge_cost.py::test_weight_is_never_below_length`).
+- `visited_nodes` 재방문 페널티(배수 >= 1)는 가중 비용 **위에** 곱해지므로 admissibility가 유지된다.
+
+**선호도와 비용 계수의 분리**
+
+- `Weights.safety` / `Weights.slope`(0~1 선호 강도)를 그대로 α·β로 쓰지 않는다. 선호도는 "얼마나 원하는가", α·β는 "탐색 비용을 몇 배까지 올릴 것인가"로 의미가 다르다.
+- `normalize_preference_weights(safety, slope, weight_limit)`가 상대 비율을 지키며 `α+β <= k`로 비례 축소한다. 가중치 산출 로직(#444/#448)이 바뀌어도 비용 수식이 흔들리지 않게 하기 위한 분리다.
+
+**적용 범위 (설계 결정 A)**
+
+| 모드 | 비용 |
+|---|---|
+| `waypoint`의 `oneway_shortest` leg | 가중 |
+| `oneway_shortest`, `gps_art` | **물리 최단 유지** — 가중 경로의 우회 상한 기준선·폴백 |
+| `oneway_random`, `circular_random` | 아직 `custom_score`(할인 모델). Beam 계열 전환은 전후 벤치마크와 함께 별도 진행 |
+
+두 모델은 방향이 반대라 한 요청 안에서 섞으면 후보 비교가 불공정해진다.
+
+**기동 준비와 요청 격리**
+
+- 점수 적재 상태 검사(`check_coverage`, O(E), 실측 0.28~0.30초)는 **기동 때 1회**만 돌려 `G.graph["weighted_cost_coverage"]`에 붙인다(`weighted_cost_runtime.py`, `alt_runtime.py`와 같은 prepare → attach → get 구조).
+- 요청은 붙어 있는 적재율·중앙값만 읽어 자기 α·β로 객체를 만든다 — 실측 1000회 0.5ms(요청당 약 0.5μs), 그래프 순회 없음.
+- 그래프에 붙는 것은 **사용자와 무관한 데이터**뿐이다. α·β는 붙이지 않는다. 요청당 하나 만들어 그 요청의 모든 구간이 공유한다.
+
+**결측 처리**
+
+- 세 점수 컬럼은 nullable이고 server default가 없다. NULL은 "미계산", `0.0`은 "계산했고 0"이다.
+- 결측을 엣지 단위로 `0`으로 대체하지 않는다 — 그러면 점수가 없는 도로가 가장 안전한 도로로 읽혀 안전 가중치를 올릴수록 데이터 없는 길로 몰린다.
+- 그래프 단위 커버리지 게이트가 판정하고(`WALK_SCORE_COVERAGE_MIN`, 기본 `0.95`), 통과한 뒤 남은 NULL만 중앙값으로 대체하며 횟수를 센다.
+- 점수가 `0~1`을 벗어나면 clamp하지 않고 엣지 정보를 담아 예외를 던진다.
+
+**우회 상한**
+
+- `scoring/detour_cap.py::apply_detour_cap`. 가중 경로의 **실제 거리**가 물리 최단 × `(1 + WALK_DETOUR_MAX_RATIO)`를 넘으면 물리 최단으로 되돌린다. 재탐색하지 않으므로 A* 호출 수가 요청마다 달라지지 않는다.
+- 엔진이 아니라 순수 함수다 — `find_path()`는 벤치마크 solver가 직접 호출하므로 엔진 안에서 적용하면 측정값이 달라지고, 상한은 leg가 아니라 요청 전체의 성질이라 leg마다 적용하면 5구간 경로가 허용치를 5배까지 넘길 수 있다.
+- `α+β` 상한(`WALK_WEIGHT_LIMIT`, 엣지 비용 증가 폭)과 우회율 상한(최종 경로의 실제 거리 증가 폭)은 **단위가 다른 별개 설정**이다. 같은 값으로 묶지 않는다.
+
+**설정과 복구**
+
+| 키 | 기본값 | 의미 |
+|---|---|---|
+| `WALK_WEIGHTED_COST_ENABLED` | `true` | `false`면 준비를 건너뛰고 전 모드가 거리 전용 |
+| `WALK_WEIGHT_LIMIT` | `0.5` | `α+β` 상한(k) |
+| `WALK_UNSAFE_ACCIDENT_RATIO` | `0.5` | `unsafe` 결합 비율(λ) |
+| `WALK_SCORE_COVERAGE_MIN` | `0.95` | 게이트 통과 기준 |
+| `WALK_DETOUR_MAX_RATIO` | `0.3` | 실제 거리 증가 허용 비율 |
+
+준비 실패·커버리지 미달·설정 비활성 어느 경우든 거리 전용으로 폴백하고 기동을 막지 않는다.
+
+**현재 상태 (2026-09-17 실측)**
+
+운영 artifact에는 세 점수가 아직 없어 적재율이 모두 `0.0`이다. 게이트가 가중 모드를 끄므로 **데이터 적재와 artifact 재빌드 전까지 경로 결과는 변하지 않는다.** 데이터 계약과 실측 수치는 [graph_contract.md](graph_contract.md) 참고.
+
+`λ`(`WALK_UNSAFE_ACCIDENT_RATIO`)는 안전시설 부족과 사고위험의 결합 비율로 서비스 의미에 해당한다. 데이터팀이 결합된 단일 점수를 제공하기로 하면 이 설정은 사라진다. 알고리즘 코드에는 기본값을 두지 않고 설정으로만 주입한다.
+
 **Haversine 휴리스틱의 admissibility 전제 — 새 테스트 그래프를 만들 때 주의**
 
 - Haversine 휴리스틱이 admissible하려면 **모든 edge의 declared `length`가 그 edge 양 끝 노드의 실제 좌표 간 직선거리 이상**이어야 한다(직선이 두 점 사이 최단 경로이므로, 도로가 직선보다 짧을 수는 없다는 물리적 전제). 실제 production 그래프(OSM/Kakao 도로망)는 이 전제를 자연스럽게 만족할 것으로 예상하지만 실측 확인은 안 했다.

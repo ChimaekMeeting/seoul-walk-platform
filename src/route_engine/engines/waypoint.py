@@ -13,6 +13,7 @@ from src.route_engine.engines.oneway_beam import OnewayBeamEngine
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import ScoringProfile
 from src.route_engine.scoring.scoring_engine import compute_score_vector
+from src.route_engine.scoring.weighted_edge_cost import WeightedEdgeCost
 from src.schema.route_schema import OnewayRouteInput, WaypointRouteInput, Weights
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ class WaypointComposerEngine:
         G: nx.Graph,
         custom_weights: Optional[Weights] = None,
         profile: Optional[ScoringProfile] = None,
+        cost_context: Optional[WeightedEdgeCost] = None,
     ):
         self.inp            = inp
         # 그래프를 직접 mutate하지 않고 leg 엔진에 그대로 넘기기만 하므로 복사가 필요 없다.
@@ -53,6 +55,19 @@ class WaypointComposerEngine:
         self.custom_weights  = custom_weights
         self.profile         = profile
         self.mode            = WalkMode.WAYPOINT
+        # RouteService가 요청당 하나 만들어 넘긴다. 모든 leg가 같은 객체를 공유해야
+        # 구간마다 다른 비용 기준으로 탐색하는 일이 없다.
+        #
+        # OnewayAstarEngine(oneway_shortest leg)에만 넘긴다. OnewayBeamEngine은 아직
+        # scoring_engine.custom_score(할인 모델)로 탐색하는데, 두 모델은 방향이 반대라
+        # 한 요청 안에서 섞으면 leg별 후보 비교가 불공정해진다(#445 설계 결정 A).
+        self.cost_context    = cost_context
+
+    def _leg_cost_kwargs(self, mode: str) -> dict:
+        """leg 엔진에 넘길 비용 인자. cost_context를 받지 않는 엔진에는 넘기지 않는다."""
+        if self.cost_context is None or _LEG_ENGINES[mode] is not OnewayAstarEngine:
+            return {}
+        return {"cost_context": self.cost_context}
 
     def run(self) -> List[WalkRouteResponse]:
         """
@@ -87,6 +102,7 @@ class WaypointComposerEngine:
             engine = _LEG_ENGINES[mode](
                 leg_inp, self.G, custom_weights=self.custom_weights, profile=self.profile,
                 visited_nodes=visited_nodes,
+                **self._leg_cost_kwargs(mode),
             )
             leg_responses = engine.run()  # oneway_random이면 최대 3개, oneway_shortest면 1개
             leg_node_paths = engine.last_path_nodes_by_candidate
@@ -99,6 +115,7 @@ class WaypointComposerEngine:
                 engine = OnewayAstarEngine(
                     leg_inp, self.G, custom_weights=self.custom_weights, profile=self.profile,
                     visited_nodes=visited_nodes,
+                    cost_context=self.cost_context,
                 )
                 leg_responses  = engine.run()
                 leg_node_paths = engine.last_path_nodes_by_candidate
