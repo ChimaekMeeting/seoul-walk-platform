@@ -304,8 +304,8 @@ def _waypoint_input() -> WaypointRouteInput:
     return WaypointRouteInput(
         start_lat=37.50, start_lon=127.00, end_lat=37.51, end_lon=127.01,
         waypoints=[WaypointCoordinate(lat=37.505, lon=127.005)],
-        leg_modes=["oneway_preferred", "oneway_random"],
-        leg_target_km=[None, 1.0],  # oneway_random leg는 target_km이 필수다
+        leg_modes=["oneway_preferred", "oneway_shortest"],
+        leg_target_km=[None, None],
     )
 
 
@@ -338,3 +338,117 @@ def test_leg_engine_accepts_the_forwarded_context():
     engine = OnewayAstarEngine(inp, G, **{"cost_context": context})
 
     assert engine.cost_context is context
+
+
+def test_explicit_preferred_cannot_bypass_beam_exclusion(service):
+    from src.interfaces.schema.walk_schema import Coordinate
+
+    engine = service._build_engine(
+        WalkMode.WAYPOINT,
+        Coordinate(lat=37.5, lon=127.0),
+        Coordinate(lat=37.51, lon=127.01),
+        waypoints=[Coordinate(lat=37.505, lon=127.005)],
+        leg_modes=["oneway_preferred", "oneway_random"],
+        leg_target_km=[None, 3.0],
+        preference=ACTIVE,
+    )
+
+    assert engine.cost_context is None
+    assert engine.preference_skipped_reason == "beam_leg_present"
+    assert engine.inp.leg_target_km == [None, 3.0]
+    assert engine.experimental_detour_max_ratio is None
+
+
+def test_direct_composer_also_excludes_beam_from_experimental_policy():
+    inp = _waypoint_input().model_copy(update={
+        "leg_modes": ["oneway_preferred", "oneway_random"],
+        "leg_target_km": [None, 3.0],
+    })
+    G = prepared(scored_graph())
+    engine = WaypointComposerEngine(
+        inp, G, cost_context=request_context(G), experimental_detour_max_ratio=0.3,
+    )
+
+    assert not engine._preference_requested()
+    assert engine._leg_cost_kwargs("oneway_preferred") == {}
+    assert engine.preference_skipped_reason == "beam_leg_present"
+
+
+def test_zero_coefficients_are_not_reported_as_missing_scores(service):
+    preference = SafetyComfortPreference(safety=0.0, comfort=0.0)
+    context = service._build_cost_context(WalkMode.WAYPOINT, preference, None)
+
+    assert context is None
+    assert service._resolve_fill_leg_mode([], preference, context) == (
+        "oneway_shortest", "zero_weights",
+    )
+
+
+@pytest.mark.parametrize("stored,speak,expected", [
+    (None, False, (0.5, 0.5)),
+    ((0.5, 0.5), False, (0.5, 0.5)),
+    ((0.7, 0.8), False, (0.7, 0.8)),
+    ((0.7, 0.8), True, (0.735, 0.8)),
+    (None, True, (0.675, 0.5)),
+])
+def test_executor_forwards_survey_and_conversation_blend(service, monkeypatch, stored, speak, expected):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from src.agent.nodes.route_executor import RouteExecutor
+    from src.repository.user.user_preference_repository import UserPreferenceRepository
+    from src.schema.prewalk_schema import FeatureLabel, FeatureTag, Location, State, WayPointPreference
+
+    preference = None if stored is None else SimpleNamespace(
+        weights_safety=stored[0], weights_slope=stored[1],
+    )
+    fetch = MagicMock(return_value=preference)
+    monkeypatch.setattr(UserPreferenceRepository, "get_by_user_id", fetch)
+    tool = SimpleNamespace(ainvoke=AsyncMock(return_value=[]))
+    executor = RouteExecutor.__new__(RouteExecutor)
+    executor.route_tool = SimpleNamespace(tool_map={"waypoint_route": tool})
+    state = State(
+        user_id=1, current_location=Location(lat=37.5, lon=127.0), mode=WalkMode.WAYPOINT,
+        user_context=WayPointPreference(
+            origin=Location(lat=37.5, lon=127.0),
+            destination=Location(lat=37.51, lon=127.01),
+        ),
+        feature_labels={FeatureTag.SAFETY: FeatureLabel(
+            preference_label="high", explicitness_label="explicit_soft",
+        )} if speak else {},
+    )
+
+    asyncio.run(executor.run(state))
+    args = tool.ainvoke.call_args.args[0]
+    signal = args["preference"]
+    assert signal.as_coefficients() == pytest.approx(expected)
+    assert (args["custom_weights"].safety, args["custom_weights"].slope) == pytest.approx(expected)
+    fetch.assert_called_once_with(1)
+    context = service._build_cost_context(WalkMode.WAYPOINT, signal, args["profile"])
+    assert context.alpha > 0 and context.beta > 0
+
+
+def test_executor_preserves_explicit_shortest_leg_without_target(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from src.agent.nodes.route_executor import RouteExecutor
+    from src.repository.user.user_preference_repository import UserPreferenceRepository
+    from src.schema.prewalk_schema import Location, State, WayPointPreference, WaypointLegPreference
+
+    monkeypatch.setattr(UserPreferenceRepository, "get_by_user_id", lambda user_id: None)
+    tool = SimpleNamespace(ainvoke=AsyncMock(return_value=[]))
+    executor = RouteExecutor.__new__(RouteExecutor)
+    executor.route_tool = SimpleNamespace(tool_map={"waypoint_route": tool})
+    state = State(
+        user_id=1, current_location=Location(lat=37.5, lon=127.0), mode=WalkMode.WAYPOINT,
+        user_context=WayPointPreference(
+            origin=Location(lat=37.5, lon=127.0), destination=Location(lat=37.51, lon=127.01),
+            legs=[WaypointLegPreference(mode="oneway_shortest")],
+        ),
+    )
+
+    asyncio.run(executor.run(state))
+    args = tool.ainvoke.call_args.args[0]
+    assert args["leg_modes"] == ["oneway_shortest"]
+    assert args["leg_target_km"] == [None]

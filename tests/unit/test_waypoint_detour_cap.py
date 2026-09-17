@@ -1,9 +1,9 @@
 """
 tests/unit/test_waypoint_detour_cap.py
-완성된 경유지 경로에 대한 우회 상한 — #445
+일반 요청의 선호 유지와 팀 검토용 우회 상한 실험 — #445
 
-상한은 leg가 아니라 **요청 전체**의 성질이다. leg마다 독립 적용하면 5구간 경로가
-허용치를 leg 수만큼 넘길 수 있으므로, 모든 구간을 이어붙인 뒤 한 번만 판정한다.
+상한 테스트는 experimental_detour_max_ratio를 명시한 실험이다. 기본 서비스 요청은
+상한을 적용하거나 기준 경로를 추가 탐색하지 않는다. 실험에서는 전체 경로를 비교한다.
 비교는 반올림 전 거리(length 합)로 한다 — leg별 total_km는 이미 소수점 둘째 자리에서
 반올림돼 leg마다 최대 5m씩 오차가 쌓인다.
 
@@ -90,8 +90,8 @@ def make_context(G: nx.Graph, safety=0.9, comfort=0.0):
     )
 
 
-def make_engine(G, *, max_ratio: float, waypoints=(), context=...):
-    """경유지 없이 S -> T 한 구간이 기본. waypoints를 주면 구간이 늘어난다."""
+def make_engine(G, *, max_ratio=None, waypoints=(), context=...):
+    """max_ratio를 명시한 테스트만 미합의 우회 정책을 실험한다."""
     stops = list(waypoints)
     legs = len(stops) + 1
     inp = WaypointRouteInput(
@@ -104,7 +104,7 @@ def make_engine(G, *, max_ratio: float, waypoints=(), context=...):
     return WaypointComposerEngine(
         inp, G,
         cost_context=make_context(G) if context is ... else context,
-        detour_max_ratio=max_ratio,
+        experimental_detour_max_ratio=max_ratio,
     )
 
 
@@ -203,7 +203,7 @@ def test_apply_detour_cap_verifies_when_both_paths_exist(graph):
 
 
 def test_multiple_waypoints_are_compared_as_one_whole_route(graph):
-    """구간마다 따로 재면 허용치를 구간 수만큼 넘길 수 있다."""
+    """실험 정책은 같은 경유지를 지나는 전체 경로 기준으로 판정한다."""
     engine = make_engine(graph, max_ratio=1.0, waypoints=[D])
     response = engine.run()[0]
 
@@ -323,3 +323,81 @@ def test_route_service_without_preference_stays_on_distance(graph):
     assert response.preference_applied is False
     assert response.preference_skipped_reason == "no_preference"
     assert response.total_km == pytest.approx(round(DIRECT_M / 1000, 2))
+
+
+def test_service_keeps_preferred_detour_over_thirty_percent_without_baseline(graph, monkeypatch):
+    """일반 요청은 30%를 넘어도 선호 경로를 유지하고 기준 경로 탐색도 하지 않는다."""
+    for u, v in zip(_DETOUR, _DETOUR[1:]):
+        graph[u][v]["length"] *= 1.3
+    detour_m = path_distance_m(graph, _DETOUR)
+    assert DIRECT_M * 1.3 < detour_m < DIRECT_M * 1.5
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("일반 요청에서 실험용 우회 상한/기준 경로를 실행함")
+
+    monkeypatch.setattr(WaypointComposerEngine, "_build_distance_baseline", forbidden)
+    monkeypatch.setattr(WaypointComposerEngine, "_apply_detour_cap", forbidden)
+    response = _get_route(_route_service(graph), SafetyComfortPreference(safety=0.9))
+
+    assert response.status == WalkRouteStatus.SUCCESS
+    assert response.preference_applied is True
+    assert response.preference_skipped_reason is None
+    assert response.coordinates == [[*_POS[node]] for node in _DETOUR]
+    assert response.total_km == pytest.approx(round(detour_m / 1000, 2))
+
+
+def test_failed_preferred_search_reports_distance_fallback(graph, monkeypatch):
+    """실제 점수 오류로 가중 탐색이 실패해도 거리 재시도는 가능하며 적용 표시를 내린다."""
+    for _, _, data in graph.edges(data=True):
+        data["safety_score"] = 2.0
+
+    original_run = OnewayAstarEngine.run
+    fallback_calls = []
+
+    def run(engine):
+        if engine.cost_context is None:
+            fallback_calls.append(engine.visited_nodes)
+        return original_run(engine)
+
+    monkeypatch.setattr(OnewayAstarEngine, "run", run)
+    response = _get_route(_route_service(graph), SafetyComfortPreference(safety=0.9))
+
+    assert response.status == WalkRouteStatus.SUCCESS
+    assert response.preference_applied is False
+    assert response.preference_skipped_reason == "preferred_search_failed"
+    assert response.coordinates == [[*_POS[node]] for node in _DIRECT]
+    assert fallback_calls == [set()]
+
+
+def test_one_failed_preferred_leg_does_not_claim_full_preference(graph, monkeypatch):
+    """두 구간 중 하나만 거리 대체여도 전체 선호 적용 완료로 표시하지 않는다."""
+    original_run = OnewayAstarEngine.run
+    failed_once = False
+
+    def run(engine):
+        nonlocal failed_once
+        if engine.cost_context is not None and not failed_once:
+            from src.interfaces.schema.walk_schema import WalkMode, WalkRouteResponse
+            failed_once = True
+            return [WalkRouteResponse(status=WalkRouteStatus.NO_PATH,
+                                      mode=WalkMode.ONEWAY_SHORTEST, coordinates=[])]
+        return original_run(engine)
+
+    monkeypatch.setattr(OnewayAstarEngine, "run", run)
+    engine = make_engine(graph, waypoints=[D])
+    response = engine.run()[0]
+
+    assert response.status == WalkRouteStatus.SUCCESS
+    assert response.preference_applied is False
+    assert response.preference_skipped_reason == "preferred_search_failed"
+    assert [*_POS[D]] in response.coordinates
+    # 같은 엔진을 다시 실행해도 앞선 실패 표시가 남지 않는다.
+    response = engine.run()[0]
+    assert response.preference_applied is True
+    assert response.preference_skipped_reason is None
+
+
+@pytest.mark.parametrize("ratio", [-0.1, math.nan, math.inf])
+def test_experimental_cap_requires_a_valid_explicit_ratio(graph, ratio):
+    with pytest.raises(ValueError):
+        make_engine(graph, max_ratio=ratio)

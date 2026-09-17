@@ -204,8 +204,7 @@ class RouteService:
     # 선호가 없으면 가중 연결은 생기지 않는다.
     #
     # ONEWAY_SHORTEST가 빠져 있는 것은 의도다(#445 설계 결정 A) — "최단"은 물리
-    # 최단거리로 유지하고, 가중 경로가 얼마나 돌아갔는지 재는 기준선이자 상한 초과
-    # 시의 폴백 경로로 쓴다. GPS_ART도 내부적으로 oneway_shortest만 쓰므로 같다.
+    # 최단거리로 유지한다. GPS_ART도 내부적으로 oneway_shortest만 쓴다.
     #
     # CIRCULAR_RANDOM(CircularBeamEngine)과 ONEWAY_RANDOM(OnewayBeamEngine)은 아직
     # scoring_engine.custom_score(할인 모델)로 탐색한다. 두 모델은 방향이 반대라
@@ -224,9 +223,8 @@ class RouteService:
         **요청당 한 번만** 만들고 그 요청의 모든 구간이 같은 객체를 공유한다.
         전역에 캐시하지 않는다 — 다른 사용자의 가중치와 섞이면 안 된다.
 
-        Weights가 아니라 SafetyComfortPreference를 받는다. Weights는 8축 전체에
-        기본값이 있어(safety=0.5, slope=0.5) 아무 말도 하지 않은 사용자에게까지
-        가중치가 걸린다 — 가중 비용은 사용자가 실제로 표현한 선호에만 적용한다.
+        SafetyComfortPreference는 챗봇에서 설문/프로필 기본값과 대화 선호를 섞은
+        결과다. 기본값도 반영하며, 직접 호출자가 신호를 생략하면 거리 기준을 쓴다.
 
         그래프를 훑지 않는다. 기동 때 붙여 둔 적재율·중앙값만 읽으므로 상수 시간이다.
         """
@@ -263,6 +261,8 @@ class RouteService:
             return "oneway_shortest", "beam_leg_present"
         if preference is None or not preference.is_active:
             return "oneway_shortest", "no_preference"
+        if preference.as_coefficients() == (0.0, 0.0):
+            return "oneway_shortest", "zero_weights"
         if cost_context is None:
             # 선호는 있지만 점수 커버리지가 부족해 가중 모드가 꺼져 있다.
             return "oneway_shortest", "scores_unavailable"
@@ -324,7 +324,7 @@ class RouteService:
             padded_target_km = list(leg_target_km or [])
             padded_target_km += [None] * (expected_legs - len(padded_target_km))
 
-            if "oneway_preferred" not in padded_modes:
+            if "oneway_random" in padded_modes or "oneway_preferred" not in padded_modes:
                 cost_context = None
 
             inp = WaypointRouteInput(
@@ -340,7 +340,8 @@ class RouteService:
                 inp, self.G, custom_weights=custom_weights, profile=profile,
                 cost_context=cost_context,
                 preference_skipped_reason=skipped_reason,
-                detour_max_ratio=settings.WALK_DETOUR_MAX_RATIO,
+                # 미합의 우회 상한은 일반 요청에서 활성화하지 않는다.
+                # 실험용 인자는 테스트/벤치마크에서만 명시적으로 전달한다.
             )
 
         if destination is None:

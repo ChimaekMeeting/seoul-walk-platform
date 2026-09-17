@@ -77,7 +77,7 @@ class RouteTool:
         경유지를 하나 이상 거쳐 목적지까지 이동하는 경로를 생성합니다.
         leg_modes[i]/leg_target_km[i]는 origin -> waypoints[0] -> ... -> destination 순서상
         i번째 구간의 이동 방식이며, 지정하지 않은 구간은 최단 경로로 처리됩니다.
-        preference에 사용자가 실제로 표현한 안전·편안 선호가 있으면, 방식을 지정하지 않은
+        preference에 설문·기본값과 대화를 섞은 안전·편안 선호가 있으면, 방식을 지정하지 않은
         구간만 가중 연결(oneway_preferred)로 채웁니다(#445).
         """
         return await asyncio.to_thread(

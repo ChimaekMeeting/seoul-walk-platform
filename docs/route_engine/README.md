@@ -471,41 +471,38 @@ discomfort = 1 - slope_score
 | 모드 | 비용 |
 |---|---|
 | `waypoint`의 `oneway_preferred` leg | 가중 |
-| `waypoint`의 `oneway_shortest` leg | 물리 최단 — 사용자가 **명시적으로 고른** 최단 |
-| `oneway_shortest`, `gps_art` | **물리 최단 유지** — 가중 경로의 우회 상한 기준선·폴백 |
+| `waypoint`의 `oneway_shortest` leg | 새 선호 가중치 미적용. 기존 재방문 페널티는 유지 |
+| `oneway_shortest` | 거리 기준 최단 유지 |
+| `gps_art` | 새 선호 가중치 미적용. 기존 경유지 연결 방식 유지 |
 | `oneway_random`, `circular_random` | 아직 `custom_score`(할인 모델). Beam 계열 전환은 전후 벤치마크와 함께 별도 진행 |
 
-두 모델은 방향이 반대라 한 요청 안에서 섞으면 후보 비교가 불공정해진다.
+Beam이 섞인 요청은 이번 새 가중 연결 대상에서 제외한다. 자동으로 채운 구간과
+명시된 `oneway_preferred` 모두 같은 규칙을 따른다. Beam의 목표 거리와 기존
+`custom_weights`는 유지한다. 두 비용 모델의 통합은 별도 작업이다.
 
-**선호의 출처 보존 (`SafetyComfortPreference`)**
+**설문 기본값과 대화 선호 전달 (`SafetyComfortPreference`)**
 
-`Weights`는 8축 전체에 기본값이 있어(`safety=0.5`, `slope=0.5`) 값만으로는 "사용자가
-0.5를 원한다"와 "아무 말도 없어서 기본값이 채워졌다"를 구분할 수 없다. 가중 비용은
-후자에 적용하면 안 되므로 선호의 출처를 별도 모델로 전달한다.
+설문은 사용자 기본 선호이며, 이번 대화에서 나온 요구를 기존 `_build_weights`의
+혼합 로직으로 반영한다. 기본 안전·편안 값 `0.5`도 유효한 선호다. 사용자가 이번에
+언급하지 않았다는 이유로 해당 축을 0으로 바꾸지 않는다.
 
 ```
 RouteExecutor -> RouteTool -> RouteService -> WaypointComposerEngine
 ```
 
-`RouteExecutor._build_preference_signal`이 축마다 독립으로 판정한다.
-
-1. 이번 발화에 해당 feature 라벨이 있고 `explicitness`가 `inferred`가 아니면 활성
-   (`inferred`는 alpha=0이라 baseline을 그대로 두므로 "언급 안 함"과 같다)
-2. 아니면 저장된 `UserPreference`에 해당 값이 있으면 활성
-3. 둘 다 아니면 `None`
-
-값 자체는 `_build_weights`의 블렌딩 결과를 그대로 읽는다 — 선호 강도 계산을 두 번
-하지 않는다. 안전만 지정했다면 편안함은 `None`으로 남아 기본값 때문에 함께
-활성화되지 않고, 계수로는 0.5가 아니라 **0**이 들어간다.
-
-`Weights` 기본값과 기존 선호 강도 계산은 바꾸지 않았다.
+`RouteExecutor._build_preference_signal(weights)`는 최종 `Weights.safety`와
+`Weights.slope`를 그대로 전달한다. 설문 기록이 없으면 기존 프로필 기본값을 사용한다.
+설문 조회는 요청당 한 번이며 기본값·혼합 계산식은 변경하지 않았다.
+직접 서비스 호출에서 `preference`를 생략한 경우는 거리 기준이다. 직접 전달한
+신호에서 생략한 축은 계수 0이며, 챗봇은 혼합 결과의 두 축을 모두 전달한다.
 
 **leg 방식 결정 (패딩 전)**
 
 | 요청 | 채우는 방식 | 사유 |
 |---|---|---|
 | `oneway_random`이 섞임 | `oneway_shortest` | `beam_leg_present` |
-| 미지정 + 선호 없음 | `oneway_shortest` | `no_preference` |
+| 미지정 + 선호 신호 없음(직접 호출) | `oneway_shortest` | `no_preference` |
+| 미지정 + 두 축 모두 0 | `oneway_shortest` | `zero_weights` |
 | 미지정 + 선호 있음 + 점수 없음 | `oneway_shortest` | `scores_unavailable` |
 | 미지정 + 선호 있음 + 점수 있음 | `oneway_preferred` | — |
 
@@ -515,6 +512,9 @@ RouteExecutor -> RouteTool -> RouteService -> WaypointComposerEngine
 
 leg 실패 시의 대체 경로는 **가중치도 재방문 페널티도 걸지 않는** 순수 거리 기준이다.
 앞선 시도가 이미 실패했는데 제약을 남겨 두면 대체까지 같은 이유로 실패할 수 있다.
+선호 구간 중 하나라도 거리 기준으로 대체되면 `preference_applied=False`,
+`preference_skipped_reason=preferred_search_failed`를 반환한다. 성공한 다른 구간의
+선호 경로는 유지하되, 전체 요청의 선호 적용 완료라고 표시하지 않는다.
 
 **기동 준비와 요청 격리**
 
@@ -529,39 +529,42 @@ leg 실패 시의 대체 경로는 **가중치도 재방문 페널티도 걸지 
 - 그래프 단위 커버리지 게이트가 판정하고(`WALK_SCORE_COVERAGE_MIN`, 기본 `0.95`), 통과한 뒤 남은 NULL만 중앙값으로 대체하며 횟수를 센다.
 - 점수가 `0~1`을 벗어나면 clamp하지 않고 엣지 정보를 담아 예외를 던진다.
 
-**우회 상한**
+**우회 상한은 실험용으로 보존, 일반 요청에는 미적용**
 
-- `scoring/detour_cap.py::apply_detour_cap`. 가중 경로의 **실제 거리**가 물리 최단 × `(1 + WALK_DETOUR_MAX_RATIO)`를 넘으면 물리 최단으로 되돌린다. 재탐색하지 않으므로 A* 호출 수가 요청마다 달라지지 않는다.
-- 엔진이 아니라 순수 함수다 — `find_path()`는 벤치마크 solver가 직접 호출하므로 엔진 안에서 적용하면 측정값이 달라지고, 상한은 leg가 아니라 요청 전체의 성질이라 leg마다 적용하면 5구간 경로가 허용치를 leg 수만큼 넘길 수 있다.
-- `α+β` 상한(`WALK_WEIGHT_LIMIT`, 엣지 비용 증가 폭)과 우회율 상한(최종 경로의 실제 거리 증가 폭)은 **단위가 다른 별개 설정**이다. 같은 값으로 묶지 않는다.
-- 판정은 `>`이지 `>=`가 아니다 — 정확히 상한인 경로는 초과가 아니다.
-- 비교는 **반올림 전 거리**로 한다. `_stitch`가 합산하는 leg별 `total_km`는 이미 소수점 둘째 자리에서 반올림돼 leg마다 최대 5m씩 오차가 쌓인다.
-- 기준 경로는 `WaypointComposerEngine._build_distance_baseline`이 **같은 스냅 노드·경유지 순서**로 다시 만든다. 같은 좌표를 넘기므로 `find_nearest_node`가 같은 노드로 스냅한다. 비용은 leg당 A* 1회 추가 — 가중 요청의 A* 호출 수가 두 배가 된다.
-- 기준 경로 생성에 실패하면 `DetourDecision.verified=False`로 남긴다. 이미 성공한 경로를 버릴 이유는 없으므로 가중 경로를 그대로 쓰되 "상한 이내"라고 보고하지 않는다.
+일반 요청은 길다는 이유로 선호 경로를 최단 경로로 강제 대체하지 않는다. 우회 상한용
+기준 경로 탐색도 수행하지 않는다. 이전 운영 설정 `WALK_DETOUR_MAX_RATIO`는 제거했으며,
+환경변수에 남아 있더라도 이 정책을 활성화하지 않는다.
+
+`scoring/detour_cap.py`와 Composer의 기준 경로·대체 구현, 관련 테스트는 보존했다.
+`experimental_detour_max_ratio`를 직접 명시한 실험만 해당 정책을 실행한다(기본 `None`).
+RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·초과 시 처리·Beam 혼합은
+[우회 정책 검토안](../proposals/route_engine_detour_policy_proposal.md)에서 팀이 논의한다.
+현재 구현 위치와 재현 방법도 이 문서에 있다.
 
 **응답 필드**
 
 | 필드 | 의미 |
 |---|---|
-| `preference_applied` | 최종 경로에 선호가 **실제로 반영됐는가**. 상한을 넘겨 되돌리면 `False` |
+| `preference_applied` | 요청한 새 가중 연결이 전체 경로에 적용됐는가. 일부 거리 대체나 부분 경로면 `False` |
 | `preference_skipped_reason` | 반영하지 못한 사유 |
 
-사유 값은 `no_preference`, `beam_leg_present`, `scores_unavailable`,
-`detour_cap_exceeded`, `baseline_failed`, `partial_route`다. 보통 `applied=True`면
-사유가 `None`이지만 `baseline_failed`는 예외다 — 선호는 반영됐는데 상한을 검증하지
-못한 상태라 둘 다 채워진다.
+일반 요청의 사유 값은 `no_preference`, `zero_weights`, `beam_leg_present`,
+`scores_unavailable`, `preferred_search_failed`, `partial_route`다.
+`detour_cap_exceeded`, `baseline_failed`는 보존한 실험에서만 사용한다.
+실험의 `baseline_failed`는 선호 경로를 유지하지만 상한을 검증하지 못했다는 뜻으로,
+`preference_applied=True`와 함께 반환될 수 있다.
 
 **설정과 복구**
 
 | 키 | 기본값 | 의미 |
 |---|---|---|
-| `WALK_WEIGHTED_COST_ENABLED` | `true` | `false`면 준비를 건너뛰고 전 모드가 거리 전용 |
+| `WALK_WEIGHTED_COST_ENABLED` | `true` | `false`면 새 가중 연결 비활성. Beam의 기존 비용은 유지 |
 | `WALK_WEIGHT_LIMIT` | `0.5` | `α+β` 상한(k) |
 | `WALK_UNSAFE_ACCIDENT_RATIO` | `0.5` | `unsafe` 결합 비율(λ) |
 | `WALK_SCORE_COVERAGE_MIN` | `0.95` | 게이트 통과 기준 |
-| `WALK_DETOUR_MAX_RATIO` | `0.3` | 실제 거리 증가 허용 비율 |
 
-준비 실패·커버리지 미달·설정 비활성 어느 경우든 거리 전용으로 폴백하고 기동을 막지 않는다.
+준비 실패·커버리지 미달·설정 비활성 시 새 가중 연결은 거리 기준으로 처리하고 기동을
+막지 않는다. 기존 Beam 비용과 재방문 페널티는 이 설정으로 비활성화되지 않는다.
 
 **현재 상태 (2026-09-17 실측)**
 

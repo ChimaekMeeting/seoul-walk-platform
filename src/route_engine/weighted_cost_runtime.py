@@ -22,8 +22,9 @@ prepare -> attach -> get 구조다.
 
 복구
 ----
-WALK_WEIGHTED_COST_ENABLED=false로 재기동하면 준비 자체를 건너뛰고 모든 경로가
-거리 전용으로 돌아간다. 준비에 실패하거나 커버리지가 기준에 못 미쳐도 같다.
+WALK_WEIGHTED_COST_ENABLED=false로 재기동하면 준비를 건너뛰고 새 가중 연결을
+거리 기준으로 처리한다. Beam의 기존 custom_score는 유지한다. 준비 실패나
+커버리지 미달도 새 가중 연결을 비활성화한다.
 """
 
 from __future__ import annotations

@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 from src.schema.prewalk_schema import State, FeatureTag
 from src.interfaces.schema.walk_schema import WalkMode, Coordinate
@@ -48,13 +47,6 @@ _FEATURE_TO_WEIGHTS_KEY: dict[FeatureTag, str] = {
     FeatureTag.COMFORT: "slope",
 }
 
-# SafetyComfortPreference의 축 이름 <-> Weights 필드명. _FEATURE_TO_WEIGHTS_KEY를
-# 단일 출처로 삼아 파생시킨다.
-_PREFERENCE_AXES: dict[str, tuple[FeatureTag, str]] = {
-    "safety":  (FeatureTag.SAFETY,  _FEATURE_TO_WEIGHTS_KEY[FeatureTag.SAFETY]),
-    "comfort": (FeatureTag.COMFORT, _FEATURE_TO_WEIGHTS_KEY[FeatureTag.COMFORT]),
-}
-
 # _build_weights(preference=...)의 "안 넘김" 표식. None은 "선호 행이 없음"이라는
 # 유효한 값이라 기본값으로 쓸 수 없다.
 _FETCH_PREFERENCE = object()
@@ -88,20 +80,20 @@ class RouteExecutor:
 
         if legs is not None:
             args["leg_modes"]     = [leg["mode"] for leg in legs]
-            args["leg_target_km"] = [leg["target_km"] for leg in legs]
+            args["leg_target_km"] = [leg.get("target_km") for leg in legs]
 
         args["access_token"]   = state.access_token or ""
         profile = state.profile or ScoringProfile.DEFAULT
         state.profile = profile
         args["profile"] = profile
-        # 선호 조회는 한 번만 하고 가중치 계산과 선호 신호가 같은 결과를 공유한다.
+        # 설문을 사용자 기본값으로 삼고 이번 대화 선호와 섞는다. 조회·계산은 한 번만 한다.
         preference = UserPreferenceRepository.get_by_user_id(state.user_id)
         weights = self._build_weights(state, profile, preference=preference)
         args["custom_weights"] = weights
         # waypoint 모드만 안전·편안 가중 연결을 쓴다(#445). 다른 모드의 도구는 이
         # 인자를 받지 않으므로 넣지 않는다.
         if tool_name == MODE_TOOL_MAP.get(WalkMode.WAYPOINT):
-            args["preference"] = self._build_preference_signal(state, weights, preference)
+            args["preference"] = self._build_preference_signal(weights)
 
         logger.info(f"mode: {state.mode}")
         logger.info(f"custom_weights: {args['custom_weights']}")
@@ -128,8 +120,7 @@ class RouteExecutor:
         최종 Weights를 반환합니다. UserPreference가 없으면 _BASELINE_WEIGHTS를 사용합니다.
         (안전/평지는 0.5, 미관·활동·동반 특성은 0.0 → 일반 경로는 해당 특성 무편향)
 
-        preference를 넘기면 다시 조회하지 않습니다. run()이 _build_preference_signal과
-        같은 조회 결과를 공유하기 위해 쓰며, 넘기지 않으면 기존처럼 직접 조회합니다.
+        preference를 넘기면 다시 조회하지 않습니다. 넘기지 않으면 기존처럼 직접 조회합니다.
         """
         if preference is _FETCH_PREFERENCE:
             preference = UserPreferenceRepository.get_by_user_id(state.user_id)
@@ -161,34 +152,11 @@ class RouteExecutor:
         weights = Weights(**base)
         return weights
 
-    def _build_preference_signal(
-        self,
-        state: State,
-        weights: Weights,
-        preference,
-    ) -> SafetyComfortPreference:
-        """Weights 중 **사용자에게서 온** 안전·편안 값만 추려낸다(#445).
+    @staticmethod
+    def _build_preference_signal(weights: Weights) -> SafetyComfortPreference:
+        """설문·프로필 기본값과 대화 선호를 섞은 결과를 가중 연결에 전달한다.
 
-        Weights는 8축 전체에 기본값이 있어 값만으로는 사용자 선호인지 기본값인지
-        구분할 수 없다. 가중 비용은 사용자 선호가 있을 때만 적용해야 하므로 여기서
-        출처를 보존한다. 값 자체는 _build_weights가 이미 계산한 블렌딩 결과를 그대로
-        읽는다 — 선호 강도 계산을 두 번 하지 않는다.
-
-        축마다 독립으로 판정한다.
-          1. 이번 발화에 해당 feature 라벨이 있고 explicitness가 inferred가 아니면 활성
-             (inferred는 alpha=0이라 baseline을 그대로 두므로 "언급 안 함"과 같다)
-          2. 아니면 저장된 UserPreference에 해당 값이 있으면 활성
-          3. 둘 다 아니면 None — 안전만 지정했다면 편안함은 기본값 0.5가 있어도 비활성
+        기본값도 서비스가 사용하는 선호다. 출처가 설문/이번 발화인지로 축을 끄거나
+        0으로 바꾸지 않는다. 기존 _build_weights의 혼합 계산 결과를 그대로 사용한다.
         """
-        axes: dict[str, Optional[float]] = {}
-        for axis, (tag, weights_key) in _PREFERENCE_AXES.items():
-            label = state.feature_labels.get(tag)
-            spoken = label is not None and _EXPLICITNESS_ALPHA_MAP[label.explicitness_label] > 0
-            stored = (
-                getattr(preference, f"weights_{weights_key}", None)
-                if preference is not None
-                else None
-            )
-            axes[axis] = getattr(weights, weights_key) if (spoken or stored is not None) else None
-
-        return SafetyComfortPreference(**axes)
+        return SafetyComfortPreference(safety=weights.safety, comfort=weights.slope)
