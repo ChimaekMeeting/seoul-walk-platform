@@ -25,7 +25,7 @@ from typing import Optional, Sequence
 
 import networkx as nx
 
-from src.route_engine.waypoint_route_builder import MissingEdgeAttributeError
+from src.route_engine.errors import MissingEdgeAttributeError
 
 _LENGTH_ATTR = "length"
 
