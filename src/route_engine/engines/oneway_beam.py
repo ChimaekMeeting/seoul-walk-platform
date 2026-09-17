@@ -10,7 +10,11 @@ from src.interfaces.schema.walk_schema import (
     WalkRouteResponse
 )
 from src.schema.route_schema import OnewayRouteInput, Weights
-from src.route_engine.scoring.scoring_engine import calculate_custom_score, compute_score_vector
+from src.route_engine.scoring.scoring_engine import (
+    calculate_custom_score,
+    compute_score_vector,
+    path_feature_averages,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,9 @@ class OnewayBeamEngine:
         self.visited_nodes = visited_nodes or set()
         self.last_path_nodes: list[int] = []  # 후보 1(run()[0])의 노드열(왕복 가지 제거 후) — 하위 호환용 단축 값
         self.last_path_nodes_by_candidate: list[list[int]] = []  # run()이 반환한 모든 후보의 노드열(반환 순서와 동일)
+        # 장기 프로필 SGD의 X_R 입력 — 후보별 {"safety": 0~1, "comfort": 0~1} 평균(반환 순서와 동일).
+        # route_service가 RouteHistory.candidate_features로 그대로 영속화한다.
+        self.candidate_feature_vectors: list[dict[str, float]] = []
 
     def run(self) -> List[WalkRouteResponse]:
         """
@@ -98,6 +105,7 @@ class OnewayBeamEngine:
             # 선택하더라도(예: WaypointComposerEngine이 leg 선택 로직을 바꾸는 경우)
             # 그 후보의 실제 노드열을 되찾을 수 있게 하기 위함.
             self.last_path_nodes_by_candidate.append(pruned)
+            self.candidate_feature_vectors.append(path_feature_averages(self.G, pruned))
             if i == 0:
                 # 하위 호환용 — 지금의 WaypointComposerEngine은 항상 후보 1(run()[0])만
                 # 쓰므로 last_path_nodes는 그 경우를 위한 단축 값이다.

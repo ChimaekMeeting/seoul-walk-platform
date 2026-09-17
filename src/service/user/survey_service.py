@@ -65,6 +65,35 @@ DISTANCE_MAP: dict[DistanceOption, float] = {
 #   (안전/평지 0.5, 미관·활동·동반 0.0 → 안 고른 특성은 무편향)
 BASE_WEIGHTS: dict[str, float] = Weights().model_dump()
 
+# 편안(comfort)은 Weights(route_schema)에 없는 축이라 별도 baseline을 둔다.
+# 0.0(무편향)에서 시작 — TAG_WEIGHT_MAP과 달리 comfort는
+# _safety_comfort_deltas()의 k 배분 공식으로만 초기값이 정해진다.
+BASE_COMFORT: float = 0.0
+
+# --- 온보딩 "안전"/"편안" 버튼 선택 조합 → γ(안전)/β(편안) 배분 공식 ---
+# 장기 프로필이 실제로 추적하는 두 축(안전/편안)의 초기값을 이 공식 하나로 정한다 —
+# weights_safety는 더 이상 TAG_WEIGHT_MAP 태그 델타가 아니라 이 공식에서만 나온다.
+# k: 두 축에 배분할 총 예산. d: 선택 안 한 축도 갖는 최소 바닥값(무편향 방지용).
+# r: 선택된 축에 추가로 쏠리는 몫. r = k - 2d.
+#   둘 다 선택   → γ=β=k/2                 (예: k=0.3 → 0.15/0.15)
+#   하나만 선택  → 선택된 축=r+d, 나머지=d  (예: 0.267/0.033)
+#   둘 다 미선택 → γ=β=d                   (예: 0.033/0.033, 합=2d)
+_SAFETY_COMFORT_K: float = 0.3
+_SAFETY_COMFORT_D: float = _SAFETY_COMFORT_K / 9
+
+
+def _safety_comfort_deltas(selected_safety: bool, selected_comfort: bool) -> tuple[float, float]:
+    """온보딩 안전/편안 선택 조합으로 (γ_안전, β_편안) 가중치 델타를 계산합니다."""
+    k, d = _SAFETY_COMFORT_K, _SAFETY_COMFORT_D
+    r = k - 2 * d
+    if selected_safety and selected_comfort:
+        return k / 2, k / 2
+    if selected_safety:
+        return r + d, d
+    if selected_comfort:
+        return d, r + d
+    return d, d
+
 # 온보딩 설문 UI에 노출할 태그 목록. TAG_WEIGHT_MAP의 부분집합.
 SURVEY_TAGS: list[str] = [
     "나무 많은", "꽃길", "초록",
@@ -85,10 +114,15 @@ class SurveyService:
 
     def submit(self, access_token: str | None, request: SurveyRequest) -> SurveyResponse:
         """
-        설문 결과를 가중치로 변환해 UserPreference에 저장합니다.
+        설문 결과를 장기 프로필(weights_safety/weights_comfort)의 초기값으로 변환해
+        UserPreference에 저장합니다.
 
-        BASE_WEIGHTS(안전/평지 0.5, 미관·활동·동반 0.0)에서 시작하며,
-        각 태그는 TAG_WEIGHT_MAP의 delta(±0.2)로 조정됩니다.
+        두 축 다 온보딩의 selected_safety/selected_comfort 버튼 선택으로
+        _safety_comfort_deltas()가 계산한 (γ_안전, β_편안) 델타를 각각의 baseline
+        (안전 0.5, 편안 0.0)에 더해 정합니다 — TAG_WEIGHT_MAP 태그 델타는 더 이상
+        weights_safety에 반영되지 않습니다(장기 프로필이 추적하는 축이 정확히
+        이 두 개라서 온보딩 초기값도 이 공식 하나로 통일함). tags/selected_tags는
+        참고용으로만 그대로 저장됩니다.
         최종값은 [0.0, 1.0]으로 클램핑됩니다.
         """
 
@@ -99,24 +133,19 @@ class SurveyService:
         user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
         if user is None:
             return SurveyResponse(status=SurveyStatus.USER_NOT_FOUND)
-        
-        weights = dict(BASE_WEIGHTS)
-        for tag in request.tags:
-            for key, delta in TAG_WEIGHT_MAP.get(tag, {}).items():
-                weights[key] = max(0.0, min(1.0, weights[key] + delta))
+
+        safety_delta, comfort_delta = _safety_comfort_deltas(
+            request.selected_safety, request.selected_comfort
+        )
+        weights_safety = max(0.0, min(1.0, BASE_WEIGHTS["safety"] + safety_delta))
+        weights_comfort = max(0.0, min(1.0, BASE_COMFORT + comfort_delta))
 
         preference = UserPreferenceRepository.upsert(
             user_id=user.id,
             survey_completed=True,
             default_target_km=DISTANCE_MAP.get(request.distance) if request.distance else None,
-            weights_safety=weights.get("safety"),
-            weights_nature=weights.get("nature"),
-            weights_slope=weights.get("slope"),
-            weights_running=weights.get("running"),
-            weights_landmark=weights.get("landmark"),
-            weights_child=weights.get("child"),
-            weights_convenience=weights.get("convenience"),
-            weights_accessibility=weights.get("accessibility"),
+            weights_safety=weights_safety,
+            weights_comfort=weights_comfort,
             selected_tags=request.tags if request.tags else None,
         )
 
@@ -124,17 +153,11 @@ class SurveyService:
             status=SurveyStatus.SUCCESS,
             default_target_km=preference.default_target_km,
             weights_safety=preference.weights_safety,
-            weights_nature=preference.weights_nature,
-            weights_slope=preference.weights_slope,
-            weights_running=preference.weights_running,
-            weights_landmark=preference.weights_landmark,
-            weights_child=preference.weights_child,
-            weights_convenience=preference.weights_convenience,
-            weights_accessibility=preference.weights_accessibility,
+            weights_comfort=preference.weights_comfort,
         )
-    
+
     def get_status(self, access_token: str | None) -> SurveyStatusResponse:
-        """사용자의 설문 완료 여부와 저장된 가중치를 반환합니다."""
+        """사용자의 설문 완료 여부와 저장된 장기 프로필(안전/편안 가중치)을 반환합니다."""
         status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if status != Status.SUCCESS:
             return SurveyStatusResponse(status=SurveyStatus(status.value), survey_completed=False)
@@ -152,12 +175,6 @@ class SurveyService:
             survey_completed=True,
             default_target_km=preference.default_target_km,
             weights_safety=preference.weights_safety,
-            weights_nature=preference.weights_nature,
-            weights_slope=preference.weights_slope,
-            weights_running=preference.weights_running,
-            weights_landmark=preference.weights_landmark,
-            weights_child=preference.weights_child,
-            weights_convenience=preference.weights_convenience,
-            weights_accessibility=preference.weights_accessibility,
+            weights_comfort=preference.weights_comfort,
             selected_tags=preference.selected_tags,
         )

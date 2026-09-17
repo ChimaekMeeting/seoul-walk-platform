@@ -13,7 +13,7 @@ def register_entities():
     """
     Base.metadata에 모든 엔티티 테이블 정보를 등록합니다.
     """
-    from src.entity import chat_session, user, user_preference, banner, route_history
+    from src.entity import chat_session, user, user_preference, banner, route_history, route_feedback
     from src.entity.network import walk_node, walk_edge
     from src.entity.layer import (
         safety_layer,
@@ -51,7 +51,11 @@ def init_table():
     with engine.begin() as conn:
         for table in Base.metadata.sorted_tables:
             if not inspector.has_table(table.name):
-                table.create(bind=engine)
+                # bind=conn(같은 트랜잭션)을 써야 한다 — bind=engine은 풀에서 별도 커넥션을
+                # 새로 얻는데, 새 테이블이 이 트랜잭션에서 이미 ALTER한 테이블을 FK로
+                # 참조하면(예: route_feedbacks -> route_histories) 그 커넥션이 conn이 아직
+                # 커밋하지 않은 ACCESS EXCLUSIVE 락을 기다리며 자기 자신과 락 대기로 멈춘다.
+                table.create(bind=conn, checkfirst=True)
                 continue
 
             existing = {col["name"] for col in inspector.get_columns(table.name)}

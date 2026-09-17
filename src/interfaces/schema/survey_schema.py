@@ -29,11 +29,20 @@ class SurveyRequest(BaseModel):
     """
     온보딩 설문 제출 요청 스키마입니다.
 
-    tags: 사용자가 선택한 키워드 태그 목록
+    tags: 사용자가 선택한 키워드 태그 목록(참고용으로 selected_tags에 그대로 저장,
+        가중치 계산에는 더 이상 반영되지 않음 — TAG_WEIGHT_MAP 참고)
     distance: 선호 산책 거리 선택지 (선택 안 하면 null)
+    selected_safety: 온보딩 "안전" 버튼 선택 여부
+    selected_comfort: 온보딩 "편안" 버튼 선택 여부
+        (selected_safety/selected_comfort는 survey_service._safety_comfort_deltas의
+        k=0.3 배분 공식 입력이며, 장기 프로필의 weights_safety/weights_comfort
+        초기값을 함께 결정한다 — 장기 프로필이 실제로 추적하는 축이 이 둘뿐이라
+        온보딩 초기값도 이 공식 하나로 통일했다.)
     """
     tags: List[str] = Field(default_factory=list)
     distance: Optional[DistanceOption] = None
+    selected_safety: bool = False
+    selected_comfort: bool = False
 
 
 class SurveyResponse(BaseModel):
@@ -46,25 +55,13 @@ class SurveyResponse(BaseModel):
     status: SurveyStatus
     default_target_km: Optional[float] = None
     weights_safety: Optional[float] = None
-    weights_nature: Optional[float] = None
-    weights_slope: Optional[float] = None
-    weights_running: Optional[float] = None
-    weights_landmark: Optional[float] = None
-    weights_child: Optional[float] = None
-    weights_convenience: Optional[float] = None
-    weights_accessibility: Optional[float] = None
-    
+    weights_comfort: Optional[float] = None
+
 class SurveyStatusResponse(BaseModel):
-    """설문 완료 여부 및 저장된 가중치 조회 응답 스키마입니다."""
+    """설문 완료 여부 및 저장된(=영속) 장기 프로필 가중치 조회 응답 스키마입니다."""
     status: SurveyStatus
     survey_completed: bool
     default_target_km: Optional[float] = None
     weights_safety: Optional[float] = None
-    weights_nature: Optional[float] = None
-    weights_slope: Optional[float] = None
-    weights_running: Optional[float] = None
-    weights_landmark: Optional[float] = None
-    weights_child: Optional[float] = None
-    weights_convenience: Optional[float] = None
-    weights_accessibility: Optional[float] = None
+    weights_comfort: Optional[float] = None
     selected_tags: Optional[List[str]] = None

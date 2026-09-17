@@ -37,6 +37,12 @@ from src.service.user.auth_service import AuthService
 
 logger = logging.getLogger(__name__)
 
+# 장기 프로필(안전/편안 SGD 갱신)이 신뢰할 수 있는 대조값(contrast)을 계산하려면
+# 대표 후보와 비교할 경쟁 후보가 최소 2개(전체 3개) 있어야 한다. circular_beam/oneway_beam
+# 엔진은 select_diverse_paths(k=3)로 이미 이 최솟값을 만족한다 — longterm_profile_service가
+# RouteHistory.candidate_features 길이를 이 상수로 검증한다.
+MIN_CANDIDATES_FOR_PROFILE = 3
+
 
 class RouteService:
     def __init__(self, G: nx.Graph, auth_service: AuthService):
@@ -179,6 +185,15 @@ class RouteService:
             try:
                 user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
                 if user is not None:
+                    # engine.candidate_feature_vectors: results와 같은 순서의 {"safety","comfort"}
+                    # 후보별 평균 — 장기 프로필 SGD가 나중에 X_R/X_contrast로 쓴다(route_feedback).
+                    # 다양화를 지원하지 않는 엔진(oneway_shortest 등)은 속성 자체가 없을 수 있다.
+                    candidate_features = getattr(engine, "candidate_feature_vectors", None) or None
+                    if candidate_features and len(candidate_features) < MIN_CANDIDATES_FOR_PROFILE:
+                        logger.info(
+                            "walk route candidate count below profile minimum: mode=%s count=%d",
+                            mode, len(candidate_features),
+                        )
                     history = RouteHistoryRepository.save(
                         user_id=user.id,
                         mode=mode,
@@ -188,6 +203,7 @@ class RouteService:
                         total_km=first_result.total_km,
                         destination_lat=destination.lat if destination else None,
                         destination_lon=destination.lon if destination else None,
+                        candidate_features=candidate_features,
                     )
                     first_result.id = history.id
             except Exception:

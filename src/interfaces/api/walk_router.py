@@ -55,10 +55,14 @@ async def walk_route(
                     validate_no_highway(request.destination.lat, request.destination.lon, db)
                 destination = Coordinate.model_construct(lat=dest_lat, lon=dest_lon)
 
-        response = service.get_route(
+        results = service.get_route(
             access_token, origin, destination, request.target_km, request.mode,
             profile=request.profile,
         )
+        # RouteService.get_route()는 06fc3b1(경로 N개 생성 리팩토링) 이후 List[WalkRouteResponse]를
+        # 반환하도록 바뀌었지만 이 라우터는 아직 단일 응답 계약(response_model=WalkRouteResponse)에
+        # 맞춰져 있지 않았다 — results[0](대표 후보)만 반환해 기존 계약을 유지한다.
+        response = results[0]
         logger.info("walk route response completed: mode=%s status=%s", request.mode, response.status.value)
         return response
     except HTTPException:
