@@ -117,12 +117,14 @@ class SurveyService:
         설문 결과를 장기 프로필(weights_safety/weights_comfort)의 초기값으로 변환해
         UserPreference에 저장합니다.
 
-        두 축 다 온보딩의 selected_safety/selected_comfort 버튼 선택으로
-        _safety_comfort_deltas()가 계산한 (γ_안전, β_편안) 델타를 각각의 baseline
-        (안전 0.5, 편안 0.0)에 더해 정합니다 — TAG_WEIGHT_MAP 태그 델타는 더 이상
-        weights_safety에 반영되지 않습니다(장기 프로필이 추적하는 축이 정확히
-        이 두 개라서 온보딩 초기값도 이 공식 하나로 통일함). tags/selected_tags는
-        참고용으로만 그대로 저장됩니다.
+        두 축 다 request.tags에 "안전"/"편안"이 포함됐는지로 _safety_comfort_deltas()가
+        계산한 (γ_안전, β_편안) 델타를 각각의 baseline(안전 0.5, 편안 0.0)에 더해
+        정합니다 — 지금 프론트가 보내는 온보딩 태그는 "안전"/"편안" 이 둘뿐이라,
+        기존 TAG_WEIGHT_MAP의 세부 태그 델타(±0.2 등)는 더 이상 weights_safety/
+        weights_comfort에 반영되지 않습니다(장기 프로필이 추적하는 축이 정확히 이
+        두 개라서 온보딩 초기값도 이 공식 하나로 통일함). tags는 selected_tags로
+        참고용으로만 그대로 저장됩니다. TAG_WEIGHT_MAP 자체는 챗봇 테마 추출
+        (extractor.py)/가중치 블렌딩(route_executor.py)이 여전히 쓰므로 그대로 둔다.
         최종값은 [0.0, 1.0]으로 클램핑됩니다.
         """
 
@@ -135,7 +137,8 @@ class SurveyService:
             return SurveyResponse(status=SurveyStatus.USER_NOT_FOUND)
 
         safety_delta, comfort_delta = _safety_comfort_deltas(
-            request.selected_safety, request.selected_comfort
+            selected_safety="안전" in request.tags,
+            selected_comfort="편안" in request.tags,
         )
         weights_safety = max(0.0, min(1.0, BASE_WEIGHTS["safety"] + safety_delta))
         weights_comfort = max(0.0, min(1.0, BASE_COMFORT + comfort_delta))
