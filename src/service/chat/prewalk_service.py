@@ -10,6 +10,7 @@ from src.infrastructure.cache.repository.chat_state_repository import ChatStateR
 from src.agent.nodes import (
     WeatherChecker,
     Extractor,
+    WeightExtractor,
     Interviewer,
     ConfirmationClassifier,
     RouteExecutor
@@ -17,6 +18,7 @@ from src.agent.nodes import (
 from src.interfaces.schema.prewalk_schema import ChatResponse, ChatStatus
 from src.schema.prewalk_schema import State, Location
 from src.service.user.auth_service import AuthService
+from src.agent.utils.chatbot_utils import PromptUtils
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,7 @@ class PrewalkOrchestrator:
         kakao_client:            KakaoClient,
         auth_service:            AuthService,
         extractor:               Extractor,
+        weight_extractor:        WeightExtractor,
         interviewer:             Interviewer,
         confirmation_classifier: ConfirmationClassifier,
         route_executor:          RouteExecutor
@@ -35,16 +38,17 @@ class PrewalkOrchestrator:
         self.weather_checker = weather_checker
         self.kakao_client    = kakao_client
         self.auth_service    = auth_service
-        self.graph           = self._build_graph(extractor, interviewer, confirmation_classifier, route_executor)
+        self.graph           = self._build_graph(extractor, weight_extractor, interviewer, confirmation_classifier, route_executor)
 
-    def _build_graph(self, extractor, interviewer, confirmation_classifier, route_executor):
+    def _build_graph(self, extractor, weight_extractor, interviewer, confirmation_classifier, route_executor):
         """
-        extractor, interviewer, confirmation_classifier, route_executor 노드를 연결합니다.
+        extractor, weight_extractor, interviewer, confirmation_classifier, route_executor 노드를 연결합니다.
         """
         builder = StateGraph(State)
 
         # 모든 노드 정의
         builder.add_node("extractor",              extractor.run)
+        builder.add_node("weight_extractor",        weight_extractor.run)
         builder.add_node("interviewer",             interviewer.run)
         builder.add_node("confirmation_classifier", confirmation_classifier.run)
         builder.add_node("route_executor",          route_executor.run)
@@ -56,9 +60,11 @@ class PrewalkOrchestrator:
             {"confirmation_classifier": "confirmation_classifier", "extractor": "extractor"},
         )
 
-        # extractor -> interviewer -> 정보 부족O -> END(확인 대기 또는 재질문) -> 다음 턴에 다시 진입
-        # extractor -> interviewer -> 정보 부족X -> route_executor -> END
-        builder.add_edge("extractor", "interviewer")
+        # extractor -> weight_extractor(가중치 라벨 추출, mode 확정 후 GPS Art/최단 스킵 판단) -> interviewer
+        # -> 정보 부족O -> END(확인 대기 또는 재질문) -> 다음 턴에 다시 진입
+        # -> 정보 부족X -> route_executor -> END
+        builder.add_edge("extractor", "weight_extractor")
+        builder.add_edge("weight_extractor", "interviewer")
         builder.add_conditional_edges(
             "interviewer",
             lambda state: "route_executor" if state.is_complete else END,
@@ -158,7 +164,7 @@ class PrewalkOrchestrator:
             return ChatResponse(status=ChatStatus.UNACCESSIBLE, thread_id=None, state=None)
 
         state.access_token  = access_token
-        state.user_prompt   = user_prompt
+        state.user_prompt   = PromptUtils.sanitize_user_prompt(user_prompt)  # 프롬프트 정규화
         state.route_result  = None
 
         # awaiting_confirmation 여부에 따라 confirmation_classifier/extractor 중 하나로 진입

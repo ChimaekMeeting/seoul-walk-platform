@@ -1,7 +1,7 @@
 # 챗봇 에이전트
 
 > 상태: Current  
-> 기준일: 2026-07-27  
+> 기준일: 2026-09-17  
 > 관련 코드: `src/agent/`, `src/service/chat/prewalk_service.py`, `src/schema/prewalk_schema.py`
 
 이 문서는 챗봇 영역의 입구입니다. 상세 State·Node·Edge·Tool 계약은 [챗봇 Agent 하네스](agent_harness.md)에서 관리합니다.
@@ -12,7 +12,7 @@
 |---|---|---|
 | State | `src/schema/prewalk_schema.py` | 대화와 경로 생성에 필요한 공유 상태 |
 | Graph 조립 | `src/service/chat/prewalk_service.py` | LangGraph Node 등록과 Edge·종료 조건 정의 |
-| Node | `src/agent/nodes/` | 추출, 추가 질문, 경로 실행과 날씨 확인 |
+| Node | `src/agent/nodes/` | 추출, feature별 가중치 라벨링, 추가 질문, 경로 실행과 날씨 확인 |
 | Tool | `src/agent/tools/` | 장소·모드·경로 기능 호출 |
 | Prompt | `src/prompt/` | LLM 입력 템플릿 |
 | 외부 API | `src/infrastructure/external/` | GPT·Kakao·날씨 API 연동 |
@@ -23,6 +23,7 @@
 ```text
 사용자 입력
 → Extractor
+→ WeightExtractor
 → Interviewer
 → 정보 부족: 질문 후 종료
 → 정보 충족: 확인 대기 후 종료
