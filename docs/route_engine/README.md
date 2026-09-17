@@ -470,11 +470,51 @@ discomfort = 1 - slope_score
 
 | 모드 | 비용 |
 |---|---|
-| `waypoint`의 `oneway_shortest` leg | 가중 |
+| `waypoint`의 `oneway_preferred` leg | 가중 |
+| `waypoint`의 `oneway_shortest` leg | 물리 최단 — 사용자가 **명시적으로 고른** 최단 |
 | `oneway_shortest`, `gps_art` | **물리 최단 유지** — 가중 경로의 우회 상한 기준선·폴백 |
 | `oneway_random`, `circular_random` | 아직 `custom_score`(할인 모델). Beam 계열 전환은 전후 벤치마크와 함께 별도 진행 |
 
 두 모델은 방향이 반대라 한 요청 안에서 섞으면 후보 비교가 불공정해진다.
+
+**선호의 출처 보존 (`SafetyComfortPreference`)**
+
+`Weights`는 8축 전체에 기본값이 있어(`safety=0.5`, `slope=0.5`) 값만으로는 "사용자가
+0.5를 원한다"와 "아무 말도 없어서 기본값이 채워졌다"를 구분할 수 없다. 가중 비용은
+후자에 적용하면 안 되므로 선호의 출처를 별도 모델로 전달한다.
+
+```
+RouteExecutor -> RouteTool -> RouteService -> WaypointComposerEngine
+```
+
+`RouteExecutor._build_preference_signal`이 축마다 독립으로 판정한다.
+
+1. 이번 발화에 해당 feature 라벨이 있고 `explicitness`가 `inferred`가 아니면 활성
+   (`inferred`는 alpha=0이라 baseline을 그대로 두므로 "언급 안 함"과 같다)
+2. 아니면 저장된 `UserPreference`에 해당 값이 있으면 활성
+3. 둘 다 아니면 `None`
+
+값 자체는 `_build_weights`의 블렌딩 결과를 그대로 읽는다 — 선호 강도 계산을 두 번
+하지 않는다. 안전만 지정했다면 편안함은 `None`으로 남아 기본값 때문에 함께
+활성화되지 않고, 계수로는 0.5가 아니라 **0**이 들어간다.
+
+`Weights` 기본값과 기존 선호 강도 계산은 바꾸지 않았다.
+
+**leg 방식 결정 (패딩 전)**
+
+| 요청 | 채우는 방식 | 사유 |
+|---|---|---|
+| `oneway_random`이 섞임 | `oneway_shortest` | `beam_leg_present` |
+| 미지정 + 선호 없음 | `oneway_shortest` | `no_preference` |
+| 미지정 + 선호 있음 + 점수 없음 | `oneway_shortest` | `scores_unavailable` |
+| 미지정 + 선호 있음 + 점수 있음 | `oneway_preferred` | — |
+
+자동 패딩 **전에** 판단한다. 먼저 `oneway_shortest`로 채워 버리면 "사용자가 고른
+최단"과 "서비스가 채운 연결"을 더 이상 구분할 수 없다. 명시적으로 고른 구간은
+저장된 선호가 있어도 바꾸지 않는다.
+
+leg 실패 시의 대체 경로는 **가중치도 재방문 페널티도 걸지 않는** 순수 거리 기준이다.
+앞선 시도가 이미 실패했는데 제약을 남겨 두면 대체까지 같은 이유로 실패할 수 있다.
 
 **기동 준비와 요청 격리**
 
@@ -492,8 +532,24 @@ discomfort = 1 - slope_score
 **우회 상한**
 
 - `scoring/detour_cap.py::apply_detour_cap`. 가중 경로의 **실제 거리**가 물리 최단 × `(1 + WALK_DETOUR_MAX_RATIO)`를 넘으면 물리 최단으로 되돌린다. 재탐색하지 않으므로 A* 호출 수가 요청마다 달라지지 않는다.
-- 엔진이 아니라 순수 함수다 — `find_path()`는 벤치마크 solver가 직접 호출하므로 엔진 안에서 적용하면 측정값이 달라지고, 상한은 leg가 아니라 요청 전체의 성질이라 leg마다 적용하면 5구간 경로가 허용치를 5배까지 넘길 수 있다.
+- 엔진이 아니라 순수 함수다 — `find_path()`는 벤치마크 solver가 직접 호출하므로 엔진 안에서 적용하면 측정값이 달라지고, 상한은 leg가 아니라 요청 전체의 성질이라 leg마다 적용하면 5구간 경로가 허용치를 leg 수만큼 넘길 수 있다.
 - `α+β` 상한(`WALK_WEIGHT_LIMIT`, 엣지 비용 증가 폭)과 우회율 상한(최종 경로의 실제 거리 증가 폭)은 **단위가 다른 별개 설정**이다. 같은 값으로 묶지 않는다.
+- 판정은 `>`이지 `>=`가 아니다 — 정확히 상한인 경로는 초과가 아니다.
+- 비교는 **반올림 전 거리**로 한다. `_stitch`가 합산하는 leg별 `total_km`는 이미 소수점 둘째 자리에서 반올림돼 leg마다 최대 5m씩 오차가 쌓인다.
+- 기준 경로는 `WaypointComposerEngine._build_distance_baseline`이 **같은 스냅 노드·경유지 순서**로 다시 만든다. 같은 좌표를 넘기므로 `find_nearest_node`가 같은 노드로 스냅한다. 비용은 leg당 A* 1회 추가 — 가중 요청의 A* 호출 수가 두 배가 된다.
+- 기준 경로 생성에 실패하면 `DetourDecision.verified=False`로 남긴다. 이미 성공한 경로를 버릴 이유는 없으므로 가중 경로를 그대로 쓰되 "상한 이내"라고 보고하지 않는다.
+
+**응답 필드**
+
+| 필드 | 의미 |
+|---|---|
+| `preference_applied` | 최종 경로에 선호가 **실제로 반영됐는가**. 상한을 넘겨 되돌리면 `False` |
+| `preference_skipped_reason` | 반영하지 못한 사유 |
+
+사유 값은 `no_preference`, `beam_leg_present`, `scores_unavailable`,
+`detour_cap_exceeded`, `baseline_failed`, `partial_route`다. 보통 `applied=True`면
+사유가 `None`이지만 `baseline_failed`는 예외다 — 선호는 반영됐는데 상한을 검증하지
+못한 상태라 둘 다 채워진다.
 
 **설정과 복구**
 

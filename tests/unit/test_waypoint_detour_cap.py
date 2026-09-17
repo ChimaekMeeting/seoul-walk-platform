@@ -18,12 +18,14 @@ tests/unit/test_waypoint_detour_cap.py
 """
 
 import math
+from unittest.mock import MagicMock
 
 import networkx as nx
 import pytest
 
 from src.interfaces.schema.walk_schema import WalkRouteStatus
 from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.engines.oneway_astar import OnewayAstarEngine
 from src.route_engine.engines.waypoint import WaypointComposerEngine
 from src.route_engine.scoring.detour_cap import apply_detour_cap, path_distance_m
 from src.route_engine.scoring.weighted_edge_cost import WeightedEdgeCost
@@ -53,8 +55,8 @@ _POS = {
     A: (37.5000, 127.0020),
     B: (37.5000, 127.0040),
     T: (37.5000, 127.0060),
-    C: (37.5020, 127.0020),
-    D: (37.5020, 127.0040),
+    C: (37.5008, 127.0020),
+    D: (37.5008, 127.0040),
 }
 _DIRECT = [S, A, B, T]
 _DETOUR = [S, C, D, T]
@@ -132,8 +134,13 @@ def test_detour_within_cap_keeps_the_preferred_route(graph):
 
 
 def test_exactly_at_the_boundary_is_not_capped(graph):
-    """경계값은 초과가 아니다 — 판정이 > 이지 >= 가 아님을 고정한다."""
-    exact = DETOUR_M / DIRECT_M - 1.0
+    """경계값은 초과가 아니다 — 판정이 > 이지 >= 가 아님을 고정한다.
+
+    비율을 그대로 쓰면 DETOUR_M > DIRECT_M * (1 + 비율)이 부동소수점 1 ulp 차이로
+    참이 될 수 있어 우연에 기대게 된다. 표현 가능한 바로 다음 값을 써서 "경계 이상"이
+    확실한 지점에서 판정한다.
+    """
+    exact = math.nextafter(DETOUR_M / DIRECT_M - 1.0, math.inf)
 
     response = make_engine(graph, max_ratio=exact).run()[0]
 
@@ -249,3 +256,70 @@ def test_preference_signal_axes_are_independent():
     assert only_safety.is_active is True
     assert only_safety.as_coefficients() == (0.8, 0.0)
     assert SafetyComfortPreference().is_active is False
+
+
+# ── 부분 경로 ───────────────────────────────────────────────────────────────
+
+
+def test_partial_route_does_not_claim_preference(graph, monkeypatch):
+    """일부 구간이 실패하면 비교할 전체 기준 경로가 없어 상한을 적용할 수 없다.
+    선호가 반영됐다고 보고하지 않고 사유를 남겨야 한다."""
+    from src.interfaces.schema.walk_schema import WalkMode, WalkRouteResponse
+
+    failed = WalkRouteResponse(
+        status=WalkRouteStatus.NO_PATH, mode=WalkMode.WAYPOINT, coordinates=[], total_km=0.0,
+    )
+
+    def _fail(self):
+        self.last_path_nodes = []
+        self.last_path_nodes_by_candidate = [[]]
+        return [failed]
+
+    monkeypatch.setattr(OnewayAstarEngine, "run", _fail)
+
+    response = make_engine(graph, max_ratio=1.0).run()[0]
+
+    assert response.preference_applied is False
+    assert response.preference_skipped_reason == "partial_route"
+
+
+# ── RouteService 전 구간 통합 ───────────────────────────────────────────────
+
+
+def _route_service(G):
+    from src.interfaces.schema.auth_schema import Status
+    from src.service.route.route_service import RouteService
+
+    auth = MagicMock()
+    auth.check_access_token.return_value = (Status.SUCCESS, None, None)
+    return RouteService(G=G, auth_service=auth)
+
+
+def _get_route(service, preference):
+    from src.interfaces.schema.walk_schema import Coordinate, WalkMode
+
+    return service.get_route(
+        "token",
+        origin=Coordinate(lat=_POS[S][0], lon=_POS[S][1]),
+        destination=Coordinate(lat=_POS[T][0], lon=_POS[T][1]),
+        mode=WalkMode.WAYPOINT,
+        preference=preference,
+    )[0]
+
+
+def test_route_service_applies_an_active_preference_end_to_end(graph):
+    """RouteService -> WaypointComposerEngine -> A* 전 구간에서 안전 선호가 반영된다."""
+    response = _get_route(_route_service(graph), SafetyComfortPreference(safety=0.9))
+
+    assert response.status == WalkRouteStatus.SUCCESS
+    assert response.preference_applied is True
+    assert response.total_km == pytest.approx(round(DETOUR_M / 1000, 2))
+
+
+def test_route_service_without_preference_stays_on_distance(graph):
+    response = _get_route(_route_service(graph), None)
+
+    assert response.status == WalkRouteStatus.SUCCESS
+    assert response.preference_applied is False
+    assert response.preference_skipped_reason == "no_preference"
+    assert response.total_km == pytest.approx(round(DIRECT_M / 1000, 2))

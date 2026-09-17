@@ -161,6 +161,11 @@ class WaypointComposerEngine:
 
         # 일부 leg가 실패한 경우엔 다양화 없이 대표 경로 1개만 이어붙여 기존과 동일하게 반환한다.
         if not all_legs_succeeded:
+            if self._preference_requested():
+                # 일부 구간이 빠진 경로에는 우회 상한을 적용할 수 없다(비교할 전체
+                # 기준 경로가 없다). 선호가 반영됐다고 보고하지 않고 사유를 남긴다.
+                self._applied = False
+                self.preference_skipped_reason = "partial_route"
             leg_results = [responses[0] for responses, _ in leg_candidates]
             return [self._stitch(leg_results, total_legs)]
 

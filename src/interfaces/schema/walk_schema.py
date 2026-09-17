@@ -148,6 +148,7 @@ PreferenceSkippedReason = Literal[
     "scores_unavailable",
     "detour_cap_exceeded",
     "baseline_failed",
+    "partial_route",
 ]
 
 
@@ -170,4 +171,5 @@ class WalkRouteResponse(BaseModel):
     #   scores_unavailable  그래프 점수 커버리지가 부족해 가중 모드가 꺼짐
     #   detour_cap_exceeded 가중 경로가 우회 상한을 넘겨 거리 기준으로 되돌림
     #   baseline_failed     비교할 거리 기준 경로를 만들지 못해 상한을 검증하지 못함
+    #   partial_route       일부 구간이 실패해 전체 경로 기준 상한을 적용할 수 없음
     preference_skipped_reason: Optional[PreferenceSkippedReason] = None
