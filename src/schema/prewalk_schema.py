@@ -1,4 +1,5 @@
-from pydantic import BaseModel, Field, field_validator, model_validator
+from enum import Enum
+from pydantic import BaseModel, Field, RootModel, field_validator, model_validator
 from typing import Literal, Optional, Union, List
 from src.interfaces.schema.walk_schema import WalkMode, WalkRouteResponse
 from src.interfaces.validators.dist_validator import validate_target_km_positive
@@ -109,6 +110,34 @@ class ConfirmationResult(BaseModel):
     is_positive: bool = Field(description="사용자 응답이 확인 질문에 긍정(진행)인지 여부")
 
 
+class FeatureTag(str, Enum):
+    """
+    가중치 라벨링 대상이 되는 선호 특징 축입니다. 새 feature가 늘어나면 여기에 값을
+    추가합니다 — RouteExecutor가 Weights 필드로 매핑할 때도 이 값을 키로 씁니다.
+    """
+    SAFETY  = "safety"
+    COMFORT = "comfort"
+
+
+ExplicitnessLabel = Literal["explicit_hard", "explicit_soft", "optional", "inferred"]
+PreferenceLabel   = Literal["must", "high", "neutral", "low"]
+
+class FeatureLabel(BaseModel):
+    """
+    개별 feature에 대한 명시적 라벨과 선호도 라벨입니다.
+    """
+    preference_label:   PreferenceLabel
+    explicitness_label: ExplicitnessLabel
+
+
+class FeatureLabelMap(RootModel[dict[FeatureTag, FeatureLabel]]):
+    """
+    WeightExtractor 출력 전체를 감싸는 root model입니다. PydanticOutputParser는
+    BaseModel만 파싱 대상으로 받을 수 있어 dict[FeatureTag, FeatureLabel]을 직접
+    쓸 수 없으므로 RootModel로 감쌉니다.
+    """
+
+
 class State(BaseModel):
     """
     대화 상태 관련 정보입니다.
@@ -137,5 +166,5 @@ class State(BaseModel):
     awaiting_confirmation: bool = False
     user_prompt: str  = ""
     response:    str  = ""
-    themes: List[str] = Field(default_factory=list)
+    feature_labels: dict[FeatureTag, FeatureLabel] = Field(default_factory=dict)  # feature별 명시적 라벨, 선호도 라벨
     profile: Optional[ScoringProfile] = None

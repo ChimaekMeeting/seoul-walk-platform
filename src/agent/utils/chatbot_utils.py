@@ -1,6 +1,7 @@
 from typing import Any
 import json
 from pydantic import BaseModel
+import re
 
 class PydanticUtils:
     @staticmethod
@@ -16,6 +17,27 @@ class PydanticUtils:
         return obj
         
 class PromptUtils:
+    _HTML_TAG_RE        = re.compile(r"<[^>]+>")
+    _REPEATED_WORD_RE   = re.compile(r"\b(\S{1,20})(?:\s+\1\b){2,}")   # 같은 단어가 공백으로 총 3회+ 반복
+    _REPEATED_CHUNK_RE  = re.compile(r"(.{1,20}?)\1{2,}")              # 같은 문자열(문자 1개 포함)이 붙어서 총 3회+ 반복
+    _WHITESPACE_RUN_RE  = re.compile(r"\s+")
+
+    @staticmethod
+    def sanitize_user_prompt(text: str) -> str:
+        """
+        프롬프트를 정규화합니다.
+        - HTML 태그 제거
+        - 과도한 공백 축소
+        - 반복 문자 및 문자열 축약
+        """
+        if not text:
+            return text
+        text = PromptUtils._HTML_TAG_RE.sub(" ", text)
+        text = PromptUtils._REPEATED_WORD_RE.sub(lambda m: f"{m.group(1)} {m.group(1)}", text)
+        text = PromptUtils._REPEATED_CHUNK_RE.sub(lambda m: m.group(1) * 2, text)
+        text = PromptUtils._WHITESPACE_RUN_RE.sub(" ", text).strip()
+        return text
+
     @staticmethod
     def escape_braces(text: str) -> str:
         """

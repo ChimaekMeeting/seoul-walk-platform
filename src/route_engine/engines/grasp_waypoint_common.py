@@ -207,6 +207,18 @@ class GraspConfig:
     # 값을 키울수록 직각에 가까운 조합을 더 강하게 우선하고, 0으로 두면 이 기능이 완전히
     # 꺼진 이전 동작과 같아진다.
     #
+    # ⚠ 이 항의 목적은 "원형 만들기"가 아니라 "왕복 퇴화 방지"다(2026-09-17 명확화).
+    # 위 "O자형에 가까워진다"는 설명이 원형을 지향하는 항으로 오해를 낳아, 그 오해 위에서
+    # 이슈가 하나 작성됐다가 기각됐다. 실제 기하는 다르다 —
+    #   원 위에 p1과 경유지 N개를 균등 배치하면 원주각 성질상 인접 경유지의 p1 기준
+    #   방위각차는 180/(N+1)도다(N=2면 60도, N=4면 36도). 어떤 N에서도 90도가 아니다.
+    # 90도는 "0도와 180도가 둘 다 일직선 왕복을 만드니 그 중간"이라는 휴리스틱으로 고른
+    # 값이고, 그 목적(왕복 방지)에서는 실측상 옳다 — N=4 격자 300행에서 재통행은 각도가
+    # 클수록 단조 감소했다(36도 구간 0.017, 90도 이상 구간 0.007).
+    # 반대로 원형성(circularity_q)은 36도 부근에서 최고였다(0.427 대 0.251). 즉 왕복 방지와
+    # 원형성은 서로 다른 각도를 요구한다. 팀은 2026-09-17에 원형성을 게이트·순위·목적함수
+    # 어디에도 넣지 않기로 정했으므로, 이 항은 왕복 방지 기준인 90도를 유지한다.
+    #
     # 기본값 500.0 → 1500.0 조정 근거(2026-08-30, target_km=5.0·seed=42·start_node=1
     # 실측): rcl_size=8(기존 circular_grasp.py와 맞춘 "공정 비교" 기본값, 아래 rcl_size
     # 주석 참고)을 그대로 둔 채로는, 500.0에서 RCL 안에 진짜 직각에 가까운 후보가 아예
@@ -642,6 +654,11 @@ class RouteGeometryMetrics:
     waypoint_angle_diffs_deg: 연속한 두 경유지의 p1 기준 방위각차(0~180도) 목록, 길이
         N-1. N=2에서는 원소 1개짜리 리스트가 되어 기존 waypoint_angle_diff_deg(스칼라)와
         같은 값을 담는다. 경유지가 1개뿐이면 빈 리스트.
+    waypoint_bearings_deg: p1 기준 각 경유지의 방위각(0~360도, 정북=0, 시계방향) 목록,
+        길이 N. waypoint_angle_diffs_deg는 이 값에서 부호를 버린 인접 차이라
+        "+90도, -90도로 되돌아온 배치"와 "+90도, +90도로 계속 도는 배치"를 구분하지
+        못한다. 전역 배치(원형 배치) 진단에는 부호가 필요해 원본 방위각을 그대로 남긴다
+        (2026-09-16 추가). 좌표가 없으면 None.
     segment_balance_ratio: min(segment_lengths_m) / max(segment_lengths_m), 0~1.
     effective_waypoint_count: Route.effective_waypoints의 개수 — 선언한 N과 다르면
         pruning이 경유지를 지웠다는 뜻이다(진단 전용, 탐색 기준에는 쓰지 않는다).
@@ -659,6 +676,9 @@ class RouteGeometryMetrics:
     prune_diagnostics: Optional["PruneDiagnostics"] = None
     # prune_dead_ends가 이 경로에서 무엇을 왜 잘라냈는지(진단 전용, PruneDiagnostics 참고).
     # 구간 거리를 못 구한 경우(path_finder 실패)에는 채우지 않는다.
+    waypoint_bearings_deg: Optional[list[float]] = None
+    # 위 docstring 참고. 이 dataclass를 위치인자로 만드는 곳이 solver 2개와
+    # compute_route_geometry_metrics 내부에 있어, 중간에 끼우지 않고 맨 뒤에 기본값과 함께 둔다.
 
 
 _DEGENERATE_REPEATED_EDGE_RATIO = 0.35
@@ -745,12 +765,16 @@ def compute_route_geometry_metrics(
         "lat" in G.nodes[n] and "lon" in G.nodes[n] for n in (start_node, *route.waypoints)
     )
     angle_diffs_deg: Optional[list[float]] = None
+    bearings_deg: Optional[list[float]] = None
     if have_coords:
         p1_data = G.nodes[start_node]
         bearings = [
             _bearing_rad(p1_data["lat"], p1_data["lon"], G.nodes[w]["lat"], G.nodes[w]["lon"])
             for w in route.waypoints
         ]
+        # _bearing_rad는 atan2 결과라 (-π, π]다. 0~360으로 접어 CSV에서 부호 해석이 필요
+        # 없게 만든다 — 인접 차이의 부호는 읽는 쪽에서 wrap180으로 복원한다.
+        bearings_deg = [math.degrees(b) % 360.0 for b in bearings]
         angle_diffs_deg = [
             math.degrees(_angular_separation_rad(bearings[i], bearings[i + 1]))
             for i in range(len(bearings) - 1)
@@ -773,6 +797,7 @@ def compute_route_geometry_metrics(
         is_degenerate_loop=degenerate,
         effective_waypoint_count=route.effective_waypoint_count,
         prune_diagnostics=compute_prune_diagnostics(G, raw_nodes, route.waypoints),
+        waypoint_bearings_deg=bearings_deg,
     )
 
 
