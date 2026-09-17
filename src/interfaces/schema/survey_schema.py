@@ -46,25 +46,13 @@ class SurveyResponse(BaseModel):
     status: SurveyStatus
     default_target_km: Optional[float] = None
     weights_safety: Optional[float] = None
-    weights_nature: Optional[float] = None
-    weights_slope: Optional[float] = None
-    weights_running: Optional[float] = None
-    weights_landmark: Optional[float] = None
-    weights_child: Optional[float] = None
-    weights_convenience: Optional[float] = None
-    weights_accessibility: Optional[float] = None
-    
+    weights_comfort: Optional[float] = None
+
 class SurveyStatusResponse(BaseModel):
     """설문 완료 여부 및 저장된 가중치 조회 응답 스키마입니다."""
     status: SurveyStatus
     survey_completed: bool
     default_target_km: Optional[float] = None
     weights_safety: Optional[float] = None
-    weights_nature: Optional[float] = None
-    weights_slope: Optional[float] = None
-    weights_running: Optional[float] = None
-    weights_landmark: Optional[float] = None
-    weights_child: Optional[float] = None
-    weights_convenience: Optional[float] = None
-    weights_accessibility: Optional[float] = None
+    weights_comfort: Optional[float] = None
     selected_tags: Optional[List[str]] = None

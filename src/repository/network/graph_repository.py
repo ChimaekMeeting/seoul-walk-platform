@@ -15,9 +15,18 @@ logger = logging.getLogger(__name__)
 class GraphRepository:
     @staticmethod
     def _edge_attributes(row, poi_counts: dict[str, int] | None = None) -> dict:
+        """DB row를 NetworkX edge 속성으로 옮긴다. 값을 계산하지 않고 그대로 전달한다.
+
+        점수 세 개는 NULL을 0.0으로 바꾸지 않고 None 그대로 넘긴다 — "미계산"과
+        "계산했고 0"의 구분이 여기서 사라지면 복구할 수 없다. 결측 판단은 그래프
+        단위로 WeightedEdgeCost.check_coverage()가 맡는다.
+        """
         attributes = {
             "link_id": row.link_id,
             "length": row.length_m,
+            "safety_score": row.safety_score,
+            "accident_score": row.accident_score,
+            "slope_score": row.slope_score,
             "toilet_count": 0,
             "transit_count": 0,
             "accessibility_poi_count": 0,
@@ -58,6 +67,9 @@ class GraphRepository:
                     WalkEdge.start_node,
                     WalkEdge.end_node,
                     WalkEdge.length_m,
+                    WalkEdge.safety_score,
+                    WalkEdge.accident_score,
+                    WalkEdge.slope_score,
                 )
             ).fetchall()
 
@@ -104,6 +116,9 @@ class GraphRepository:
                     WalkEdge.start_node,
                     WalkEdge.end_node,
                     WalkEdge.length_m,
+                    WalkEdge.safety_score,
+                    WalkEdge.accident_score,
+                    WalkEdge.slope_score,
                 ).where(ST_DWithin(WalkEdge.geom.cast(Geography), origin_geog, radius_m))
             ).fetchall()
 

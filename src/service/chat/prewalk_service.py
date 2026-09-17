@@ -3,7 +3,11 @@ from uuid import uuid4
 
 from langgraph.graph import StateGraph, END
 
+from src.database.postgresql import get_postgresql_db
 from src.infrastructure.external.client.kakao_client import KakaoClient
+from src.interfaces.validators.coord_validator import validate_seoul_polygon_contains
+from src.interfaces.validators.highway_validator import validate_no_highway
+from src.interfaces.validators.water_validator import snap_coordinate_from_water
 from src.repository.user.user_repository import UserRepository
 from src.repository.chat.chat_session_repository import ChatSessionRepository
 from src.infrastructure.cache.repository.chat_state_repository import ChatStateRepository
@@ -134,7 +138,7 @@ class PrewalkOrchestrator:
 
         return ChatResponse(status=status, thread_id=thread_id, state=initial_state)
 
-    async def orchestrator(self, access_token: str, thread_id: str, user_prompt: str) -> ChatResponse:
+    async def orchestrator(self, access_token: str, thread_id: str, user_prompt: str, lat: float, lon: float) -> ChatResponse:
         """
         Langgraph를 기반으로 정보 수집부터 경로 생성까지 진행합니다.
         """
@@ -162,6 +166,27 @@ class PrewalkOrchestrator:
 
         if state.user_id != user.id:
             return ChatResponse(status=ChatStatus.UNACCESSIBLE, thread_id=None, state=None)
+
+        # 좌표가 이전 턴과 동일하면 수계 snap·고속도로 차단·역지오코딩을 다시 하지 않는다.
+        if lat != state.current_location.lat or lon != state.current_location.lon:
+            with get_postgresql_db() as db:
+                validate_seoul_polygon_contains(lat, lon, db)
+                snapped_lat, snapped_lon = snap_coordinate_from_water(lat, lon, db)
+                if (snapped_lat, snapped_lon) == (lat, lon):
+                    validate_no_highway(lat, lon, db)
+                lat, lon = snapped_lat, snapped_lon
+
+            try:
+                kakao_result = await self.kakao_client.get_address_from_coords(lat, lon)
+                state.current_location = Location(
+                    lat        = lat,
+                    lon        = lon,
+                    address    = kakao_result.place_address,
+                    place_name = kakao_result.place_name,
+                )
+            except Exception:
+                logger.exception("prewalk_intent_kakao_error | lat=%s | lon=%s", lat, lon)
+                state.current_location = Location(lat=lat, lon=lon)
 
         state.access_token  = access_token
         state.user_prompt   = PromptUtils.sanitize_user_prompt(user_prompt)  # 프롬프트 정규화

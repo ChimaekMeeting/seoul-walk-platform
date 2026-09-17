@@ -66,6 +66,7 @@ docs/                              // 프로젝트 문서
 │   ├── chatbot_upgrade_proposal.md // 챗봇 업그레이드 결정·작업 단위
 │   ├── chatbot_cleanup_proposal.md // 챗봇 불필요한 항목 제거 발견 목록
 │   ├── chatbot_hardcoding_proposal.md // 챗봇 하드코딩 문구 처리 방안
+│   ├── route_engine_detour_policy_proposal.md // 선호 경로 우회 제한·대체 정책 검토
 │   └── data_h3_to_gist_proposal.md // 데이터 Feature 집계 H3 → GiST(반경 기반) 전환 제안
 ├── templates/                     // 공통 문서 형식
 │   ├── domain_contract.md         // 영역별 계약 템플릿
@@ -103,6 +104,7 @@ docs/                              // 프로젝트 문서
 - [챗봇 Agent 불필요한 항목 제거 제안](proposals/chatbot_cleanup_proposal.md)
 - [챗봇 Agent 하드코딩 문구 처리 방안 제안](proposals/chatbot_hardcoding_proposal.md)
 - [데이터 Feature 집계 H3 → GiST 전환 제안](proposals/data_h3_to_gist_proposal.md)
+- [선호 경로 우회 제한 정책 검토](proposals/route_engine_detour_policy_proposal.md)
 
 ## 전체 하네스 문서화 순서
 

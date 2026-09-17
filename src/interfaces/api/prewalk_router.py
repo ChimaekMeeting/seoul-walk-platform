@@ -57,9 +57,13 @@ async def read_message(
     사용자가 메시지를 보낼 때마다 호출됩니다.
     """
     try:
-        return await service.orchestrator(access_token, request.thread_id, request.user_prompt)
+        return await service.orchestrator(
+            access_token, request.thread_id, request.user_prompt, request.lat, request.lon
+        )
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("prewalk_intent_unexpected_error | thread_id=%s", request.thread_id)
         raise HTTPException(status_code=500, detail=str(e))

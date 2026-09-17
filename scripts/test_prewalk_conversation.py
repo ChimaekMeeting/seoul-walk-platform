@@ -102,7 +102,7 @@ async def _run_scenario(
 
     for turn_no, user_prompt in enumerate(turns, start=1):
         print(f"  turn {turn_no} 입력: {user_prompt}")
-        chat: ChatResponse = await orchestrator.orchestrator(access_token, thread_id, user_prompt)
+        chat: ChatResponse = await orchestrator.orchestrator(access_token, thread_id, user_prompt, LAT, LON)
         if chat.state is None:
             print(f"  turn {turn_no} 실패: status={chat.status}")
             return
