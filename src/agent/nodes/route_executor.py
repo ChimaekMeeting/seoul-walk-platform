@@ -1,6 +1,6 @@
 import logging
 
-from src.schema.prewalk_schema import State
+from src.schema.prewalk_schema import State, FeatureTag
 from src.interfaces.schema.walk_schema import WalkMode, Coordinate
 from src.agent.tools.route_tools import RouteTool
 from src.schema.route_schema import Weights
@@ -17,21 +17,35 @@ MODE_TOOL_MAP: dict[WalkMode, str] = {
     WalkMode.WAYPOINT:        "waypoint_route",
 }
 
-# 테마·설문이 없을 때의 기본 가중치(baseline).
+# feature 라벨·설문이 없을 때의 기본 가중치(baseline).
 # route_schema.Weights 기본값을 단일 출처(SSOT)로 사용함.
 #   (안전/평지 0.5, 미관·활동·동반 0.0 → 일반 경로 = 해당 특성 무편향)
 _BASELINE_WEIGHTS = Weights().model_dump()
 
-# 대화 테마(state.themes)를 가중치에 반영하는 EMA 블렌딩 강도(0~1)와 목표값.
-# base[key] = alpha * _THEME_TARGET + (1 - alpha) * base[key] — 클수록 테마가 base를 더 세게 끌어당김.
-# TODO(임시): TAG_WEIGHT_MAP은 "이 테마가 어떤 축에 영향을 주는지"(키 집합)만 참고하고
-# delta 값 자체는 쓰지 않음 — 모든 축이 같은 고정 target으로 끌려감(태그별 크기 구분 없음).
-# 추후 delta/weights 체계를 한 번에 다시 설계할 때 함께 정리 예정.
-_THEME_EMA_ALPHA  = 0.6
-_THEME_TARGET     = 1.0
+# preference_label -> EMA 목표값(target). 이 특징을 얼마나 중요하게 여기는지.
+_PREFERENCE_TARGET_MAP: dict[str, float] = {
+    "must":    0.95,
+    "high":    0.75,
+    "neutral": 0.50,
+    "low":     0.25,
+}
 
-_ACCESSIBLE_THEMES = {"유모차", "계단이 불편한"}
-_CONVENIENT_THEMES = {"활기찬", "힙한"}
+# explicitness_label -> EMA 블렌딩 강도(alpha, 0~1). 클수록 target 쪽으로 세게 끌어당김.
+# base[key] = alpha * target + (1 - alpha) * base[key]
+# inferred는 alpha=0이라 baseline을 그대로 유지 — 결과상 "언급 안 함"과 동일하다.
+_EXPLICITNESS_ALPHA_MAP: dict[str, float] = {
+    "explicit_hard": 0.90,
+    "explicit_soft": 0.70,
+    "optional":      0.40,
+    "inferred":      0.00,
+}
+
+# FeatureTag -> Weights 필드명. safety는 필드명이 그대로 같고, comfort는 "평지 위주의
+# 편안함"으로 해석해 slope(경사 회피)에 반영한다.
+_FEATURE_TO_WEIGHTS_KEY: dict[FeatureTag, str] = {
+    FeatureTag.SAFETY:  "safety",
+    FeatureTag.COMFORT: "slope",
+}
 
 class RouteExecutor:
     def __init__(self):
@@ -40,7 +54,7 @@ class RouteExecutor:
 
     async def run(self, state: State) -> State:
         """
-        UserPreference와 테마 태그를 반영한 가중치로 경로를 생성합니다.
+        UserPreference와 feature 라벨을 반영한 가중치로 경로를 생성합니다.
         """
         # 예외1. 모드와 매핑되는 경로 생성 엔진이 없는 경우
         tool_name = MODE_TOOL_MAP.get(state.mode)
@@ -65,7 +79,7 @@ class RouteExecutor:
             args["leg_target_km"] = [leg["target_km"] for leg in legs]
 
         args["access_token"]   = state.access_token or ""
-        profile = self._select_profile(state)
+        profile = state.profile or ScoringProfile.DEFAULT
         state.profile = profile
         args["profile"] = profile
         args["custom_weights"] = self._build_weights(state, profile)
@@ -83,30 +97,16 @@ class RouteExecutor:
 
         return state
 
-    @staticmethod
-    def _select_profile(state: State) -> ScoringProfile:
-        """명시 프로필을 우선하고, 없으면 대화 테마에서 결정합니다."""
-        if state.profile is not None:
-            return state.profile
-        themes = set(state.themes)
-        if themes & _ACCESSIBLE_THEMES:
-            return ScoringProfile.ACCESSIBLE
-        if themes & _CONVENIENT_THEMES:
-            return ScoringProfile.CONVENIENT
-        return ScoringProfile.DEFAULT
-
     def _build_weights(
         self,
         state: State,
         profile: ScoringProfile = ScoringProfile.DEFAULT,
     ) -> Weights:
         """
-        UserPreference base weights에 state.themes의 delta를 합산해 최종 Weights를 반환합니다.
-        UserPreference가 없으면 _BASELINE_WEIGHTS를 사용합니다.
+        UserPreference base weights에 state.feature_labels의 라벨을 EMA 블렌딩해
+        최종 Weights를 반환합니다. UserPreference가 없으면 _BASELINE_WEIGHTS를 사용합니다.
         (안전/평지는 0.5, 미관·활동·동반 특성은 0.0 → 일반 경로는 해당 특성 무편향)
         """
-        from src.service.user.survey_service import TAG_WEIGHT_MAP  # 순환 import 방지(지연 로드)
-
         preference = UserPreferenceRepository.get_by_user_id(state.user_id)
         if preference is None:
             logger.debug("UserPreference가 없어, baseline 가중치를 사용합니다.")
@@ -123,12 +123,15 @@ class RouteExecutor:
             if stored is not None:
                 base[key] = max(0.0, min(1.0, base[key] + stored - default))
 
-        # 테마는 EMA 블렌딩으로 반영. TAG_WEIGHT_MAP의 delta 값은 쓰지 않고, 이 테마가
-        # 건드리는 축(key)인지만 참고해 고정된 _THEME_TARGET 쪽으로 alpha만큼 끌어당김
-        # (임시 방식, 위 TODO 참고).
-        for tag in state.themes:
-            for key in TAG_WEIGHT_MAP.get(tag, {}):
-                base[key] = _THEME_EMA_ALPHA * _THEME_TARGET + (1 - _THEME_EMA_ALPHA) * base[key]
+        # feature 라벨은 EMA 블렌딩으로 반영. preference_label이 target을,
+        # explicitness_label이 alpha(블렌딩 강도)를 정한다.
+        for tag, label in state.feature_labels.items():
+            key = _FEATURE_TO_WEIGHTS_KEY.get(tag)
+            if key is None:
+                continue
+            target = _PREFERENCE_TARGET_MAP[label.preference_label]
+            alpha  = _EXPLICITNESS_ALPHA_MAP[label.explicitness_label]
+            base[key] = alpha * target + (1 - alpha) * base[key]
 
         weights = Weights(**base)
         return weights
