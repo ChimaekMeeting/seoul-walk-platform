@@ -429,6 +429,25 @@ Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
 
 **아직 확인 안 된 것**: 실제 그래프 규모에서 이 다양화가 실제로 서로 다른 "의미 있는" 3개(예: 정말 확연히 다른 동선)를 만들어내는지는 toy 그래프 검증까지만 했고, 실서비스 규모 그래프·프런트엔드 노출까지는 확인하지 않았다. `tests/`에 정식 회귀 테스트도 아직 없다.
 
+## 방향 전환(turn_cost) 진단 지표 (2026-09-16)
+
+**왜 필요한가**: 순환 경로 엔진 비교에 쓰던 지표(거리 오차, 자기중첩 비율, 실행시간)에는 "이 경로가 걷기에 얼마나 편안한가"를 나타내는 축이 없었다. 회전은 도로 하나(edge)의 속성이 아니라 "직전 도로 + 교차로 + 다음 도로"의 관계에서만 정의되므로 edge에 미리 저장할 수 없고, 특정 엔진에 종속시키지 않기 위해 `PathUtils`에 엔진 독립 함수로 구현했다. **엔진의 accept/reject 기준이나 목적함수에는 아직 연결하지 않았다** — 진단·비교 전용이다.
+
+**핵심 함수 — `path_utils.py`**
+
+- `latlon_to_local_xy(lat, lon, *, lat_ref)`: 노드 위경도를 `lat_ref` 위도 기준 로컬 평면(등장방형 근사)으로 투영한다. 도보 edge 스케일(수십~수백 m)을 전제하며, 원시 위경도를 직접 벡터 계산에 쓰지 않기 위한 투영 단계다.
+- `turn_angle(prev_xy, curr_xy, next_xy) -> float | None`: 평면 좌표 3점의 회전각(도, 0~180, 좌우 미구분). 직전==현재 또는 현재==다음(길이 0 벡터)이면 `None`.
+- `turn_angle_at(G, prev_node, curr_node, next_node) -> float | None`: 위 두 함수를 그래프 노드에 적용하는 래퍼. 그래프 좌표 상태에 의존하므로 `turn_angle`과 달리 엄밀한 순수 함수는 아니다.
+- `PathUtils.path_distance_m(path, *, closed=False) -> float`: 닫힌 경로는 시작 노드 중복 여부와 무관하게 이음매 구간 거리를 정확히 1회만 포함한다(`_normalized_nodes`로 정규화).
+- `PathUtils.turn_angle_result(path, *, closed=False) -> TurnAngleResult`: 회전각 목록(`angles_deg`)과 정의 불가 원인별 집계(`undefined_reasons`)를 반환한다. 닫힌 경로는 전체 노드를 모듈러 인덱스로 순회해 n개 노드 모두의 회전을 계산한다 — "메인 구간 + 이음매 패치 1개" 방식은 n-1개만 계산하는 버그가 있었다(회귀 테스트로 고정, `tests/unit/test_path_utils.py::TestTurnAngleResult`).
+- `PathUtils.turn_angles(path, *, closed=False) -> list[float]`: `turn_angle_result`의 각도 목록만 반환하는 편의 함수.
+- `PathUtils.turn_metrics(path, *, closed=False) -> TurnMetrics`: `total_turn_deg`/`max_turn_deg`/`turn_deg_per_km`/`candidate_turn_count`/`defined_turn_count`/`undefined_turn_count`/`undefined_turn_reasons`를 담은 통계.
+- `count_turns_at_or_above(angles_deg, threshold_deg) -> int`: 특정 임계값 이상 회전 개수. 45°/60°/90° 등은 검증된 인간공학적 기준이 아니라 잠정 운영 임계값이므로 `TurnMetrics`에 필드로 고정하지 않고, 필요할 때 이 함수로 동적 계산한다.
+
+**실측 검증**: 서울 도보 그래프·현재 활성 순환 엔진 9종(`grasp-wp-*`, `beam-wp-*`)·시나리오 25개 전수(225회) 기준 정의 불가 회전 0건, 거리당 회전량 740.7~845.4°/km. 지표 간(누적 회전량 vs 급회전 패턴) 순위 불일치, 일부 엔진(`grasp-wp-alns`/`beam-wp-alns`/`beam-wp-vns`)의 seed 의존성, 임계값별 순위 민감도 등 세부 결과는 [analysis/turn_cost/](../../analysis/turn_cost/)(탐색적 분석, 확정 결론 아님) 참고.
+
+**아직 확인 안 된 것**: 45°/60°/90° 등 후보 임계값이 실제 보행 속도·주관적 불편도와 상관관계가 있는지는 사용자 행동 데이터가 없어 검증하지 못했다. 순환 엔진이 최종 확정된 뒤 이 지표를 목적함수에 연결할지도 아직 판단하지 않았다.
+
 ## oneway_shortest 엔진: 거리 전용(distance-only) weight + Haversine 휴리스틱
 
 **무엇이 바뀌었나(2026-08-23)**
