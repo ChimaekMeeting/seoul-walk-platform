@@ -2,58 +2,14 @@
 src/service/user/survey_service.py
 
 온보딩 설문 비즈니스 로직을 담당하는 서비스.
-키워드 태그를 경로 가중치로 변환하고 UserPreference에 저장한다.
+사용자가 선택한 안전·편안 여부를 가중치로 변환해 UserPreference에 저장한다.
 """
 from src.interfaces.schema.auth_schema import Status
 from src.repository.user.user_preference_repository import UserPreferenceRepository
 from src.repository.user.user_repository import UserRepository
 from src.service.user.auth_service import AuthService
 from src.interfaces.schema.survey_schema import DistanceOption, SurveyRequest, SurveyResponse, SurveyStatus, SurveyStatusResponse
-from src.schema.route_schema import Weights
 
-
-TAG_WEIGHT_MAP: dict[str, dict[str, float]] = {
-    # nature: 자연 친화도
-    "나무 많은":     {"nature":   +0.2},
-    "꽃길":          {"nature":   +0.2},
-    "햇살 좋은":     {"nature":   +0.2},
-    "그늘이 많은":   {"nature":   +0.1},
-
-    # safety: 안전성 (조용하거나 골목길은 안전 가중치 하향 또는 분리)
-    "밤에도 안전한": {"safety":   +0.2},
-    "큰길":          {"safety":   +0.2},
-    "밝은 길":       {"safety":   +0.2},
-    "골목골목":      {"safety":  -0.1},
-
-    # slope & running: 경사도 및 활동성
-    "숨 안 차는":    {"slope":    +0.3}, # 평지 선호 (상승고도 회피)
-    "평탄한":        {"slope":    +0.2},
-    "뛰고 싶은":     {"running":  +0.2, "slope":  -0.1}, # 경사 수용, 러닝 적합
-    "운동":         {"running":  +0.2, "slope":  -0.2}, # 가파른 경사도 수용
-
-    # landmark: 볼거리 및 혼잡도
-    "볼거리 많은":   {"landmark": +0.2},
-    "인스타 감성":   {"landmark": +0.2},
-    "조용한":       {"landmark": -0.2, "safety":  -0.1}, # 한적하지만 인적이 드물 수 있음
-    "야경이 예쁜":   {"landmark": +0.2, "safety":  +0.1},  # 야간 안전 확보된 명소
-
-    # 동반자 중심 복합 필터
-    "어린이":       {"child": +0.2, "slope": +0.1},
-    "반려동물":     {"nature": +0.1},
-    "유모차":       {"child": +0.1, "slope": +0.3, "safety": +0.1, "accessibility": +0.3},
-    "계단이 불편한": {"slope": +0.3, "safety": +0.1, "accessibility": +0.4},
-
-    # 감성 / 분위기 (Mood)
-    "활기찬":        {"landmark": +0.2, "safety": +0.1, "convenience": +0.2},
-    "사색하기 좋은":  {"landmark": -0.2, "slope":   +0.1},  # 조용하고 평탄하여 걷기 좋은 길
-    "힙한":          {"landmark": +0.25, "convenience": +0.25},
-
-    # 색상 / 시각적 이미지 (Visual Color)
-    "노랑":          {"nature":   +0.15, "landmark": +0.1}, # 따뜻함, 은행나무, 봄꽃, 조명
-    "분홍":          {"nature":   +0.25, "landmark": +0.1}, # 벚꽃길, 장미터널 등 개화 시기 저격
-    "파랑":          {"nature": +0.1},                      # 청량함, 한강변, 호수공원, 해안도로
-    "초록":          {"nature":   +0.3}                     # 숲길, 대형 공원 등 자연 극대화
-}
 
 DISTANCE_MAP: dict[DistanceOption, float] = {
     DistanceOption.SLOW:   2.0,
@@ -61,19 +17,25 @@ DISTANCE_MAP: dict[DistanceOption, float] = {
     DistanceOption.FAST:   5.0,
 }
 
-# 설문 가중치 baseline은 route_schema.Weights 기본값을 단일 출처(SSOT)로 사용함.
-#   (안전/평지 0.5, 미관·활동·동반 0.0 → 안 고른 특성은 무편향)
-BASE_WEIGHTS: dict[str, float] = Weights().model_dump()
+# 안전·편안 2축 가중치 배분 계수(세은 담당, 장기 프로필 갱신 스킴).
+#   k=0.3, d=k/9 — 두 축 다 선택 시 절반씩(k/2), 하나만 선택 시 그 축은 k-d·나머지는 d,
+#   둘 다 선택 안 하면 둘 다 d.
+_K = 0.3
+_D = round(_K / 9, 4)      # 0.0333 — 선택 안 한 축
+_HIGH = round(_K - _D, 4)  # 0.2667 — 그 축만 선택
+_HALF = round(_K / 2, 4)   # 0.15   — 두 축 다 선택
 
-# 온보딩 설문 UI에 노출할 태그 목록. TAG_WEIGHT_MAP의 부분집합.
-SURVEY_TAGS: list[str] = [
-    "나무 많은", "꽃길", "초록",
-    "밤에도 안전한", "큰길",
-    "숨 안 차는", "뛰고 싶은", "운동",
-    "볼거리 많은", "야경이 예쁜", "힙한",
-    "조용한", "활기찬",
-    "어린이", "반려동물", "유모차", "계단이 불편한",
-]
+
+def _resolve_weights(safety: bool, comfort: bool) -> tuple[float, float]:
+    """안전·편안 선택 여부로 (weights_safety, weights_comfort)를 고정값에서 조회합니다."""
+    if safety and comfort:
+        return _HALF, _HALF
+    if safety:
+        return _HIGH, _D
+    if comfort:
+        return _D, _HIGH
+    return _D, _D
+
 
 class SurveyService:
     """
@@ -85,11 +47,7 @@ class SurveyService:
 
     def submit(self, access_token: str | None, request: SurveyRequest) -> SurveyResponse:
         """
-        설문 결과를 가중치로 변환해 UserPreference에 저장합니다.
-
-        BASE_WEIGHTS(안전/평지 0.5, 미관·활동·동반 0.0)에서 시작하며,
-        각 태그는 TAG_WEIGHT_MAP의 delta(±0.2)로 조정됩니다.
-        최종값은 [0.0, 1.0]으로 클램핑됩니다.
+        설문 결과(안전·편안 선택 여부)를 가중치로 변환해 UserPreference에 저장합니다.
         """
 
         status, provider, provider_id = self.auth_service.check_access_token(access_token)
@@ -99,24 +57,17 @@ class SurveyService:
         user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
         if user is None:
             return SurveyResponse(status=SurveyStatus.USER_NOT_FOUND)
-        
-        weights = dict(BASE_WEIGHTS)
-        for tag in request.tags:
-            for key, delta in TAG_WEIGHT_MAP.get(tag, {}).items():
-                weights[key] = max(0.0, min(1.0, weights[key] + delta))
+
+        safety_selected = "safety" in request.tags
+        comfort_selected = "comfort" in request.tags
+        weights_safety, weights_comfort = _resolve_weights(safety_selected, comfort_selected)
 
         preference = UserPreferenceRepository.upsert(
             user_id=user.id,
             survey_completed=True,
             default_target_km=DISTANCE_MAP.get(request.distance) if request.distance else None,
-            weights_safety=weights.get("safety"),
-            weights_nature=weights.get("nature"),
-            weights_slope=weights.get("slope"),
-            weights_running=weights.get("running"),
-            weights_landmark=weights.get("landmark"),
-            weights_child=weights.get("child"),
-            weights_convenience=weights.get("convenience"),
-            weights_accessibility=weights.get("accessibility"),
+            weights_safety=weights_safety,
+            weights_comfort=weights_comfort,
             selected_tags=request.tags if request.tags else None,
         )
 
@@ -124,15 +75,9 @@ class SurveyService:
             status=SurveyStatus.SUCCESS,
             default_target_km=preference.default_target_km,
             weights_safety=preference.weights_safety,
-            weights_nature=preference.weights_nature,
-            weights_slope=preference.weights_slope,
-            weights_running=preference.weights_running,
-            weights_landmark=preference.weights_landmark,
-            weights_child=preference.weights_child,
-            weights_convenience=preference.weights_convenience,
-            weights_accessibility=preference.weights_accessibility,
+            weights_comfort=preference.weights_comfort,
         )
-    
+
     def get_status(self, access_token: str | None) -> SurveyStatusResponse:
         """사용자의 설문 완료 여부와 저장된 가중치를 반환합니다."""
         status, provider, provider_id = self.auth_service.check_access_token(access_token)
@@ -152,12 +97,12 @@ class SurveyService:
             survey_completed=True,
             default_target_km=preference.default_target_km,
             weights_safety=preference.weights_safety,
-            weights_nature=preference.weights_nature,
-            weights_slope=preference.weights_slope,
-            weights_running=preference.weights_running,
-            weights_landmark=preference.weights_landmark,
-            weights_child=preference.weights_child,
-            weights_convenience=preference.weights_convenience,
-            weights_accessibility=preference.weights_accessibility,
+            weights_comfort=preference.weights_comfort,
             selected_tags=preference.selected_tags,
         )
+
+
+# 임시 호환용 — route_executor.py, extractor.py가 이 이름을 import함.
+# 실제로는 더 이상 안 쓰임(_resolve_weights가 대체). 알고리즘/챗봇 팀이
+# 이 import를 제거하면 이 줄도 지워도 됨.
+TAG_WEIGHT_MAP: dict = {}

@@ -1,0 +1,148 @@
+<svg width="2000" height="1380" viewBox="0 0 2000 1380" xmlns="http://www.w3.org/2000/svg" font-family="'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',Arial,sans-serif">
+  <defs>
+    <marker id="arr-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1f6f5c"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="2000" height="1380" fill="#f6f3ec"/>
+
+  <text x="50" y="46" font-size="25" font-weight="700" fill="#1c2321">데이터 구조 변경 — 이전 구조 → 현재 구조</text>
+  <text x="50" y="72" font-size="13.5" fill="#5d655f">seoul-walk-platform · 기준: git commit 8d3fe3d(2026-09-15) + feat/387 작업트리(2026-09-16, 미커밋) · 실제 코드·DB 조회 기준</text>
+
+  <g font-size="12" fill="#5d655f">
+    <rect x="1430" y="28" width="14" height="14" rx="3" fill="#eee2c7" stroke="#a3311f" stroke-width="1.5"/><text x="1450" y="39">❌ 삭제됨</text>
+    <rect x="1540" y="28" width="14" height="14" rx="3" fill="#dcece5" stroke="#1f6f5c" stroke-width="1.5"/><text x="1560" y="39">🆕 새로 생김</text>
+    <rect x="1680" y="28" width="14" height="14" rx="3" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/><text x="1700" y="39">그대로 유지</text>
+  </g>
+
+  <!-- panel headers -->
+  <rect x="50" y="85" width="920" height="46" rx="10" fill="#26333a"/>
+  <text x="510" y="114" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">이전 구조 (~2026-09-11 이전)</text>
+
+  <rect x="1030" y="85" width="920" height="46" rx="10" fill="#26333a"/>
+  <text x="1490" y="114" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">현재 구조 (2026-09-16 기준)</text>
+
+  <!-- ================= ROW A: 가중치 축 ================= -->
+  <text x="50" y="160" font-size="15" font-weight="700" fill="#1c2321">① 가중치 축 — user_preferences 테이블 컬럼</text>
+
+  <rect x="50" y="172" width="920" height="150" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="70" y="196" font-size="12" fill="#5d655f">8개 축, 각각 weights_* 컬럼(0.0~1.0 float)</text>
+  <g font-size="12.5">
+    <rect x="70" y="206" width="130" height="30" rx="15" fill="#ffffff" stroke="#c9bea3"/><text x="135" y="226" text-anchor="middle">weights_safety</text>
+    <rect x="210" y="206" width="130" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="275" y="226" text-anchor="middle" fill="#7a2418">weights_nature ❌</text>
+    <rect x="350" y="206" width="120" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="410" y="226" text-anchor="middle" fill="#7a2418">weights_slope ❌</text>
+    <rect x="480" y="206" width="135" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="547" y="226" text-anchor="middle" fill="#7a2418">weights_running ❌</text>
+    <rect x="625" y="206" width="140" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="695" y="226" text-anchor="middle" fill="#7a2418">weights_landmark ❌</text>
+    <rect x="775" y="206" width="120" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="835" y="226" text-anchor="middle" fill="#7a2418">weights_child ❌</text>
+    <rect x="70" y="246" width="170" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="155" y="266" text-anchor="middle" fill="#7a2418">weights_convenience ❌</text>
+    <rect x="250" y="246" width="175" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="337" y="266" text-anchor="middle" fill="#7a2418">weights_accessibility ❌</text>
+  </g>
+  <text x="70" y="300" font-size="11.5" fill="#5d655f">※ slope는 "가중치"로선 사라졌지만, walk_edges.slope_score 컬럼 자체는 옆 ③에서 계속 삽니다(별개 개념)</text>
+
+  <path d="M980,220 L1020,158" stroke="#1f6f5c" stroke-width="2" fill="none" marker-end="url(#arr-teal)"/>
+
+  <rect x="1030" y="172" width="920" height="150" rx="10" fill="#dcece5" stroke="#1f6f5c" stroke-width="1.5"/>
+  <text x="1050" y="196" font-size="12" fill="#1f6f5c">2개 축만 남음. 계수(k=0.3 기반 4가지 고정값)는 survey_service.py에 정의</text>
+  <g font-size="14">
+    <rect x="1050" y="212" width="180" height="42" rx="21" fill="#ffffff" stroke="#26333a" stroke-width="1.5"/><text x="1140" y="238" text-anchor="middle" font-weight="700">weights_safety</text>
+    <rect x="1250" y="212" width="200" height="42" rx="21" fill="#ffffff" stroke="#1f6f5c" stroke-width="2"/><text x="1350" y="238" text-anchor="middle" font-weight="700" fill="#1f6f5c">weights_comfort 🆕</text>
+  </g>
+  <text x="1050" y="280" font-size="11.5" fill="#1c2321">weights_safety는 "그대로 유지"가 아니라 컬럼명만 같고 값 계산 방식이 바뀜(아래 ②③).</text>
+  <text x="1050" y="298" font-size="11.5" font-weight="600" fill="#a3311f">weights_comfort는 7개 축을 합친 값이 아니라 완전히 새로 만든 필드입니다.</text>
+
+  <!-- ================= ROW B: 관련 테이블 ================= -->
+  <text x="50" y="360" font-size="15" font-weight="700" fill="#1c2321">② 관련 테이블 (DB)</text>
+
+  <rect x="50" y="372" width="920" height="230" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <g font-size="13">
+    <rect x="70" y="392" width="220" height="40" rx="8" fill="#ffffff" stroke="#c9bea3"/><text x="180" y="417" text-anchor="middle">safety_layer</text>
+    <rect x="310" y="392" width="220" height="40" rx="8" fill="#ffffff" stroke="#c9bea3"/><text x="420" y="417" text-anchor="middle">nature_layer</text>
+    <rect x="70" y="444" width="220" height="40" rx="8" fill="#eee2c7" stroke="#a3311f"/><text x="180" y="469" text-anchor="middle" fill="#7a2418">landmark_layer ❌</text>
+    <rect x="310" y="444" width="220" height="40" rx="8" fill="#eee2c7" stroke="#a3311f"/><text x="420" y="469" text-anchor="middle" fill="#7a2418">running_layer ❌</text>
+    <rect x="550" y="444" width="220" height="40" rx="8" fill="#eee2c7" stroke="#a3311f"/><text x="660" y="469" text-anchor="middle" fill="#7a2418">child_layer ❌</text>
+  </g>
+  <text x="70" y="514" font-size="12" fill="#5d655f">safety_layer: 당시엔 CCTV/보안등/가로등을 "반경 50m 개수 세기"로만 씀</text>
+  <text x="70" y="536" font-size="12" fill="#5d655f">nature_layer: OSM 녹지(9종) + 서울시 공원 Polygon이 섞여 있었음, 둘 다 walk_edges 점수용</text>
+  <text x="70" y="558" font-size="12" fill="#5d655f">landmark/running/child_layer: 각각 지도 표시 + walk_edges 점수 계산 이중 용도</text>
+  <text x="70" y="584" font-size="11.5" fill="#8b9188">사고다발지역 전용 테이블 없음 — TAAS API로 점 좌표만 받아 safety_layer에 섞어 넣던 경로(현재 미사용)</text>
+
+  <path d="M980,470 L1020,358" stroke="#1f6f5c" stroke-width="2" fill="none" marker-end="url(#arr-teal)"/>
+
+  <rect x="1030" y="372" width="920" height="230" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <g font-size="13">
+    <rect x="1050" y="392" width="220" height="40" rx="8" fill="#f3e0c8" stroke="#c1611c" stroke-width="1.5"/><text x="1160" y="417" text-anchor="middle" fill="#8a4a12">safety_layer</text>
+    <rect x="1290" y="392" width="260" height="40" rx="8" fill="#dcece5" stroke="#1f6f5c" stroke-width="2"/><text x="1420" y="417" text-anchor="middle" font-weight="700" fill="#1f6f5c">accident_prone_area 🆕</text>
+    <rect x="1050" y="444" width="220" height="40" rx="8" fill="#ffffff" stroke="#c9bea3"/><text x="1160" y="469" text-anchor="middle">nature_layer</text>
+  </g>
+  <text x="1050" y="514" font-size="12" fill="#1c2321">safety_layer: 원본 포인트는 그대로, 계산 방식만 "반경 20m 커버리지 비율"로 재설계(③)</text>
+  <text x="1050" y="536" font-size="12" fill="#1c2321">accident_prone_area: 사고다발지역 원본 Polygon(EPSG:5179→4326)을 그대로 보존하는 새 테이블(234건)</text>
+  <text x="1050" y="558" font-size="12" fill="#1c2321">nature_layer: 테이블은 유지하지만 이제 서울시 공원 Polygon 보존용으로만 남음</text>
+  <text x="1050" y="580" font-size="11.5" fill="#5d655f">(ParkPolygonCollector가 계속 씀 — 지도 표시용 지금도 유효, 점수 계산 쪽은 이미 별개 사유로 죽어있음)</text>
+
+  <!-- ================= ROW C: walk_edges 컬럼 ================= -->
+  <text x="50" y="640" font-size="15" font-weight="700" fill="#1c2321">③ walk_edges 점수 컬럼 (도로 구간 하나하나에 매기는 점수)</text>
+
+  <rect x="50" y="652" width="920" height="230" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="70" y="676" font-size="12" fill="#5d655f">설계상 최대 10개 컬럼(ORM에 선언은 돼 있었음)</text>
+  <g font-size="12">
+    <rect x="70" y="686" width="150" height="30" rx="15" fill="#ffffff" stroke="#c9bea3"/><text x="145" y="706" text-anchor="middle">safety_score(구)</text>
+    <rect x="230" y="686" width="130" height="30" rx="15" fill="#f0ede0" stroke="#c9bea3"/><text x="295" y="706" text-anchor="middle">slope_score</text>
+    <rect x="370" y="686" width="130" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="435" y="706" text-anchor="middle" fill="#7a2418">nature_score ❌</text>
+    <rect x="510" y="686" width="150" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="585" y="706" text-anchor="middle" fill="#7a2418">landmark_score ❌</text>
+    <rect x="670" y="686" width="130" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="735" y="706" text-anchor="middle" fill="#7a2418">child_score ❌</text>
+    <rect x="70" y="726" width="180" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="160" y="746" text-anchor="middle" fill="#7a2418">park_overlap_ratio ❌</text>
+    <rect x="260" y="726" width="180" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="350" y="746" text-anchor="middle" fill="#7a2418">convenience_score ❌</text>
+    <rect x="450" y="726" width="150" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="525" y="746" text-anchor="middle" fill="#7a2418">is_school_zone ❌</text>
+    <rect x="610" y="726" width="170" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="695" y="746" text-anchor="middle" fill="#7a2418">is_vehicle_caution ❌</text>
+    <rect x="70" y="766" width="160" height="30" rx="15" fill="#eee2c7" stroke="#a3311f"/><text x="150" y="786" text-anchor="middle" fill="#7a2418">running_score ❌</text>
+  </g>
+  <text x="70" y="820" font-size="11.5" fill="#5d655f">7개(nature~is_vehicle_caution)는 2026-09-11 작업 중 사고로 삭제, 팀 결정으로 미복구</text>
+  <text x="70" y="842" font-size="11.5" fill="#5d655f">running_score만 이번(2026-09-16) 정리에서 추가로 삭제(살아있던 값이었지만 축 자체를 폐기)</text>
+  <text x="70" y="864" font-size="11.5" fill="#5d655f">safety_score(구): 반경 50m 안 CCTV·보안등 개수를 그냥 셈. accident_score 자체가 없었음</text>
+
+  <path d="M980,750 L1020,638" stroke="#1f6f5c" stroke-width="2" fill="none" marker-end="url(#arr-teal)"/>
+
+  <rect x="1030" y="652" width="920" height="230" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="1050" y="676" font-size="12" fill="#1c2321">지금 실제로 DB에 존재하는 3개 컬럼</text>
+  <g font-size="13">
+    <rect x="1050" y="690" width="230" height="42" rx="21" fill="#f3e0c8" stroke="#c1611c" stroke-width="2"/><text x="1165" y="716" text-anchor="middle" font-weight="700" fill="#8a4a12">safety_score (재설계)</text>
+    <rect x="1300" y="690" width="230" height="42" rx="21" fill="#dcece5" stroke="#1f6f5c" stroke-width="2"/><text x="1415" y="716" text-anchor="middle" font-weight="700" fill="#1f6f5c">accident_score 🆕</text>
+    <rect x="1550" y="690" width="150" height="42" rx="21" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/><text x="1625" y="716" text-anchor="middle">slope_score</text>
+  </g>
+  <text x="1050" y="758" font-size="12" fill="#1c2321">safety_score = CCTV(목적 필터)·보안등 반경 20m 커버리지 비율(0~1) — 개수 세기 아님</text>
+  <text x="1050" y="780" font-size="12" fill="#1c2321">accident_score = 사고다발지역 원본 Polygon 커버리지 비율(0~1), 반경 버퍼 없음</text>
+  <text x="1050" y="802" font-size="12" fill="#1c2321">slope_score = DEM 기반 경사율 → 0~1 변환, 오늘 작업 이전부터 이미 있던 값 그대로 유지</text>
+  <text x="1050" y="828" font-size="11.5" font-weight="600" fill="#a3311f">둘 다 계산은 끝났지만, graph_loader.py가 아직 이 3개 컬럼 중 어느 것도 읽지 않음(④에서 설명)</text>
+  <text x="1050" y="850" font-size="11.5" fill="#5d655f">nature_score~running_score 등 7종은 삭제된 채 그대로 — 아래 "삭제된 것" 참고</text>
+
+  <!-- ================= 삭제 요약 밴드 ================= -->
+  <text x="50" y="928" font-size="16" font-weight="700" fill="#a3311f">❌ 이번 정리로 사라진 것 전체 요약</text>
+  <rect x="50" y="942" width="1900" height="350" rx="12" fill="#f3ddd6" stroke="#a3311f" stroke-width="1.5" stroke-dasharray="8 6"/>
+
+  <text x="70" y="972" font-size="13" font-weight="700" fill="#7a2418">가중치 축 (7개)</text>
+  <text x="70" y="994" font-size="12.5" fill="#1c2321">weights_nature · weights_slope · weights_running · weights_landmark · weights_child · weights_convenience · weights_accessibility</text>
+
+  <text x="70" y="1028" font-size="13" font-weight="700" fill="#7a2418">테이블 (3개)</text>
+  <text x="70" y="1050" font-size="12.5" fill="#1c2321">landmark_layer(0건) · child_layer(0건) · running_layer(229건, 유일하게 실제 데이터가 있던 테이블)</text>
+
+  <text x="70" y="1084" font-size="13" font-weight="700" fill="#7a2418">Collector·Repository·Entity 파일 (10개)</text>
+  <text x="70" y="1106" font-size="12.5" fill="#1c2321">nature_collector.py · landmark_collector.py · child_collector.py · running_collector.py</text>
+  <text x="70" y="1126" font-size="12.5" fill="#1c2321">landmark_repository.py · child_repository.py · running_repository.py</text>
+  <text x="70" y="1146" font-size="12.5" fill="#1c2321">entity/layer/landmark_layer.py · child_layer.py · running_layer.py</text>
+
+  <text x="70" y="1180" font-size="13" font-weight="700" fill="#7a2418">walk_edges 컬럼 (8개)</text>
+  <text x="70" y="1202" font-size="12.5" fill="#1c2321">nature_score · landmark_score · child_score · park_overlap_ratio · convenience_score · is_school_zone · is_vehicle_caution(9/11 사고) + running_score(오늘)</text>
+
+  <text x="1050" y="972" font-size="13" font-weight="700" fill="#7a2418">API 엔드포인트 (3개)</text>
+  <text x="1050" y="994" font-size="12.5" fill="#1c2321">GET /api/map/points/landmark · /points/child · /points/running (프론트 Expo 앱 미사용 확인 후 삭제, /points/nature·/points/safety는 유지)</text>
+
+  <text x="1050" y="1028" font-size="13" font-weight="700" fill="#7a2418">기타 정리</text>
+  <text x="1050" y="1050" font-size="12.5" fill="#1c2321">map_service.py의 fetch_landmark/child/running_points 3개 메서드, map_schema.py의 LandmarkResponse</text>
+  <text x="1050" y="1070" font-size="12.5" fill="#1c2321">data_collector.py: collect_v1()의 ChildCollector 호출, collect_legacy_all()의 4개 Collector 호출 전부 제거</text>
+  <text x="1050" y="1090" font-size="12.5" fill="#1c2321">entity/network/walk_edge.py: 이미 죽은 컬럼 7종을 나열하던 주석 블록 전체 삭제</text>
+
+  <text x="70" y="1240" font-size="13" font-weight="700" fill="#1f6f5c">🆕 이번에 새로 생긴 것</text>
+  <text x="70" y="1262" font-size="12.5" fill="#1c2321">accident_prone_area 테이블·엔티티·repository·collector, walk_edges.accident_score, user_preferences.weights_comfort, safety_score 계산 로직 재설계</text>
+
+  <text x="50" y="1340" font-size="12" fill="#8b9188">근거: git show 8d3fe3d --stat(2026-09-15 커밋), git status/diff(2026-09-16 작업트리, 미커밋) · 작성: Claude Sonnet 5</text>
+</svg>

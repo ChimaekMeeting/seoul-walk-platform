@@ -28,7 +28,7 @@ class SlopeCalculator:
     def __init__(self):
         self._elevations: dict = {}
 
-        self.DEM_PATH   = os.getenv("DEM_PATH", "src/data/raw/dem/한반도90m_GRS80.img")
+        self.DEM_PATH   = os.getenv("DEM_PATH", "src/data/raw/dem/dem_seoul.tif")
         self.BATCH_SIZE = 5000
 
     def get_node_elevations(self) -> dict:

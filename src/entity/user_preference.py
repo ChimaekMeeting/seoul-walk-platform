@@ -37,13 +37,7 @@ class UserPreference(Base):
     default_target_km: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     weights_safety: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_nature: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_slope: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_running: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_landmark: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_child: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_convenience: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_accessibility: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    weights_comfort: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     selected_tags: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="user_preference")

@@ -17,10 +17,7 @@ def register_entities():
     from src.entity.network import walk_node, walk_edge
     from src.entity.layer import (
         safety_layer,
-        landmark_layer,
         nature_layer,
-        running_layer,
-        child_layer,
         edge_feature_layer,
         route_poi,
         seoul_administrative_boundary,
