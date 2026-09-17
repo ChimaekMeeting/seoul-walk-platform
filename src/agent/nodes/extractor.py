@@ -1,9 +1,8 @@
-import json, logging, re
+import logging
 from typing import Optional
 from pydantic import BaseModel
 from langchain_core.output_parsers import StrOutputParser
 from src.schema.prewalk_schema import State, Location
-from src.interfaces.schema.walk_schema import WalkMode
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.utils.chatbot_utils import PromptUtils
 from src.agent.tools.mode_tools import ModeTool
@@ -11,7 +10,7 @@ from src.repository.user.user_preference_repository import UserPreferenceReposit
 
 logger = logging.getLogger(__name__)
 
-# 근거: 대한민국 정책브리핑 "시속 4km, 인간의 속도"(2011, korea.kr)
+# 근거: 대한민국 정책브리핑 "시속 4km, 인간의 속도"(2011)
 _WALK_SPEED_KMH: float = 4.0
 
 # extraction.yaml [3]에 넣은 대응표와 같은 소스(WalkMode) — Preference.mode 값과 tool 이름 대응.
@@ -41,34 +40,6 @@ _MODE_CHANGE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "select_waypoint":        ("거쳐", "들렀다가", "지나서"),
 }
 
-# ── user_prompt 정규화(LLM 호출 전 전처리) ──────────────────────────────────
-# extraction.yaml에 "이런 노이즈는 무시하라"고 지시하는 대신, 결정론적 파이썬 로직으로
-# 애초에 깨끗한 텍스트를 LLM에 넘긴다 — 재현 가능하고 프롬프트 길이도 안 늘어난다.
-_HTML_TAG_RE = re.compile(r"<[^>]+>")
-# 이 시스템은 톤(ㅋㅋㅋ, !!! 등)이 아니라 모드/장소/거리/테마 같은 정해진 정보만 뽑으면 되고,
-# 정규화된 텍스트는 LLM 입력으로만 쓰일 뿐 사용자에게 다시 보여주지 않는다 — 반복 횟수 자체가
-# 추출 결과에 영향을 줄 이유가 없으므로 단어·문자열 구분 없이 같은 기준(3회 이상 → 2회)을 쓴다.
-# {2,}는 첫 캡처 이후 "추가로" 몇 번 더 반복되는지를 세는 것이라, 실제 총 등장 횟수는 +1이다.
-_REPEATED_WORD_RE = re.compile(r"\b(\S{1,20})(?:\s+\1\b){2,}")  # 같은 단어가 공백으로 총 3회+ 반복
-_REPEATED_CHUNK_RE = re.compile(r"(.{1,20}?)\1{2,}")  # 같은 문자열(문자 1개 포함)이 붙어서 총 3회+ 반복
-_WHITESPACE_RUN_RE = re.compile(r"\s+")
-
-
-def _sanitize_user_prompt(text: str) -> str:
-    """
-    HTML 태그·과도한 공백/줄바꿈·반복 문자열을 제거해 LLM에 넘길 발화를 정규화한다.
-    의미는 판단하지 않고 결정론적 규칙만 적용하며, State.user_prompt 원본은 건드리지 않는다
-    (Interviewer·ConfirmationClassifier·로그는 원문을 그대로 본다).
-    """
-    if not text:
-        return text
-    text = _HTML_TAG_RE.sub(" ", text)
-    text = _REPEATED_WORD_RE.sub(lambda m: f"{m.group(1)} {m.group(1)}", text)
-    text = _REPEATED_CHUNK_RE.sub(lambda m: m.group(1) * 2, text)
-    text = _WHITESPACE_RUN_RE.sub(" ", text).strip()
-    return text
-
-
 def _is_null_placeholder(value: object) -> bool:
     """
     LLM이 진짜 null 대신 문자열 "null"을 그대로 채워 보내는 경우를 잡는다(예: origin="null",
@@ -93,14 +64,10 @@ class Extractor(GPTClient):
 
     async def run(self, state: State) -> State:
         """
-        모드/위치 추출(tool_call) 후 테마 태그를 추출해 State에 저장합니다.
+        모드/위치를 추출합니다.
         """
-        # LLM 호출 전 정규화. State.user_prompt 자체는 바꾸지 않는다 — 예외5의 출발
-        # 표현 검사나 Interviewer·ConfirmationClassifier·로그는 원문을 그대로 봐야 한다.
-        sanitized_prompt = _sanitize_user_prompt(state.user_prompt)
-
         input_variables = {
-            "user_input":             sanitized_prompt,
+            "user_input":             state.user_prompt,
             "current_context":        self.prompt_utils.format_for_prompt(state.user_context),
         }
 
@@ -138,15 +105,11 @@ class Extractor(GPTClient):
 
         state.mode         = pref.mode
         state.user_context = pref
-        # GPS Art는 도형 모양대로만 경로를 잇고 GpsArtEngine이 custom_weights/profile을 쓰지 않아
-        # themes.yaml 호출 결과가 어차피 반영되지 않으므로 불필요한 LLM 호출을 건너뛴다.
-        state.themes       = [] if pref.mode == WalkMode.GPS_ART else await self._extract_themes(sanitized_prompt)
 
         # 로그
         logger.info(f"user_prompt: {state.user_prompt}")
         logger.info(f"mode: {state.mode}")
         logger.info(f"user_context: {state.user_context.model_dump_json() if state.user_context else None}")
-        logger.info(f"themes: {state.themes}")
 
         return state
 
@@ -347,23 +310,3 @@ class Extractor(GPTClient):
         loc_arg["lat"]     = None
         loc_arg["lon"]     = None
         loc_arg["address"] = None
-
-    async def _extract_themes(self, user_input: str) -> list[str]:
-        """
-        발화에서 TAG_WEIGHT_MAP 키에 해당하는 테마 태그를 0~3개 추출합니다.
-        LLM 응답 파싱 실패 시 빈 리스트를 반환합니다.
-        """
-        from src.service.user.survey_service import TAG_WEIGHT_MAP  # 순환 import 방지(지연 로드)
-
-        tag_keys = list(TAG_WEIGHT_MAP.keys())
-        try:
-            res = await super().get_response(
-                prompt_name     = "themes",
-                input_variables = {"user_input": user_input, "tag_keys": tag_keys},
-                parser          = self.str_parser,
-            )
-            tags = json.loads(res)
-            return [t for t in tags if t in TAG_WEIGHT_MAP]
-        except Exception:
-            logger.warning("사용자 프롬프트에서 테마를 추출하지 못했습니다.")
-            return []
