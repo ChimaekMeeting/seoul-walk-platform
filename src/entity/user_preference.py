@@ -36,14 +36,12 @@ class UserPreference(Base):
     survey_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     default_target_km: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
+    # 2026-09-17: 챗봇 가중치 개인화를 안전/편안 두 축으로 좁히며 나머지 6개 컬럼
+    # (nature/slope/running/landmark/child/convenience/accessibility)을 제거하고
+    # weights_comfort를 새로 추가했다. DB_AUTO_MIGRATE=full이면 다음 서버
+    # 재시작 시 드랍된 컬럼의 기존 데이터가 함께 삭제된다(백업 없이 진행하기로 확인).
     weights_safety: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_nature: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_slope: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_running: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_landmark: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_child: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_convenience: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    weights_accessibility: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    weights_comfort: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     selected_tags: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="user_preference")
