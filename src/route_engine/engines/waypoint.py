@@ -13,6 +13,7 @@ from src.route_engine.engines.oneway_beam import OnewayBeamEngine
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.profiles import ScoringProfile
 from src.route_engine.scoring.scoring_engine import compute_score_vector
+from src.route_engine.scoring.detour_cap import apply_detour_cap
 from src.route_engine.scoring.weighted_edge_cost import WeightedEdgeCost
 from src.schema.route_schema import OnewayRouteInput, WaypointRouteInput, Weights
 
@@ -54,6 +55,7 @@ class WaypointComposerEngine:
         profile: Optional[ScoringProfile] = None,
         cost_context: Optional[WeightedEdgeCost] = None,
         preference_skipped_reason: Optional[str] = None,
+        detour_max_ratio: float = 0.0,
     ):
         self.inp            = inp
         # 그래프를 직접 mutate하지 않고 leg 엔진에 그대로 넘기기만 하므로 복사가 필요 없다.
@@ -71,9 +73,15 @@ class WaypointComposerEngine:
         self.cost_context    = cost_context
         # 가중 연결을 쓰지 못한 사유(RouteService가 판단해 넘긴다). 응답에 그대로 싣는다.
         self.preference_skipped_reason = preference_skipped_reason
+        # 가중 경로가 거리 기준 대비 허용하는 실제 거리 증가 비율. 설정을 엔진이 직접
+        # 읽지 않고 RouteService가 넘긴다 — 테스트가 monkeypatch 없이 값을 바꿀 수 있다.
+        self.detour_max_ratio = detour_max_ratio
+        # run()이 최종 선택을 끝낸 뒤에만 채워진다. 응답의 preference_applied는 "요청됐는가"가
+        # 아니라 "최종 경로에 실제로 반영됐는가"여야 하므로 leg_modes가 아니라 이 값을 본다.
+        self._applied: bool = False
 
-    def _preference_applied(self) -> bool:
-        """이 요청에서 안전·편안 가중 연결이 실제로 쓰였는가."""
+    def _preference_requested(self) -> bool:
+        """가중 연결을 쓰기로 하고 실제 leg에 반영됐는가(최종 선택 이전 단계)."""
         return self.cost_context is not None and _PREFERRED_LEG_MODE in self.inp.leg_modes
 
     def _leg_cost_kwargs(self, mode: str) -> dict:
@@ -156,6 +164,12 @@ class WaypointComposerEngine:
             leg_results = [responses[0] for responses, _ in leg_candidates]
             return [self._stitch(leg_results, total_legs)]
 
+        # 가중 연결을 썼다면 완성된 경로 전체에 우회 상한을 적용한다. leg마다가 아니라
+        # 여기서 한 번 하는 이유는 상한이 요청 전체의 성질이기 때문이다 — leg마다
+        # 독립 적용하면 5구간 경로가 허용치를 leg 수만큼 넘길 수 있다.
+        if self._preference_requested():
+            leg_candidates = self._apply_detour_cap(stops, leg_candidates)
+
         # 모든 leg가 성공한 경우에만 최대 3개까지 다양화한 전체 경로를 만든다.
         vector_lookup = compute_score_vector(self.G)
         seen_node_paths: List[list] = []
@@ -177,6 +191,73 @@ class WaypointComposerEngine:
             ))
 
         return PathUtils.select_diverse_paths(diversity_candidates, k=3)
+
+    def _build_distance_baseline(self, stops: List[tuple]) -> Optional[List[tuple]]:
+        """같은 스냅 노드·경유지 순서로 거리 기준 경로를 다시 만든다. 실패하면 None.
+
+        가중치도 재방문 페널티도 걸지 않는다 — 우회 상한의 기준선은 순수 물리 최단이어야
+        한다. leg마다 A*를 한 번씩 더 호출하므로 가중 요청의 A* 호출 수가 두 배가 된다.
+
+        같은 leg_inp(좌표)를 쓰므로 OnewayAstarEngine.find_nearest_node가 같은 노드로
+        스냅한다 — 두 경로가 같은 출발·도착·경유지를 지난다는 보장이 여기서 나온다.
+        """
+        baseline: List[tuple] = []
+        for i in range(len(self.inp.leg_modes)):
+            start_lat, start_lon = stops[i]
+            end_lat, end_lon     = stops[i + 1]
+            engine = OnewayAstarEngine(
+                OnewayRouteInput(
+                    start_lat=start_lat, start_lon=start_lon,
+                    end_lat=end_lat, end_lon=end_lon,
+                    target_km=self.inp.leg_target_km[i],
+                ),
+                self.G, custom_weights=self.custom_weights, profile=self.profile,
+            )
+            responses = engine.run()
+            if responses[0].status != WalkRouteStatus.SUCCESS:
+                logger.warning("우회 상한 기준 경로 생성에 실패했습니다: leg=%d status=%s",
+                               i + 1, responses[0].status.value)
+                return None
+            baseline.append((responses, engine.last_path_nodes_by_candidate))
+        return baseline
+
+    def _apply_detour_cap(self, stops: List[tuple], leg_candidates: List[tuple]) -> List[tuple]:
+        """가중 경로가 상한을 넘으면 거리 기준 경로로 통째로 되돌린다.
+
+        반올림 전 거리(length 합)로 비교한다 — leg별 total_km는 이미 소수점 둘째 자리에서
+        반올림돼 leg마다 최대 5m씩 오차가 쌓인다.
+        """
+        preferred_nodes = self._concat_leg_nodes([
+            node_paths[0] for _, node_paths in leg_candidates
+        ])
+        baseline = self._build_distance_baseline(stops)
+        baseline_nodes = self._concat_leg_nodes(
+            [node_paths[0] for _, node_paths in baseline]
+        ) if baseline is not None else None
+
+        decision = apply_detour_cap(
+            self.G, preferred_nodes, baseline_nodes, self.detour_max_ratio,
+        )
+
+        if not decision.verified:
+            # 기준 경로를 못 만들었다. 가중 경로는 그대로 쓰되 검증했다고 표시하지 않는다.
+            self._applied = True
+            self.preference_skipped_reason = "baseline_failed"
+            return leg_candidates
+
+        if decision.capped:
+            logger.info(
+                "우회 상한을 넘어 거리 기준 경로로 되돌립니다: %.1fm -> %.1fm (우회율 %.3f > %.3f)",
+                decision.physical_distance_m, decision.weighted_distance_m,
+                decision.detour_ratio, self.detour_max_ratio,
+            )
+            self._applied = False
+            self.preference_skipped_reason = "detour_cap_exceeded"
+            return baseline
+
+        self._applied = True
+        self.preference_skipped_reason = None
+        return leg_candidates
 
     @staticmethod
     def _concat_leg_nodes(leg_node_paths: List[list]) -> list:
@@ -222,8 +303,6 @@ class WaypointComposerEngine:
             mode        = self.mode,
             coordinates = coordinates,
             total_km    = total_km,
-            preference_applied        = self._preference_applied(),
-            preference_skipped_reason = (
-                None if self._preference_applied() else self.preference_skipped_reason
-            ),
+            preference_applied        = self._applied,
+            preference_skipped_reason = self.preference_skipped_reason,
         )

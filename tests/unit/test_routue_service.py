@@ -276,11 +276,11 @@ class TestWaypointRouting:
         """base_engines[WAYPOINT]를 가짜 엔진으로 바꿔 실제로 구성된 WaypointRouteInput을 잡아낸다."""
         captured = {}
 
-        def fake_engine(inp, G, custom_weights=None, profile=None, cost_context=None,
-                        preference_skipped_reason=None):
+        # 이 테스트가 확인하는 것은 구성된 WaypointRouteInput뿐이다. 엔진 시그니처가
+        # 늘어날 때마다 깨지지 않도록 나머지는 **kwargs로 받아 그대로 보관한다.
+        def fake_engine(inp, G, **kwargs):
             captured["inp"] = inp
-            captured["cost_context"] = cost_context
-            captured["preference_skipped_reason"] = preference_skipped_reason
+            captured.update(kwargs)
             mock_instance = MagicMock()
             mock_instance.run.return_value = [
                 SUCCESS_RESPONSE.model_copy(update={"mode": WalkMode.WAYPOINT})

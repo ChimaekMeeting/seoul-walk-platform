@@ -163,7 +163,8 @@ class WalkRouteResponse(BaseModel):
     # 안전·편안 선호가 실제로 경로에 반영됐는지(#445). waypoint 모드에서만 True가 될 수
     # 있고, 기본값이 False이므로 기존 응답 생성부는 그대로 동작한다.
     preference_applied: bool = False
-    # 반영하지 못한 사유. preference_applied=True면 None이다.
+    # 반영하지 못한 사유. preference_applied=True면 보통 None이지만, baseline_failed는
+    # 예외다 — 선호는 반영됐는데 우회 상한을 검증하지 못한 상태라 둘 다 채워진다.
     #   no_preference       사용자가 표현한 안전·편안 선호가 없음
     #   beam_leg_present    oneway_random 구간이 섞여 이번 가중 연결 대상에서 제외
     #   scores_unavailable  그래프 점수 커버리지가 부족해 가중 모드가 꺼짐

@@ -42,6 +42,7 @@ package-lock.json
 !tests/unit/test_graph_repository_scores.py
 !tests/unit/test_oneway_astar_weighted.py
 !tests/unit/test_weighted_cost_runtime.py
+!tests/unit/test_waypoint_detour_cap.py
 .claude/
 
 # 로컬 Poetry 환경 설정과 경로 API 테스트 결과는 버전 관리하지 않습니다.

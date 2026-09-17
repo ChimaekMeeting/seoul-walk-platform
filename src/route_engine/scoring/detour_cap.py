@@ -39,6 +39,10 @@ class DetourDecision:
     weighted_distance_m: float
     physical_distance_m: float
     max_ratio: float
+    # 비교 기준 경로가 있어 상한을 실제로 검증했는가. 기준 경로를 만들지 못하면
+    # 가중 경로를 그대로 쓰되 여기를 False로 남긴다 — "상한 이내"와 "확인 못 함"을
+    # 같은 것으로 보고하면 안 된다.
+    verified: bool = True
 
     @property
     def detour_ratio(self) -> float:
@@ -80,21 +84,31 @@ def apply_detour_cap(
     if not weighted_path:
         physical = list(physical_path or [])
         distance = path_distance_m(G, physical) if len(physical) > 1 else 0.0
-        return DetourDecision(physical, False, distance, distance, max_ratio)
+        return DetourDecision(physical, False, distance, distance, max_ratio, verified=True)
 
     weighted = list(weighted_path)
     weighted_distance = path_distance_m(G, weighted) if len(weighted) > 1 else 0.0
 
     if not physical_path:
-        return DetourDecision(weighted, False, weighted_distance, weighted_distance, max_ratio)
+        # 비교할 기준이 없으므로 가중 경로를 그대로 쓰되 검증하지 못했음을 남긴다.
+        return DetourDecision(
+            weighted, False, weighted_distance, 0.0, max_ratio, verified=False,
+        )
 
     physical = list(physical_path)
     physical_distance = path_distance_m(G, physical) if len(physical) > 1 else 0.0
 
     if physical_distance <= 0:
-        return DetourDecision(weighted, False, weighted_distance, physical_distance, max_ratio)
+        return DetourDecision(
+            weighted, False, weighted_distance, physical_distance, max_ratio, verified=False,
+        )
 
+    # 경계값(정확히 상한)은 초과가 아니다 — `>`이지 `>=`가 아니다.
     if weighted_distance > physical_distance * (1.0 + max_ratio):
-        return DetourDecision(physical, True, weighted_distance, physical_distance, max_ratio)
+        return DetourDecision(
+            physical, True, weighted_distance, physical_distance, max_ratio, verified=True,
+        )
 
-    return DetourDecision(weighted, False, weighted_distance, physical_distance, max_ratio)
+    return DetourDecision(
+        weighted, False, weighted_distance, physical_distance, max_ratio, verified=True,
+    )

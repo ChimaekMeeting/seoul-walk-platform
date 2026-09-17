@@ -340,6 +340,7 @@ class RouteService:
                 inp, self.G, custom_weights=custom_weights, profile=profile,
                 cost_context=cost_context,
                 preference_skipped_reason=skipped_reason,
+                detour_max_ratio=settings.WALK_DETOUR_MAX_RATIO,
             )
 
         if destination is None:
