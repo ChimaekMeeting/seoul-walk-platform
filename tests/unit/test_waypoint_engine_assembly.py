@@ -1,19 +1,29 @@
 """
 tests/unit/test_waypoint_engine_assembly.py
 
-waypoint_engine_assembly.py::WaypointEngine의 생성자 검증만 확인한다. 조합별 실제 경로
-탐색 결과는 test_grasp_waypoint.py / test_grasp_waypoint_alns.py가 이미 검증하므로 여기서
-반복하지 않는다(파일마다 자체 fixture를 두는 이 저장소의 기존 관례를 따른다).
+waypoint_engine_assembly.py::WaypointEngine의 생성자 검증과 반환 규약(이슈 #443의
+"최종 경로 1개 + 후보 2개")을 확인한다. 조합별 실제 경로 탐색 품질은
+test_grasp_waypoint.py / test_grasp_waypoint_alns.py가 이미 검증하므로 여기서 반복하지
+않는다(파일마다 자체 fixture를 두는 이 저장소의 기존 관례를 따른다).
 """
 
 import networkx as nx
 import pytest
 
-from src.route_engine.engines.waypoint_engine_assembly import WaypointEngine
+import src.route_engine.engines.waypoint_engine_assembly as assembly
+from src.interfaces.schema.walk_schema import WalkRouteStatus
+from src.route_engine.engines.grasp_waypoint_common import RouteObjective
+from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.engines.waypoint_engine_assembly import (
+    CANDIDATE_COUNT,
+    MULTI_CANDIDATE_COMBOS,
+    WaypointEngine,
+)
 from src.route_engine.engines.waypoint_refinement import (
     OPTIONS_AWARE_REFINEMENTS,
     REFINEMENT_REGISTRY,
 )
+from src.route_engine.waypoint_route_builder import Route
 from src.schema.route_schema import CircularRouteInput
 
 _IGNORES_OPTIONS = sorted(set(REFINEMENT_REGISTRY) - OPTIONS_AWARE_REFINEMENTS)
@@ -95,3 +105,183 @@ def test_empty_options_is_treated_as_no_injection(tiny_graph, refinement):
         inp=_inp(), G=tiny_graph, refinement=refinement, refinement_options={},
     )
     assert not engine.refinement_options
+
+
+# ── 반환 규약: 최종 경로 1개 + 후보 2개 (이슈 #443) ─────────────────────────
+#
+# 후보 선별 자체(_collect_alternatives)는 그래프 탐색과 무관한 순수 함수에 가까워서,
+# 합성 Route로 직접 검증한다 — "후보가 모자라는 그래프"를 일부러 만들어 내는 것보다
+# 훨씬 결정적이다. 실제 탐색을 거친 반환 개수는 아래 격자 테스트가 따로 확인한다.
+
+_GRID = 7
+_LAT_STEP = 0.0015   # 약 167m/step
+_LON_STEP = 0.0018   # 약 160m/step (37.5도 위도 기준)
+_ORIGIN_LAT, _ORIGIN_LON = 37.5000, 127.0000
+
+
+def _grid_coords(row: int, col: int) -> tuple[float, float]:
+    return _ORIGIN_LAT + row * _LAT_STEP, _ORIGIN_LON + col * _LON_STEP
+
+
+@pytest.fixture
+def grid_graph() -> nx.Graph:
+    """7x7 격자(실제 위경도 간격). 엣지 length는 두 끝점의 Haversine 거리라 A*가
+    의미 있게 동작한다 — test_grasp_waypoint.py의 5x5 격자와 같은 방식이다."""
+    G = nx.Graph()
+    for row in range(_GRID):
+        for col in range(_GRID):
+            lat, lon = _grid_coords(row, col)
+            G.add_node(row * _GRID + col + 1, lat=lat, lon=lon)
+    for row in range(_GRID):
+        for col in range(_GRID):
+            n = row * _GRID + col + 1
+            for dr, dc in ((0, 1), (1, 0)):
+                r2, c2 = row + dr, col + dc
+                if r2 >= _GRID or c2 >= _GRID:
+                    continue
+                lat1, lon1 = _grid_coords(row, col)
+                lat2, lon2 = _grid_coords(r2, c2)
+                G.add_edge(n, r2 * _GRID + c2 + 1,
+                           length=PathUtils._haversine_m(lat1, lon1, lat2, lon2))
+    return G
+
+
+def _grid_inp(target_km: float = 1.2) -> CircularRouteInput:
+    """격자 중앙에서 출발하는 입력."""
+    lat, lon = _grid_coords(_GRID // 2, _GRID // 2)
+    return CircularRouteInput(start_lat=lat, start_lon=lon, target_km=target_km)
+
+
+def _route(node_ids: list[int], repeated: float = 0.0) -> Route:
+    """합성 Route. _collect_alternatives는 node_ids만 보므로 나머지 필드는 자리만 채운다."""
+    return Route(node_ids=node_ids, waypoints=node_ids[1:2], distance_m=1000.0,
+                 repeated_edge_ratio=repeated)
+
+
+def _pool_entry(node_ids: list[int], error_m: float, repeated: float = 0.0) -> tuple:
+    """(RouteObjective, Route) 한 쌍 — find_path()가 candidate_pool에 쌓는 형태 그대로."""
+    return (
+        RouteObjective(feasible=True, distance_error_m=error_m, repeated_edge_ratio=repeated),
+        _route(node_ids, repeated),
+    )
+
+
+def _multi_engine(graph) -> WaypointEngine:
+    """MULTI_CANDIDATE_COMBOS에 속하는 조합 하나로 엔진을 만든다."""
+    construction, refinement = sorted(MULTI_CANDIDATE_COMBOS)[0]
+    return WaypointEngine(inp=_inp(), G=graph, construction=construction, refinement=refinement)
+
+
+def test_alternatives_exclude_the_final_route_and_keep_quality_order(tiny_graph):
+    """후보는 최종 경로를 빼고 품질 순으로 채워진다."""
+    engine = _multi_engine(tiny_graph)
+    best = _route([1, 2, 1])
+    pool = [
+        (RouteObjective(feasible=True, distance_error_m=5.0, repeated_edge_ratio=0.0), best),
+        _pool_entry([1, 2, 3, 1], error_m=50.0),
+        _pool_entry([1, 3, 1], error_m=20.0),
+        _pool_entry([1, 4, 1], error_m=80.0),
+    ]
+    alternatives = engine._collect_alternatives(pool, best)
+
+    assert len(alternatives) == CANDIDATE_COUNT - 1
+    assert [r.node_ids for r in alternatives] == [[1, 3, 1], [1, 2, 3, 1]]  # 오차 20 -> 50 순
+    assert all(r.node_ids != best.node_ids for r in alternatives)
+
+
+def test_duplicate_node_paths_are_dropped(tiny_graph):
+    """노드열이 완전히 같은 후보는 한 번만 쓴다."""
+    engine = _multi_engine(tiny_graph)
+    best = _route([1, 2, 1])
+    pool = [
+        _pool_entry([1, 3, 1], error_m=20.0),
+        _pool_entry([1, 3, 1], error_m=21.0),   # 같은 노드열
+        _pool_entry([1, 4, 1], error_m=30.0),
+    ]
+    alternatives = engine._collect_alternatives(pool, best)
+
+    assert [r.node_ids for r in alternatives] == [[1, 3, 1], [1, 4, 1]]
+
+
+def test_shortfall_is_padded_with_the_final_route(tiny_graph):
+    """서로 다른 후보가 모자라면 최종 경로를 복제해 항상 CANDIDATE_COUNT-1개를 채운다."""
+    engine = _multi_engine(tiny_graph)
+    best = _route([1, 2, 1])
+    pool = [
+        (RouteObjective(feasible=True, distance_error_m=5.0, repeated_edge_ratio=0.0), best),
+        _pool_entry([1, 2, 1], error_m=7.0),  # 최종 경로와 같은 노드열뿐이라 쓸 후보가 없다
+    ]
+    alternatives = engine._collect_alternatives(pool, best)
+
+    assert len(alternatives) == CANDIDATE_COUNT - 1
+    assert all(r is best for r in alternatives)
+
+
+def test_no_alternatives_without_a_final_route(tiny_graph):
+    """경로 생성에 실패하면(best_route=None) 후보도 없다 — 실패 응답은 1개로 남는다."""
+    engine = _multi_engine(tiny_graph)
+    assert engine._collect_alternatives([_pool_entry([1, 3, 1], 20.0)], None) == []
+
+
+@pytest.mark.parametrize("combo", sorted({("grasp", "vnd"), ("grasp", "vns"), ("beam", "local")}))
+def test_single_candidate_combos_get_no_alternatives(tiny_graph, combo):
+    """후보를 낼 원천이 없는 조합은 풀이 있어도 후보를 만들지 않는다."""
+    construction, refinement = combo
+    assert combo not in MULTI_CANDIDATE_COMBOS
+    engine = WaypointEngine(
+        inp=_inp(), G=tiny_graph, construction=construction, refinement=refinement,
+    )
+    best = _route([1, 2, 1])
+    assert engine._collect_alternatives([_pool_entry([1, 3, 1], 20.0)], best) == []
+
+
+@pytest.mark.parametrize("combo", sorted(MULTI_CANDIDATE_COMBOS))
+def test_multi_candidate_combo_returns_exactly_three_responses(grid_graph, combo):
+    """실제 탐색을 거쳐도 성공 응답은 항상 CANDIDATE_COUNT개이고, 첫 번째가 최종 경로다."""
+    construction, refinement = combo
+    engine = WaypointEngine(
+        inp=_grid_inp(), G=grid_graph, construction=construction, refinement=refinement,
+    )
+    responses = engine.run()
+
+    assert responses[0].status == WalkRouteStatus.SUCCESS, "격자에서 경로가 나와야 의미 있는 검증이 된다"
+    assert len(responses) == CANDIDATE_COUNT
+    assert len(engine.last_alternative_routes) == CANDIDATE_COUNT - 1
+    assert responses[0].coordinates == engine._to_response(engine.last_route.node_ids).coordinates
+
+    # 중복이 있다면 그건 패딩(최종 경로 복제)이어야 한다 — 다른 후보끼리 겹치면 안 된다.
+    node_paths = [tuple(r.node_ids) for r in engine.last_alternative_routes]
+    duplicates = [p for p in node_paths if node_paths.count(p) > 1 or p == tuple(engine.last_route.node_ids)]
+    assert all(p == tuple(engine.last_route.node_ids) for p in duplicates)
+
+
+def test_single_candidate_combo_returns_one_response(grid_graph):
+    """후보를 안 내는 조합의 반환 개수는 이 변경 전과 같다."""
+    engine = WaypointEngine(
+        inp=_grid_inp(), G=grid_graph, construction="grasp", refinement="vnd",
+    )
+    responses = engine.run()
+
+    assert len(responses) == 1
+    assert engine.last_alternative_routes == []
+
+
+def test_final_route_is_unchanged_by_candidate_collection(grid_graph, monkeypatch):
+    """후보 수집이 최종 경로 선택에 끼어들지 않는다 — 같은 seed에서 후보를 내는 조합과
+    내지 않는 조합의 find_path() 결과가 같아야 한다(정제가 같으므로).
+
+    이 변경의 핵심 회귀 방지선이다. 벤치마크 CSV가 최종 경로 하나만 보므로, 후보 수집이
+    승자 선택에 끼어들면 지표가 조용히 달라진다."""
+    common = dict(inp=_grid_inp(), G=grid_graph, construction="grasp", refinement="local")
+    multi = WaypointEngine(**common)
+    start = PathUtils(grid_graph).find_nearest_node(multi.inp.start_lat, multi.inp.start_lon)
+    with_candidates = multi.find_path(start, multi.inp.target_km)
+    assert multi.last_alternative_routes, "후보를 내는 조합이어야 비교에 의미가 있다"
+
+    # 같은 조합을 "후보를 안 내는" 상태로만 돌려 비교한다(monkeypatch가 자동 복원).
+    monkeypatch.setattr(assembly, "MULTI_CANDIDATE_COMBOS", frozenset())
+    solo = WaypointEngine(**common)
+    solo_nodes = solo.find_path(start, solo.inp.target_km)
+
+    assert with_candidates == solo_nodes
+    assert solo.last_alternative_routes == []
