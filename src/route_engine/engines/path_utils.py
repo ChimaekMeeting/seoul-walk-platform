@@ -428,7 +428,7 @@ class PathUtils:
         total_m, full_cost = self.metrics(path)
         return self.objective(total_m, total_m, full_cost, target_m) + (tuple(path),)
 
-    # ── 후보 다양화(safety/nature/slope/convenience/accessibility 벡터) ──────────
+    # ── 후보 다양화(safety/comfort 벡터) ──────────
     @staticmethod
     def path_score_vector(path: list[int], vector_lookup: dict) -> dict[str, float]:
         """
@@ -512,30 +512,3 @@ class PathUtils:
                 nu.get("lat", 0), nu.get("lon", 0), nv.get("lat", 0), nv.get("lon", 0)
             ) * _min_ratio
         return nx.astar_path(self.G, source, target, heuristic=_h, weight=weight)
-
-    def connect_to(
-        self,
-        nodes: list[int],
-        visited: set,
-        target: int,
-        revisit_penalty: float = _RETURN_REVISIT_PENALTY,
-    ):
-        """
-        경로 끝(nodes[-1]) → target 최단 연결(기방문 노드 재사용 시 패널티 → 중복 억제).
-        순환의 복귀 연결(target=출발지)·편도의 도착 연결(target=도착지)에 공통 사용합니다.
-        반환: 완성된 경로, 연결 불가 시 None.
-        """
-        if nodes[-1] == target:
-            return nodes
-
-        def _weight(u, v, d, _visited=visited):
-            penalty = revisit_penalty if (v in _visited and v != target) else 1.0
-            return d.get("length", 1.0) * penalty
-
-        try:
-            # _weight의 기본값이 length(m) 그대로이고 revisit_penalty(≥1)는 비용을 늘리기만
-            # 하므로, Haversine 직선거리를 그대로 써도(min_ratio=1.0 기본값) admissible하다.
-            tail = self.astar_path(nodes[-1], target, weight=_weight)
-        except nx.NetworkXNoPath:
-            return None
-        return nodes + tail[1:]  # 바깥 경로 + 연결 경로(중복 노드 제거)

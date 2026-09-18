@@ -26,7 +26,7 @@ Beam+ALNS가 waypoint_refinement.py::alns() 하나를 공유한다.
     풀을 쌓기만 하고 승자 선택에 끼어들지 않는다. 즉 같은 seed에서 최종 경로는
     이 변경 전후로 동일하다.
 
-candidate_feature_vectors(장기 프로필 SGD 스냅샷, circular_beam.py/oneway_beam.py와 동일 계약):
+candidate_feature_vectors(장기 프로필 SGD 스냅샷):
     run()이 반환하는 각 WalkRouteResponse와 같은 순서로 후보별 {"safety": 0~1, "comfort": 0~1}
     평균을 채운다. 안전/편안 특성값은 그래프 엣지 데이터로만 계산할 수 있어, 피드백이 들어오는
     시점(수 분~수 일 뒤)에는 이 요청의 그래프 상태를 재현할 수 없다 — 그래서 후보 생성 시점에
@@ -166,8 +166,8 @@ class WaypointEngine:
         self.last_pool_result = None  # 경유지 풀 pairwise 캐시 히트율 진단용(신규)
         # 장기 프로필 SGD의 X_R 입력 — 후보별 {"safety": 0~1, "comfort": 0~1} 평균(run()의
         # 반환 순서와 동일). route_service가 RouteHistory.candidate_features로 그대로
-        # 영속화한다(circular_beam.py/oneway_beam.py와 동일한 계약). MULTI_CANDIDATE_COMBOS가
-        # 아닌 조합은 run()이 최종 경로 1개만 반환하므로 이 리스트도 길이 1이다.
+        # 영속화한다. MULTI_CANDIDATE_COMBOS가 아닌 조합은 run()이 최종 경로 1개만
+        # 반환하므로 이 리스트도 길이 1이다.
         self.candidate_feature_vectors: list[dict[str, float]] = []
 
     def _label(self) -> str:

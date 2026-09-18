@@ -154,10 +154,9 @@ class WaypointPoolGenerator:
     없어 route_service.py 연동도 하지 않는다).
     """
 
-    def __init__(self, G: nx.Graph, blocked_tags: list[str] | None = None):
+    def __init__(self, G: nx.Graph):
         self.G = G  # 조회 전용(mutate 없음)이므로 copy 안 함
         self.utils = PathUtils(self.G)
-        self.blocked_tags = blocked_tags or []
 
     def build_pool(
         self,
@@ -176,7 +175,7 @@ class WaypointPoolGenerator:
             return None
 
         r_max = (target_km * 1000) / 2
-        weight = compute_distance_only_lookup(self.G, self.blocked_tags)["weight"]
+        weight = compute_distance_only_lookup(self.G)["weight"]
 
         # cutoff SSSP 1회 — r_max 밖의 노드는 애초에 순회 안 함
         dist_from_p1 = nx.single_source_dijkstra_path_length(

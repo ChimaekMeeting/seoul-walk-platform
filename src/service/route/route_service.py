@@ -15,14 +15,12 @@ from src.repository.user.route_history_repository import RouteHistoryRepository
 from src.repository.user.user_repository import UserRepository
 from src.repository.layer.route_poi_repository import RoutePoiRepository
 from src.route_engine.engines import (
-    CircularBeamEngine,
     GpsArtEngine,
     OnewayAstarEngine,
-    OnewayBeamEngine,
     WaypointComposerEngine,
 )
+from src.route_engine.engines.circular_grasp_waypoint_alns import CircularGraspWaypointAlnsEngine
 from src.route_engine.engines.path_utils import PathUtils
-from src.route_engine.profiles import ScoringProfile, get_profile
 from src.route_engine.weighted_cost_runtime import build_request_cost_context
 from src.config.settings import settings
 from src.schema.route_schema import (
@@ -30,7 +28,6 @@ from src.schema.route_schema import (
     GpsArtPoint,
     GpsArtRouteInput,
     OnewayRouteInput,
-    SafetyComfortPreference,
     WaypointCoordinate,
     WaypointLegMode,
     WaypointRouteInput,
@@ -41,9 +38,11 @@ from src.service.user.auth_service import AuthService
 logger = logging.getLogger(__name__)
 
 # 장기 프로필(안전/편안 SGD 갱신)이 신뢰할 수 있는 대조값(contrast)을 계산하려면
-# 대표 후보와 비교할 경쟁 후보가 최소 2개(전체 3개) 있어야 한다. circular_beam/oneway_beam
-# 엔진은 select_diverse_paths(k=3)로 이미 이 최솟값을 만족한다 — longterm_profile_service가
-# RouteHistory.candidate_features 길이를 이 상수로 검증한다.
+# 대표 후보와 비교할 경쟁 후보가 최소 2개(전체 3개) 있어야 한다. circular_random
+# (CircularGraspWaypointAlnsEngine)은 MULTI_CANDIDATE_COMBOS(construction="grasp",
+# refinement="alns")에 속해 이미 이 최솟값을 만족한다 — longterm_profile_service가
+# RouteHistory.candidate_features 길이를 이 상수로 검증한다. oneway_random은 이제
+# OnewayAstarEngine(단일 경로)이라 candidate_feature_vectors 자체가 없다.
 MIN_CANDIDATES_FOR_PROFILE = 3
 
 
@@ -53,9 +52,9 @@ class RouteService:
         self.auth_service = auth_service
 
         self.base_engines: dict = {
-            WalkMode.CIRCULAR_RANDOM: CircularBeamEngine,
+            WalkMode.CIRCULAR_RANDOM: CircularGraspWaypointAlnsEngine,
             WalkMode.ONEWAY_SHORTEST: OnewayAstarEngine,
-            WalkMode.ONEWAY_RANDOM: OnewayBeamEngine,
+            WalkMode.ONEWAY_RANDOM: OnewayAstarEngine,
             WalkMode.GPS_ART: GpsArtEngine,
             WalkMode.WAYPOINT: WaypointComposerEngine,
         }
@@ -68,18 +67,15 @@ class RouteService:
         target_km: Optional[float] = None,
         mode: WalkMode = WalkMode.CIRCULAR_RANDOM,
         custom_weights: Optional[Weights] = None,
-        profile: Optional[ScoringProfile] = None,
         shape_points: Optional[List[GpsArtPoint]] = None,
         waypoints: Optional[List[Coordinate]] = None,
         leg_modes: Optional[List[WaypointLegMode]] = None,
         leg_target_km: Optional[List[Optional[float]]] = None,
-        preference: Optional[SafetyComfortPreference] = None,
+        preference: Optional[Weights] = None,
     ) -> List[WalkRouteResponse]:
         """
         context에 적합한 경로 생성 엔진을 호출합니다.
-        mode는 경로 생성 방식(circular_random/oneway_shortest/oneway_random/gps_art/waypoint)을,
-        profile은 어떤 score 조합을 선호할지(scoring profile)를 결정하며 서로 독립적입니다.
-        custom_weights가 있으면 profile.weights를 base로 두고 해당 필드만 override합니다.
+        mode는 경로 생성 방식(circular_random/oneway_shortest/oneway_random/gps_art/waypoint)을 결정합니다.
         shape_points는 gps_art 모드 전용이며, 호출 전에 이미 도형 이름 -> 좌표 변환이
         끝난 상태여야 합니다(RouteService는 이미지 생성 등 비동기 작업을 하지 않음).
         waypoints/leg_modes/leg_target_km은 waypoint 모드 전용이다. leg_modes[i]/leg_target_km[i]는
@@ -147,7 +143,7 @@ class RouteService:
 
         try:
             engine = self._build_engine(
-                mode, origin, destination, target_km, custom_weights, profile, shape_points,
+                mode, origin, destination, target_km, custom_weights, shape_points,
                 waypoints, leg_modes, leg_target_km, preference,
             )
         except ValueError:
@@ -215,53 +211,38 @@ class RouteService:
 
         return results
 
-    # 안전·편안 가중 연결을 쓸 수 있는 모드. 실제 적용 여부는 leg 단위로 정해진다
-    # (_resolve_fill_leg_mode) — 모드가 waypoint여도 사용자가 모든 구간을 명시했거나
-    # 선호가 없으면 가중 연결은 생기지 않는다.
-    #
-    # ONEWAY_SHORTEST가 빠져 있는 것은 의도다(#445 설계 결정 A) — "최단"은 물리
-    # 최단거리로 유지한다. GPS_ART도 내부적으로 oneway_shortest만 쓴다.
-    #
-    # CIRCULAR_RANDOM(CircularBeamEngine)과 ONEWAY_RANDOM(OnewayBeamEngine)은 아직
-    # scoring_engine.custom_score(할인 모델)로 탐색한다. 두 모델은 방향이 반대라
-    # 한 요청 안에서 섞으면 후보 비교가 불공정해지므로, Beam 계열 전환은 전후
-    # 벤치마크와 함께 별도로 진행한다.
-    _WEIGHTED_MODES = frozenset({WalkMode.WAYPOINT})
-
-    def _build_cost_context(
-        self,
-        mode: WalkMode,
-        preference: Optional[SafetyComfortPreference],
-        profile: Optional[ScoringProfile],
-    ):
+    # 가중 비용 자체는 어떤 WalkMode를 쓰는지 모른다 — preference가 있으면(그리고
+    # 점수 커버리지가 충분하면) 항상 cost_context를 만든다. 이걸 실제로 엔진에
+    # 넘길지는 모드별로 _build_engine()이 정한다(예: ONEWAY_SHORTEST는 #445 설계
+    # 결정 A에 따라 "최단"을 물리 최단거리로 유지하려고 넘기지 않고 버린다).
+    def _build_cost_context(self, preference: Optional[Weights]):
         """요청 하나가 쓸 가중 비용 객체. 해당 없으면 None(거리 전용).
 
         **요청당 한 번만** 만들고 그 요청의 모든 구간이 같은 객체를 공유한다.
         전역에 캐시하지 않는다 — 다른 사용자의 가중치와 섞이면 안 된다.
 
-        SafetyComfortPreference는 챗봇에서 설문/프로필 기본값과 대화 선호를 섞은
-        결과다. 기본값도 반영하며, 직접 호출자가 신호를 생략하면 거리 기준을 쓴다.
+        preference는 챗봇에서 설문/프로필 기본값과 대화 선호를 섞은 결과인
+        Weights다. 기본값도 반영하며, 직접 호출자가 신호를 생략하면(None) 거리
+        기준을 쓴다.
 
         그래프를 훑지 않는다. 기동 때 붙여 둔 적재율·중앙값만 읽으므로 상수 시간이다.
         """
-        if mode not in self._WEIGHTED_MODES or preference is None or not preference.is_active:
+        if preference is None:
             return None
 
-        safety, comfort = preference.as_coefficients()
-        profile_config = get_profile(profile)
+        safety, comfort = preference.safety, preference.comfort
         return build_request_cost_context(
             self.G,
             safety_preference=safety,
             slope_preference=comfort,
             weight_limit=settings.WALK_WEIGHT_LIMIT,
             accident_ratio=settings.WALK_UNSAFE_ACCIDENT_RATIO,
-            blocked_tags=profile_config.blocked_tags,
         )
 
     @staticmethod
     def _resolve_fill_leg_mode(
         given_modes: List[WaypointLegMode],
-        preference: Optional[SafetyComfortPreference],
+        preference: Optional[Weights],
         cost_context,
     ) -> tuple[str, Optional[str]]:
         """방식을 지정하지 않은 구간을 무엇으로 채울지와, 가중 연결을 쓰지 못한 사유.
@@ -269,15 +250,17 @@ class RouteService:
         패딩 **전에** 판단해야 한다 — 먼저 oneway_shortest로 채워 버리면 "사용자가
         고른 최단"과 "서비스가 채운 연결"을 더 이상 구분할 수 없다.
 
-        Beam 구간(oneway_random)이 섞인 요청은 이번 가중 연결 대상에서 제외한다.
-        Beam은 아직 custom_score(할인 모델)로 탐색하는데 두 모델은 방향이 반대라
-        한 요청 안에서 섞으면 구간별 후보 비교가 불공정해진다.
+        oneway_random 구간이 섞인 요청은 이번 가중 연결 대상에서 제외한다. 지금은
+        oneway_shortest와 동일하게 순수 거리로 도는 임시 상태라(OnewayBeamEngine을
+        걷어내며 OnewayAstarEngine으로 교체, waypoint.py 참고) 가중 연결 대상이
+        아니다. reason 문자열 "beam_leg_present"는 원래 Beam 구간이었을 때 이름을
+        그대로 쓴다(API 응답 계약).
         """
         if "oneway_random" in given_modes:
             return "oneway_shortest", "beam_leg_present"
-        if preference is None or not preference.is_active:
+        if preference is None:
             return "oneway_shortest", "no_preference"
-        if preference.as_coefficients() == (0.0, 0.0):
+        if (preference.safety, preference.comfort) == (0.0, 0.0):
             return "oneway_shortest", "zero_weights"
         if cost_context is None:
             # 선호는 있지만 점수 커버리지가 부족해 가중 모드가 꺼져 있다.
@@ -291,15 +274,14 @@ class RouteService:
         destination: Optional[Coordinate] = None,
         target_km: Optional[float] = None,
         custom_weights: Optional[Weights] = None,
-        profile: Optional[ScoringProfile] = None,
         shape_points: Optional[List[GpsArtPoint]] = None,
         waypoints: Optional[List[Coordinate]] = None,
         leg_modes: Optional[List[WaypointLegMode]] = None,
         leg_target_km: Optional[List[Optional[float]]] = None,
-        preference: Optional[SafetyComfortPreference] = None,
+        preference: Optional[Weights] = None,
     ):
-        """profile/custom_weights를 엔진에 주입해 경로 생성 엔진 인스턴스를 반환합니다."""
-        cost_context = self._build_cost_context(mode, preference, profile)
+        """custom_weights를 엔진에 주입해 경로 생성 엔진 인스턴스를 반환합니다."""
+        cost_context = self._build_cost_context(preference)
 
         if mode == WalkMode.CIRCULAR_RANDOM:
             inp = CircularRouteInput(
@@ -307,7 +289,9 @@ class RouteService:
                 start_lon=origin.lon,
                 target_km=target_km,
             )
-            return self.base_engines[mode](inp, self.G, custom_weights=custom_weights, profile=profile)
+            # CircularGraspWaypointAlnsEngine은 mode="distance" 전용이라 custom_weights를
+            # 받지 않는다(가중치 반영 로직이 아직 없음).
+            return self.base_engines[mode](inp, self.G)
 
         if mode == WalkMode.GPS_ART:
             if not shape_points:
@@ -320,7 +304,7 @@ class RouteService:
                 origin_lon=origin.lon,
                 target_km=target_km,
             )
-            # GpsArtEngine은 내부적으로 leg마다 oneway_shortest만 써서 custom_weights/profile을 받지 않음
+            # GpsArtEngine은 내부적으로 leg마다 oneway_shortest만 써서 custom_weights를 받지 않음
             return self.base_engines[mode](inp, self.G)
 
         if mode == WalkMode.WAYPOINT:
@@ -353,12 +337,29 @@ class RouteService:
                 leg_target_km=padded_target_km,
             )
             return self.base_engines[mode](
-                inp, self.G, custom_weights=custom_weights, profile=profile,
+                inp, self.G, custom_weights=custom_weights,
                 cost_context=cost_context,
                 preference_skipped_reason=skipped_reason,
                 # 미합의 우회 상한은 일반 요청에서 활성화하지 않는다.
                 # 실험용 인자는 테스트/벤치마크에서만 명시적으로 전달한다.
             )
+
+        if mode == WalkMode.ONEWAY_RANDOM:
+            if destination is None:
+                raise ValueError(f"{mode} 모드에서는 destination이 필요합니다")
+
+            # 지금은 ONEWAY_SHORTEST와 완전히 같은 코드다 — target_km에 맞춰 일부러
+            # 돌아가는 "우회" 동작이 아직 없다(OnewayBeamEngine을 걷어내며 임시로
+            # OnewayAstarEngine을 붙여 뒀다). 분기를 ONEWAY_SHORTEST와 합치지 않고
+            # 따로 둔 이유는 우회 로직이 생기면 여기만 고치기 위해서다.
+            inp = OnewayRouteInput(
+                start_lat=origin.lat,
+                start_lon=origin.lon,
+                end_lat=destination.lat,
+                end_lon=destination.lon,
+                target_km=target_km,
+            )
+            return self.base_engines[mode](inp, self.G, custom_weights=custom_weights)
 
         if destination is None:
             raise ValueError(f"{mode} 모드에서는 destination이 필요합니다")
@@ -370,4 +371,4 @@ class RouteService:
             end_lon=destination.lon,
             target_km=target_km,
         )
-        return self.base_engines[mode](inp, self.G, custom_weights=custom_weights, profile=profile)
+        return self.base_engines[mode](inp, self.G, custom_weights=custom_weights)

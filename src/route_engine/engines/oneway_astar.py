@@ -3,14 +3,13 @@ from typing import Callable, Optional, List
 import logging
 
 from src.route_engine.engines.path_utils import PathUtils, _RETURN_REVISIT_PENALTY
-from src.route_engine.profiles import ScoringProfile, get_profile, merge_weights
 from src.interfaces.schema.walk_schema import (
     WalkMode,
     WalkRouteStatus,
     WalkRouteResponse
 )
 from src.schema.route_schema import OnewayRouteInput, Weights
-from src.route_engine.scoring.weighted_edge_cost import WeightedEdgeCost
+from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
 from src.route_engine.alt_runtime import get_alt_heuristic, get_alt_info
 
 logger = logging.getLogger(__name__)
@@ -21,7 +20,6 @@ class OnewayAstarEngine:
         inp: OnewayRouteInput,
         G: nx.Graph,
         custom_weights: Optional[Weights] = None,
-        profile: Optional[ScoringProfile] = None,
         visited_nodes: Optional[set] = None,
         heuristic: Optional[Callable[[int, int], float]] = None,
         cost_context: Optional[WeightedEdgeCost] = None,
@@ -30,13 +28,11 @@ class OnewayAstarEngine:
         self.G             = G  # custom_score를 그래프에 쓰지 않으므로 copy() 불필요
         self.utils         = PathUtils(self.G)
         self.mode          = WalkMode.ONEWAY_SHORTEST
-        profile_config     = get_profile(profile)
-        self.weights       = merge_weights(profile_config.weights, custom_weights)
-        self.blocked_tags  = profile_config.blocked_tags
-        self.scoring_mode  = profile_config.scoring_mode
+        self.weights       = custom_weights if custom_weights is not None else Weights()
+        self.scoring_mode  = "general"
         # 거리 전용 weight. path_cost()의 기준이자, 가중 탐색의 물리 최단 비교 기준이다.
         # 항상 이 값을 유지한다(cost_context가 있어도 교체하지 않는다).
-        self._distance_weight = self._make_distance_weight(self.blocked_tags)
+        self._distance_weight = self._make_distance_weight()
         # 실제 탐색에 쓰는 weight. cost_context가 활성 상태면 그쪽 가중 비용을 쓴다.
         # RouteService의 oneway_shortest는 cost_context를 넘기지 않으므로 물리 최단을
         # 유지하고, WaypointComposerEngine이 leg 엔진으로 쓸 때만 가중 비용이 주입된다.
@@ -159,7 +155,7 @@ class OnewayAstarEngine:
         return _weight
 
     def path_cost(self, path: list[int]) -> float:
-        """경로(노드 리스트)의 누적 거리(m). 경로에 blocked edge가 있으면 inf.
+        """경로(노드 리스트)의 누적 거리(m).
 
         cost_context가 주입돼 탐색이 가중 비용으로 돌았더라도 **항상 거리**를 돌려준다
         — 벤치마크가 엔진끼리 비교하는 기준이라 요청 가중치에 따라 단위가 바뀌면
@@ -178,21 +174,15 @@ class OnewayAstarEngine:
         )
 
     @staticmethod
-    def _make_distance_weight(blocked_tags: Optional[list[str]]):
+    def _make_distance_weight():
         """length만 보는 weight 콜러블.
 
         기존 compute_distance_only_lookup()과 값이 완전히 같도록 맞췄다 — 누락된
         length는 1.0, 1m 미만은 1.0으로 올림(scoring_engine._build_feature_cache의
-        max(1.0, length)와 동일), blocked tag는 inf. 달라진 것은 요청마다 2*E 크기
-        lookup dict를 만들지 않고 A*가 확인한 edge에서 바로 읽는다는 점뿐이다.
+        max(1.0, length)와 동일). 달라진 것은 요청마다 2*E 크기 lookup dict를 만들지
+        않고 A*가 확인한 edge에서 바로 읽는다는 점뿐이다.
         """
-        blocked = tuple(blocked_tags or ())
-
         def _weight(u, v, d):
-            if blocked:
-                tags = d.get("tags") or ()
-                if any(tag in tags for tag in blocked):
-                    return float("inf")
             return max(1.0, float(d.get("length", 1.0) or 1.0))
 
         return _weight

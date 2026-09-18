@@ -24,14 +24,11 @@ logger = logging.getLogger(__name__)
 _KM_PER_DEG_LAT: float = 111.32  # 위도 1도당 거리(km) 근사값
 _NETWORK_FACTOR: float = 1.4     # 직선 거리 -> 도로망 거리 추정 계수. path_utils.est_network_dist와 동일 기준
 
-# GPS Art leg는 도형을 최대한 곧게 따라가야 하므로, scoring_engine.py의 안전/자연/경사/편의
+# GPS Art leg는 도형을 최대한 곧게 따라가야 하므로, scoring_engine.py의 safety/comfort
 # 가중치를 전부 0으로 둬 도형 왜곡을 유발하는 detour(예: 더 "안전한" 길로 우회)를 없앤다.
-# Weights()의 기본값(safety=0.5, slope=0.5)은 중립이 아니므로 모든 필드를 명시적으로 0으로 채운다.
-# 이러면 custom_score는 사실상 length * comfort_penalty(터널·지하철망 등 최소 페널티)만 남는다.
-_DISTANCE_ONLY_WEIGHTS = Weights(
-    safety=0.0, nature=0.0, slope=0.0, running=0.0,
-    landmark=0.0, child=0.0, convenience=0.0, accessibility=0.0,
-)
+# Weights()의 기본값(safety=0.5)은 중립이 아니므로 명시적으로 0으로 채운다.
+# 이러면 custom_score는 bonus=1.0이 돼 사실상 length 그대로만 남는다.
+_DISTANCE_ONLY_WEIGHTS = Weights(safety=0.0, comfort=0.0)
 
 
 class GpsArtEngine:

@@ -10,11 +10,11 @@ engines/path_utils를 import하고 그 경로에서 engines/__init__.py가 실�
 engines 전체(oneway_astar 포함)가 로드된다. 그래서 scoring 쪽 모듈이 예외만
 가져오려 해도 다음 순환이 생겼다.
 
-    scoring.weighted_edge_cost
+    scoring.scoring_engine (WeightedEdgeCost가 여기 있음)
       -> waypoint_route_builder
         -> engines.path_utils  (engines/__init__ 실행)
           -> engines.oneway_astar
-            -> scoring.weighted_edge_cost   # 부분 초기화 상태
+            -> scoring.scoring_engine   # 부분 초기화 상태
 
 예외를 여기로 옮기고 waypoint_route_builder가 재-export하면 기존 import 경로
 (`from src.route_engine.waypoint_route_builder import MissingEdgeAttributeError`,

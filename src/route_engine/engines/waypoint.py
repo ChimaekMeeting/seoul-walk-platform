@@ -10,12 +10,10 @@ from src.interfaces.schema.walk_schema import (
     WalkRouteStatus,
 )
 from src.route_engine.engines.oneway_astar import OnewayAstarEngine
-from src.route_engine.engines.oneway_beam import OnewayBeamEngine
 from src.route_engine.engines.path_utils import PathUtils
-from src.route_engine.profiles import ScoringProfile
 from src.route_engine.scoring.scoring_engine import compute_score_vector
 from src.route_engine.scoring.detour_cap import apply_detour_cap
-from src.route_engine.scoring.weighted_edge_cost import WeightedEdgeCost
+from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
 from src.schema.route_schema import OnewayRouteInput, WaypointRouteInput, Weights
 
 logger = logging.getLogger(__name__)
@@ -23,7 +21,10 @@ logger = logging.getLogger(__name__)
 # leg_modes 값(WaypointRouteInput.WaypointLegMode)별로 재사용할 기존 편도 엔진
 _LEG_ENGINES = {
     "oneway_shortest": OnewayAstarEngine,
-    "oneway_random": OnewayBeamEngine,
+    # OnewayBeamEngine을 걷어내며 임시로 OnewayAstarEngine을 붙여 뒀다(route_service.py의
+    # WalkMode.ONEWAY_RANDOM과 같은 이유) — target_km에 맞춰 일부러 돌아가는 다양화 후보
+    # 생성은 아직 없다. 분기를 다른 키와 합치지 않고 남겨 둔 이유도 동일: 나중에 갈라칠 자리.
+    "oneway_random": OnewayAstarEngine,
     # 같은 A* 엔진에 안전·편안 가중 비용만 주입한 구간(#445). 엔진을 새로 만들지 않는다.
     "oneway_preferred": OnewayAstarEngine,
 }
@@ -36,16 +37,21 @@ _PREFERRED_LEG_MODE = "oneway_preferred"
 class WaypointComposerEngine:
     """
     출발지 -> 경유지들 -> 목적지를 구간(leg)별로 나눠, 각 leg에 지정된 모드의
-    기존 편도 엔진(OnewayAstarEngine/OnewayBeamEngine)을 순차 호출해 하나의 경로로 이어 붙인다.
+    기존 편도 엔진(지금은 셋 다 OnewayAstarEngine)을 순차 호출해 하나의 경로로 이어 붙인다.
     새 탐색 알고리즘을 추가하지 않고 기존 엔진을 조합만 한다.
 
-    oneway_random leg의 OnewayBeamEngine은 다양화한 후보를 최대 3개까지 반환한다.
-    모든 leg가 성공하면, leg별로 같은 인덱스(대표/2번째/3번째)끼리 짝지어 이어붙인
-    "슬롯" 최대 3개를 만들고, 그중 완전히 겹치는 슬롯은 버린 뒤(예: 모든 leg가
-    oneway_shortest라 애초에 대안이 없는 경우) 벡터 다양화(select_diverse_paths)로
+    leg 다양화 로직(아래)은 원래 oneway_random leg의 OnewayBeamEngine이 후보를 최대
+    3개까지 반환하던 것에 맞춰 설계됐다 — leg별로 같은 인덱스(대표/2번째/3번째)끼리
+    짝지어 이어붙인 "슬롯" 최대 3개를 만들고, 그중 완전히 겹치는 슬롯은 버린 뒤(예: 모든
+    leg가 oneway_shortest라 애초에 대안이 없는 경우) 벡터 다양화(select_diverse_paths)로
     최종 후보를 정리해 반환한다. leg 개수와 무관하게 항상 최대 3개만 계산하므로
     leg별 후보를 전부 조합(3^legs)하지는 않는다. 일부 leg가 실패한 경우엔 다양화 없이
     기존처럼 대표 경로 1개만 이어붙여 반환한다.
+
+    oneway_random leg가 OnewayAstarEngine으로 바뀌어 모든 leg 엔진이 후보 1개만
+    반환하는 지금은, 이 로직이 사실상 대표 경로 1개짜리 결과만 만든다(슬롯 1이 슬롯
+    0과 완전히 같은 노드열이라 중복으로 버려짐) — 로직 자체는 나중에 다양화 후보가
+    생기면 그대로 다시 쓸 수 있도록 남겨 뒀다.
     """
 
     def __init__(
@@ -53,23 +59,23 @@ class WaypointComposerEngine:
         inp: WaypointRouteInput,
         G: nx.Graph,
         custom_weights: Optional[Weights] = None,
-        profile: Optional[ScoringProfile] = None,
         cost_context: Optional[WeightedEdgeCost] = None,
         preference_skipped_reason: Optional[str] = None,
         experimental_detour_max_ratio: Optional[float] = None,
     ):
         self.inp            = inp
         # 그래프를 직접 mutate하지 않고 leg 엔진에 그대로 넘기기만 하므로 복사가 필요 없다.
-        # 실제 mutation(예: OnewayBeamEngine의 custom_score 계산)은 그걸 하는 leg 엔진이 자체적으로 격리한다.
+        # leg 엔진(전부 OnewayAstarEngine)은 그래프에 아무것도 쓰지 않으므로 격리할 것도 없다.
         self.G               = G
         self.custom_weights  = custom_weights
-        self.profile         = profile
         self.mode            = WalkMode.WAYPOINT
         # RouteService가 요청당 하나 만들어 넘긴다. 모든 leg가 같은 객체를 공유해야
         # 구간마다 다른 비용 기준으로 탐색하는 일이 없다.
         #
-        # oneway_preferred에만 넘긴다. Beam 구간이 섞이면 이번 새 가중 연결은
-        # 제외한다. Beam 자체는 기존 custom_weights로 산책 목표 거리를 탐색한다.
+        # oneway_preferred에만 넘긴다. oneway_random 구간이 섞이면 이번 새 가중 연결은
+        # 제외한다 — oneway_random은 지금 oneway_shortest와 똑같이 순수 거리로 도는
+        # 임시 상태라(_LEG_ENGINES 주석 참고) 가중 연결 대상이 아니다. reason 문자열
+        # "beam_leg_present"는 원래 Beam 구간이었을 때 이름을 그대로 쓴다(API 응답 계약).
         if "oneway_random" in inp.leg_modes:
             cost_context = None
             preference_skipped_reason = "beam_leg_present"
@@ -137,11 +143,11 @@ class WaypointComposerEngine:
                 target_km=self.inp.leg_target_km[i],
             )
             engine = _LEG_ENGINES[mode](
-                leg_inp, self.G, custom_weights=self.custom_weights, profile=self.profile,
+                leg_inp, self.G, custom_weights=self.custom_weights,
                 visited_nodes=visited_nodes,
                 **self._leg_cost_kwargs(mode),
             )
-            leg_responses = engine.run()  # oneway_random이면 최대 3개, oneway_shortest면 1개
+            leg_responses = engine.run()  # 지금은 세 모드 다 OnewayAstarEngine이라 항상 1개
             leg_node_paths = engine.last_path_nodes_by_candidate
             result = leg_responses[0]  # 대표 후보 — 상태 판정·재시도 로직은 기존처럼 이걸 기준으로 한다
 
@@ -155,7 +161,7 @@ class WaypointComposerEngine:
                 # 앞선 시도가 이미 실패했으므로 추가 제약을 남겨 두면 대체까지 같은
                 # 이유로 실패할 수 있다(#445).
                 engine = OnewayAstarEngine(
-                    leg_inp, self.G, custom_weights=self.custom_weights, profile=self.profile,
+                    leg_inp, self.G, custom_weights=self.custom_weights,
                 )
                 leg_responses  = engine.run()
                 leg_node_paths = engine.last_path_nodes_by_candidate
@@ -239,7 +245,7 @@ class WaypointComposerEngine:
                     end_lat=end_lat, end_lon=end_lon,
                     target_km=self.inp.leg_target_km[i],
                 ),
-                self.G, custom_weights=self.custom_weights, profile=self.profile,
+                self.G, custom_weights=self.custom_weights,
             )
             responses = engine.run()
             if responses[0].status != WalkRouteStatus.SUCCESS:
