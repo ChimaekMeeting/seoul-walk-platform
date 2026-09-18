@@ -2,9 +2,7 @@
 benchmarks/solvers/grasp_waypoint_solver.py
 
 circular_grasp_waypoint_{local,vnd,vns,alns}.py(경유지 선택 기반 GRASP 4종)를
-BasePathSolver 규격으로 감싸는 어댑터. 기존 grasp_solver.py(circular_grasp.py용)와
-circular_alns.py(완전히 다른 독립 구현)는 이 파일에서 수정하지 않는다 — 별도의 신규
-비교 대상으로 나란히 등록될 뿐이다.
+BasePathSolver 규격으로 감싸는 어댑터.
 
 P2-P3 최소거리 안전장치 추가 이후(요청서 "P2-P3 최소거리와 추가 검증만 반영"), engine이
 find_path() 실행 후 남기는 last_route/last_selection_status를 읽어 벤치마크 CSV에

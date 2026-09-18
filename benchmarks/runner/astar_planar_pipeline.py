@@ -71,7 +71,7 @@ def _run_query(
 ):
     # 1) 좌표값 -> 경유지 후보 풀 (순환: 출발=도착=p1)
     t0 = perf_counter()
-    pool_gen = WaypointPoolGenerator(graph, blocked_tags=args.blocked_tags or None)
+    pool_gen = WaypointPoolGenerator(graph)
     pool = pool_gen.build_pool(args.start_lat, args.start_lon, target_km)
     if pool is None:
         parser.error("풀 생성 중 출발 좌표 근처에서 노드를 찾지 못했습니다.")
@@ -182,7 +182,6 @@ def main():
     parser.add_argument("--pool-limit", type=int, default=60)
     parser.add_argument("--n-sectors", type=int, default=16)
     parser.add_argument("--avoid-seed", type=int, default=0)
-    parser.add_argument("--blocked-tags", nargs="*", default=[])
     args = parser.parse_args()
 
     if any(km <= 0 for km in args.target_km):
@@ -196,7 +195,7 @@ def main():
     if graph.is_directed() or not graph:
         parser.error("노드가 있는 무방향 그래프가 필요합니다.")
     utils = PathUtils(graph)
-    weight_fn = compute_distance_only_lookup(graph, args.blocked_tags)["weight"]
+    weight_fn = compute_distance_only_lookup(graph)["weight"]
 
     p1 = utils.find_nearest_node_with_expansion(args.start_lat, args.start_lon)
     if p1 is None:
