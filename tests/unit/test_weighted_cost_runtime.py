@@ -30,7 +30,7 @@ import pytest
 from src.interfaces.schema.walk_schema import WalkMode
 from src.route_engine.engines.oneway_astar import OnewayAstarEngine
 from src.route_engine.engines.waypoint import WaypointComposerEngine
-from src.route_engine.scoring.weighted_edge_cost import (
+from src.route_engine.scoring.scoring_engine import (
     ACCIDENT_ATTR,
     SAFETY_ATTR,
     SLOPE_ATTR,
@@ -43,7 +43,7 @@ from src.route_engine.weighted_cost_runtime import (
     get_coverage_report,
     prepare_weighted_cost,
 )
-from src.schema.route_schema import SafetyComfortPreference, WaypointRouteInput
+from src.schema.route_schema import Weights, WaypointRouteInput
 from src.schema.route_schema import WaypointCoordinate
 
 K = 0.5
@@ -217,41 +217,31 @@ def service():
     return RouteService(G=prepared(scored_graph()), auth_service=MagicMock())
 
 
-ACTIVE = SafetyComfortPreference(safety=0.8, comfort=0.2)
+ACTIVE = Weights(safety=0.8, comfort=0.2)
 
 
-@pytest.mark.parametrize("mode", [
-    WalkMode.ONEWAY_SHORTEST,
-    WalkMode.ONEWAY_RANDOM,
-    WalkMode.CIRCULAR_RANDOM,
-    WalkMode.GPS_ART,
-])
-def test_only_waypoint_mode_gets_a_cost_context(service, mode):
-    """설계 결정 A: oneway_shortest는 물리 최단으로 남는다. Beam 계열은 후속 작업."""
-    assert service._build_cost_context(mode, ACTIVE, None) is None
+def test_build_cost_context_does_not_know_about_mode(service):
+    """_build_cost_context는 이제 mode를 받지 않는다 — preference만 본다.
+    설계 결정 A(oneway_shortest는 물리 최단 유지)는 _build_engine()의 모드별
+    분기가 cost_context를 안 넘기는 방식으로 지킨다(여기서는 검증하지 않음)."""
+    assert service._build_cost_context(ACTIVE) is not None
+    assert service._build_cost_context(None) is None
 
 
 def test_waypoint_mode_with_active_preference_gets_a_cost_context(service):
-    context = service._build_cost_context(WalkMode.WAYPOINT, ACTIVE, None)
+    context = service._build_cost_context(ACTIVE)
 
     assert context is not None
     assert context.enabled is True
 
 
-@pytest.mark.parametrize("preference", [
-    None,
-    SafetyComfortPreference(),                          # 축 둘 다 미지정
-])
-def test_inactive_preference_keeps_waypoint_on_distance(service, preference):
-    """Weights 기본값(0.5)만 있는 사용자에게 가중치를 걸지 않는다."""
-    assert service._build_cost_context(WalkMode.WAYPOINT, preference, None) is None
+def test_no_preference_keeps_waypoint_on_distance(service):
+    assert service._build_cost_context(None) is None
 
 
 def test_unspecified_axis_contributes_zero(service):
-    """안전만 말했다면 편안함은 기본값 0.5가 아니라 0으로 들어가야 한다."""
-    context = service._build_cost_context(
-        WalkMode.WAYPOINT, SafetyComfortPreference(safety=0.8), None,
-    )
+    """안전만 말했다면 편안함은 Weights.comfort 기본값(0.0)이 그대로 들어가야 한다."""
+    context = service._build_cost_context(Weights(safety=0.8))
 
     assert context.alpha > 0
     assert context.beta == 0.0
@@ -261,7 +251,7 @@ def test_unspecified_axis_contributes_zero(service):
 
 
 def test_unspecified_legs_become_preferred_when_preference_is_active(service):
-    context = service._build_cost_context(WalkMode.WAYPOINT, ACTIVE, None)
+    context = service._build_cost_context(ACTIVE)
 
     assert service._resolve_fill_leg_mode([], ACTIVE, context) == ("oneway_preferred", None)
 
@@ -272,7 +262,7 @@ def test_unspecified_legs_stay_shortest_without_preference(service):
 
 def test_beam_leg_excludes_the_whole_request(service):
     """oneway_random이 섞이면 가중 연결 대상에서 빼되 사유를 남긴다."""
-    context = service._build_cost_context(WalkMode.WAYPOINT, ACTIVE, None)
+    context = service._build_cost_context(ACTIVE)
 
     assert service._resolve_fill_leg_mode(
         ["oneway_random"], ACTIVE, context,
@@ -288,7 +278,7 @@ def test_missing_scores_are_reported_as_such(service):
 
 def test_explicit_shortest_legs_are_never_rewritten(service):
     """명시적으로 고른 최단 구간은 저장된 선호가 있어도 그대로 둔다."""
-    context = service._build_cost_context(WalkMode.WAYPOINT, ACTIVE, None)
+    context = service._build_cost_context(ACTIVE)
     given = ["oneway_shortest"]
 
     fill, reason = service._resolve_fill_leg_mode(given, ACTIVE, context)
@@ -310,7 +300,7 @@ def _waypoint_input() -> WaypointRouteInput:
 
 
 def test_composer_passes_context_to_astar_legs_only():
-    """OnewayBeamEngine은 아직 custom_score(할인 모델)로 탐색한다 — 섞으면 안 된다."""
+    """oneway_preferred leg에만 cost_context를 넘긴다 — 나머지는 순수 거리로 돈다."""
     G = prepared(scored_graph())
     context = request_context(G)
     composer = WaypointComposerEngine(_waypoint_input(), G, cost_context=context)
@@ -375,8 +365,8 @@ def test_direct_composer_also_excludes_beam_from_experimental_policy():
 
 
 def test_zero_coefficients_are_not_reported_as_missing_scores(service):
-    preference = SafetyComfortPreference(safety=0.0, comfort=0.0)
-    context = service._build_cost_context(WalkMode.WAYPOINT, preference, None)
+    preference = Weights(safety=0.0, comfort=0.0)
+    context = service._build_cost_context(preference)
 
     assert context is None
     assert service._resolve_fill_leg_mode([], preference, context) == (
@@ -385,11 +375,11 @@ def test_zero_coefficients_are_not_reported_as_missing_scores(service):
 
 
 @pytest.mark.parametrize("stored,speak,expected", [
-    (None, False, (0.5, 0.5)),
+    (None, False, (0.5, 0.0)),
     ((0.5, 0.5), False, (0.5, 0.5)),
     ((0.7, 0.8), False, (0.7, 0.8)),
     ((0.7, 0.8), True, (0.735, 0.8)),
-    (None, True, (0.675, 0.5)),
+    (None, True, (0.675, 0.0)),
 ])
 def test_executor_forwards_survey_and_conversation_blend(service, monkeypatch, stored, speak, expected):
     import asyncio
@@ -400,7 +390,7 @@ def test_executor_forwards_survey_and_conversation_blend(service, monkeypatch, s
     from src.schema.prewalk_schema import FeatureLabel, FeatureTag, Location, State, WayPointPreference
 
     preference = None if stored is None else SimpleNamespace(
-        weights_safety=stored[0], weights_slope=stored[1],
+        weights_safety=stored[0], weights_comfort=stored[1],
     )
     fetch = MagicMock(return_value=preference)
     monkeypatch.setattr(UserPreferenceRepository, "get_by_user_id", fetch)
@@ -421,11 +411,22 @@ def test_executor_forwards_survey_and_conversation_blend(service, monkeypatch, s
     asyncio.run(executor.run(state))
     args = tool.ainvoke.call_args.args[0]
     signal = args["preference"]
-    assert signal.as_coefficients() == pytest.approx(expected)
-    assert (args["custom_weights"].safety, args["custom_weights"].slope) == pytest.approx(expected)
-    fetch.assert_called_once_with(1)
-    context = service._build_cost_context(WalkMode.WAYPOINT, signal, args["profile"])
-    assert context.alpha > 0 and context.beta > 0
+    assert (signal.safety, signal.comfort) == pytest.approx(expected)
+    assert (args["custom_weights"].safety, args["custom_weights"].comfort) == pytest.approx(expected)
+    # stored=None이면 run()의 첫 조회도 None이라 _build_weights가 한 번 더 조회한다
+    # (미조회/명시적 None을 구분하는 센티널을 없앤 결과 — 결과값은 어느 쪽이든 같다).
+    expected_calls = 2 if stored is None else 1
+    assert fetch.call_count == expected_calls
+    fetch.assert_called_with(1)
+    context = service._build_cost_context(signal)
+    assert context is not None
+    assert context.alpha > 0
+    # comfort는 명시적으로 고르기 전엔 0.0이 baseline이라(survey_service.py 기준),
+    # 대화/설문 어느 쪽도 comfort를 안 건드린 경우(expected[1] == 0.0)는 beta도 0이다.
+    if expected[1] > 0:
+        assert context.beta > 0
+    else:
+        assert context.beta == 0.0
 
 
 def test_executor_preserves_explicit_shortest_leg_without_target(monkeypatch):

@@ -607,12 +607,12 @@ class TestRouteExecutorReachesCandidateFeaturesContract:
     ):
         """RouteExecutor.run()이 UserPreferenceRepository에서 조회한 안전/편안 가중치를
         실제로 route_service.get_route까지 흘려보내는지 확인한다 — RouteTool을 직접 부르는
-        위 클래스(가중치 조립을 건너뜀)와 이 클래스를 가르는 지점이다."""
-        captured = {}
+        위 클래스(가중치 조립을 건너뜀)와 이 클래스를 가르는 지점이다.
 
-        class _CapturingEngine:
-            def __init__(self, inp, G, custom_weights=None, profile=None):
-                captured["custom_weights"] = custom_weights
+        get_route() 호출 인자를 잡아낸다(엔진 생성자가 아니라) — CircularGraspWaypointAlnsEngine은
+        mode="distance" 전용이라 custom_weights를 안 받으므로, 엔진에서 잡으면 항상 None이 된다."""
+        class _StubEngine:
+            def __init__(self, inp, G):
                 self.candidate_feature_vectors = _SUCCESS_CANDIDATE_FEATURES
 
             def run(self):
@@ -625,14 +625,17 @@ class TestRouteExecutorReachesCandidateFeaturesContract:
                     for _ in _SUCCESS_CANDIDATE_FEATURES
                 ]
 
-        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _CapturingEngine
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _StubEngine
         executor = _real_route_executor(route_service)
 
         with patch(
             "src.agent.nodes.route_executor.UserPreferenceRepository.get_by_user_id",
             return_value=MagicMock(weights_safety=0.9, weights_comfort=0.1),
-        ):
+        ), patch.object(
+            route_service, "get_route", wraps=route_service.get_route,
+        ) as get_route_spy:
             asyncio.run(executor.run(_circular_state()))
 
-        assert captured["custom_weights"].safety == pytest.approx(0.9)
-        assert captured["custom_weights"].slope == pytest.approx(0.1)  # comfort -> Weights.slope
+        custom_weights = get_route_spy.call_args.args[5]
+        assert custom_weights.safety == pytest.approx(0.9)
+        assert custom_weights.comfort == pytest.approx(0.1)

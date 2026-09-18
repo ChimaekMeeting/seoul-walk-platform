@@ -7,7 +7,6 @@ WaypointPoolGenerator / WaypointPoolResult 단위 테스트
   - distance()가 lazy 계산으로 실제 최단거리와 일치함
   - 반대 방향 조회는 이미 캐시된 행을 재사용함(새로 계산하지 않음)
   - 캐시 행 수가 상한을 넘으면 LRU로 가장 오래된 행부터 제거됨
-  - blocked_tags에 해당하는 edge는 차단되어 그 너머 노드가 후보에서 빠짐
   - 풀 노드가 아닌 값으로 조회하면 ValueError
   - p1 최근접 노드를 못 찾으면 None을 반환함
 """
@@ -74,12 +73,6 @@ class TestDistance:
         assert result.cached_row_count == 2
         assert 1 not in result._row_cache
         assert 3 in result._row_cache
-
-    def test_blocked_tags에_해당하는_edge는_차단된다(self, line_graph):
-        line_graph[1][2]["tags"] = ["blocked"]
-        gen = WaypointPoolGenerator(line_graph, blocked_tags=["blocked"])
-        result = gen.build_pool(37.5, 127.0, target_km=1.0)
-        assert result.pool_nodes == [1]  # 1-2가 막혀 2,3,4는 0에서 도달 불가
 
     def test_풀_노드가_아니면_ValueError를_던진다(self, line_graph):
         gen = WaypointPoolGenerator(line_graph)

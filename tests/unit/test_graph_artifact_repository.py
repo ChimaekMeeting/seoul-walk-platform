@@ -124,7 +124,7 @@ def test_load_rejects_unexpected_source_commit(tmp_path):
 
 def test_save_rejects_missing_required_attributes(tmp_path):
     graph = make_graph()
-    del graph[1][2]["safety_score"]
+    del graph[1][2]["length"]
 
     with pytest.raises(GraphArtifactError, match="필수 속성"):
         save_graph(tmp_path, graph)
