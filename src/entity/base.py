@@ -17,14 +17,12 @@ def register_entities():
     from src.entity.network import walk_node, walk_edge
     from src.entity.layer import (
         safety_layer,
-        landmark_layer,
         nature_layer,
-        running_layer,
-        child_layer,
         edge_feature_layer,
         route_poi,
         seoul_administrative_boundary,
         seoul_water_polygon,
+        accident_prone_area,
     )
     from src.entity.raw import osm_raw, kakao_raw, public_raw, csv_raw
 

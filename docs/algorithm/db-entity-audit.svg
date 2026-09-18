@@ -1,0 +1,355 @@
+<svg width="1900" height="2440" viewBox="0 0 1900 2440" xmlns="http://www.w3.org/2000/svg" font-family="'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',Arial,sans-serif">
+  <rect x="0" y="0" width="1900" height="2440" fill="#f6f3ec"/>
+
+  <text x="50" y="46" font-size="26" font-weight="700" fill="#1c2321">DB ↔ 엔티티 전수조사</text>
+  <text x="50" y="72" font-size="14" fill="#5d655f">seoul-walk-platform · 로컬 dev DB(localhost:5434) 실제 조회 + src/entity/ 코드 대조 · 2026-09-15 · 코드 수정 없음</text>
+
+  <g font-size="12" fill="#5d655f">
+    <rect x="1330" y="30" width="14" height="14" rx="3" fill="#f3ddd6" stroke="#a3311f"/><text x="1350" y="41">불일치 · 강조</text>
+    <text x="1470" y="41" font-weight="700" fill="#1f6f5c">✅</text><text x="1490" y="41">등록됨</text>
+    <text x="1560" y="41" font-weight="700" fill="#a3311f">❌</text><text x="1580" y="41">미등록/없음</text>
+  </g>
+
+  <!-- ============ SECTION 1 ============ -->
+  <text x="50" y="112" font-size="16.5" font-weight="700" fill="#1c2321">1. DB 실제 테이블 목록과 컬럼 (public 스키마, 22개)</text>
+
+  <!-- header -->
+  <rect x="50" y="126" width="1800" height="36" fill="#26333a"/>
+  <text x="66" y="149" font-size="12.5" font-weight="700" fill="#ffffff">테이블</text>
+  <text x="420" y="149" font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="end">행수</text>
+  <text x="446" y="149" font-size="12.5" font-weight="700" fill="#ffffff">PK</text>
+  <text x="576" y="149" font-size="12.5" font-weight="700" fill="#ffffff">컬럼</text>
+
+  <!-- rows: generated y = 162 + i*28 -->
+  <g font-size="11" fill="#1c2321">
+    <!-- 1 -->
+    <rect x="50" y="162" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="181" font-weight="600">accident_prone_area</text>
+    <text x="420" y="181" text-anchor="end">234</text>
+    <text x="446" y="181">id</text>
+    <text x="576" y="181">id, accident_type, accident_year, death_count, has_death, geom</text>
+
+    <!-- 2 -->
+    <rect x="50" y="190" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="209" font-weight="600">banners</text>
+    <text x="420" y="209" text-anchor="end">6</text>
+    <text x="446" y="209">id</text>
+    <text x="576" y="209">id, key(unique), category, emoji, text, sub, scoring(JSON)</text>
+
+    <!-- 3 -->
+    <rect x="50" y="218" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="237" font-weight="600">chat_sessions</text>
+    <text x="420" y="237" text-anchor="end">0</text>
+    <text x="446" y="237">id</text>
+    <text x="576" y="237">id, user_id, thread_id(unique), current_state, created_at, updated_at</text>
+
+    <!-- 4 -->
+    <rect x="50" y="246" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="265" font-weight="600">child_layer</text>
+    <text x="420" y="265" text-anchor="end">0</text>
+    <text x="446" y="265">id</text>
+    <text x="576" y="265">id, csv_raw_id, public_raw_id, category, geom</text>
+
+    <!-- 5 -->
+    <rect x="50" y="274" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="293" font-weight="600">csv_raw</text>
+    <text x="420" y="293" text-anchor="end">225,020</text>
+    <text x="446" y="293">id</text>
+    <text x="576" y="293">id, query_key, geom, properties(JSONB), fetched_at</text>
+
+    <!-- 6 -->
+    <rect x="50" y="302" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="321" font-weight="600">edge_feature_layer</text>
+    <text x="420" y="321" text-anchor="end">0</text>
+    <text x="446" y="321">id</text>
+    <text x="576" y="321">id, source_name, source_id, feature_type, name, verification_status, properties, geom</text>
+
+    <!-- 7 -->
+    <rect x="50" y="330" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="349" font-weight="600">kakao_raw</text>
+    <text x="420" y="349" text-anchor="end">0</text>
+    <text x="446" y="349">id</text>
+    <text x="576" y="349">id, query_key, geom, properties, fetched_at</text>
+
+    <!-- 8 -->
+    <rect x="50" y="358" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="377" font-weight="600">landmark_layer</text>
+    <text x="420" y="377" text-anchor="end">0</text>
+    <text x="446" y="377">id</text>
+    <text x="576" y="377">id, name, geom</text>
+
+    <!-- 9 -->
+    <rect x="50" y="386" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="405" font-weight="600">nature_layer</text>
+    <text x="420" y="405" text-anchor="end">0</text>
+    <text x="446" y="405">id</text>
+    <text x="576" y="405">id, osm_raw_id, green_type, green_weight, source_name, source_id, name, geom</text>
+
+    <!-- 10 -->
+    <rect x="50" y="414" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="433" font-weight="600">osm_raw</text>
+    <text x="420" y="433" text-anchor="end">0</text>
+    <text x="446" y="433">id</text>
+    <text x="576" y="433">id, query_key, geom, properties, fetched_at</text>
+
+    <!-- 11 -->
+    <rect x="50" y="442" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="461" font-weight="600">public_raw</text>
+    <text x="420" y="461" text-anchor="end">0</text>
+    <text x="446" y="461">id</text>
+    <text x="576" y="461">id, query_key, geom, properties, fetched_at</text>
+
+    <!-- 12 -->
+    <rect x="50" y="470" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="489" font-weight="600">route_histories</text>
+    <text x="420" y="489" text-anchor="end">0</text>
+    <text x="446" y="489">id</text>
+    <text x="576" y="489">id, user_id, mode, origin_lat, origin_lon, destination_lat, destination_lon, coordinates(JSON), total_km, is_favorite, created_at</text>
+
+    <!-- 13 -->
+    <rect x="50" y="498" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="517" font-weight="600">route_pois</text>
+    <text x="420" y="517" text-anchor="end">0</text>
+    <text x="446" y="517">id</text>
+    <text x="576" y="517">id, source_name, source_id, category, name, address, nearest_node_id, nearest_edge_id, distance_m, is_route_connected, properties, geom</text>
+
+    <!-- 14 -->
+    <rect x="50" y="526" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="545" font-weight="600">running_layer</text>
+    <text x="420" y="545" text-anchor="end">229</text>
+    <text x="446" y="545">id</text>
+    <text x="576" y="545">id, csv_raw_id, name, course_type, difficulty, geom</text>
+
+    <!-- 15 safe_return_road HIGHLIGHT -->
+    <rect x="50" y="554" width="1800" height="28" fill="#f3ddd6"/>
+    <text x="66" y="573" font-weight="700" fill="#7a2418">safe_return_road</text>
+    <text x="420" y="573" text-anchor="end" fill="#1c2321">362</text>
+    <text x="446" y="573" font-weight="700" fill="#a3311f">없음</text>
+    <text x="576" y="573" fill="#1c2321">length_src, gu, dong, bell_cnt, cctv_cnt, light_cnt, police_cnt, name, built_year, location, geom</text>
+
+    <!-- 16 -->
+    <rect x="50" y="582" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="601" font-weight="600">safety_layer</text>
+    <text x="420" y="601" text-anchor="end">211,616</text>
+    <text x="446" y="601">id</text>
+    <text x="576" y="601">id, csv_raw_id, safety_type, purpose, geom</text>
+
+    <!-- 17 -->
+    <rect x="50" y="610" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="629" font-weight="600">seoul_administrative_boundary</text>
+    <text x="420" y="629" text-anchor="end">25</text>
+    <text x="446" y="629">id</text>
+    <text x="576" y="629">id, district_code(unique), name, geom</text>
+
+    <!-- 18 -->
+    <rect x="50" y="638" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="657" font-weight="600">seoul_water_polygons</text>
+    <text x="420" y="657" text-anchor="end">0</text>
+    <text x="446" y="657">id</text>
+    <text x="576" y="657">id, water_type, geom</text>
+
+    <!-- 19 -->
+    <rect x="50" y="666" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="685" font-weight="600">user_preferences</text>
+    <text x="420" y="685" text-anchor="end">0</text>
+    <text x="446" y="685">id</text>
+    <text x="576" y="685">id, user_id(unique), survey_completed, default_target_km, weights_safety/nature/slope/running/landmark/child/convenience/accessibility(8종), selected_tags(JSON)</text>
+
+    <!-- 20 -->
+    <rect x="50" y="694" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="713" font-weight="600">users</text>
+    <text x="420" y="713" text-anchor="end">0</text>
+    <text x="446" y="713">id</text>
+    <text x="576" y="713">id, provider, provider_id, nickname, created_at</text>
+
+    <!-- 21 walk_edges HIGHLIGHT -->
+    <rect x="50" y="722" width="1800" height="28" fill="#f3e0c8"/>
+    <text x="66" y="741" font-weight="700" fill="#8a4a12">walk_edges</text>
+    <text x="420" y="741" text-anchor="end" fill="#1c2321">278,762</text>
+    <text x="446" y="741" fill="#1c2321">link_id</text>
+    <text x="576" y="741" fill="#1c2321">link_id, start_node, end_node, length_m, geom,</text>
+    <text x="890" y="741" font-weight="700" fill="#8a4a12">slope_score, running_score, safety_score, accident_score</text>
+
+    <!-- 22 -->
+    <rect x="50" y="750" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="769" font-weight="600">walk_nodes</text>
+    <text x="420" y="769" text-anchor="end">214,217</text>
+    <text x="446" y="769">node_id</text>
+    <text x="576" y="769">node_id, geom, elevation_m</text>
+  </g>
+  <rect x="50" y="162" width="1800" height="616" fill="none" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="66" y="798" font-size="11" fill="#8b9188">※ PostGIS tiger 스키마 34개 + topology 스키마 2개(지오코더 확장 테이블)는 앱 테이블이 아니라 제외</text>
+
+  <!-- ============ SECTION 2 ============ -->
+  <text x="50" y="850" font-size="16.5" font-weight="700" fill="#1c2321">2. src/entity/ 엔티티 전수조사 (21개 + 누락 1개)</text>
+
+  <rect x="50" y="864" width="1800" height="36" fill="#26333a"/>
+  <text x="66" y="887" font-size="12.5" font-weight="700" fill="#ffffff">파일 경로</text>
+  <text x="590" y="887" font-size="12.5" font-weight="700" fill="#ffffff">클래스</text>
+  <text x="950" y="887" font-size="12.5" font-weight="700" fill="#ffffff">__tablename__</text>
+  <text x="1350" y="887" font-size="12.5" font-weight="700" fill="#ffffff">register_entities() 등록</text>
+
+  <g font-size="11.5" fill="#1c2321">
+    <rect x="50" y="900" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="919">entity/banner.py</text><text x="590" y="919">Banner</text><text x="950" y="919">banners</text><text x="1470" y="919" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="928" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="947">entity/chat_session.py</text><text x="590" y="947">ChatSession</text><text x="950" y="947">chat_sessions</text><text x="1470" y="947" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="956" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="975">entity/route_history.py</text><text x="590" y="975">RouteHistory</text><text x="950" y="975">route_histories</text><text x="1470" y="975" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="984" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="1003">entity/user.py</text><text x="590" y="1003">User</text><text x="950" y="1003">users</text><text x="1470" y="1003" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1012" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="1031">entity/user_preference.py</text><text x="590" y="1031">UserPreference</text><text x="950" y="1031">user_preferences</text><text x="1470" y="1031" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1040" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="1059">entity/network/walk_node.py</text><text x="590" y="1059">WalkNode</text><text x="950" y="1059">walk_nodes</text><text x="1470" y="1059" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1068" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="1087">entity/network/walk_edge.py</text><text x="590" y="1087">WalkEdge</text><text x="950" y="1087">walk_edges</text><text x="1470" y="1087" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1096" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="1115">entity/layer/safety_layer.py</text><text x="590" y="1115">SafetyLayer</text><text x="950" y="1115">safety_layer</text><text x="1470" y="1115" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1124" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="1143">entity/layer/landmark_layer.py</text><text x="590" y="1143">LandmarkLayer</text><text x="950" y="1143">landmark_layer</text><text x="1470" y="1143" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1152" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="1171">entity/layer/nature_layer.py</text><text x="590" y="1171">NatureLayer</text><text x="950" y="1171">nature_layer</text><text x="1470" y="1171" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1180" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="1199">entity/layer/running_layer.py</text><text x="590" y="1199">RunningLayer</text><text x="950" y="1199">running_layer</text><text x="1470" y="1199" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1208" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="1227">entity/layer/child_layer.py</text><text x="590" y="1227">ChildLayer</text><text x="950" y="1227">child_layer</text><text x="1470" y="1227" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1236" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="1255">entity/layer/edge_feature_layer.py</text><text x="590" y="1255">EdgeFeatureLayer</text><text x="950" y="1255">edge_feature_layer</text><text x="1470" y="1255" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1264" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="1283">entity/layer/route_poi.py</text><text x="590" y="1283">RoutePoi</text><text x="950" y="1283">route_pois</text><text x="1470" y="1283" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1292" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="1311">entity/layer/seoul_administrative_boundary.py</text><text x="590" y="1311">SeoulAdministrativeBoundary</text><text x="950" y="1311">seoul_administrative_boundary</text><text x="1470" y="1311" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1320" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="1339">entity/layer/seoul_water_polygon.py</text><text x="590" y="1339">SeoulWaterPolygon</text><text x="950" y="1339">seoul_water_polygons</text><text x="1470" y="1339" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1348" width="1800" height="28" fill="#f3e0c8"/>
+    <text x="66" y="1367">entity/layer/accident_prone_area.py</text><text x="590" y="1367">AccidentProneArea</text><text x="950" y="1367">accident_prone_area</text><text x="1470" y="1367" font-weight="700" fill="#1f6f5c">✅ (오늘 신설)</text>
+
+    <rect x="50" y="1376" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="1395">entity/raw/csv_raw.py</text><text x="590" y="1395">CsvRaw</text><text x="950" y="1395">csv_raw</text><text x="1470" y="1395" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1404" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="1423">entity/raw/osm_raw.py</text><text x="590" y="1423">OsmRaw</text><text x="950" y="1423">osm_raw</text><text x="1470" y="1423" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1432" width="1800" height="28" fill="#ffffff"/>
+    <text x="66" y="1451">entity/raw/kakao_raw.py</text><text x="590" y="1451">KakaoRaw</text><text x="950" y="1451">kakao_raw</text><text x="1470" y="1451" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <rect x="50" y="1460" width="1800" height="28" fill="#f2efe4"/>
+    <text x="66" y="1479">entity/raw/public_raw.py</text><text x="590" y="1479">PublicRaw</text><text x="950" y="1479">public_raw</text><text x="1470" y="1479" font-weight="700" fill="#1f6f5c">✅</text>
+
+    <!-- missing -->
+    <rect x="50" y="1488" width="1800" height="28" fill="#f3ddd6"/>
+    <text x="66" y="1507" font-style="italic" fill="#7a2418">(해당 파일 없음)</text>
+    <text x="590" y="1507" font-style="italic" fill="#7a2418">(엔티티 자체가 없음)</text>
+    <text x="950" y="1507" font-weight="700" fill="#7a2418">safe_return_road</text>
+    <text x="1470" y="1507" font-weight="700" fill="#a3311f">❌ 미등록</text>
+  </g>
+  <rect x="50" y="900" width="1800" height="616" fill="none" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="66" y="1536" font-size="12.5" font-weight="600" fill="#1f6f5c">결론: 선언된 엔티티 21개는 전부 register_entities()에 등록되어 있음. 등록 안 된 건 엔티티 자체가 없는 safe_return_road 하나뿐.</text>
+
+  <!-- ============ SECTION 3 ============ -->
+  <text x="50" y="1588" font-size="16.5" font-weight="700" fill="#1c2321">3. walk_edges 컬럼별 출처 함수</text>
+
+  <rect x="50" y="1602" width="1800" height="36" fill="#26333a"/>
+  <text x="66" y="1625" font-size="12.5" font-weight="700" fill="#ffffff">컬럼</text>
+  <text x="330" y="1625" font-size="12.5" font-weight="700" fill="#ffffff">ORM 선언 상태</text>
+  <text x="820" y="1625" font-size="12.5" font-weight="700" fill="#ffffff">채우는 함수</text>
+
+  <g font-size="12" fill="#1c2321">
+    <rect x="50" y="1638" width="1800" height="34" fill="#ffffff"/>
+    <text x="66" y="1660" font-weight="700">link_id · start_node · end_node · length_m · geom</text>
+    <text x="330" y="1660" fill="#1f6f5c">WalkEdge 클래스에 살아있음</text>
+    <text x="820" y="1660">BaseNetworkCollector.upsert()/rebuild() → NetworkWriteRepository</text>
+
+    <rect x="50" y="1672" width="1800" height="34" fill="#f2efe4"/>
+    <text x="66" y="1694" font-weight="700">slope_score</text>
+    <text x="330" y="1694" fill="#a3311f">주석 처리(WalkEdge 안), DB엔 존재</text>
+    <text x="820" y="1694">SlopeCalculator.update_edge()  (slope_collector.py:120)</text>
+
+    <rect x="50" y="1706" width="1800" height="34" fill="#ffffff"/>
+    <text x="66" y="1728" font-weight="700">running_score</text>
+    <text x="330" y="1728" fill="#a3311f">주석 처리, DB엔 존재</text>
+    <text x="820" y="1728">RunningCourseCollector.update_edge()  (running_collector.py:307)</text>
+
+    <rect x="50" y="1740" width="1800" height="34" fill="#f3e0c8"/>
+    <text x="66" y="1762" font-weight="700" fill="#8a4a12">safety_score</text>
+    <text x="330" y="1762" font-weight="700" fill="#a3311f">주석에도 없음, DB엔 존재 (오늘 신설)</text>
+    <text x="820" y="1762">SafetyCollector.update_edge() → SafetyRepository.get_safety_coverage_by_edge()</text>
+
+    <rect x="50" y="1774" width="1800" height="34" fill="#f3ddd6"/>
+    <text x="66" y="1796" font-weight="700" fill="#7a2418">accident_score</text>
+    <text x="330" y="1796" font-weight="700" fill="#a3311f">주석에도 없음, DB엔 존재 (오늘 신설)</text>
+    <text x="820" y="1796">AccidentCollector.update_edge() → AccidentRepository.update_edge_accident_overlap_ratios()</text>
+  </g>
+  <rect x="50" y="1638" width="1800" height="170" fill="none" stroke="#c9bea3" stroke-width="1.5"/>
+
+  <!-- ============ SECTION 4 ============ -->
+  <text x="50" y="1858" font-size="16.5" font-weight="700" fill="#1c2321">4. 코드 ↔ DB 불일치 (3건)</text>
+
+  <rect x="50" y="1872" width="1800" height="40" fill="#26333a"/>
+  <text x="66" y="1897" font-size="12.5" font-weight="700" fill="#ffffff">#</text>
+  <text x="100" y="1897" font-size="12.5" font-weight="700" fill="#ffffff">위치</text>
+  <text x="300" y="1897" font-size="12.5" font-weight="700" fill="#ffffff">DB (실제)</text>
+  <text x="850" y="1897" font-size="12.5" font-weight="700" fill="#ffffff">코드 (WalkEdge / src/entity)</text>
+  <text x="1400" y="1897" font-size="12.5" font-weight="700" fill="#ffffff">불일치 내용</text>
+
+  <!-- row 1 -->
+  <rect x="50" y="1912" width="1800" height="160" fill="#f3e0c8" stroke="#c1611c" stroke-width="1.5"/>
+  <text x="66" y="1942" font-size="15" font-weight="700" fill="#8a4a12">1</text>
+  <text x="100" y="1942" font-size="12" fill="#1c2321">walk_edges</text>
+  <text x="300" y="1936" font-size="11.5" fill="#1c2321">slope_score, running_score,</text>
+  <text x="300" y="1954" font-size="11.5" fill="#1c2321">safety_score, accident_score</text>
+  <text x="300" y="1972" font-size="11.5" fill="#1c2321">4개 존재</text>
+  <text x="850" y="1936" font-size="11.5" fill="#1c2321">4개 다 선언 안 됨 — slope/running은</text>
+  <text x="850" y="1954" font-size="11.5" fill="#1c2321">주석 블록 안에만 있고, safety/accident는</text>
+  <text x="850" y="1972" font-size="11.5" fill="#1c2321">주석에도 없음(존재 자체를 모름)</text>
+  <text x="1400" y="1936" font-size="11.5" fill="#7a2418">ORM 모델을 봐도 이 4개 컬럼 실체를</text>
+  <text x="1400" y="1954" font-size="11.5" fill="#7a2418">알 수 없음. ensure_score_column()으로</text>
+  <text x="1400" y="1972" font-size="11.5" fill="#7a2418">런타임 ALTER TABLE만 하고 ORM 선언은</text>
+  <text x="1400" y="1990" font-size="11.5" fill="#7a2418">갱신 안 함</text>
+
+  <!-- row 2 -->
+  <rect x="50" y="2072" width="1800" height="160" fill="#eef1ee" stroke="#8b9188" stroke-width="1.5"/>
+  <text x="66" y="2102" font-size="15" font-weight="700" fill="#5d655f">2</text>
+  <text x="100" y="2102" font-size="12" fill="#1c2321">walk_edges</text>
+  <text x="300" y="2096" font-size="11.5" fill="#1c2321">nature_score, landmark_score, child_score,</text>
+  <text x="300" y="2114" font-size="11.5" fill="#1c2321">park_overlap_ratio, convenience_score,</text>
+  <text x="300" y="2132" font-size="11.5" fill="#1c2321">is_school_zone, is_vehicle_caution 없음</text>
+  <text x="300" y="2150" font-size="11.5" fill="#5d655f">(9/11 사고로 삭제, 미복구)</text>
+  <text x="850" y="2096" font-size="11.5" fill="#1c2321">WalkEdge 클래스에 주석으로</text>
+  <text x="850" y="2114" font-size="11.5" fill="#1c2321">선언은 남아있음</text>
+  <text x="1400" y="2096" font-size="11.5" fill="#5d655f">코드가 "이런 컬럼이 있다"고</text>
+  <text x="1400" y="2114" font-size="11.5" fill="#5d655f">주석에 적어놨지만 실제 DB엔 없음</text>
+  <text x="1400" y="2132" font-size="11.5" font-weight="600" fill="#5d655f">— 반대 방향 불일치</text>
+
+  <!-- row 3 -->
+  <rect x="50" y="2232" width="1800" height="160" fill="#f3ddd6" stroke="#a3311f" stroke-width="1.5"/>
+  <text x="66" y="2262" font-size="15" font-weight="700" fill="#7a2418">3</text>
+  <text x="100" y="2262" font-size="12" fill="#1c2321">safe_return_road</text>
+  <text x="300" y="2262" font-size="11.5" fill="#1c2321">테이블 존재(362행)</text>
+  <text x="300" y="2280" font-size="11.5" font-weight="700" fill="#a3311f">PK 없음</text>
+  <text x="850" y="2262" font-size="11.5" fill="#1c2321">src/entity/ 어디에도 클래스 없음,</text>
+  <text x="850" y="2280" font-size="11.5" fill="#1c2321">register_entities() 미등록</text>
+  <text x="1400" y="2262" font-size="11.5" fill="#7a2418">DB엔 있는데 코드가 이 테이블의</text>
+  <text x="1400" y="2280" font-size="11.5" fill="#7a2418">존재 자체를 모름 —</text>
+  <text x="1400" y="2298" font-size="11.5" fill="#7a2418">analysis/load_safe_return_road.py가</text>
+  <text x="1400" y="2316" font-size="11.5" fill="#7a2418">ORM 밖에서 직접 만든 테이블</text>
+
+  <text x="50" y="2415" font-size="12" fill="#8b9188">나머지 18개 테이블은 컬럼 수·이름·PK 전부 코드 선언과 DB가 정확히 일치 · 작성: Claude Sonnet 5 · seoul-walk-platform</text>
+</svg>

@@ -61,12 +61,8 @@ def _render_preference_panel():
         return
 
     LABEL_MAP = {
-        "weights_safety":   "안전",
-        "weights_nature":   "자연",
-        "weights_slope":    "평지",
-        "weights_running":  "러닝",
-        "weights_landmark": "볼거리",
-        "weights_child":    "어린이",
+        "weights_safety":  "안전",
+        "weights_comfort": "편안",
     }
 
     with st.sidebar.expander("내 선호도", expanded=False):

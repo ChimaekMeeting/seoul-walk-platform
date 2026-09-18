@@ -4,27 +4,35 @@ src/service/user/survey_service.py
 온보딩 설문 비즈니스 로직을 담당하는 서비스.
 키워드 태그를 경로 가중치로 변환하고 UserPreference에 저장한다.
 """
+
 from src.interfaces.schema.auth_schema import Status
 from src.repository.user.user_preference_repository import UserPreferenceRepository
 from src.repository.user.user_repository import UserRepository
 from src.service.user.auth_service import AuthService
-from src.interfaces.schema.survey_schema import DistanceOption, SurveyRequest, SurveyResponse, SurveyStatus, SurveyStatusResponse
 from src.schema.route_schema import Weights
 
+from src.interfaces.schema.survey_schema import (
+    DistanceOption,
+    SurveyRequest,
+    SurveyResponse,
+    SurveyStatus,
+    SurveyStatusResponse,
+)
 
 # 2026-09-17: 온보딩/챗봇 테마 태그가 "안전"/"편안" 둘로 통일되면서, 여러 키워드가
 # 각자 델타를 더하던 예전 방식(나무 많은/유모차/활기찬 등 20여 개 태그)을 걷어냈다.
 # extractor.py(대화에서 테마 태그 추출)/route_executor.py(태그별 가중치 EMA 블렌딩)도
 # 이 딕셔너리 키 집합을 그대로 참조하므로 두 축만 남는다.
 TAG_WEIGHT_MAP: dict[str, dict[str, float]] = {
+
     "안전": {"safety":  +0.2},
     "편안": {"comfort": +0.2},
 }
 
 DISTANCE_MAP: dict[DistanceOption, float] = {
-    DistanceOption.SLOW:   2.0,
+    DistanceOption.SLOW: 2.0,
     DistanceOption.NORMAL: 3.0,
-    DistanceOption.FAST:   5.0,
+    DistanceOption.FAST: 5.0,
 }
 
 # 설문 가중치 baseline은 route_schema.Weights 기본값을 단일 출처(SSOT)로 사용함.
@@ -63,6 +71,7 @@ def _safety_comfort_deltas(selected_safety: bool, selected_comfort: bool) -> tup
 # 온보딩 설문 UI에 노출할 태그 목록. TAG_WEIGHT_MAP과 동일(안전/편안 둘뿐).
 SURVEY_TAGS: list[str] = ["안전", "편안"]
 
+
 class SurveyService:
     """
     온보딩 설문 제출을 처리하는 서비스입니다.
@@ -71,7 +80,9 @@ class SurveyService:
     def __init__(self, auth_service: AuthService):
         self.auth_service = auth_service
 
-    def submit(self, access_token: str | None, request: SurveyRequest) -> SurveyResponse:
+    def submit(
+        self, access_token: str | None, request: SurveyRequest
+    ) -> SurveyResponse:
         """
         설문 결과를 장기 프로필(weights_safety/weights_comfort)의 초기값으로 변환해
         UserPreference에 저장합니다.
@@ -86,7 +97,9 @@ class SurveyService:
         최종값은 [0.0, 1.0]으로 클램핑됩니다.
         """
 
-        status, provider, provider_id = self.auth_service.check_access_token(access_token)
+        status, provider, provider_id = self.auth_service.check_access_token(
+            access_token
+        )
         if status != Status.SUCCESS:
             return SurveyResponse(status=status)
 
@@ -121,15 +134,21 @@ class SurveyService:
         """사용자의 설문 완료 여부와 저장된 장기 프로필(안전/편안 가중치)을 반환합니다."""
         status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if status != Status.SUCCESS:
-            return SurveyStatusResponse(status=SurveyStatus(status.value), survey_completed=False)
+            return SurveyStatusResponse(
+                status=SurveyStatus(status.value), survey_completed=False
+            )
 
         user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
         if user is None:
-            return SurveyStatusResponse(status=SurveyStatus.USER_NOT_FOUND, survey_completed=False)
+            return SurveyStatusResponse(
+                status=SurveyStatus.USER_NOT_FOUND, survey_completed=False
+            )
 
         preference = UserPreferenceRepository.get_by_user_id(user.id)
         if preference is None or not preference.survey_completed:
-            return SurveyStatusResponse(status=SurveyStatus.SUCCESS, survey_completed=False)
+            return SurveyStatusResponse(
+                status=SurveyStatus.SUCCESS, survey_completed=False
+            )
 
         return SurveyStatusResponse(
             status=SurveyStatus.SUCCESS,

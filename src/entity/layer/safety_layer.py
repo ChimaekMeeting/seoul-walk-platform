@@ -18,4 +18,6 @@ class SafetyLayer(Base):
         nullable=True,
     )
     safety_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    # 원본 설치목적(CCTV의 설치목적구분 등). 점수 계산 시점에 필터링하기 위해 보존한다.
+    purpose: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     geom = mapped_column(Geometry("POINT", srid=4326, spatial_index=True), nullable=False)
