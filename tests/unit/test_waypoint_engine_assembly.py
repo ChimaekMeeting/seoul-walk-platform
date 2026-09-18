@@ -285,3 +285,48 @@ def test_final_route_is_unchanged_by_candidate_collection(grid_graph, monkeypatc
 
     assert with_candidates == solo_nodes
     assert solo.last_alternative_routes == []
+
+
+# ── candidate_feature_vectors: 장기 프로필 SGD 스냅샷 ──────────────────────
+#
+# circular_beam.py/oneway_beam.py와 같은 계약 — run()이 반환하는 각 응답과 같은 순서로
+# {"safety", "comfort"} 평균을 채운다. grid_graph는 safety_score/tags를 설정하지 않으므로
+# scoring_engine._build_feature_cache()의 기본값(safety=0.0, 태그 없음 -> comfort=1.0)이
+# 그대로 나와야 한다 — 값 자체보다 "채워지는지·순서가 맞는지·새지 않는지"가 검증 대상이다.
+
+_NO_FEATURE_DATA = {"safety": 0.0, "comfort": 1.0}
+
+
+@pytest.mark.parametrize("combo", sorted(MULTI_CANDIDATE_COMBOS))
+def test_candidate_feature_vectors_match_multi_candidate_responses(grid_graph, combo):
+    """후보를 내는 조합은 응답 개수만큼 candidate_feature_vectors가 채워진다."""
+    construction, refinement = combo
+    engine = WaypointEngine(
+        inp=_grid_inp(), G=grid_graph, construction=construction, refinement=refinement,
+    )
+    responses = engine.run()
+
+    assert len(engine.candidate_feature_vectors) == len(responses) == CANDIDATE_COUNT
+    assert all(vec == _NO_FEATURE_DATA for vec in engine.candidate_feature_vectors)
+
+
+def test_candidate_feature_vectors_single_candidate_combo(grid_graph):
+    """후보를 안 내는 조합은 최종 경로 1개짜리 벡터만 남는다."""
+    engine = WaypointEngine(
+        inp=_grid_inp(), G=grid_graph, construction="grasp", refinement="vnd",
+    )
+    responses = engine.run()
+
+    assert len(engine.candidate_feature_vectors) == len(responses) == 1
+    assert engine.candidate_feature_vectors[0] == _NO_FEATURE_DATA
+
+
+def test_candidate_feature_vectors_do_not_leak_across_runs(grid_graph):
+    """같은 엔진 인스턴스로 run()을 두 번 불러도 이전 호출의 값이 누적되지 않는다."""
+    engine = WaypointEngine(
+        inp=_grid_inp(), G=grid_graph, construction="grasp", refinement="alns",
+    )
+    first = engine.run()
+    second = engine.run()
+
+    assert len(engine.candidate_feature_vectors) == len(second) == len(first) == CANDIDATE_COUNT
