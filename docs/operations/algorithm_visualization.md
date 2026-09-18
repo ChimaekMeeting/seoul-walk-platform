@@ -26,7 +26,7 @@
 
 ### 1.1 현재 범위
 
-기존 Graph artifact를 읽어 상명대학교 서울캠퍼스 정문 입력 좌표와 실제로 연결할 도보망 노드를 PNG로 표시한다. 별도 `visualizations.routes` 명령은 기존 A*·편도 Beam·순환 Beam을 실행해 탐색 기록을 재생하는 HTML과 최종 경로 PNG를 만든다. `--with-grasp`로 GRASP 구축 및 Local·VND·VNS·ALNS 정제 4종을 추가한다. 2026-09-12부터 최단거리는 Haversine과 ALT 두 조건으로 각각 한 번씩 실행해 같은 반환 경로에서 탐색량이 얼마나 달라지는지 비교한다. GIF는 아직 포함하지 않는다.
+기존 Graph artifact를 읽어 상명대학교 서울캠퍼스 정문 입력 좌표와 실제로 연결할 도보망 노드를 PNG로 표시한다. 별도 `visualizations.routes` 명령은 최단거리·`detour`(A*)와 순환(GRASP+ALNS, 2026-09-19 갱신 — 예전에는 편도·순환 Beam)을 실행해 탐색 기록을 재생하는 HTML과 최종 경로 PNG를 만든다. `--with-grasp`로 GRASP 구축 및 Local·VND·VNS·ALNS 정제 4종을 추가한다. 2026-09-12부터 최단거리는 Haversine과 ALT 두 조건으로 각각 한 번씩 실행해 같은 반환 경로에서 탐색량이 얼마나 달라지는지 비교한다. GIF는 아직 포함하지 않는다.
 
 정문 식별은 [상명대학교 서울캠퍼스 찾아오시는 길](https://www.sangmyung.ac.kr/kor/intro/road.do)의 “7016 버스는 학교 정문에서 하차” 안내를 기준으로 했다. 좌표는 2026-09-10에 Google 지도의 `상명대정문` 버스 정류장 위치를 확인하여 `visualizations/scenarios/sangmyung.json`에 기록했다.
 
@@ -104,8 +104,8 @@ Docker·서버·DB·인터넷 연결 없이 실행한다. 시나리오의 출발
 |---|---|
 | 상명대 → 경복궁역 최단거리 | `OnewayAstarEngine.run()`, Haversine 휴리스틱 |
 | 같은 요청 · ALT | `OnewayAstarEngine.run()`, 서비스 기동과 같은 방식으로 준비해 그래프에 붙인 ALT 휴리스틱 |
-| 같은 목적지까지 우회 | `OnewayBeamEngine.run()`, 목표 = 측정한 최단거리 + 1km |
-| 상명대에서 3km 순환 | `CircularBeamEngine.run()` |
+| 같은 목적지까지 우회 | (2026-09-19 갱신) `OnewayAstarEngine.run()` — `OnewayBeamEngine`은 삭제됐고 우회(`oneway_random`)는 지금 `oneway_shortest`와 같은 엔진을 쓰는 임시 상태라 목표 거리를 반영하지 않는다 |
+| 상명대에서 3km 순환 | (2026-09-19 갱신) `CircularGraspWaypointAlnsEngine.run()` — `CircularBeamEngine`은 삭제됐다 |
 | 상명대에서 그냥 3km | 기존 `extraction.yaml`의 목적지 없는 거리 요청 → 순환 규칙에 따라 위 기록을 재사용 |
 
 마지막 행은 시각화에 입력 매핑을 명시한 것으로, LLM을 호출해 실제 자연어 해석을 검증한 결과는 아니다.
@@ -146,7 +146,7 @@ Docker·서버·DB·인터넷 연결 없이 실행한다. 시나리오의 출발
 | `--scenario` | 시나리오 파일 이름(`visualizations/scenarios/`) | `sangmyung` |
 | `--artifact` | 입력 도보망 artifact 경로 | `artifacts/walk_graph_v1.pkl` |
 | `--target-km` | 순환 목표 거리 | `3.0` |
-| `--detour-extra-km` | 편도 목표 = 측정한 최단거리 + 이 거리 | `1.0` |
+| `--detour-extra-km` | (2026-09-19 갱신, 지금은 사실상 죽은 옵션) `detour_m`을 계산해 `execute()`에 넘기지만, `detour` 시나리오가 쓰는 `OnewayAstarEngine`/`OnewayRouteInput`은 `target_km`을 아예 읽지 않는다(순수 최단경로 A*라 목표 거리 개념이 없다) — 값을 바꿔도 결과 경로는 항상 최단경로와 같다 | `1.0` |
 | `--with-grasp` | GRASP 구축과 Local·VND·VNS·ALNS 정제 4종 추가 | 꺼짐 |
 | `--grasp-iterations` | GRASP 재시작 수(기존 엔진 기본은 24) | `4` |
 | `--seed` | GRASP 계열 난수 seed | `42` |
@@ -163,17 +163,22 @@ Docker·서버·DB·인터넷 연결 없이 실행한다. 시나리오의 출발
 
 알고리즘마다 기록 방식이 다르지만, 어댑터를 지나면 모두 같은 이벤트 형식이 된다. 화면과 점검기는 그 공통 형식만 본다 — 엔진 내부 변수명이나 줄 번호를 참조하지 않는다.
 
+(2026-09-19 갱신) `CircularBeamEngine`·`OnewayBeamEngine`과 `beam_adapter.py`는 8축→2축 축소에서
+전부 삭제됐다. `detour`(`oneway_random`)는 지금 `shortest`와 같은 `OnewayAstarEngine`을 쓰고,
+`circular`(`circular_random`)는 `CircularGraspWaypointAlnsEngine`(`WaypointEngine`을
+`construction="grasp", refinement="alns"`로 고정한 래퍼)을 쓴다 — 즉 `circular`도 이제
+`grasp_*` 계열과 같은 `waypoint_trace.py`/`waypoint_adapter.py` 경로로 계측된다. 아래
+다이어그램은 그 결과를 반영한 현재 구조다.
+
 ```mermaid
 flowchart LR
   subgraph engines["알고리즘 · src/route_engine (시각화가 수정하지 않음)"]
-    astar["OnewayAstarEngine<br/>+ALT 휴리스틱<br/>서비스 엔진"]
-    beam["CircularBeamEngine<br/>OnewayBeamEngine<br/>서비스 엔진"]
-    grasp["WaypointEngine<br/>GRASP·Local·VND·VNS·ALNS<br/>벤치마크 전용"]
+    astar["OnewayAstarEngine<br/>+ALT 휴리스틱<br/>서비스 엔진(shortest·shortest_alt·detour)"]
+    grasp["WaypointEngine 계열<br/>GRASP·Local·VND·VNS·ALNS<br/>circular=서비스(CircularGraspWaypointAlnsEngine)<br/>grasp_*=벤치마크 전용"]
   end
   subgraph adapters["기록 어댑터 · visualizations"]
-    settrace["route_trace.py<br/>waypoint_trace.py<br/>settrace 수집 · 오프라인 전용"]
+    settrace["waypoint_trace.py<br/>settrace 수집 · 오프라인 전용"]
     astarad["astar_adapter.py<br/>실제 실행 → 재생 → 노드열 대조"]
-    beamad["beam_adapter.py"]
     wpad["waypoint_adapter.py"]
     events["events.py<br/>validate_events · RunConditions"]
   end
@@ -184,12 +189,9 @@ flowchart LR
     checks["checks.py<br/>기록 불변식 A~J"]
   end
   astar -->|"run 반환 경로"| astarad
-  beam -->|"엔진 지역 상태"| settrace
   grasp -->|"엔진 지역 상태"| settrace
-  settrace -->|"원본 이벤트 phase"| beamad
   settrace -->|"원본 이벤트 phase"| wpad
   astarad -->|"events 목록 + conditions"| events
-  beamad -->|"events 목록 + conditions"| events
   wpad -->|"events 목록 + conditions"| events
   events -->|"검증을 통과한 events"| story
   story -->|"events + keyframes"| view
@@ -197,7 +199,7 @@ flowchart LR
   html -->|"routes.html · trace.json · summary.json"| checks
 ```
 
-`settrace` 수집은 Beam·GRASP 계열에만 남아 있고 오프라인 전용이다. 엔진 관찰자 훅이 승인되면 이 상자만 사라지고 어댑터 오른쪽은 그대로다([경로 엔진 관찰자 훅 도입 제안](../proposals/route_engine_trace_observer_proposal.md)).
+`settrace` 수집은 GRASP 계열(`circular`·`grasp_*`, `waypoint_trace.py`)에만 남아 있고 오프라인 전용이다(2026-09-19 갱신 — Beam 계열은 삭제됐다). 엔진 관찰자 훅이 승인되면 이 상자만 사라지고 어댑터 오른쪽은 그대로다([경로 엔진 관찰자 훅 도입 제안](../proposals/route_engine_trace_observer_proposal.md)).
 
 ### 3.2 한 실행의 검증 흐름
 
@@ -228,13 +230,13 @@ flowchart TD
 
 ### 4.1 기록과 비용 조건
 
-`route_experiment.py`가 입력 그래프를 깊은 복사한 뒤 기존 엔진의 `run()`을 호출한다. 실행 컨텍스트 안에서만 Beam의 비용 함수를 `custom_score = length`로, 후보 다양화 벡터를 거리로 교체한다. 선호 가중치를 모두 0으로 설정하는 방식과 다르며, 이 실험은 기본 서비스 프로필 결과를 재현하는 것이 아니다. A*는 기존 거리 전용 계산을 그대로 쓴다.
+`route_experiment.py`가 입력 그래프를 깊은 복사한 뒤 기존 엔진의 `run()`을 호출한다. (2026-09-19 갱신) Beam 계열이 삭제되며 "실행 컨텍스트 안에서만 비용 함수를 `custom_score = length`로 교체"하던 패치(`distance_score`/`distance_vector`)도 함께 제거됐다 — 지금 `circular`/`detour`가 쓰는 `CircularGraspWaypointAlnsEngine`/`OnewayAstarEngine`은 애초에 거리 전용이라 실행 전 패치가 필요 없다. A*는 기존 거리 전용 계산을 그대로 쓴다.
 
 재연결 시 기방문 노드 비용 5배, 목표 허용 오차 10%, 반복 노드 사이 짧은 구간 제거 등 기존 엔진의 탐색·정리 규칙은 유지한다. 따라서 ‘거리 기반’은 기본 엣지 비용을 말하며, 모든 탐색 판단이 거리 최소화 하나만 따르는 것은 아니다. 편도는 기존 최단 경로와의 겹침도도 비교한다.
 
-`route_trace.py`는 엔진 소스를 복제하지 않고 Python trace로 Beam의 실제 로컬 상태를 읽는다. 확장 후보와 상위 최대 8개 유지 결과, 도착 연결, 후보 선택, 정리 전후를 기록한다. Beam 내부 재연결 A*의 세부 탐색은 완성 구간으로만 보여준다. 최단거리 A*는 2026-09-12부터 이 경로를 쓰지 않는다 — `astar_adapter.py`가 실제 실행을 재생해 기록한다(아래 “공통 이벤트 형식과 A*·ALT 어댑터” 절). 재생 시간은 계산 시간이 아니다.
+(2026-09-19 갱신) `route_trace.py`의 Beam 전용 계측 로직(엔진 소스 구문 검사로 확장 후보·유지 결과·도착 연결을 읽던 부분)은 더 이상 어떤 엔진도 쓰지 않는다 — `CircularBeamEngine`/`OnewayBeamEngine`이 삭제됐고, 유일한 구현체 `waypoint_trace.py::WaypointTrace`는 이 로직을 상속하지 않고 자기 것으로 완전히 덮어쓴다. 최단거리 A*는 2026-09-12부터 이 경로를 쓰지 않는다 — `astar_adapter.py`가 실제 실행을 재생해 기록한다(아래 “공통 이벤트 형식과 A*·ALT 어댑터” 절). 재생 시간은 계산 시간이 아니다.
 
-Beam 계측 지점은 소스 구문을 검사해 찾고 함수 소스 해시를 결과에 남긴다. 해당 구조가 바뀌면 오류로 중단한다. Beam 기록은 디버거·커버리지와 동시에 실행하지 않는다. 원본 `src/**`와 의존 패키지 파일은 변경하지 않는다(A* 어댑터가 읽을 수 있도록 ALT 거리표를 휴리스틱 함수 속성으로 붙이는 한 줄은 예외이며, 엔진 동작·반환값은 그대로다).
+GRASP 계측 지점은 소스 구문을 검사해 찾고 함수 소스 해시를 결과에 남긴다. 해당 구조가 바뀌면 오류로 중단한다. 이 기록은 디버거·커버리지와 동시에 실행하지 않는다. 원본 `src/**`와 의존 패키지 파일은 변경하지 않는다(A* 어댑터가 읽을 수 있도록 ALT 거리표를 휴리스틱 함수 속성으로 붙이는 한 줄은 예외이며, 엔진 동작·반환값은 그대로다).
 
 `waypoint_trace.py`는 실제 함수의 다음 상태를 읽는다.
 
@@ -309,40 +311,23 @@ Beam 계측 지점은 소스 구문을 검사해 찾고 함수 소스 해시를 
 
 이벤트 수는 `pop 수 + 2`다(`run_start` 1개 + pop마다 `select` 1개 + `final` 1개). 이웃 하나하나를 따로 장면으로 만들지 않고, 그 pop에서 확장하거나 건너뛴 이웃을 같은 장면의 `values["expanded"]`에 모아 넣는다. `select` 장면의 `values`에는 `g_m`·`h_m`·`f_m`, `h_kind`, 대기 상위 5개(`frontier_top`), ALT면 랜드마크별 하한 항(`h_terms`)과 가장 큰 항의 랜드마크(`best_landmark`)가 들어간다. `h_terms`의 최댓값이 그 장면의 `h_m`과 1e-6 안에서 같은지 매 장면 확인하고, 다르면 역시 중단한다.
 
-엔진 내부에서 읽는 것은 `_active_heuristic`·`heuristic_name`·`blocked_tags`·`visited_nodes`뿐이다. 하나라도 없으면 “엔진 계약이 바뀌었습니다”라고 즉시 중단한다 — 조용히 다른 조건으로 재생하지 않기 위해서다. 재생 화면은 엔진의 변수명이나 줄 번호를 직접 참조하지 않는다. 화면이 읽는 것은 어댑터가 만든 공통 이벤트뿐이다.
+엔진 내부에서 읽는 것은 `_active_heuristic`·`heuristic_name`·`visited_nodes`뿐이다(2026-09-19 갱신 — `blocked_tags`는 `profiles.py` 삭제로 `OnewayAstarEngine`에서 없어져 더 이상 읽지 않는다). 하나라도 없으면 “엔진 계약이 바뀌었습니다”라고 즉시 중단한다 — 조용히 다른 조건으로 재생하지 않기 위해서다. 재생 화면은 엔진의 변수명이나 줄 번호를 직접 참조하지 않는다. 화면이 읽는 것은 어댑터가 만든 공통 이벤트뿐이다.
 
 #### settrace를 A*에서 걷어낸 이유
 
-기존 `route_trace.SearchTrace`는 `sys.settrace`로 NetworkX 내부 프레임의 지역 변수를 읽었다. 디버거·커버리지와 같이 쓸 수 없고, 라이브러리의 줄 번호와 구문 구조에 묶이며, 모든 줄마다 파이썬 콜백이 걸린다. A*는 이제 재생 방식이라 이 제약이 없다. **Beam 계열은 아직 `settrace`를 쓴다** — 같은 방식의 어댑터로 옮기는 일은 PR-B에서 한다. 그래서 `SearchTrace`의 `settrace` 경로와 소스 해시 검사는 그대로 남아 있고, Beam 기록을 켠 실행은 여전히 디버거·커버리지와 동시에 돌리지 않는다.
+기존 `route_trace.SearchTrace`는 `sys.settrace`로 NetworkX 내부 프레임의 지역 변수를 읽었다. 디버거·커버리지와 같이 쓸 수 없고, 라이브러리의 줄 번호와 구문 구조에 묶이며, 모든 줄마다 파이썬 콜백이 걸린다. A*는 이제 재생 방식이라 이 제약이 없다. **GRASP 계열은 아직 `settrace`를 쓴다**(2026-09-19 갱신 — Beam 계열은 삭제됐다) — 같은 방식의 어댑터로 옮기는 일은 관찰자 훅 제안에서 다룬다. 그래서 `SearchTrace`의 `settrace` 경로와 소스 해시 검사는 그대로 남아 있고(`WaypointTrace`가 이 클래스를 상속해 쓴다), GRASP 기록을 켠 실행은 여전히 디버거·커버리지와 동시에 돌리지 않는다.
 
 #### 랜드마크를 화면 범위 계산에서 빼는 이유
 
 ALT 랜드마크는 그래프 최대 연결요소의 바깥쪽 노드라 탐색 경로에서 아주 멀다. 2026-09-12 실행에서는 표시 중심에서 14~17km 떨어져 있었다. `route_view.event_nodes`가 화면 범위를 잡을 때 이 좌표까지 넣으면 경로가 몇 픽셀로 줄어든다. 그래서 랜드마크는 실행 조건과 화면 payload의 `landmarks`에만 넣고 이벤트의 `paths`·`nodes`에는 넣지 않는다. 재생 화면은 현재 보이는 영역 안에 들어올 때만 주황 마름모로 그린다. 기본 시나리오에서는 범위 밖이라 그려지지 않는다.
 
-### 4.4 Beam·GRASP 계열 어댑터 (2026-09-12)
+### 4.4 GRASP 계열 어댑터 (2026-09-12, 2026-09-19 갱신)
 
-앞 절 “공통 이벤트 형식과 A*·ALT 어댑터”에서 만든 형식을 Beam·GRASP 계열까지 넓혔다. 이제 **모든 모드의 `trace`가 `validate_events()`를 통과한 공통 이벤트**이고, `conditions`(RunConditions)가 모든 결과에 붙는다. `route_story`·`route_view`·재생 화면은 settrace 산출물을 더 이상 직접 보지 않고 어댑터가 낸 공통 이벤트만 본다.
+앞 절 “공통 이벤트 형식과 A*·ALT 어댑터”에서 만든 형식을 원래 Beam·GRASP 계열까지 넓혔다. 이제 **모든 모드의 `trace`가 `validate_events()`를 통과한 공통 이벤트**이고, `conditions`(RunConditions)가 모든 결과에 붙는다. `route_story`·`route_view`·재생 화면은 settrace 산출물을 더 이상 직접 보지 않고 어댑터가 낸 공통 이벤트만 본다.
 
-`sys.settrace` 수집(`route_trace.py`·`waypoint_trace.py`)은 이번에 걷어내지 않았다. 걷어내는 방법은 [경로 엔진 관찰자 훅 도입 제안](../proposals/route_engine_trace_observer_proposal.md)에 있으며, 승인 전까지는 "settrace 수집 → 어댑터 → 공통 이벤트"로 동작한다. 그래서 소스 해시 검사(`trace_source_hashes`)와 "디버거·커버리지와 동시에 실행하지 않는다"는 제약도 그대로다.
+`sys.settrace` 수집(`waypoint_trace.py`)은 이번에 걷어내지 않았다. 걷어내는 방법은 [경로 엔진 관찰자 훅 도입 제안](../proposals/route_engine_trace_observer_proposal.md)에 있으며, 승인 전까지는 "settrace 수집 → 어댑터 → 공통 이벤트"로 동작한다. 그래서 소스 해시 검사(`trace_source_hashes`)와 "디버거·커버리지와 동시에 실행하지 않는다"는 제약도 그대로다.
 
-#### Beam 매핑 (`visualizations/beam_adapter.py`)
-
-원본 키(`iteration`·`generated`·`kept`·`finished`·`before`)는 화면 호환을 위해 그대로 두고 공통 키를 덧붙인다.
-
-| 원본 phase | kind | paths | 주요 values | decision |
-|---|---|---|---|---|
-| (없음) | `run_start` | `[[출발 노드]]` | `start`, `end`, `target_m`, `beam_width` | 없음 |
-| `expand` | `candidates` | 생성된 확장 후보 전부 | `iteration`, `generated`, `kept`, `finished`, `candidate_ids`, `parent_candidate_ids` | 없음 |
-| `keep` | `select` | 유지 후보 | 위와 같음 | `accepted=True`, "평가값 상위 N개 안에 들어 유지" |
-| `keep`(차집합) | `reject` | 같은 반복의 `expand` − `keep` | 위 + `dropped` | `accepted=False`, "평가값 상위 N개 밖" |
-| `connect` | `route_changed` | 연결된 완성 경로 | `connection`(순환이면 "출발지 복귀", 편도면 "도착 연결") | 없음 |
-| `selection` | `select` | `find_path`가 반환한 후보 | `candidates` | `accepted=True`, "엔진 find_path가 반환한 후보입니다." |
-| `prune` | `cleanup` | 정리 후 경로(`before`에 정리 전) | `removed_nodes` | 없음 |
-| (없음) | `final` | 엔진이 반환한 경로 전부 | `candidates` | `accepted=True` |
-
-탈락 후보 장면은 원본에 없는 새 장면이라 `phase="drop"`으로 만든다. 재생 화면에 같은 이름의 설명을 추가했다.
-
-**판단 이유를 짓지 않는다.** 원본 기록에는 후보별 평가값 수치가 없다(상위 k개 절단만 기록된다). 그래서 `decision.reason`에는 순위 사실만 적고 점수를 만들어 내지 않는다.
+**(2026-09-19 갱신) Beam 매핑(`visualizations/beam_adapter.py`)은 삭제됐다.** `CircularBeamEngine`/`OnewayBeamEngine`이 8축→2축 축소로 삭제되면서, 이 절이 설명하던 `expand`/`keep`/`connect`/`selection`/`prune` phase → `candidates`/`select`/`reject`/`route_changed`/`cleanup` kind 매핑표와 `beam:{반복}:{해시}` candidate_id 규칙은 이제 어떤 코드에도 해당하지 않는다. `circular`(`circular_random`)는 지금 아래 "GRASP 계열 매핑"을 그대로 쓴다.
 
 #### GRASP 계열 매핑 (`visualizations/waypoint_adapter.py`)
 
@@ -377,10 +362,9 @@ ALT 랜드마크는 그래프 최대 연결요소의 바깥쪽 노드라 탐색 
 
 | 계열 | 규칙 |
 |---|---|
-| Beam | `beam:{반복 번호}:{노드열 sha1 앞 10자}`. `parent_candidate_id`는 직전 반복의 유지 후보 중 이 후보의 접두사인 가장 긴 노드열의 id(없으면 `None`) |
 | GRASP | 뿌리는 `restart:{n}`. VNS·ALNS 내부 후보는 `restart:{n}:vns:{k}`·`restart:{n}:alns:{k}`, 이웃 검토는 그 아래 `:nb:{검토 순번}`. 정제 단계 이벤트는 뿌리를 `parent_candidate_id`로 갖는다 |
 
-Beam에서 **같은 노드열이 여러 반복에 나타나면 반복 번호가 달라 id도 달라진다.** 의도한 것이다 — Beam은 반복마다 후보 집합을 새로 자르므로 "언제의 후보인가"가 후보의 정체에 포함된다.
+(2026-09-19 갱신) Beam 규칙(`beam:{반복 번호}:{노드열 sha1 앞 10자}`)은 `beam_adapter.py`와 함께 삭제됐다.
 
 GRASP의 `n`은 원본 기록의 `construction_call`, 즉 **구축 함수 호출 순번**이다. VNS의 전체 재구축(`waypoint_refinement._shake` level 4 이상)도 같은 함수를 부르므로 이 번호가 올라간다. 그래서 `n`은 "외부 재시작 번호"와 항상 같지는 않다.
 
@@ -395,11 +379,11 @@ GRASP의 `n`은 원본 기록의 `construction_call`, 즉 **구축 함수 호출
 | 모드 | 엔진 | service_use |
 |---|---|---|
 | `shortest`, `shortest_alt` | `OnewayAstarEngine` | `service` |
-| `detour` | `OnewayBeamEngine` | `service` |
-| `circular` | `CircularBeamEngine` | `service` |
+| `detour` | `OnewayAstarEngine`(2026-09-19 갱신 — `OnewayBeamEngine` 삭제, 지금은 `shortest`와 같은 엔진) | `service` |
+| `circular` | `CircularGraspWaypointAlnsEngine`(2026-09-19 갱신 — `CircularBeamEngine` 삭제) | `service` |
 | `grasp_*` | `WaypointEngine` | `benchmark_only` |
 
-서비스에 연결된 것은 `WaypointComposerEngine`이며 시각화가 쓰는 `WaypointEngine`(GRASP 조립)은 아직 서비스 경로에 없다. 비교표에는 "서비스 엔진"·"벤치마크 전용" 배지로, `routes.png` 제목에는 "(서비스)"·"(벤치마크)"로 표시한다.
+(2026-09-19 갱신) `CircularGraspWaypointAlnsEngine`은 `WaypointEngine`을 `construction="grasp", refinement="alns"`로 고정한 얇은 래퍼이므로, 시각화가 쓰는 `WaypointEngine`(GRASP 조립) 자체가 이제 서비스 경로에도 있다 — 다만 `route_service.py`가 실제로 고르는 것은 이 고정 래퍼뿐이고, `grasp_*`가 직접 쓰는 다른 정제 조합(`local`/`vnd`/`vns`)은 여전히 벤치마크 전용이다. `WaypointComposerEngine`(경유지 조합, `waypoint` 모드)도 별도로 서비스에 연결돼 있다. 비교표에는 "서비스 엔진"·"벤치마크 전용" 배지로, `routes.png` 제목에는 "(서비스)"·"(벤치마크)"로 표시한다.
 
 ### 4.9 배포에 남는 코드와 오프라인 전용 코드
 
@@ -450,7 +434,7 @@ PR-A·B가 만든 기록 구조는 그대로 두고, 화면이 이미 있는 데
 상단 "무엇을 볼지"에 **알고리즘 select(결과 선택)**, **테스트 상황 select(요청 문장)**, 읽기 전용 **시나리오 요약**, 선택한 결과의 **실행 조건 표**를 둔다.
 
 - 알고리즘 항목 표시명은 `LABELS` + `settings`다(예: `최단거리 · A* + ALT · ALT Planar k=8 (실제 8개) · 서비스 엔진`). 같은 알고리즘이라도 설정이 다르면 별도 항목이며, 끝에 `service_use` 배지가 붙는다.
-- 지원 목록(`payload.catalog`)은 코드에서 만든다. 최단거리 2건(Haversine·ALT) + 서비스 Beam 2건(순환·편도) + GRASP × `REFINEMENT_REGISTRY`의 모든 키다. 정제 목록은 손으로 적지 않고 `src/route_engine/engines/waypoint_engine_assembly`에서 읽는다(읽기만 하고 수정하지 않는다).
+- 지원 목록(`payload.catalog`)은 코드에서 만든다. 최단거리 2건(Haversine·ALT) + `detour`·`circular` 2건 + GRASP × `REFINEMENT_REGISTRY`의 모든 키다. 정제 목록은 손으로 적지 않고 `src/route_engine/engines/waypoint_engine_assembly`에서 읽는다(읽기만 하고 수정하지 않는다). (2026-09-19 갱신) `detour`/`circular`는 이제 Beam이 아니라 각각 `OnewayAstarEngine`/`CircularGraspWaypointAlnsEngine`이며, `visualizations/route_view.py`의 `LABELS` 상수도 고쳐 표시명이 `"편도 우회 · A*(서비스, oneway_shortest와 동일 — 임시)"`/`"순환 · GRASP+ALNS(서비스)"`로 실제 엔진과 일치한다(이전에는 둘 다 "Beam(서비스)"였던 코드 버그였다).
 - `available`은 "이 파일에 그 모드의 결과가 있는가"다. `false`면 select에 `disabled`로 넣고 `· 새 실행 필요`를 붙이며, 아래 주황 상자에 직접 실행할 명령(`python -m visualizations.routes` 또는 `--with-grasp`)을 보여 준다. **화면은 실행을 시작하지 않는다.**
 - 실행 조건 표에는 엔진, 휴리스틱(이름·선택법·요청/실제 랜드마크 수), 목표 거리, seed, 경유지 수·재시작 수·정제, 서비스 연결 배지, 코드 커밋 앞 7자, 도보망 `data_version`이 들어간다. 값은 전부 `RunConditions`에서 온다.
 
@@ -549,9 +533,9 @@ A* 장면(`select` + `values.f_m`)에서는 현재 지점을 크게 그리고 `f
 | 항목 | 보는 것 | 어긋나면 |
 |---|---|---|
 | A 형식 | 모든 기록이 `validate_events()`를 통과하고 `conditions`에 `algorithm`·`engine_class`·`mode`·`weight_policy`·`service_use`·`heuristic.name`이 있다 | 화면이 읽을 수 없는 기록이 만들어졌다 |
-| B 순서 | `seq`가 0부터 연속, 첫 `kind`가 `run_start`, 마지막이 `final`, Beam 반복 번호가 뒤로 가지 않는다 | 장면 순서가 실제 탐색 순서와 다르다 |
-| C 후보 연결 | `parent_candidate_id`가 앞선 장면에 실제로 있고, Beam은 부모 노드열이 자식의 접두사다. GRASP의 `restart:{n}` 뿌리는 `constructed`·`construction_failed`로 먼저 확정된다 | 같은 후보의 흐름을 잘못 이었다 |
-| D 기각·유지 | 같은 반복의 유지·탈락이 겹치지 않고 합치면 확장 후보와 같다. `alns_accept`에서 온 장면은 `evaluate`뿐이다 | 검토 후보와 유지된 경로가 섞이거나, 내부 수락이 최종 채택처럼 보인다 |
+| B 순서 | `seq`가 0부터 연속, 첫 `kind`가 `run_start`, 마지막이 `final`이다(2026-09-19 갱신 — "Beam 반복 번호가 뒤로 가지 않는다" 검사는 삭제됐다. Beam이 없어진 뒤로는 어떤 엔진 이벤트에도 `values.iteration`이 없어 항상 무검사로 통과하던 죽은 규칙이었다) | 장면 순서가 실제 탐색 순서와 다르다 |
+| C 후보 연결 | `parent_candidate_id`가 앞선 장면에 실제로 있고, 노드열이 있는 경우 부모 노드열이 자식의 접두사다(원래 Beam 전용 설명이었으나 로직 자체는 `candidate_links()`로 일반화돼 있다). GRASP의 `restart:{n}` 뿌리는 `constructed`·`construction_failed`로 먼저 확정된다 | 같은 후보의 흐름을 잘못 이었다 |
+| D 기각·유지 | (2026-09-19 갱신) 같은 (`candidate_id`, `source_phase`)가 select·reject에 동시에 걸리지 않는다. `alns_accept`에서 온 장면은 `evaluate`뿐이다. 옛 "같은 반복의 유지·탈락이 겹치지 않고 합치면 확장 후보와 같다"는 Beam 전용 `values.iteration` 그룹핑에 의존해 Beam 삭제 후 항상 무검사로 통과하던 죽은 규칙이었다 — GRASP+ALNS는 `restart:N` 같은 candidate_id를 여러 결정에 재사용해(정상 동작) 그 기준을 쓸 수 없어 `candidate_links()` 기반으로 다시 만들었다 | 같은 후보가 select와 reject에 동시에 걸리거나, 내부 수락이 최종 채택처럼 보인다 |
 | E 전후 수치 | 장면에 붙은 `stage_metrics`·`before_metrics`의 거리가 실제 엣지 길이와 1e-6 안에서 같다 | 화면 수치가 실제 도보망과 다르다 |
 | F 최종 경로 | `final`의 대표 경로가 엔진 반환·응답 좌표 수와 같고, 고른 적 없는 후보 노드가 섞이지 않는다 | 버린 후보가 최종 경로에 섞였다 |
 | G 비교표 일치 | `routes.html` payload의 `metrics`·`run_seconds`·`route_valid`·`settings`가 `summary.json`과 같다 | 비교표가 실제 실행과 다른 값을 보여 준다 |
@@ -597,12 +581,17 @@ E는 실제 엣지 길이가 필요해 `--artifact`를 줄 때만 돈다. 주지
 - 확인 방법: 두 행의 최종 거리가 같고(`3.541km`), `summary.json`의 `astar_queue_pops`가 Haversine `233`회 · ALT `83`회로 다르다. ALT 장면(`shortest_alt` 기록 2번)에서 `f = g + h`와 하한이 가장 큰 랜드마크, 화면 밖 랜드마크 방향 라벨을 볼 수 있다.
 - 제한: 같은 경로를 더 적은 확장으로 찾았다는 것까지만 읽는다. `run_seconds`는 1회 측정이라 응답 시간 개선 폭의 근거가 아니다(6.1 참고).
 
-**(2) 순환 Beam의 목표 범위 판정**
+**(2) 순환의 목표 범위 판정**
+
+(2026-09-19 갱신) 아래 기대값(`±10%`·`439m`·`3.439km`·"기록 170번")은 `circular`가
+`CircularBeamEngine`이던 시절의 관측이다. 지금 `circular`는 `CircularGraspWaypointAlnsEngine`
+(허용 오차 `±5%`)이라 판정 기준과 실제 반환 거리가 달라졌을 수 있다 — 직접 실행해 다시
+확인해야 한다.
 
 - 실행: `./.venv/Scripts/python.exe -m visualizations.routes`
-- 기대 화면: `circular` 결과의 오른쪽 패널에 `목표 범위 벗어남 · 오차 439m`가 주황색으로 뜨고, 비교표 목표 판정 칸도 `범위 밖 (±10%)`이다.
-- 확인 방법: 마지막 장면(기록 170번)의 반환 거리 `3.439km`와 목표 3.000km를 비교한다. `route_valid`는 참이다 — **연결·끝점 검증과 목표 합격은 별개**다.
-- 제한: 목표를 못 맞춘 것은 이 입력에서 기존 Beam이 그렇게 동작한다는 관측이며, 알고리즘 우열 판단이 아니다.
+- 기대 화면: `circular` 결과의 오른쪽 패널에 목표 범위를 벗어났다면 `목표 범위 벗어남 · 오차 N m`가 주황색으로 뜨고, 비교표 목표 판정 칸도 `범위 밖 (±5%)`이다(허용 오차 안이면 이 표시 자체가 뜨지 않는다).
+- 확인 방법: 마지막 장면(`final`)의 반환 거리와 목표 3.000km를 비교한다. `route_valid`는 참이다 — **연결·끝점 검증과 목표 합격은 별개**다.
+- 제한: 목표를 못 맞추는지는 이 입력에서의 관측이며, 알고리즘 우열 판단이 아니다.
 
 **(3) GRASP + VND의 개선 채택 장면**
 
@@ -630,20 +619,19 @@ E는 실제 엣지 길이가 필요해 `--artifact`를 줄 때만 돈다. 주지
 **(6) 목표 범위를 벗어난 결과 표시**
 
 - 실행: 기본 명령
-- 기대 화면: 순환 3km 요청의 관측 반환 거리 `3.439km`가 `범위 밖 (±10%)`으로 주황색 표시된다.
+- 기대 화면: 순환 3km 요청의 관측 반환 거리가 허용 오차 밖이면 `범위 밖 (±N%)`으로 주황색 표시된다. (2026-09-19 갱신) 이 예시의 `±10%`·`3.439km`는 `circular`가 `CircularBeamEngine`이던 시절의 관측값이다 — 지금 `circular`는 `CircularGraspWaypointAlnsEngine`(경유지 엔진 계열)이라 허용 오차가 `±5%`(`distance_tolerance_ratio`)로 바뀌었고, 실제 반환 거리도 다시 재보지 않으면 이 예시 숫자가 그대로 재현된다고 보장할 수 없다.
 - 확인 방법: 비교표 목표 판정 칸과 오른쪽 패널 문구가 같은 판정을 보여 주는지 본다. `checks.py`의 G 항목이 비교표와 `summary.json`이 같은 값을 쓰는지 확인한다.
-- 제한: 허용 오차는 방식마다 다르다(기존 Beam ±10%, 경유지 엔진 ±5%). 서로 다른 허용 오차를 같은 기준으로 비교하지 않는다.
+- 제한: 허용 오차는 방식마다 다르다(최단거리류는 목표 거리 개념 자체가 없음, `detour`도 지금은 최단거리와 같아 마찬가지, 경유지 엔진 계열(`circular`·`grasp_*`)은 ±5%). 서로 다른 허용 오차를 같은 기준으로 비교하지 않는다.
 
 **(7) 기록 구조 불일치 → `TraceMismatchError`로 중단**
 
-- 재현: 어댑터가 모르는 원본 phase나 필요한 키가 없는 기록을 만나면 장면을 만들지 않고 멈춘다. 테스트로 재현한다.
+- 재현: 어댑터가 모르는 원본 phase나 필요한 키가 없는 기록을 만나면 장면을 만들지 않고 멈춘다. 테스트로 재현한다. (2026-09-19 갱신) `test_beam_adapter.py`는 `beam_adapter.py`와 함께 삭제됐다 — 아래는 지금 유일하게 남은 어댑터 테스트다.
 
 ```bash
-./.venv/Scripts/python.exe -m pytest visualizations/tests/test_beam_adapter.py -k "unknown_source_phase or missing_key" -q
 ./.venv/Scripts/python.exe -m pytest visualizations/tests/test_waypoint_adapter.py -k "unknown_source_phase or missing_key" -q
 ```
 
-- 기대: 두 테스트가 통과한다(즉, 깨진 기록에서 `TraceMismatchError`가 실제로 오른다). 화면은 잘못된 장면을 만들지 않는다.
+- 기대: 통과한다(즉, 깨진 기록에서 `TraceMismatchError`가 실제로 오른다). 화면은 잘못된 장면을 만들지 않는다.
 - 제한: 이 감지는 어댑터 입력 단계에서만 작동한다. 엔진 코드 구조가 바뀌어 `settrace` 계측 지점을 못 찾으면 그보다 앞에서 `RuntimeError`로 멈춘다.
 
 **(8) 지원하지 않는 조합 → 선택 화면 "새 실행 필요"**
@@ -655,14 +643,16 @@ E는 실제 엣지 길이가 필요해 `--artifact`를 줄 때만 돈다. 주지
 
 **(9) 계측 도구 충돌(디버거·커버리지) → `RuntimeError`**
 
-- 재현: Beam·GRASP 기록은 `sys.settrace`를 쓰므로 디버거나 커버리지와 동시에 켤 수 없다. 이미 다른 trace가 걸려 있으면 `SearchTrace.__enter__`가 거부한다.
+- 재현: GRASP 기록(2026-09-19 갱신 — Beam은 삭제됨)은 `sys.settrace`를 쓰므로 디버거나 커버리지와 동시에 켤 수 없다. 이미 다른 trace가 걸려 있으면 `SearchTrace.__enter__`가 거부한다.
+
+(2026-09-19 갱신) 이 시나리오를 직접 재현하던 `test_route_experiment.py::test_trace_restored_when_run_raises`는 원래 `circular_beam.CircularBeamEngine`으로 예외를 강제 유발하는 테스트였다 — 삭제된 Beam 엔진에 의존해 이 세션에서 함께 삭제됐었지만, 같은 이름으로 `WaypointTrace`+`CircularGraspWaypointAlnsEngine`(GRASP+ALNS 계열) 기준으로 다시 추가했다. `with WaypointTrace(engine): raise RuntimeError(...)`가 예외를 던진 뒤에도 `sys.gettrace() is None`(trace가 복원됨)을 확인한다 — 커버리지 공백은 해소됐다.
 
 ```bash
-./.venv/Scripts/python.exe -m pytest visualizations/tests/test_route_experiment.py -k trace_restored -q
+./.venv/Scripts/python.exe -m pytest visualizations/tests/test_route_experiment.py -q
 ```
 
-- 기대: "디버거·커버리지 trace를 끄고 시각화를 별도로 실행하세요." 메시지로 멈추고, 예외가 나도 이전 trace가 복원된다(위 테스트가 `sys.gettrace() is None`을 확인한다).
-- 제한: 최단거리 A*는 재생 방식이라 이 제약이 없다. 엔진 관찰자 훅이 승인되면 Beam·GRASP도 없어진다.
+- 기대: 전부 통과. 다만 이 명령은 예외 발생 시의 trace 복원까지는 확인하지 않는다 — 그러려면 위 공백을 먼저 메워야 한다.
+- 제한: 최단거리 A*·`detour`는 재생 방식이라 이 제약이 없다. 엔진 관찰자 훅이 승인되면 GRASP도 없어진다.
 
 ### 7.4 제한 사항
 
@@ -684,10 +674,9 @@ E는 실제 엣지 길이가 필요해 `--artifact`를 줄 때만 돈다. 주지
 | `visualizations/checks.py` | 결과 폴더만 읽어 기록 불변식 점검(A~J), `checks.json` 생성 |
 | `visualizations/route_experiment.py` | 엔진 실행 조건과 경로 검증 |
 | `visualizations/events.py` | 모든 어댑터가 쓰는 공통 이벤트 형식·실행 조건과 그 검사 |
-| `visualizations/astar_adapter.py` | 최단거리 A*·ALT 실행의 재생과 노드열 대조 |
-| `visualizations/beam_adapter.py` | 순환·편도 Beam 기록을 공통 이벤트로 변환 |
-| `visualizations/waypoint_adapter.py` | GRASP 계열 기록을 공통 이벤트로 변환 |
-| `visualizations/route_trace.py` | 기존 Beam 기록 수집(settrace, 오프라인 전용) |
+| `visualizations/astar_adapter.py` | 최단거리·`detour` A*, ALT 실행의 재생과 노드열 대조 |
+| `visualizations/waypoint_adapter.py` | GRASP 계열(`circular` 포함) 기록을 공통 이벤트로 변환 |
+| `visualizations/route_trace.py` | (2026-09-19 갱신) `beam_adapter.py`와 함께 삭제 대상이던 Beam 전용 계측 로직이 있으나, 지금은 `waypoint_trace.py::WaypointTrace`가 이 클래스를 상속만 하고 완전히 덮어써 실질적으로 쓰이지 않는다(settrace 공용 유틸만 남음) |
 | `visualizations/waypoint_trace.py` | GRASP·Local·VND·VNS·ALNS 기록 수집(settrace, 오프라인 전용) |
 | `visualizations/route_story.py` | 장면별 경로 지표·변경 전후 비교·핵심 장면 선택 |
 | `visualizations/route_view.py` | 기록을 화면 데이터·PNG로 변환, 세 파일을 합쳐 `routes.html` 생성 |
@@ -859,11 +848,11 @@ PNG는 커밋하지 않는다. 실기기 모바일·터치 핀치와 애니메�
 | # | 완료 기준 | 상태 | 근거 |
 |---|---|---|---|
 | 1 | 지원 알고리즘의 실제 실행 기록으로 확대 설명부터 최종 경로 재생까지 이어진다 | 충족 | 9개 모드 전부 `run_start → … → final`이 한 기록으로 이어진다(`checks.py` B). 자동 확대는 5.3, 최종 경로 재생은 5.6. 브라우저 자가 점검이 모든 결과 × 모든 장면을 실제로 그려 본다(6.4). 결과 폴더 `outputs/algorithm_visualization/routes/sangmyung/20260913-011735` |
-| 2 | 어떤 후보를 왜 선택하거나 기각했는지 확인할 수 있다 | 충족 | `decision.reason`이 화면 설명 맨 위에 굵게 붙는다(5.5). 이유는 기록에 있는 값과 기존 코드 규칙에서만 나온다 — `test_waypoint_adapter.py::test_decisions_are_explained_and_values_are_never_invented`가 "원본에 없는 수치"를 막는다. Beam은 평가값 수치가 원본에 없어 순위 사실만 적는다(4.5) |
+| 2 | 어떤 후보를 왜 선택하거나 기각했는지 확인할 수 있다 | 충족 | `decision.reason`이 화면 설명 맨 위에 굵게 붙는다(5.5). 이유는 기록에 있는 값과 기존 코드 규칙에서만 나온다 — `test_waypoint_adapter.py::test_decisions_are_explained_and_values_are_never_invented`가 "원본에 없는 수치"를 막는다(2026-09-19 갱신 — Beam도 같은 원칙이었으나 해당 어댑터는 삭제됐다) |
 | 3 | 경유지, ALT 랜드마크, 실제 도로 경로가 구분된다 | 충족 | 범례 첫 줄에 세 가지를 고정(5.5). 랜드마크가 경로·노드에 섞이지 않는지 `checks.py` J가 확인하고, 경유지와 도로 노드열이 섞이지 않는지 `test_waypoint_adapter.py::test_waypoint_ids_and_road_paths_are_never_mixed`가 확인한다. 화면 밖 랜드마크는 방향·거리 라벨로만 표시(5.4) |
-| 4 | 같은 후보의 변경 전후와 서로 다른 실행 결과가 혼동되지 않는다 | 충족 | `candidate_id`·`parent_candidate_id`로 잇고(4.6), 부모가 실제 앞선 장면에 있는지와 Beam 접두사 관계를 `checks.py` C가 확인한다. 기각 장면에 같은 반복의 유지 후보를 함께 그려 구분한다(5.5, 자가 점검 ③). 서로 다른 실행 조건은 비교표 위 경고로 막는다(5.2) |
+| 4 | 같은 후보의 변경 전후와 서로 다른 실행 결과가 혼동되지 않는다 | 충족 | `candidate_id`·`parent_candidate_id`로 잇고(4.6), 부모가 실제 앞선 장면에 있는지를 `checks.py` C가 확인한다(2026-09-19 갱신 — 접두사 관계는 노드열이 있을 때만 확인하며, 원래 Beam 전용 설명이었다). 기각 장면에 같은 반복의 유지 후보를 함께 그려 구분한다(5.5, 자가 점검 ③, 원래 Beam 화면 기준 — `circular`가 GRASP+ALNS로 바뀌며 이 표시가 지금도 그대로 나오는지는 재확인 필요). 서로 다른 실행 조건은 비교표 위 경고로 막는다(5.2) |
 | 5 | 기록 기능이 반환 결과를 바꾸지 않으며, 기록을 사용하지 않는 실행도 유지된다 | 충족 | 모든 모드에서 기록을 켠 실행과 끈 실행의 반환 경로·응답을 대조한다(`compare_recording`, 6.1). `checks.py` H가 `recording_preserves_result`·`graph_unchanged`·`input_files_unchanged`·`matches_dijkstra`를 확인하고, 어댑터 테스트 4종이 `sys.gettrace() is None`과 `graph_digest` 보존을 확인한다 |
-| 6 | 내부 구현이 바뀌었을 때 기록 어댑터를 중심으로 수정할 수 있다 | **부분 충족** | 화면·스토리·점검기는 공통 이벤트만 보고 엔진 변수명·줄 번호를 참조하지 않는다(3.1). 어댑터 입력이 바뀌어도 매핑표만 고치면 되도록 나눴다. **다만 Beam·GRASP는 아직 `settrace` 수집이라 엔진 소스 구조가 바뀌면 어댑터 앞단이 깨진다**(소스 해시 검사가 감지해 멈춘다). 이 앞단을 계약으로 바꾸는 일은 제안 상태이며 승인 전이다 |
+| 6 | 내부 구현이 바뀌었을 때 기록 어댑터를 중심으로 수정할 수 있다 | **부분 충족** | 화면·스토리·점검기는 공통 이벤트만 보고 엔진 변수명·줄 번호를 참조하지 않는다(3.1). 어댑터 입력이 바뀌어도 매핑표만 고치면 되도록 나눴다. **다만 GRASP는 아직 `settrace` 수집이라 엔진 소스 구조가 바뀌면 어댑터 앞단이 깨진다**(소스 해시 검사가 감지해 멈춘다, 2026-09-19 갱신 — Beam은 삭제됨). 이 앞단을 계약으로 바꾸는 일은 제안 상태이며 승인 전이다 |
 
 ### 대조 뒤에 남는 것
 

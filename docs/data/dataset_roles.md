@@ -61,4 +61,4 @@
 - `park_overlap_ratio`: 공원 내부 Edge의 자연 가점
 - `is_vehicle_caution`: 어린이보호구역 주변 차량 주의 페널티
 - 터널·육교·지하철망·건물 내부: 완전 차단이 아닌 쾌적도 페널티
-- `blocked_tags`: 검증된 실제 WalkEdge Tag에만 적용
+- `blocked_tags`: (2026-09-19 갱신) 경로 엔진에는 더 이상 이 개념이 없다 — `route_engine/profiles.py`(`ScoringProfile`/`blocked_tags` 계열)가 8축→2축(safety/comfort) 축소 과정에서 완전히 삭제됐다. `src/repository/banner/banner_repository.py`의 배너 시드 데이터에 동명 필드가 남아 있지만 항상 빈 리스트(`[]`)이고 route_engine과는 무관한 배너 도메인 값이다.
