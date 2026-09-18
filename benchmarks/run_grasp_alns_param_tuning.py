@@ -8,8 +8,10 @@ grasp-wp-alns와 beam-wp-vns가 정반대 방향 신호를 보여 해석이 애�
 제외했다.
 
 grasp-wp-alns만 대상이다 — 스크리닝에서 beam-wp-vns는 재통행률이 이미 0이라 신호가
-없었다. TUNED_KNOBS의 기존 확정값(alns_iterations=10, rcl_size=16)은 고정한 채
-대상 파라미터만 바꾼다.
+없었다. 당시 확정값(alns_iterations=10, rcl_size=16)은 고정한 채 대상 파라미터만 바꿨다.
+확정값은 지금 엔진 알고리즘별 기본값(circular_grasp_waypoint_alns.py)이라 params에 따로
+싣지 않는다. 그 뒤 확정된 값(angle_diversity_weight_m=0.0, alns_candidate_limit=2)도 함께
+적용되므로 다시 돌리면 기존 결과 CSV와 수치가 다를 수 있다.
 
 target_km=7만 사용(원안 그리드와 동일 축소 이유). 튜닝 집합 4개 지점 x 시드 10개.
 
@@ -29,7 +31,6 @@ import pandas as pd
 from benchmarks.benchmark import _load_default_graph, SOLVER_REGISTRY
 from benchmarks.config import BENCHMARK_SEEDS, DEFAULT_TIME_BUDGET_SEC
 from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
-from benchmarks.run_density_stratified_scenarios import TUNED_KNOBS
 from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
@@ -68,7 +69,6 @@ def _pool_worker_task(param: str, value, start_node, seed: int) -> dict:
     params = {
         "target_km": TARGET_KM, "num_waypoints": NUM_WAYPOINTS,
         "time_budget_sec": DEFAULT_TIME_BUDGET_SEC, "seed": seed,
-        **TUNED_KNOBS.get(ALGO, {}),
         param: value,
     }
     return run_solver_task(SOLVER_REGISTRY[ALGO], _POOL_GRAPH, start_node, start_node, params)

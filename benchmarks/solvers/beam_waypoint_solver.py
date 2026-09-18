@@ -24,6 +24,7 @@ GRASP 전용 _CostCache(engines/grasp_waypoint_common.py)는 옮기지 않는다
 mode="distance"만 쓰므로 DistancePathFinder로 충분하다.
 """
 
+import json
 from typing import Optional
 
 from benchmarks.solvers.base_solver import BasePathSolver
@@ -83,6 +84,12 @@ def _segment_metrics_from_geometry(
         "min_waypoint_separation_m": round(min_separation_m, 4),
         "repeated_edge_ratio": r(gm.repeated_edge_ratio, 4),
         "waypoint_angle_diff_deg": r(angles[0], 2) if angles else None,
+        # grasp_waypoint_solver._segment_metrics()와 같은 키 구성을 유지한다 — 어긋나면
+        # CSV에서 두 엔진 비교가 깨진다.
+        "waypoint_bearings_deg": (
+            json.dumps([round(b, 2) for b in gm.waypoint_bearings_deg])
+            if gm.waypoint_bearings_deg else None
+        ),
         "segment_balance_ratio": r(gm.segment_balance_ratio, 4),
         "is_degenerate_loop": gm.is_degenerate_loop,
         "num_waypoints_used": num_waypoints,

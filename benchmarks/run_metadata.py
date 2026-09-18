@@ -34,6 +34,9 @@ _ROOT = Path(__file__).resolve().parents[1]
 _TRACKED_SOURCES = (
     "benchmarks/results.py",
     "benchmarks/config.py",
+    # 알고리즘별 튜닝 확정 기본값(GRASP_ALNS_CONFIG·GRASP_ALNS_OPTIONS, BEAM_VNS_CONFIG)
+    "src/route_engine/engines/circular_grasp_waypoint_alns.py",
+    "src/route_engine/engines/circular_beam_waypoint_vns.py",
     "src/route_engine/engines/grasp_waypoint_common.py",
     "src/route_engine/engines/waypoint_refinement.py",
     "src/route_engine/engines/waypoint_construction.py",

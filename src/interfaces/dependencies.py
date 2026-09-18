@@ -16,6 +16,7 @@ from src.service import (
 from src.agent.nodes import (
     WeatherChecker,
     Extractor,
+    WeightExtractor,
     Interviewer,
     ConfirmationClassifier,
     RouteExecutor
@@ -31,6 +32,7 @@ from src.repository.network.graph_artifact_repository import (
 from src.repository.network.graph_repository import GraphRepository
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 from src.route_engine.alt_runtime import attach_alt_heuristic, prepare_alt_heuristic
+from src.route_engine.weighted_cost_runtime import attach_weighted_cost, prepare_weighted_cost
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +82,21 @@ def init_route_service():
         seed=settings.WALK_ALT_SEED,
     )
     attach_alt_heuristic(G, alt_heuristic, alt_info)
+    # 점수 적재 상태(O(E), 실측 약 0.30초)도 기동 때 한 번만 재서 그래프에 붙인다.
+    # 요청은 여기 붙은 적재율·중앙값만 읽어 자기 alpha/beta로 비용 객체를 만든다 —
+    # 사용자별 가중치는 그래프에 붙이지 않는다.
+    attach_weighted_cost(G, prepare_weighted_cost(
+        G,
+        enabled=settings.WALK_WEIGHTED_COST_ENABLED,
+        coverage_min_ratio=settings.WALK_SCORE_COVERAGE_MIN,
+    ))
     route_service = RouteService(G=G, auth_service=auth_service)
     prewalk_orchestrator = PrewalkOrchestrator(
         weather_checker        = WeatherChecker(weather_client=weather_client),
         kakao_client            = kakao_client,
         auth_service            = auth_service,
         extractor               = Extractor(),
+        weight_extractor        = WeightExtractor(),
         interviewer             = Interviewer(),
         confirmation_classifier = ConfirmationClassifier(),
         route_executor          = RouteExecutor(),

@@ -27,6 +27,31 @@ num_waypoints 곱집합을 돈다 — route_engine.json과 그 소비자(run_all
     python -m benchmarks.run_density_stratified_scenarios --stage 1
     python -m benchmarks.run_density_stratified_scenarios --stage 2
     python -m benchmarks.run_density_stratified_scenarios --stage 2 --dry-run   # 실행 수만 계산
+
+부분 재실행:
+    알고리즘별 기본값(circular_grasp_waypoint_alns.py의 GRASP_ALNS_CONFIG·GRASP_ALNS_OPTIONS,
+    circular_beam_waypoint_vns.py의 BEAM_VNS_CONFIG)이 바뀌면 값이 실제로 달라진 알고리즘만
+    다시 돌리면 된다 — 나머지 행은 같은 설정으로 이미 돈 결과라 재사용할 수 있다.
+
+    기존 CSV의 설정 이력: 2026-09-13 02:39 1단계 실행분은 튜닝 전 엔진 기본값이었다(노브 주입
+    커밋 1704ee3은 같은 날 18:22). 그 뒤 확정값은 이 러너의 TUNED_KNOBS로 params에 주입하다가
+    엔진 알고리즘별 기본값으로 옮겼다 — 옮기기 전후 솔버에 실리는 설정은 같다. 튜닝 전 기본값과
+    실제로 달라진 것은 grasp-wp-alns 4종(alns_iterations 30->10, rcl_size 8->16,
+    angle_diversity_weight_m 1500.0->0.0, alns_candidate_limit 8->2)과 beam-wp-vns의
+    beam_width(8->4)뿐이다. alns_candidate_limit은 따로 주지 않으면 rcl_size를 따라간다
+    (waypoint_refinement.py::_alns_config). beam-wp-alns의 beam_width=8은 공용 기본값
+    (DEFAULT_CONFIG.rcl_size)과 같아 동작이 바뀌지 않는다.
+
+    alns_candidate_limit=2 반영(2026-09-15, #434) 이후 density_stratified_stage1_retuned.csv의
+    grasp-wp-alns 행은 한도 16(rcl_size 연동)으로 돈 결과라 재사용할 수 없다. 같은 파일의
+    beam-wp-vns 행은 설정이 그대로라 재사용한다.
+
+    python -m benchmarks.run_density_stratified_scenarios --stage 1 \
+        --algos grasp-wp-alns --out benchmarks/density_stratified_stage1_climit2.csv
+
+    부분 실행 CSV는 나중에 재사용분과 합쳐야 하고, 합친 뒤에는 집계를 전부 다시 내야 한다
+    — circularity_q_rel 같은 상대지표의 분모가 CSV 안의 알고리즘 조합에 의존하기 때문이다
+    (aggregate_results.py 참고).
 """
 
 import argparse
@@ -34,6 +59,8 @@ import itertools
 import json
 import multiprocessing
 import time
+from dataclasses import asdict
+from pathlib import Path
 
 import pandas as pd
 
@@ -43,7 +70,10 @@ from benchmarks.config import (
 )
 from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
 from benchmarks.run_metadata import save_run_metadata
+from src.route_engine.engines.circular_beam_waypoint_vns import BEAM_VNS_CONFIG
+from src.route_engine.engines.circular_grasp_waypoint_alns import GRASP_ALNS_CONFIG, GRASP_ALNS_OPTIONS
 from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.engines.waypoint_refinement import shared_refinement_defaults
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 DATASET_PATH = DATASETS_DIR / "circular_density_stratified.json"
@@ -51,12 +81,17 @@ DATASET_PATH = DATASETS_DIR / "circular_density_stratified.json"
 # beam/grasp-waypoint 9종 중 8종 — run_all_scenarios.py::CIRCULAR_ALGOS에서 grasp-wp-vns만
 # 뺀 목록. 2026-09-13 1단계 실측(density_stratified_stage1_results.csv)에서
 # GRASP-Waypoint+VNS가 전체 소요시간의 57.9%를 차지하고 9km+N>=3 16개 조건 전부가 600초
-# 타임아웃이었다 — waypoint_refinement.py::vns_loop()가 "개선되면 shake_level을 1로 리셋"
-# 구조라 반복 횟수 상한이 없고(ALNS의 alns_iterations 같은 자체 종료 조건이 없음), 반복당
-# 비용도 N에 비례해 커져 N을 늘리자 조합적으로 폭증했다(사용자 확인 후 제외 결정).
+# 타임아웃이었다(사용자 확인 후 제외 결정).
+#
+# 당시 원인으로 적었던 "vns_loop()의 반복 무제한 구조"는 2026-09-16 종료 조건 추가
+# (waypoint_refinement.py::_MAX_ITERATIONS)로 막혔지만 제외는 그대로 둔다 — 같은 날 계측
+# (홍대·경복궁 9km, seed=42, 단독 실행)에서 실행시간을 지배하는 것이 반복 횟수가 아니라
+# 구축 24회(grasp_iters) x 교란 1회당 VND 3~11초임이 확인됐고, 상한 12의 절감폭은 20%
+# 안팎이라 600초 예산에 들어오지 않기 때문이다. 재투입 여부는 "VNS 조합 재검토 스크리닝"
+# 에서 판단한다.
 # Beam-Waypoint+VNS는 같은 VNS이지만 속도(평균 38.4초)와 게이트통과율(0.892, 최고 동률)이
-# 둘 다 좋아 그대로 유지한다 — GRASP 쪽 vns_loop()의 반복 무제한 구조가 원인이지 VNS
-# 자체가 문제는 아니다.
+# 둘 다 좋아 그대로 유지한다 — GRASP 쪽은 구축 반복마다 VNS를 거는 조합 구조가 원인이지
+# VNS 자체가 문제는 아니다(Beam은 구축 결과 1개에만 건다).
 ALGOS = [
     "grasp-wp-local", "grasp-wp-vnd", "grasp-wp-alns",
     "beam-wp", "beam-wp-local", "beam-wp-vnd", "beam-wp-vns", "beam-wp-alns",
@@ -64,8 +99,13 @@ ALGOS = [
 
 # 정제 파라미터 튜닝 스윕 결론(2026-09-13, run_refinement_tuning_sweep.py 청크 A/B1/B2/B3,
 # 튜닝 집합 홍대/경복궁/남산/북한산 x {3,7}km x N=4, 통계 검정 근거는 대화 기록 참고).
-# 여기 없는 알고리즘·노브는 전부 무효가 확정돼 엔진 기본값을 그대로 둔다 — 명시하지 않는
+# 공용 기본값과 달라진 확정값은 엔진 쪽 알고리즘별 상수로 옮겼다(_ALGORITHM_DEFAULTS 참고 —
+# 값과 근거의 원본은 src/). 아래는 튜닝했지만 기본값 유지로 확정된 노브다 — 명시하지 않는
 # 것 자체가 의도적 선택이다:
+#   - beam-wp-alns.beam_width: 8(공용 기본값)이 4(p<0.0001)·16(p=0.0005)보다 게이트통과율에서
+#     유의미하게 우수. beam-wp-vns(4)와 값이 다른 것은 기준이 달라서다 — Beam+ALNS는 ALNS
+#     제안이 최종 경로로 거의 채택되지 않아(폭 8에서 1/240) 구축 품질이 곧 결과이고 폭 16까지도
+#     중앙값 11.5초로 싸서 품질로 골랐다. VNS 쪽 기준은 circular_beam_waypoint_vns.py 참고.
 #   - beam-wp.beam_width: n=8(튜닝 집합)에서 과소검정 의심돼 n=40(전체 8출발지 x 5거리)으로
 #     확장 재검정했으나 여전히 무효(모든 쌍 p>=0.25) — 데이터 부족이 아니라 무효 확정.
 #   - beam-wp-alns.alns_removal_fraction: n=240, 무효(p>=0.68).
@@ -85,28 +125,30 @@ ALGOS = [
 #     beam-wp-vns는 완전 무효(모든 쌍 p>=0.15), grasp-wp-alns는 0.05·0.20(기본값)이
 #     완전히 동일(p=1.0)하고 0.40만 유의미하게 나쁨(p<0.0001). 두 알고리즘 다 기존
 #     기본값(0.20) 유지로 확정.
-#   - alns_candidate_limit: 스크리닝(단일 샘플)에서 cost·repeated_edge_ratio가 값에
-#     무관하게 완전히 동일(rng.sample 서브샘플링이라 후보 풀이 고르면 결과에 영향
-#     없음) — 품질 튜닝 대상이 아니라 순수 속도 최적화 대상(무제한 대비 3~5배 빠름).
-#     전체 통계 검증은 품질 튜닝 범위 밖이라 생략.
-TUNED_KNOBS = {
-    # width 8이 4(p<0.0001)·16(p=0.0005)보다 게이트통과율에서 유의미하게 우수.
-    "beam-wp-alns": {"beam_width": 8},
-    # 10/20/30이 통과율·거리편차·최악값까지 통계적으로 동일(p>=0.73)한데 10이 절반 이하
-    # 비용. target_km {3,7}뿐 아니라 9km(단일 지점·rural 교차검증 포함)까지 재확인해도
-    # 유의미한 차이 없음(2026-09-14).
-    # rcl_size=16이 4(p=0.0001)·8(p=0.0034) 모두보다 게이트통과율에서 강하게 유의미하게
-    # 우수(2026-09-14, 7km, n=40/값) — GRASP 4종 중 기본값을 실제로 바꿔야 했던 유일한
-    # 경우.
-    # angle_diversity_weight_m=0.0(완전히 끄기)이 기존 기본값 1500.0·대안 3000.0 모두보다
-    # 강하게 유의미하게 우수(2026-09-14, p<=0.000017, 게이트통과율 1.000 대 0.625/0.400) —
-    # 1500.0은 다른 실험(2026-08-30, N=2 시절)에서 정해진 값이라 N=4·rcl_size=16·
-    # alns_iterations=10이 함께 적용된 지금 조건과 안 맞았던 것으로 보인다.
-    "grasp-wp-alns": {"alns_iterations": 10, "rcl_size": 16, "angle_diversity_weight_m": 0.0},
-    # width 4가 8과 통계적으로 동급(p=0.068/0.178)이면서 훨씬 저렴. 16은 정밀도가 실제로
-    # 우수하지만(p<0.000001) 비용 중앙값(155초)부터 60초 예산을 넘어 배제.
-    "beam-wp-vns": {"beam_width": 4},
+# 공용 기본값과 다른 확정값을 쓰는 알고리즘 → 그 솔버가 기준으로 삼는 엔진 쪽 상수.
+# 값을 여기 다시 적지 않는다(원본은 src/) — 메타데이터 기록과 테스트 대조에만 쓴다.
+_ALGORITHM_DEFAULTS = {
+    "grasp-wp-alns": {"config": GRASP_ALNS_CONFIG, "alns_options": GRASP_ALNS_OPTIONS},
+    "beam-wp-vns": {"config": BEAM_VNS_CONFIG},
 }
+
+
+def algorithm_defaults(algos) -> dict:
+    """algos 중 알고리즘별 확정 기본값을 쓰는 것만 골라 JSON으로 남길 수 있게 편다.
+
+    어떤 설정으로 돈 실행인지는 행만 보고 판정할 수 없어(노브는 결과 컬럼에 안 들어간다)
+    CSV 옆 메타데이터에 남긴다. 여기 없는 알고리즘은 공용 기본값(DEFAULT_CONFIG,
+    waypoint_refinement.py의 _ALNS_*·_MAX_SHAKE_LEVEL·_MAX_ITERATIONS)으로 돈다 — 그
+    공용 기본값 자체는 shared_refinement_defaults()가 메타데이터의 refinement_defaults로
+    따로 남긴다(2026-09-16). 둘을 나눠 적어야 "튜닝값이 들어간 알고리즘"과 "그때의 공용
+    기본값"을 구분할 수 있다."""
+    return {
+        algo: {
+            name: asdict(value) if name == "config" else dict(value)
+            for name, value in _ALGORITHM_DEFAULTS[algo].items()
+        }
+        for algo in algos if algo in _ALGORITHM_DEFAULTS
+    }
 
 TIMEOUT_SEC = 600.0  # 400 -> 600 (9km grasp-wp-vns 단독 170.8초 실측 + 6워커 경합 여유)
 CHECKPOINT_EVERY = 25
@@ -129,26 +171,50 @@ def _pool_worker_task(solver_key: str, start_node, target_km: float, num_waypoin
         "profile": CIRCULAR_BENCHMARK_PROFILE,
         "time_budget_sec": DEFAULT_TIME_BUDGET_SEC,
         "num_waypoints": num_waypoints,
-        **TUNED_KNOBS.get(solver_key, {}),
     }
     if seed is not None:
         params["seed"] = seed
     return run_solver_task(SOLVER_REGISTRY[solver_key], _POOL_GRAPH, start_node, start_node, params)
 
 
-def _seed_plan(stage: str) -> list[tuple[str, int | None]]:
+def _seed_plan(stage: str, algos: list[str]) -> list[tuple[str, int | None]]:
     """stage 1: 전 알고리즘 시드 1회(BENCHMARK_SEEDS[0]) — 우연이 아니라 커버리지가 목적.
     stage 2: SEED_SENSITIVE_SOLVERS는 BENCHMARK_SEEDS 전부, 그 외는 1회만
     (run_all_scenarios.py::_scenario_tasks와 동일 규칙 — beam-wp는 시드를 읽지 않는다)."""
     if stage == "1":
-        return [(algo, BENCHMARK_SEEDS[0]) for algo in ALGOS]
+        return [(algo, BENCHMARK_SEEDS[0]) for algo in algos]
     tasks: list[tuple[str, int | None]] = []
-    for algo in ALGOS:
+    for algo in algos:
         if algo in SEED_SENSITIVE_SOLVERS:
             tasks.extend((algo, seed) for seed in BENCHMARK_SEEDS)
         else:
             tasks.append((algo, None))
     return tasks
+
+
+def _parse_algos(raw: str | None) -> list[str]:
+    """--algos 문자열을 ALGOS 순서를 유지한 부분집합으로 바꾼다. 오타를 조용히 넘기면
+    "돌렸는데 행이 없다"로 끝나므로 모르는 이름은 즉시 막는다."""
+    if raw is None:
+        return list(ALGOS)
+    requested = [name.strip() for name in raw.split(",") if name.strip()]
+    unknown = [name for name in requested if name not in ALGOS]
+    if unknown:
+        raise SystemExit(
+            f"알 수 없는 알고리즘: {', '.join(unknown)}\n사용 가능: {', '.join(ALGOS)}"
+        )
+    return [algo for algo in ALGOS if algo in requested]
+
+
+def _check_output_path(out_path: str, force: bool) -> None:
+    """이미 있는 CSV를 말없이 덮어쓰지 않는다 — 이 러너의 산출물은 한 번 돌리는 데
+    수십 분이 들고, 과거 실행분이 알고리즘 제외 결정 같은 판단의 유일한 근거로 남아 있다."""
+    if Path(out_path).exists() and not force:
+        raise SystemExit(
+            f"출력 파일이 이미 있습니다: {out_path}\n"
+            "다른 이름을 --out으로 주거나, 기존 파일을 옮긴 뒤 다시 실행하세요 "
+            "(덮어쓸 의도라면 --force)."
+        )
 
 
 def _load_dataset() -> dict:
@@ -178,13 +244,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--stage", choices=["1", "2"], required=True,
                          help="1=탐색(시드 1회), 2=본실행(SEED_SENSITIVE_SOLVERS는 시드 10회)")
+    parser.add_argument("--algos", default=None,
+                         help=f"쉼표로 구분한 알고리즘 부분집합(기본: 전체 {len(ALGOS)}종). "
+                              "알고리즘별 기본값이 바뀐 알고리즘만 재실행할 때 쓴다 — 모듈 docstring의 "
+                              "'부분 재실행' 참고")
+    parser.add_argument("--out", default=None,
+                         help="결과 CSV 경로(기본: benchmarks/density_stratified_stage{stage}_results.csv). "
+                              "부분 재실행은 전체 실행분과 섞이지 않도록 반드시 따로 지정한다")
+    parser.add_argument("--force", action="store_true",
+                         help="출력 CSV가 이미 있어도 덮어쓴다(기본은 중단)")
     parser.add_argument("--dry-run", action="store_true",
                          help="실행하지 않고 총 실행 수만 계산해서 출력")
     parser.add_argument("--workers", type=int, default=6)
     args = parser.parse_args()
 
+    algos = _parse_algos(args.algos)
+    out_path = args.out or f"benchmarks/density_stratified_stage{args.stage}_results.csv"
+
     dataset = _load_dataset()
-    seed_plan = _seed_plan(args.stage)
+    seed_plan = _seed_plan(args.stage, algos)
     n_scenario_combos = (
         len(dataset["start_points"]) * len(dataset["target_kms"]) * len(dataset["num_waypoints"])
     )
@@ -194,8 +272,13 @@ def main():
         f"N {dataset['num_waypoints']} x (algo, seed) 조합 {len(seed_plan)} = 총 {total}회",
         flush=True,
     )
+    if algos != ALGOS:
+        print(f"[부분 실행] 알고리즘 {len(algos)}/{len(ALGOS)}종: {', '.join(algos)}", flush=True)
+    print(f"출력: {out_path}", flush=True)
     if args.dry_run:
         return
+
+    _check_output_path(out_path, args.force)
 
     graph = _load_default_graph()  # 부모 프로세스: find_nearest_node 해석에만 사용
     conditions = _resolve_conditions(dataset, graph)
@@ -215,7 +298,6 @@ def main():
         for algo, seed in seed_plan
     ]
 
-    out_path = f"benchmarks/density_stratified_stage{args.stage}_results.csv"
     columns = ["start_id", "start_label", "tier", "target_km", "num_waypoints", "seed", *RESULT_COLUMNS]
 
     rows = []
@@ -246,7 +328,9 @@ def main():
         out_path, runner=f"run_density_stratified_scenarios(stage={args.stage})",
         stage=args.stage, dataset=str(DATASET_PATH),
         start_points=dataset["start_points"], target_kms=dataset["target_kms"],
-        num_waypoints=dataset["num_waypoints"], algos=ALGOS,
+        num_waypoints=dataset["num_waypoints"], algos=algos,
+        algorithm_defaults=algorithm_defaults(algos),
+        refinement_defaults=shared_refinement_defaults(),
         seeds=BENCHMARK_SEEDS if args.stage == "2" else [BENCHMARK_SEEDS[0]],
         workers=args.workers, timeout_sec=TIMEOUT_SEC, time_budget_sec=DEFAULT_TIME_BUDGET_SEC,
         circular_profile=CIRCULAR_BENCHMARK_PROFILE,
@@ -267,11 +351,18 @@ def main():
     print(summary.to_string())
     print(
         "\n[주의] 위 평균은 성공한 행만으로 계산됩니다. 조건별 짝지은 비교와 분산·최악값은 "
-        "별도 집계(aggregate_results.py)에서 num_waypoints를 그룹핑 키로 추가해 내야 합니다."
+        f"python -m benchmarks.aggregate_results {out_path} 로 내세요(조건 키에 start_id·"
+        "num_waypoints 포함). 부분 실행 CSV는 재사용분과 합친 뒤 집계해야 합니다."
     )
 
 
 if __name__ == "__main__":
     import logging
+    import sys
+    # Windows cp949 콘솔은 docstring의 em dash(—)를 인코딩하지 못해 --help가 죽는다.
+    # 인코딩 자체는 그대로 둬야 한글이 콘솔에서 안 깨지므로 에러 처리만 바꾼다.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     logging.basicConfig(level=logging.WARNING, format="[%(levelname)s] [%(name)s] %(message)s")
     main()

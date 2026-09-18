@@ -15,26 +15,30 @@ run_circular_engine_distance_only()/_segment_metrics() 헬퍼를 재사용해 �
 """
 
 import json
+from dataclasses import replace
 
 from benchmarks.solvers._circular_engine_common import run_circular_engine_distance_only
 from benchmarks.solvers.base_solver import BasePathSolver
 from benchmarks.solvers.grasp_waypoint_solver import _refinement_options_from_params, _segment_metrics
+from src.route_engine.engines.circular_beam_waypoint_vns import BEAM_VNS_CONFIG
 from src.route_engine.engines.grasp_waypoint_common import DEFAULT_CONFIG, GraspConfig
 from src.route_engine.engines.waypoint_engine_assembly import WaypointEngine
 from src.schema.route_schema import CircularRouteInput
 
 _DEFAULT_TARGET_KM = 3.0
 _DEFAULT_SEED = 42
-_DEFAULT_BEAM_WIDTH = 8  # GraspConfig.rcl_size 기본값과 맞춘 "공정 비교" 기본값 —
-# beam_construction()이 이 값을 Beam 탐색 폭이자 정제 단계의 이웃 폭으로 함께 쓴다
-# (beam_waypoint_solver.py의 기존 관례와 동일).
 
 
 class _BeamWaypointRefinementSolver(BasePathSolver):
     """refinement만 다른 4개 solver(Local/VND/VNS/ALNS)가 공유하는 실행 본문. 서브클래스는
-    클래스 속성 `refinement`만 정하면 된다."""
+    클래스 속성 `refinement`를 정하고, 알고리즘별 확정값이 공용 기본값과 다를 때만
+    `base_config`를 엔진 쪽 상수로 바꾼다.
+
+    beam_width 기본값은 base_config.rcl_size다 — beam_construction()이 rcl_size를 Beam 탐색
+    폭이자 정제 단계의 이웃 폭으로 함께 쓴다(beam_waypoint_solver.py의 기존 관례와 동일)."""
 
     refinement: str = "local"
+    base_config: GraspConfig = DEFAULT_CONFIG
 
     def __init__(self, name: str, seed: int = _DEFAULT_SEED):
         super().__init__(name)
@@ -43,20 +47,17 @@ class _BeamWaypointRefinementSolver(BasePathSolver):
     def solve(self, graph, start_node, target_node, params: dict) -> dict:
         target_km = params.get("target_km") or _DEFAULT_TARGET_KM
         seed = params.get("seed", self.seed)
-        beam_width = params.get("beam_width", _DEFAULT_BEAM_WIDTH)
-        config = GraspConfig(
-            distance_tolerance_ratio=params.get(
-                "distance_tolerance_ratio", DEFAULT_CONFIG.distance_tolerance_ratio,
-            ),
+        base = self.base_config
+        config = replace(
+            base,
+            distance_tolerance_ratio=params.get("distance_tolerance_ratio", base.distance_tolerance_ratio),
             min_waypoint_separation_ratio=params.get(
-                "min_waypoint_separation_ratio", DEFAULT_CONFIG.min_waypoint_separation_ratio,
+                "min_waypoint_separation_ratio", base.min_waypoint_separation_ratio,
             ),
-            pairwise_cache_rows=params.get("pairwise_cache_rows", DEFAULT_CONFIG.pairwise_cache_rows),
-            num_waypoints=params.get("num_waypoints", DEFAULT_CONFIG.num_waypoints),
-            rcl_size=beam_width,
-            angle_diversity_weight_m=params.get(
-                "angle_diversity_weight_m", DEFAULT_CONFIG.angle_diversity_weight_m,
-            ),
+            pairwise_cache_rows=params.get("pairwise_cache_rows", base.pairwise_cache_rows),
+            num_waypoints=params.get("num_waypoints", base.num_waypoints),
+            rcl_size=params.get("beam_width", base.rcl_size),
+            angle_diversity_weight_m=params.get("angle_diversity_weight_m", base.angle_diversity_weight_m),
         )
         inp = CircularRouteInput(start_lat=0.0, start_lon=0.0, target_km=target_km)
 
@@ -97,6 +98,7 @@ class CircularBeamWaypointVndSolver(_BeamWaypointRefinementSolver):
 
 class CircularBeamWaypointVnsSolver(_BeamWaypointRefinementSolver):
     refinement = "vns"
+    base_config = BEAM_VNS_CONFIG  # 튜닝 확정 beam_width=4(근거는 circular_beam_waypoint_vns.py)
 
     def __init__(self, name: str = "Beam-Waypoint+VNS", seed: int = _DEFAULT_SEED):
         super().__init__(name, seed)

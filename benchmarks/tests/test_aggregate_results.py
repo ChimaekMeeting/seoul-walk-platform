@@ -135,16 +135,21 @@ def test_g6b_conditions_with_nan_keys_are_not_silently_dropped():
     assert len(paired) == 2
 
 
-def test_g7_win_rate_is_decided_by_circularity_not_by_the_gate():
-    """순위 1순위는 정규화 원형성이다(2026-09-11 규칙 변경).
+def test_g7_win_rate_is_decided_by_distance_error_not_by_circularity():
+    """순위 1순위는 거리 오차다(2026-09-17 규칙 변경).
 
-    게이트 4항목 중 3항목이 정상 동작에서 상수라, pass_rate를 1순위에 두면 전 알고리즘이
-    동점이 되어 2순위가 단독으로 승자를 정했다. 게이트는 참가 자격으로 내렸다.
+    circularity_q는 자기 교차 경로에서 신발끈 부호 상쇄로 값이 32배까지 틀리는데,
+    그 오차가 승자를 가르고 있었다. 원형성은 관측 전용으로 내리고 순위에서 뺐다
+    (aggregate_results.py 모듈 docstring "순위 규칙" 참고).
+
+    A는 원형성이 월등하지만 거리 오차가 크다 — 옛 규칙이라면 A가 이긴다. 새 규칙에서는
+    B가 이겨야 한다.
     """
     rows = [
-        # 같은 조건에서 B가 더 원형이다(거리편차는 동일) → B가 이겨야 한다
-        _row("A", 1, 1, circularity=0.2), _row("A", 1, 2, circularity=0.2),
-        _row("B", 1, 1, circularity=0.6), _row("B", 1, 2, circularity=0.6),
+        _row("A", 1, 1, deviation=0.3, circularity=0.9),
+        _row("A", 1, 2, deviation=0.3, circularity=0.9),
+        _row("B", 1, 1, deviation=0.1, circularity=0.2),
+        _row("B", 1, 2, deviation=0.1, circularity=0.2),
     ]
     condition_df = agg.per_condition(agg.add_derived_columns(pd.DataFrame(rows)))
 
@@ -327,7 +332,7 @@ def test_g17_paired_permutation_test_is_exact_for_small_condition_counts():
     """
     rows = []
     for start_node in (1, 2):
-        rows += [_row("A", start_node, 1, circularity=0.6), _row("B", start_node, 1, circularity=0.3)]
+        rows += [_row("A", start_node, 1, deviation=0.3), _row("B", start_node, 1, deviation=0.1)]
     condition_df = agg.per_condition(agg.add_derived_columns(pd.DataFrame(rows)))
 
     tests = agg.paired_tests(condition_df)
@@ -343,7 +348,7 @@ def test_g17b_permutation_test_detects_a_consistent_difference_given_enough_cond
     """조건이 충분히 많고 한쪽이 매번 이기면 유의해진다(2^10 = 1,024가지 중 2가지)."""
     rows = []
     for start_node in range(1, 11):
-        rows += [_row("A", start_node, 1, circularity=0.6), _row("B", start_node, 1, circularity=0.3)]
+        rows += [_row("A", start_node, 1, deviation=0.3), _row("B", start_node, 1, deviation=0.1)]
     condition_df = agg.per_condition(agg.add_derived_columns(pd.DataFrame(rows)))
 
     tests = agg.paired_tests(condition_df)
@@ -375,3 +380,40 @@ def test_g12_old_schema_csv_warns_instead_of_crashing(tmp_path, capsys):
     captured = capsys.readouterr().out
     assert "passed 컬럼이 없습니다" in captured
     assert "다시 실행하세요" in captured
+
+
+def _density_row(algorithm, start_id, num_waypoints, **kwargs):
+    """밀도 층화 러너 CSV 모양의 행 — start_node가 없고 start_id·num_waypoints로 조건을 구분한다."""
+    row = _row(algorithm, None, 42, **kwargs)
+    del row["start_node"]
+    return {**row, "start_id": start_id, "num_waypoints": num_waypoints, "num_waypoints_used": num_waypoints}
+
+
+def test_g19_density_grid_start_and_n_are_condition_keys():
+    """둘이 빠지면 2026-09-15 stage1_retuned CSV 240행이 target_km 하나로 묶여 조건 10개로 뭉개졌다."""
+    df = pd.DataFrame([_density_row("A", "hongdae", 3)])
+
+    columns = agg.condition_columns(df)
+
+    assert "start_id" in columns and "num_waypoints" in columns
+    assert "num_waypoints_used" not in columns  # 실행 결과 컬럼은 조건이 아니다
+
+
+def test_g19b_different_n_is_not_folded_as_seed_repetition():
+    """N이 다른 실행을 한 조건으로 접으면 평균이 두 문제의 중간값이 되고 정규화 분모도 섞인다."""
+    rows = [
+        _density_row("A", "hongdae", 2, deviation=0.1, circularity=0.3),
+        _density_row("B", "hongdae", 2, deviation=0.1, circularity=0.6),
+        _density_row("A", "hongdae", 4, deviation=0.5, circularity=0.2),
+        _density_row("B", "hongdae", 4, deviation=0.5, circularity=0.4),
+    ]
+    df = agg.add_derived_columns(pd.DataFrame(rows))
+
+    condition_df = agg.per_condition(df).set_index(["algorithm", "num_waypoints"])
+    assert condition_df.loc[("A", 2), "n_runs"] == 1
+    assert condition_df.loc[("A", 2), "distance_deviation_km_mean"] == pytest.approx(0.1)
+    assert condition_df.loc[("A", 4), "distance_deviation_km_mean"] == pytest.approx(0.5)
+
+    rel = df.set_index(["algorithm", "num_waypoints"])["circularity_q_rel"]
+    assert rel.loc[("A", 2)] == pytest.approx(0.5)  # 분모 0.6
+    assert rel.loc[("A", 4)] == pytest.approx(0.5)  # 분모 0.4 — N=2의 0.6에 묶이면 0.333

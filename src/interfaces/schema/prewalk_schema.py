@@ -42,6 +42,8 @@ class ChatRequest(BaseModel):
     """
     thread_id: str
     user_prompt: str
+    lat: float
+    lon: float
 
     @field_validator("user_prompt")
     @classmethod
@@ -49,6 +51,22 @@ class ChatRequest(BaseModel):
         if not v.strip():
             raise ValueError("user_prompt는 공백일 수 없습니다.")
         return v
+
+    @field_validator("lat", "lon", mode="before")
+    @classmethod
+    def check_coordinate_not_empty(cls, value: object) -> object:
+        return validate_coordinate_not_empty(value)
+
+    @field_validator("lat", "lon", mode="before")
+    @classmethod
+    def check_coordinate_parseable(cls, value: object) -> object:
+        return validate_coordinate_parseable(value)
+
+    @model_validator(mode="after")
+    def check_coordinates(self) -> "ChatRequest":
+        validate_coordinates(self.lat, self.lon)
+        validate_seoul_bounding_box(self.lat, self.lon)
+        return self
 
 
 class ChatStatus(str, Enum):

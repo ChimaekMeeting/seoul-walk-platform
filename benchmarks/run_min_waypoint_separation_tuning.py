@@ -6,8 +6,10 @@ grasp-wp-alns(0.05->0.0, 0.4->0.144 악화)와 beam-wp-vns(0.05->0.092, 0.4->0.0
 개선)가 정반대 방향 신호를 보여, 다른 3개 파라미터와 달리 GRASP·Beam 양쪽 다
 검증해야 방향을 규명할 수 있다.
 
-TUNED_KNOBS의 기존 확정값은 고정한 채 이 파라미터만 바꾼다. target_km=7만 사용,
-튜닝 집합 4개 지점 x 시드 10개.
+당시 확정값은 고정한 채 이 파라미터만 바꿨다. 확정값은 지금 엔진 알고리즘별 기본값
+(circular_grasp_waypoint_alns.py, circular_beam_waypoint_vns.py)이라 params에 따로 싣지
+않는다. 그 뒤 확정된 값(alns_candidate_limit=2)도 함께 적용되므로 다시 돌리면 기존 결과
+CSV와 수치가 다를 수 있다. target_km=7만 사용, 튜닝 집합 4개 지점 x 시드 10개.
 
 실행:
     python -m benchmarks.run_min_waypoint_separation_tuning
@@ -23,7 +25,6 @@ import pandas as pd
 from benchmarks.benchmark import _load_default_graph, SOLVER_REGISTRY
 from benchmarks.config import BENCHMARK_SEEDS, DEFAULT_TIME_BUDGET_SEC
 from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
-from benchmarks.run_density_stratified_scenarios import TUNED_KNOBS
 from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
@@ -56,7 +57,6 @@ def _pool_worker_task(algo: str, value: float, start_node, seed: int) -> dict:
     params = {
         "target_km": TARGET_KM, "num_waypoints": NUM_WAYPOINTS,
         "time_budget_sec": DEFAULT_TIME_BUDGET_SEC, "seed": seed,
-        **TUNED_KNOBS.get(algo, {}),
         "min_waypoint_separation_ratio": value,
     }
     return run_solver_task(SOLVER_REGISTRY[algo], _POOL_GRAPH, start_node, start_node, params)

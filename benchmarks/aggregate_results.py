@@ -14,12 +14,26 @@ benchmarks/aggregate_results.py
 
     0) 게이트 탈락 필터 — 그 조건에서 한 번도 합격하지 못한(pass_rate == 0) 후보는
        순위 경쟁에서 제외한다. 순위 항목이 아니라 참가 자격이다.
-    1) circularity_q_rel 평균 내림차순     — 같은 조건에서 얼마나 원형에 가까운가
-    2) distance_deviation_km 평균 오름차순 — 목표 거리를 얼마나 맞추는가
-    3) repeated_edge_ratio 평균 오름차순   — 같은 길을 얼마나 덜 되짚는가
+    1) distance_deviation_km 평균 오름차순 — 목표 거리를 얼마나 맞추는가
+    2) repeated_edge_ratio 평균 오름차순   — 같은 길을 얼마나 덜 되짚는가
+
+2026-09-17 변경 — circularity_q_rel을 1순위에서 제거했다. 근거:
+  - circularity_q는 자기 교차 경로에서 신발끈 부호 상쇄로 면적을 크게 과소평가한다.
+    실측(start=175895, target_km=5.0, seed=1717)에서 8자 경로의 두 고리가
+    +149,900 / -140,864 m²로 96.9%가 상쇄돼 Q=0.0045가 나왔고, 고리별 절댓값 합으로
+    계산하면 0.1463이다 — 32배 차이다.
+  - 그 경로의 repeated_edge_ratio는 0.000이다. 자기 교차는 엣지 재사용 없이도 일어나므로,
+    circularity_q docstring이 달아 둔 면책("그런 경로는 이미 repeated_edge_ratio가
+    걸러낸다")은 성립하지 않는다.
+  - 즉 1순위 지표가 특정 경로 형태에서만 32배 틀리는 값이었고 그 오차가 순위를 갈랐다.
+    N=4 격자 10개 조건에서 이 항을 빼면 9개(90%)의 승자가 바뀐다.
+  - 새 1순위가 노이즈가 아님을 확인했다: 알고리즘 간 거리 오차 격차 중앙값 0.094km 대
+    같은 알고리즘의 시드 표준편차 중앙값 0.029km로 약 3배다.
+  - 원형성은 관측 지표로만 남긴다. 게이트에도 순위에도 넣지 않는다
+    (results.py::evaluate_gate 주석 참고).
 
 2026-09-11 변경 — pass_rate를 1순위에서 0순위(탈락 필터)로 내리고 circularity_q_rel을
-1순위로 올렸다. 근거:
+1순위로 올렸다(2026-09-17에 이 1순위는 되돌렸다). 근거:
   - 합격 게이트 4항목 중 3항목(is_closed_loop / spike_count / repeated_edge_ratio)은
     회귀 감시·prune_dead_ends 개편 대비용이라 정상 동작에서 전 행 상수다. 실제로
     2026-09-10 실측 500행에서 셋 다 값이 하나뿐이었고, 게이트를 가른 것은
@@ -32,8 +46,9 @@ circularity_q를 절대값이 아니라 조건별 정규화값(circularity_q_rel
 도보망에서 달성 가능한 Q의 상한이 조건마다 다르고 아직 이론값이 없다(config.py의
 OBSERVED_CIRCULARITY_Q_MAX_RANGE 참고). 같은 조건에서 관측된 최댓값으로 나누면 상한을
 몰라도 "누가 더 원형인가"는 흔들리지 않는다.
-⚠ 그래서 circularity_q_rel은 순위 전용이다. 비교 대상 집합이 바뀌면 분모가 바뀌므로
-  탈락 기준(절대 임계값)으로는 절대 쓰지 말 것 — 그 임계값은 사람 라벨링으로만 정해진다.
+⚠ circularity_q_rel은 2026-09-17부터 순위에서 빠져 관측 전용이다. 비교 대상 집합이
+  바뀌면 분모가 바뀌므로 탈락 기준(절대 임계값)으로도 쓸 수 없다 — 그 임계값은 사람
+  라벨링으로만 정해진다. 표에는 계속 내지만 어떤 판정에도 쓰지 말 것.
 
 cost는 solver마다 정의가 달라 애초에 비교 대상이 아니다.
 
@@ -102,7 +117,8 @@ QUALITY_METRICS = (
     Metric("repeated_edge_ratio", higher_is_better=False),
     Metric("spike_count", higher_is_better=False),
     Metric("circularity_q", higher_is_better=True),
-    # 조건별 최댓값으로 정규화한 원형성. 순위 규칙 1순위이며 add_derived_columns()가 만든다.
+    # 조건별 최댓값으로 정규화한 원형성. add_derived_columns()가 만든다.
+    # 2026-09-17부터 순위에 쓰지 않는다 — 관측 전용이다(모듈 docstring "순위 규칙" 참고).
     Metric("circularity_q_rel", higher_is_better=True),
 )
 
@@ -131,7 +147,9 @@ COST_METRICS = (
     Metric("search_work", higher_is_better=False),
 )
 
-# 2계층 원형성 대리 지표. circularity_q와의 상관 검증(이슈 H) 대상이라 같이 낸다.
+# 2계층 원형성 대리 지표. 원래 circularity_q와의 상관 검증(이슈 H) 대상이라 같이 냈다.
+# 2026-09-17: 그 기준값이 자기 교차 경로에서 32배 틀리는 것이 확인돼 상관 결론을 쓸 수
+# 없게 됐다(analyze_circularity_proxy.py 모듈 docstring 참고). 표에는 계속 내지만 관측용이다.
 PROXY_METRICS = (
     Metric("waypoint_separation_m", higher_is_better=True),
     Metric("segment_balance_ratio", higher_is_better=True),
@@ -144,7 +162,18 @@ DERIVED_COLUMNS = frozenset({"path_lookups", "search_work", "circularity_q_rel"}
 
 # 조건(= 같은 문제 인스턴스)을 식별하는 컬럼 후보. 파일마다 있는 것만 쓴다.
 # algorithm과 seed는 조건이 아니라 "그 조건 위에서 무엇을 몇 번 돌렸는가"이므로 제외한다.
-_CONDITION_CANDIDATES = ("scenario_id", "mode", "start_node", "target_km")
+#
+# start_id·num_waypoints(2026-09-15): 밀도 층화 러너와 튜닝 스윕 러너들의 CSV에는
+# scenario_id·mode·start_node가 없고 출발지를 start_id로만 남긴다. 둘이 빠지면 조건 키가
+# target_km 하나로 줄어 서로 다른 출발지·경유지 수가 "같은 조건의 시드 반복"으로 합쳐진다
+# — density_stratified_stage1_retuned.csv 240행(2종 x 8출발지 x 5거리 x N 3개)이 조건
+# 10개로 뭉개지는 것을 실측으로 확인했다. N이 다르면 탐색 공간과 ALNS 제거 개수
+# (ceil(N*removal_fraction))가 달라지므로 다른 문제 인스턴스다. circularity_q_rel의
+# 분모도 이 키로 나뉜다.
+# num_waypoints_used는 엔진이 실제로 쓴 값을 기록한 결과 컬럼이라 여기 넣지 않는다.
+_CONDITION_CANDIDATES = (
+    "scenario_id", "mode", "start_node", "start_id", "target_km", "num_waypoints",
+)
 
 # 스윕 러너가 붙이는 노브 컬럼(alns_iterations 등)도 조건의 일부다 — 설정이 다르면
 # 다른 조건이다. 다만 결과 스키마(RESULT_COLUMNS)에 이미 있는 컬럼은 제외해야 한다:
@@ -157,9 +186,9 @@ _RESULT_SCHEMA_COLUMNS = frozenset(RESULT_COLUMNS)
 # 순위는 품질만으로 매긴다. pass_rate는 순위 항목이 아니라 참가 자격(_GATE_COLUMN)이다 —
 # 이유는 모듈 docstring "순위 규칙" 참고.
 _RANKING_COLUMNS = (
-    "circularity_q_rel_mean", "distance_deviation_km_mean", "repeated_edge_ratio_mean",
+    "distance_deviation_km_mean", "repeated_edge_ratio_mean",
 )
-_RANKING_ASCENDING = (False, True, True)  # 원형성만 높을수록 좋다
+_RANKING_ASCENDING = (True, True)  # 둘 다 낮을수록 좋다
 _GATE_COLUMN = "pass_rate"
 
 

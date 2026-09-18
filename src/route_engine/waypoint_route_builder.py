@@ -27,6 +27,7 @@ from typing import Optional
 import networkx as nx
 
 from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.errors import MissingEdgeAttributeError
 
 _LENGTH_ATTR = "length"  # 그래프 엣지 거리 속성명. engines/grasp_waypoint_common.py와 동일 기준.
 
@@ -36,9 +37,9 @@ PathFinder = Callable[[int, int], Optional[Sequence[int]]]
 # (waypoint_evaluation.py::PathFunction과 동일한 계약).
 
 
-class MissingEdgeAttributeError(KeyError):
-    """엣지에 필수 속성(예: length)이 없을 때 던진다. 0으로 조용히 대체하지 않는다 —
-    그렇게 하면 모든 비용이 0으로 계산되는 오류가 숨겨질 수 있다."""
+# MissingEdgeAttributeError의 정의는 errors.py(leaf 모듈)로 옮겼다 — scoring 쪽
+# 모듈이 이 예외만 가져오려 해도 engines 패키지 전체가 로드돼 순환 import가 생겼기
+# 때문이다(errors.py docstring 참고). 위 import로 기존 경로를 그대로 재-export한다.
 
 
 def surviving_waypoints(node_ids: Sequence[int], waypoints: Sequence[int]) -> list[int]:

@@ -38,6 +38,11 @@ package-lock.json
 !tests/unit/test_oneway_astar_alt.py
 !tests/unit/test_grasp_waypoint_common.py
 !tests/unit/test_waypoint_engine_assembly.py
+!tests/unit/test_weighted_edge_cost.py
+!tests/unit/test_graph_repository_scores.py
+!tests/unit/test_oneway_astar_weighted.py
+!tests/unit/test_weighted_cost_runtime.py
+!tests/unit/test_waypoint_detour_cap.py
 .claude/
 
 # 로컬 Poetry 환경 설정과 경로 API 테스트 결과는 버전 관리하지 않습니다.
@@ -66,6 +71,11 @@ restore_log.txt
 # 재현 메타데이터(<csv>.metadata.json, benchmarks/run_metadata.py)는 덮이지 않아
 # untracked로 남았습니다. 실행할 때마다 덮어쓰이는 산출물이라 버전 관리하지 않습니다.
 *.metadata.json
+
+# 벤치마크를 백그라운드로 돌릴 때 표준출력·표준에러를 받아 두는 실행 로그
+# (ex) stage1_retuned_run.log, *_run.err.log). 결과는 CSV와 <csv>.metadata.json에 남고
+# 요약표는 CSV로 다시 계산할 수 있어 버전 관리하지 않습니다.
+*.log
 
 # 점대점 벤치마크(benchmarks/runner/alt_shortest_path.py) 실행 산출물.
 # results.csv는 위 *.csv로, results.metadata.json은 위 *.metadata.json으로 이미

@@ -18,11 +18,15 @@ d12/d23/d31을 재계산하지 않는다(엔진과 벤치마크가 서로 다른
 """
 
 import json
+from dataclasses import replace
 from typing import Optional
 
 from benchmarks.solvers._circular_engine_common import run_circular_engine_distance_only
 from benchmarks.solvers.base_solver import BasePathSolver
-from src.route_engine.engines.circular_grasp_waypoint_alns import CircularGraspWaypointAlnsEngine
+from src.route_engine.engines.circular_grasp_waypoint_alns import (
+    GRASP_ALNS_CONFIG,
+    CircularGraspWaypointAlnsEngine,
+)
 from src.route_engine.engines.circular_grasp_waypoint_local import CircularGraspWaypointLocalEngine
 from src.route_engine.engines.circular_grasp_waypoint_vnd import CircularGraspWaypointVndEngine
 from src.route_engine.engines.circular_grasp_waypoint_vns import CircularGraspWaypointVnsEngine
@@ -86,6 +90,12 @@ def _segment_metrics(engine, start_node: int, target_km: float) -> dict:
         "min_waypoint_separation_m": round(min_separation_m, 4),
         "repeated_edge_ratio": r(gm.repeated_edge_ratio, 4),
         "waypoint_angle_diff_deg": r(angles[0], 2) if angles else None,
+        # 부호를 잃지 않는 원본 방위각. angle_diff는 [0,180] 정규화라 되돌아온 배치를
+        # 구분하지 못한다(RouteGeometryMetrics.waypoint_bearings_deg docstring 참고).
+        "waypoint_bearings_deg": (
+            json.dumps([round(b, 2) for b in gm.waypoint_bearings_deg])
+            if gm.waypoint_bearings_deg else None
+        ),
         "segment_balance_ratio": r(gm.segment_balance_ratio, 4),
         "is_degenerate_loop": gm.is_degenerate_loop,
         "num_waypoints_used": engine.config.num_waypoints,
@@ -106,7 +116,7 @@ _REFINEMENT_PARAM_KEYS = {
         "iterations", "removal_fraction", "start_temperature_m", "cooling_rate",
         "segment_length", "reaction_factor", "candidate_limit", "max_cost_calls", "seed",
     ),
-    "vns": ("max_shake_level",),
+    "vns": ("max_shake_level", "max_iterations"),
 }
 
 
@@ -122,24 +132,25 @@ def _refinement_options_from_params(refinement: str, params: dict) -> Optional[d
     return options or None
 
 
-def _grasp_config_from_params(params: dict) -> GraspConfig:
+def _grasp_config_from_params(params: dict, base: GraspConfig = DEFAULT_CONFIG) -> GraspConfig:
     """params의 구축 단계 노브만 골라 GraspConfig를 만든다(이슈 #427 To-Do 3 —
     beam_waypoint_refinement_solver.py가 Beam 계열에 이미 하던 것과 같은 패턴을 GRASP
     4종에도 적용). num_waypoints는 여기 안 넣는다 — 각 solver가 별도 kwarg로 엔진에
-    넘기던 기존 경로를 그대로 둔다. 지정 안 한 값은 DEFAULT_CONFIG를 그대로 쓴다."""
-    return GraspConfig(
-        rcl_size=params.get("rcl_size", DEFAULT_CONFIG.rcl_size),
-        grasp_iters=params.get("grasp_iters", DEFAULT_CONFIG.grasp_iters),
-        distance_tolerance_ratio=params.get(
-            "distance_tolerance_ratio", DEFAULT_CONFIG.distance_tolerance_ratio,
-        ),
+    넘기던 기존 경로를 그대로 둔다.
+
+    지정 안 한 값은 base를 그대로 쓴다. base는 엔진 래퍼의 config 기본값과 같아야 한다 —
+    DEFAULT_CONFIG로 채워 넘기면 래퍼에 둔 알고리즘별 확정값(ex) GRASP_ALNS_CONFIG)을
+    벤치마크가 조용히 우회한다."""
+    return replace(
+        base,
+        rcl_size=params.get("rcl_size", base.rcl_size),
+        grasp_iters=params.get("grasp_iters", base.grasp_iters),
+        distance_tolerance_ratio=params.get("distance_tolerance_ratio", base.distance_tolerance_ratio),
         min_waypoint_separation_ratio=params.get(
-            "min_waypoint_separation_ratio", DEFAULT_CONFIG.min_waypoint_separation_ratio,
+            "min_waypoint_separation_ratio", base.min_waypoint_separation_ratio,
         ),
-        pairwise_cache_rows=params.get("pairwise_cache_rows", DEFAULT_CONFIG.pairwise_cache_rows),
-        angle_diversity_weight_m=params.get(
-            "angle_diversity_weight_m", DEFAULT_CONFIG.angle_diversity_weight_m,
-        ),
+        pairwise_cache_rows=params.get("pairwise_cache_rows", base.pairwise_cache_rows),
+        angle_diversity_weight_m=params.get("angle_diversity_weight_m", base.angle_diversity_weight_m),
     )
 
 
@@ -235,7 +246,8 @@ class CircularGraspWaypointAlnsSolver(BasePathSolver):
         engine = CircularGraspWaypointAlnsEngine(
             inp=inp, G=graph, mode="distance", seed=seed,
             num_waypoints=params.get("num_waypoints"),
-            config=_grasp_config_from_params(params),
+            config=_grasp_config_from_params(params, base=GRASP_ALNS_CONFIG),
+            # 엔진이 GRASP_ALNS_OPTIONS 위에 덮어쓰므로 params에 없는 ALNS 노브는 확정값이 된다.
             alns_options=_refinement_options_from_params("alns", params),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)

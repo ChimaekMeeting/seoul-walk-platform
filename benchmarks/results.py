@@ -74,7 +74,7 @@ RESULT_COLUMNS = [
     # 되살리지 않는다.
     "selection_status", "feasible",
     "waypoint_separation_m", "min_waypoint_separation_m",
-    "waypoint_angle_diff_deg", "segment_balance_ratio", "is_degenerate_loop",
+    "waypoint_angle_diff_deg", "waypoint_bearings_deg", "segment_balance_ratio", "is_degenerate_loop",
     "num_waypoints_used", "effective_waypoints_used",
     "prune_branch_count", "prune_branch_length_m",
     "prune_clean_branch_count", "prune_clean_branch_length_m",
@@ -98,7 +98,7 @@ _OPTIONAL_FLOAT_KEYS = (
     "prune_branch_length_m", "prune_clean_branch_length_m",
 )
 _OPTIONAL_BOOL_KEYS = ("feasible", "is_degenerate_loop")
-_OPTIONAL_STR_KEYS = ("selection_status", "alns_operator_stats")
+_OPTIONAL_STR_KEYS = ("selection_status", "alns_operator_stats", "waypoint_bearings_deg")
 
 # overlap_ratio / repeated_edge_ratio는 build_result_row가 별도 규칙으로 채우므로 제외한다.
 _PASSTHROUGH_KEYS = tuple(
@@ -196,9 +196,15 @@ def circularity_q(graph, paths, perimeter_m: Optional[float]) -> Optional[float]
     후 신발끈 공식으로 구한다. 서울 규모(한 변 수 km)에서 이 근사 오차는 지표 용도에
     무시할 수준이다.
 
-    한계: 자기 교차가 있는 경로는 신발끈이 부호 상쇄를 일으켜 면적을 과소평가한다.
-    그런 경로는 이미 repeated_edge_ratio가 걸러내는 대상이지만, Q 값 하나만 보고
-    "원형이 아니다"라고 단정하지 말 것.
+    한계(2026-09-17 실측으로 확인): 자기 교차가 있는 경로는 신발끈이 부호 상쇄를
+    일으켜 면적을 크게 과소평가한다. 8자 경로 실측(start=175895, target_km=5.0,
+    seed=1717)에서 두 고리가 +149,900 / -140,864 m²로 96.9%가 상쇄돼 Q=0.0045가
+    나왔고, 고리별 절댓값 합으로 계산하면 0.1463이다 — 32배 차이다.
+    ⚠ 이 경로의 repeated_edge_ratio는 0.000이다. 자기 교차는 엣지 재사용 없이도
+    일어나므로 "재통행이 걸러낸다"는 이전 설명은 틀렸다.
+    따라서 Q는 자기 교차 여부를 함께 보지 않고 단독으로 읽으면 안 된다. 이 값은 관측
+    전용이며 게이트·순위·목적함수 어디에도 쓰지 않는다(evaluate_gate 주석,
+    aggregate_results.py 모듈 docstring 참고).
 
     닫히지 않은 경로이거나 좌표(lat/lon)가 없는 노드가 있으면 None — 면적이 정의되지 않는다.
     """
@@ -307,8 +313,11 @@ def evaluate_gate(row: dict, circular: Optional[bool]) -> tuple[Optional[bool], 
         (grasp_waypoint_common.compute_route_geometry_metrics 참고).
       - effective_waypoints_used 불일치 : 경유지 소실은 품질 미달이 아니라 N 튜닝의
         비용 효율 문제다.
-      - circularity_q : 아직 임계값을 정할 실측이 없다. 대리 지표 검증(이슈 H)이
-        끝난 뒤 편입 여부를 판단한다.
+      - circularity_q : 게이트에 넣지 않는다(2026-09-17 결정). 절대 임계값은 사람
+        라벨링으로만 정할 수 있는데 그 라벨링 세트가 없고, 어떤 임계값을 잡아도 정상
+        동작에서 20~50%가 탈락해(N=4 격자 300행 실측) "회귀를 잡는 장치"라는 이 게이트의
+        성격과 맞지 않는다. 같은 이유로 순위 규칙에서도 뺐다
+        (aggregate_results.py 모듈 docstring "순위 규칙" 참고).
     """
     if not circular:
         return None, None

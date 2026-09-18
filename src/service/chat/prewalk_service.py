@@ -3,13 +3,18 @@ from uuid import uuid4
 
 from langgraph.graph import StateGraph, END
 
+from src.database.postgresql import get_postgresql_db
 from src.infrastructure.external.client.kakao_client import KakaoClient
+from src.interfaces.validators.coord_validator import validate_seoul_polygon_contains
+from src.interfaces.validators.highway_validator import validate_no_highway
+from src.interfaces.validators.water_validator import snap_coordinate_from_water
 from src.repository.user.user_repository import UserRepository
 from src.repository.chat.chat_session_repository import ChatSessionRepository
 from src.infrastructure.cache.repository.chat_state_repository import ChatStateRepository
 from src.agent.nodes import (
     WeatherChecker,
     Extractor,
+    WeightExtractor,
     Interviewer,
     ConfirmationClassifier,
     RouteExecutor
@@ -17,6 +22,7 @@ from src.agent.nodes import (
 from src.interfaces.schema.prewalk_schema import ChatResponse, ChatStatus
 from src.schema.prewalk_schema import State, Location
 from src.service.user.auth_service import AuthService
+from src.agent.utils.chatbot_utils import PromptUtils
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +34,7 @@ class PrewalkOrchestrator:
         kakao_client:            KakaoClient,
         auth_service:            AuthService,
         extractor:               Extractor,
+        weight_extractor:        WeightExtractor,
         interviewer:             Interviewer,
         confirmation_classifier: ConfirmationClassifier,
         route_executor:          RouteExecutor
@@ -35,16 +42,17 @@ class PrewalkOrchestrator:
         self.weather_checker = weather_checker
         self.kakao_client    = kakao_client
         self.auth_service    = auth_service
-        self.graph           = self._build_graph(extractor, interviewer, confirmation_classifier, route_executor)
+        self.graph           = self._build_graph(extractor, weight_extractor, interviewer, confirmation_classifier, route_executor)
 
-    def _build_graph(self, extractor, interviewer, confirmation_classifier, route_executor):
+    def _build_graph(self, extractor, weight_extractor, interviewer, confirmation_classifier, route_executor):
         """
-        extractor, interviewer, confirmation_classifier, route_executor 노드를 연결합니다.
+        extractor, weight_extractor, interviewer, confirmation_classifier, route_executor 노드를 연결합니다.
         """
         builder = StateGraph(State)
 
         # 모든 노드 정의
         builder.add_node("extractor",              extractor.run)
+        builder.add_node("weight_extractor",        weight_extractor.run)
         builder.add_node("interviewer",             interviewer.run)
         builder.add_node("confirmation_classifier", confirmation_classifier.run)
         builder.add_node("route_executor",          route_executor.run)
@@ -56,9 +64,11 @@ class PrewalkOrchestrator:
             {"confirmation_classifier": "confirmation_classifier", "extractor": "extractor"},
         )
 
-        # extractor -> interviewer -> 정보 부족O -> END(확인 대기 또는 재질문) -> 다음 턴에 다시 진입
-        # extractor -> interviewer -> 정보 부족X -> route_executor -> END
-        builder.add_edge("extractor", "interviewer")
+        # extractor -> weight_extractor(가중치 라벨 추출, mode 확정 후 GPS Art/최단 스킵 판단) -> interviewer
+        # -> 정보 부족O -> END(확인 대기 또는 재질문) -> 다음 턴에 다시 진입
+        # -> 정보 부족X -> route_executor -> END
+        builder.add_edge("extractor", "weight_extractor")
+        builder.add_edge("weight_extractor", "interviewer")
         builder.add_conditional_edges(
             "interviewer",
             lambda state: "route_executor" if state.is_complete else END,
@@ -128,7 +138,7 @@ class PrewalkOrchestrator:
 
         return ChatResponse(status=status, thread_id=thread_id, state=initial_state)
 
-    async def orchestrator(self, access_token: str, thread_id: str, user_prompt: str) -> ChatResponse:
+    async def orchestrator(self, access_token: str, thread_id: str, user_prompt: str, lat: float, lon: float) -> ChatResponse:
         """
         Langgraph를 기반으로 정보 수집부터 경로 생성까지 진행합니다.
         """
@@ -157,8 +167,29 @@ class PrewalkOrchestrator:
         if state.user_id != user.id:
             return ChatResponse(status=ChatStatus.UNACCESSIBLE, thread_id=None, state=None)
 
+        # 좌표가 이전 턴과 동일하면 수계 snap·고속도로 차단·역지오코딩을 다시 하지 않는다.
+        if lat != state.current_location.lat or lon != state.current_location.lon:
+            with get_postgresql_db() as db:
+                validate_seoul_polygon_contains(lat, lon, db)
+                snapped_lat, snapped_lon = snap_coordinate_from_water(lat, lon, db)
+                if (snapped_lat, snapped_lon) == (lat, lon):
+                    validate_no_highway(lat, lon, db)
+                lat, lon = snapped_lat, snapped_lon
+
+            try:
+                kakao_result = await self.kakao_client.get_address_from_coords(lat, lon)
+                state.current_location = Location(
+                    lat        = lat,
+                    lon        = lon,
+                    address    = kakao_result.place_address,
+                    place_name = kakao_result.place_name,
+                )
+            except Exception:
+                logger.exception("prewalk_intent_kakao_error | lat=%s | lon=%s", lat, lon)
+                state.current_location = Location(lat=lat, lon=lon)
+
         state.access_token  = access_token
-        state.user_prompt   = user_prompt
+        state.user_prompt   = PromptUtils.sanitize_user_prompt(user_prompt)  # 프롬프트 정규화
         state.route_result  = None
 
         # awaiting_confirmation 여부에 따라 confirmation_classifier/extractor 중 하나로 진입

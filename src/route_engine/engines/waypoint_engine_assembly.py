@@ -11,6 +11,20 @@ circular_grasp_waypoint_alns.py::CircularGraspWaypointAlnsEngine도 같은 얇�
 ("ALNS 정제 로직 이중화 해소" 이슈) — 예전에는 그 엔진이 자체 _improve_with_alns()/
 _AlnsStatsAccumulator를 들고 있어 정제 로직이 두 벌이었지만, 이제 GRASP+ALNS와
 Beam+ALNS가 waypoint_refinement.py::alns() 하나를 공유한다.
+
+최종 경로 1개 + 후보 2개(이슈 #443):
+    MULTI_CANDIDATE_COMBOS에 속한 조합은 run()이 CANDIDATE_COUNT개의 응답을 반환한다.
+    첫 번째가 최종 경로이고 나머지가 후보이며, 후보는 last_alternative_routes에도 남는다.
+
+    "최종 경로"와 "후보"를 개념적으로 분리한 이유는 벤치마크 지표를 건드리지 않기
+    위해서다. find_path()는 예전과 똑같이 최종 경로 노드열 하나만 반환하므로, 이 함수를
+    쓰는 벤치마크 어댑터(benchmarks/solvers/_circular_engine_common.py::
+    run_circular_engine_distance_only)와 CSV 지표는 전혀 바뀌지 않는다. 후보는 별도
+    속성으로만 나간다.
+
+    find_path()의 최선해 추적(better 순차 갱신)도 그대로다 — 후보 수집은 그 옆에서
+    풀을 쌓기만 하고 승자 선택에 끼어들지 않는다. 즉 같은 seed에서 최종 경로는
+    이 변경 전후로 동일하다.
 """
 
 from __future__ import annotations
@@ -62,6 +76,24 @@ _LABELS = {
     ("beam", "vns"): "Beam+VNS",
     ("beam", "alns"): "Beam+ALNS",
 }
+
+CANDIDATE_COUNT = 3
+# 다중 후보 조합이 반환하는 경로 수(최종 경로 1개 + 후보 2개). 사용자에게 3개를 보여주고,
+# 그 3개의 가중치 평균을 프로필에 반영하기 위한 표본 수다.
+
+MULTI_CANDIDATE_COMBOS = frozenset({("grasp", "local"), ("grasp", "alns")})
+# 후보를 3개까지 내는 (construction, refinement) 조합. 나머지는 지금까지처럼 최종 경로
+# 1개만 반환한다 — 후보를 만들 원천이 없기 때문이다(2026-09-17 실측, seed 42, 벤치 fixture
+# 160,328노드, target_km=3.0·N=2에서 정제 후 서로 다른 경로 수):
+#   grasp+alns 18~21개 / grasp+local 2~8개 / grasp+vnd 1~2개 / grasp+vns 2~7개 / beam+* 1개
+# VND·VNS는 결정적 단조 하강이라 서로 다른 구축 결과 24개가 같은 지역 최적해로 수렴하고
+# (refine_changed는 22~24로 정제 자체는 매번 작동한다), beam_construction()은 애초에
+# ConstructionResult를 1개만 yield한다. 반면 ALNS는 무작위성이 있고 원본을 그대로 두는
+# 경우가 많아(24개 중 4~12개만 변경) 구축 단계의 다양성이 살아남는다.
+#
+# 조합을 늘리려면 이 집합만 고치면 된다. 래퍼가 아니라 모듈 상수에 둔 이유는, 벤치마크가
+# 래퍼를 거치지 않고 WaypointEngine을 직접 만드는 경로가 있어서다
+# (benchmarks/solvers/beam_waypoint_refinement_solver.py) — 진입점마다 동작이 갈리면 안 된다.
 
 
 class WaypointEngine:
@@ -117,12 +149,53 @@ class WaypointEngine:
         self.pool_generator = WaypointPoolGenerator(self.G)
         self.last_selection_status: Optional[str] = None
         self.last_route: Optional[Route] = None
+        self.last_alternative_routes: list[Route] = []
+        # 최종 경로(last_route)를 **제외한** 후보. MULTI_CANDIDATE_COMBOS에 속하고 경로
+        # 생성에 성공했을 때만 CANDIDATE_COUNT-1개가 채워지고, 그 외에는 빈 목록이다.
+        # 벤치마크는 이 값을 읽지 않는다 — CSV 지표는 계속 최종 경로 하나만 본다.
         self.last_geometry_metrics: Optional[RouteGeometryMetrics] = None
         self.last_alns_stats: Optional[dict] = None
         self.last_pool_result = None  # 경유지 풀 pairwise 캐시 히트율 진단용(신규)
 
     def _label(self) -> str:
         return _LABELS.get((self.construction, self.refinement), f"{self.construction}+{self.refinement}")
+
+    def _collect_alternatives(self, candidate_pool: list[tuple], best_route: Optional[Route]) -> list[Route]:
+        """최종 경로를 제외한 후보 CANDIDATE_COUNT-1개를 품질 순으로 고른다.
+
+        best_route를 결과에 넣지 않고 처음부터 제외한 뒤 run()이 맨 앞에 붙이므로,
+        "첫 번째는 항상 최종 경로"가 정렬 결과와 무관하게 성립한다(정렬 1순위가 순차
+        갱신 승자와 같다는 성질에 기대지 않는다 — 실측으로는 일치하지만, 계약을 성질에
+        의존시키지 않는다).
+
+        정렬은 안정 정렬이라 사전식 키가 같은 해끼리는 구축 반복 순서가 유지된다 —
+        같은 seed에서 결과가 재현된다.
+
+        중복은 node_ids 완전 일치로만 판정한다. 그래도 CANDIDATE_COUNT-1개를 못 채우면
+        최선해를 복제해 채운다 — 이 경로는 "항상 3개" 계약을 지키기 위한 마감이며,
+        실측상 grasp+local 40조건 중 2건(남산 1km·북한산 3km)에서만 발동하고
+        grasp+alns에서는 관측되지 않았다(2026-09-17, seed 42).
+        """
+        if best_route is None or (self.construction, self.refinement) not in MULTI_CANDIDATE_COMBOS:
+            return []
+
+        wanted = CANDIDATE_COUNT - 1
+        seen = {tuple(best_route.node_ids)}
+        alternatives: list[Route] = []
+        for _, route in sorted(candidate_pool, key=lambda item: item[0].sort_key()):
+            key = tuple(route.node_ids)
+            if key in seen:
+                continue
+            seen.add(key)
+            alternatives.append(route)
+            if len(alternatives) == wanted:
+                break
+
+        padded = wanted - len(alternatives)
+        if padded:
+            logger.info("%s 후보가 %d개 모자라 최종 경로를 복제해 채웁니다.", self._label(), padded)
+            alternatives.extend([best_route] * padded)
+        return alternatives
 
     def run(self) -> list[WalkRouteResponse]:
         logger.info(
@@ -145,17 +218,28 @@ class WaypointEngine:
                 mode=WalkMode.CIRCULAR_RANDOM, coordinates=[], total_km=0.0,
             )]
 
-        pruned = self.utils.prune_dead_ends(nodes)
+        # 첫 번째가 항상 최종 경로다. 후보가 있는 조합이면 그 뒤에 후보를 붙여
+        # CANDIDATE_COUNT개를 반환하고, 없으면 지금까지처럼 1개만 반환한다.
+        # 실패 상태(위 NO_NEAREST_START_NODE/NO_PATH)는 후보 자체가 없으므로 항상 1개다.
+        responses = [self._to_response(nodes)]
+        responses.extend(self._to_response(route.node_ids) for route in self.last_alternative_routes)
+        return responses
+
+    def _to_response(self, node_ids: list[int]) -> WalkRouteResponse:
+        """노드열 하나를 응답으로 변환한다(왕복 가지 제거 -> 좌표 -> 총거리).
+        최종 경로와 후보가 완전히 같은 기준으로 변환되도록 한 곳에 모았다."""
+        pruned = self.utils.prune_dead_ends(node_ids)
         coords = self.utils.extract_coordinates(pruned)
         total_km = round(self.utils.calc_distance(pruned) / 1000, 2)
-        return [WalkRouteResponse(
+        return WalkRouteResponse(
             status=WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
             mode=WalkMode.CIRCULAR_RANDOM, coordinates=coords, total_km=total_km,
-        )]
+        )
 
     def find_path(self, start_node: int, target_km: float = 3.0) -> list[int]:
         target_m = target_km * 1000
         rng = random.Random(self.seed)
+        self.last_alternative_routes = []  # 같은 엔진으로 두 번 호출해도 이전 후보가 새지 않게 한다
 
         start_data = self.G.nodes[start_node]
         pool_result = self.pool_generator.build_pool(
@@ -172,6 +256,11 @@ class WaypointEngine:
         refine_fn = REFINEMENT_REGISTRY[self.refinement]
         alns_stats = AlnsStatsAccumulator() if self.refinement == "alns" else None
 
+        # 후보를 낼 조합에서만 풀을 쌓는다. 최선해 추적(아래 better 비교)은 조합과 무관하게
+        # 그대로라, 이 수집이 최종 경로 선택에 끼어들지 않는다.
+        collect_candidates = (self.construction, self.refinement) in MULTI_CANDIDATE_COMBOS
+        candidate_pool: list[tuple] = []  # [(RouteObjective, Route), ...] 구축 반복 순서대로
+
         best_route, best_obj = None, _INFEASIBLE
         had_valid_waypoint_pair = False
         for construction_result in construction_fn(
@@ -186,13 +275,17 @@ class WaypointEngine:
                 stats=alns_stats, options=self.refinement_options,
             )
             obj = evaluate_route(route, target_m, target_m * self.config.distance_tolerance_ratio)
+            if collect_candidates:
+                candidate_pool.append((obj, route))
             if best_route is None or better(obj, best_obj):
                 best_obj, best_route = obj, route
                 if alns_stats is not None:
-                    alns_stats.record_winner(alns_stats.pending_result, alns_stats.pending_accepted)
+                    alns_stats.record_winner(alns_stats.pending_result, alns_stats.pending_accepted,
+                                             alns_stats.pending_outcome)
 
         self.last_selection_status = determine_selection_status(best_route, best_obj, had_valid_waypoint_pair)
         self.last_route = best_route
+        self.last_alternative_routes = self._collect_alternatives(candidate_pool, best_route)
         self.last_alns_stats = alns_stats.snapshot() if alns_stats is not None else None
         self.last_geometry_metrics = compute_route_geometry_metrics(
             self.G, self.cost_cache.astar_path, start_node, best_route, target_m,

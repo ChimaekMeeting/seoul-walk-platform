@@ -50,6 +50,7 @@ from src.route_engine.engines.grasp_waypoint_common import (
     BuildCycleRoute,
     GraspConfig,
     Route,
+    RouteObjective,
     _edge_overlap_ratio,
     _sum_edge_length,
     better,
@@ -118,6 +119,15 @@ def vnd(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: in
 
 _MAX_SHAKE_LEVEL = 4
 
+# vns_loop 1회 호출의 총 반복(교란 시도) 상한("GRASP VNS 반복 종료 조건" 이슈, 2026-09-16).
+# 개선되면 shake_level이 1로 돌아가므로 max_shake_level만으로는 반복 횟수에 상한이 없다.
+# 개선이 k번 일어난 호출의 반복 수는 최대 (k+1)*max_shake_level이므로, 12는 기본 레벨
+# 상한(4)에서 개선 후 복귀 2번까지는 끝까지 탐색하게 두는 값이다.
+# 계측(mode="distance", 홍대, seed=42, 이 PC 단독 실행): 3km N=2·3 구축 40회는 호출당
+# 4~9회로 이 상한에 걸리지 않았고, 9km N=3 구축 1회는 15회(개선 4번, 76초)였다. 품질 영향은
+# 아직 비교하지 않았다 — "VNS 조합 재검토 스크리닝" 이슈에서 다시 본다.
+_MAX_ITERATIONS = 12
+
 
 def _shake_replace_one(G, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
                         rng: random.Random) -> Optional[Route]:
@@ -183,19 +193,35 @@ def _shake(G, cost_cache, pool_result: WaypointPoolResult, start_node: int, rout
 
 def vns_loop(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
              target_m: float, cfg: GraspConfig, rng: random.Random,
-             max_shake_level: int = _MAX_SHAKE_LEVEL) -> Route:
+             max_shake_level: int = _MAX_SHAKE_LEVEL,
+             max_iterations: Optional[int] = _MAX_ITERATIONS) -> Route:
     """이미 지역최적(VND 적용 완료)인 route를 받아 Shake(레벨 1~max_shake_level)로 교란·
     재개선을 반복한다. 원래 CircularGraspWaypointVnsEngine._vns_loop의 로직을 그대로 옮긴
     것 — 최초 vnd() 호출은 포함하지 않는다(호출부가 먼저 vnd()를 적용한 뒤 이 함수에 넘겨야
     한다 — vns()가 그 순서를 대신 조립해준다).
 
-    max_shake_level은 하위 호환을 위해 기본값 _MAX_SHAKE_LEVEL을 갖는 키워드 인자다 —
-    circular_grasp_waypoint_vns.py::_vns_loop처럼 이 값을 넘기지 않는 기존 호출부는 동작이
-    바뀌지 않는다."""
+    종료 조건은 둘 중 먼저 오는 쪽이다.
+      - shake_level이 max_shake_level을 넘음(개선 없이 모든 레벨을 소진) — 원래 규칙.
+      - 반복 수가 max_iterations에 도달. 반복 1회는 교란 시도 1회이며 교란이 None인 시도도
+        센다. None이면 상한 없이 원래 규칙만 쓴다(상한 도입 전 결과 재현용).
+
+    다른 후보였던 조건을 고르지 않은 이유:
+      - 개선 없는 연속 반복 상한: 이 루프에서는 실패할 때마다 레벨이 오르므로 연속 실패는
+        이미 max_shake_level번을 넘을 수 없다. 개선이 이어지는 경우를 막지 못해 효과가 없다.
+      - 경과 시간 상한: 같은 seed라도 기계 부하(벤치마크 워커 경합)에 따라 결과가 달라져
+        짝지은 비교와 재현성이 깨진다.
+
+    두 인자는 하위 호환을 위해 기본값을 갖는 키워드 인자다 — 이 값을 넘기지 않는 호출부
+    (circular_grasp_waypoint_vns.py::_vns_loop 등)는 기본 상한을 쓴다."""
     current = route
     current_obj = evaluate_route(current, target_m, target_m * cfg.distance_tolerance_ratio)
     shake_level = 1
+    iterations = 0
     while shake_level <= max_shake_level:
+        if max_iterations is not None and iterations >= max_iterations:
+            logger.debug("VNS 반복 상한(%d회)에 도달해 종료합니다: shake_level=%d", max_iterations, shake_level)
+            break
+        iterations += 1
         shaken = _shake(G, cost_cache, pool_result, start_node, current, target_m, cfg, shake_level, rng)
         if shaken is None:
             shake_level += 1
@@ -210,25 +236,32 @@ def vns_loop(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_nod
     return current
 
 
-_VNS_OPTION_KEYS = frozenset({"max_shake_level"})
+_VNS_OPTION_KEYS = frozenset({"max_shake_level", "max_iterations"})
 
 
-def _vns_max_shake_level(options: Optional[Mapping[str, Any]]) -> int:
-    """options에서 교란 레벨 상한을 읽는다. 모르는 키는 즉시 실패시킨다 — alns 쪽에서
-    dataclasses.replace()가 해주던 역할을 여기서는 직접 한다(VNS에는 대응하는 설정
-    dataclass가 없다). bool을 int로 통과시키지 않는 것은 waypoint_alns.py의 설정 검증
-    관례와 같다."""
+def _is_positive_int(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, int) and value >= 1
+
+
+def _vns_loop_limits(options: Optional[Mapping[str, Any]]) -> tuple[int, Optional[int]]:
+    """options에서 (교란 레벨 상한, 총 반복 상한)을 읽는다. 모르는 키는 즉시 실패시킨다 —
+    alns 쪽에서 dataclasses.replace()가 해주던 역할을 여기서는 직접 한다(VNS에는 대응하는
+    설정 dataclass가 없다). bool을 int로 통과시키지 않는 것은 waypoint_alns.py의 설정 검증
+    관례와 같다. max_iterations만 None(상한 없음)을 허용한다."""
     if not options:
-        return _MAX_SHAKE_LEVEL
+        return _MAX_SHAKE_LEVEL, _MAX_ITERATIONS
     unknown = set(options) - _VNS_OPTION_KEYS
     if unknown:
         raise TypeError(
             f"vns가 모르는 options 키: {sorted(unknown)} — 사용 가능: {sorted(_VNS_OPTION_KEYS)}"
         )
     level = options.get("max_shake_level", _MAX_SHAKE_LEVEL)
-    if isinstance(level, bool) or not isinstance(level, int) or level < 1:
+    if not _is_positive_int(level):
         raise ValueError(f"max_shake_level은 1 이상의 정수여야 합니다: {level!r}")
-    return level
+    iterations = options.get("max_iterations", _MAX_ITERATIONS)
+    if iterations is not None and not _is_positive_int(iterations):
+        raise ValueError(f"max_iterations는 1 이상의 정수 또는 None이어야 합니다: {iterations!r}")
+    return level, iterations
 
 
 def vns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
@@ -238,19 +271,20 @@ def vns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: in
     find_path() 안에서 `current = self._vnd_engine.vnd(...); current =
     self._vns_loop(...)`이던 두 호출과 rng 소비 순서가 완전히 동일하다.
 
-    options는 {"max_shake_level": N} 하나만 받는다(기본 _MAX_SHAKE_LEVEL=4). 내부 vnd()
-    호출에는 아무것도 전달하지 않는다 — vnd는 아직 options를 해석하지 않으므로 이름 공간을
-    나눌 필요가 없다(OPTIONS_AWARE_REFINEMENTS 참고).
+    options는 {"max_shake_level": N}(기본 _MAX_SHAKE_LEVEL=4)과 {"max_iterations": N 또는
+    None}(기본 _MAX_ITERATIONS=12, 의미는 vns_loop 참고)을 받는다. 내부 vnd() 호출에는
+    아무것도 전달하지 않는다 — vnd는 아직 options를 해석하지 않으므로 이름 공간을 나눌
+    필요가 없다(OPTIONS_AWARE_REFINEMENTS 참고).
 
     레벨 의미에 주의한다: _shake()가 분기하는 것은 1(경유지 1개 교체)·2(전체 재추출)·
     3(구간 우회)뿐이고 4 이상은 전부 else로 떨어져 construct_initial_route 전체 재구축이
     된다. 따라서 4를 넘는 값은 "새로운 교란 단계"가 아니라 "전체 재구축을 몇 번 더
     시도하는가"로 동작한다(매번 rng가 다르므로 다중 재시작 효과는 있다)."""
-    max_shake_level = _vns_max_shake_level(options)
+    max_shake_level, max_iterations = _vns_loop_limits(options)
     current = vnd(G, cost_cache, pool_result, start_node, route, target_m, cfg)
     return vns_loop(
         G, cost_cache, pool_result, start_node, current, target_m, cfg, rng,
-        max_shake_level=max_shake_level,
+        max_shake_level=max_shake_level, max_iterations=max_iterations,
     )
 
 
@@ -397,8 +431,15 @@ class AlnsStatsAccumulator:
         self.accepted_alns_calls = 0  # best_route 갱신 시점에 ALNS 결과가 실제 채택된 횟수
         self.winner_alns_result: Optional[ALNSResult] = None
         self.winner_alns_accepted: Optional[bool] = None
+        self.winner_outcome: Optional[str] = None
         self.pending_result: Optional[ALNSResult] = None
         self.pending_accepted: bool = False
+        self.pending_outcome: Optional[str] = None
+        # alns() 호출 1회가 끝난 결과(ALNS_OUTCOMES 중 하나)의 분포 — winning_iteration은
+        # 최종 best를 만든 1회만 보여 주므로, "ALNS 제안이 왜 전부 버려졌는지"는 이 분포로 본다.
+        self.outcome_counts: dict[str, int] = {}
+        # better() 비교까지 간 호출에서 승패를 가른 비교 키(_decisive_key) 분포.
+        self.comparison_decided_by: dict[str, dict[str, int]] = {}
         self.adapter_cache: Optional[tuple[list[dict], Any]] = None  # (candidates, cost_fn)
 
     def record(self, result: Optional[ALNSResult]) -> None:
@@ -418,11 +459,13 @@ class AlnsStatsAccumulator:
         for stat in result.repair_stats:
             self.repair_uses[stat.name] = self.repair_uses.get(stat.name, 0) + stat.uses
 
-    def record_winner(self, result: Optional[ALNSResult], accepted: bool) -> None:
+    def record_winner(self, result: Optional[ALNSResult], accepted: bool,
+                      outcome: Optional[str] = None) -> None:
         """best_route가 이 구축 반복으로 갱신될 때마다 호출 — 최종적으로 채택된 경로를
         만든(또는 시도했으나 기각된) ALNS 실행의 상세를 별도로 남긴다."""
         self.winner_alns_result = result
         self.winner_alns_accepted = accepted
+        self.winner_outcome = outcome
         if accepted:
             self.accepted_alns_calls += 1
 
@@ -438,11 +481,14 @@ class AlnsStatsAccumulator:
             "repair_operator_uses": dict(self.repair_uses),
             "stop_reason_counts": dict(self.stop_reason_counts),
             "remove_count_used": self.remove_count_used,
+            "outcome_counts": dict(self.outcome_counts),
+            "comparison_decided_by": {k: dict(v) for k, v in self.comparison_decided_by.items()},
             # best_route를 만든 마지막 갱신 시점의 ALNS 실행(최종 채택된 경로와 가장
             # 직접적으로 연결된 단일 실행 — winner_alns_accepted=False면 이 실행의 제안은
             # better()에 의해 기각되고 구축 단계 raw 해가 최종 채택됐다는 뜻).
             "winning_iteration": {
                 "accepted": self.winner_alns_accepted,
+                "outcome": self.winner_outcome,
                 "stop_reason": winner.stop_reason if winner else None,
                 "iterations": winner.iterations if winner else None,
                 "accepted_moves": winner.accepted_moves if winner else None,
@@ -454,10 +500,40 @@ class AlnsStatsAccumulator:
         }
 
 
+# alns() 1회 호출이 끝나는 경로. accepted만 교체이고 나머지는 모두 구축 해 유지다.
+ALNS_OUTCOMES = (
+    "search_failed",         # alns_search가 ValueError(설정·입력 검증 실패)
+    "unchanged",             # ALNS best 경유지 순서가 초기 순서와 같음
+    "separation_violation",  # 경유지 최소거리 조건 위반
+    "rebuild_failed",        # BuildCycleRoute(A*) 재연결 실패
+    "not_better",            # 재연결 경로가 better()에서 구축 해를 못 이김
+    "accepted",
+)
+
+
+def _decisive_key(a: RouteObjective, b: RouteObjective) -> str:
+    """a와 b의 sort_key에서 처음 달라지는 항목 이름을 돌려준다(같으면 "equal").
+    sort_key는 feasible 여부에 따라 두 번째·세 번째 항목의 의미가 뒤바뀌므로
+    (RouteObjective.sort_key 참고) 이름도 그에 맞춰 붙인다."""
+    ka, kb = a.sort_key(), b.sort_key()
+    if ka[0] != kb[0]:
+        return "feasibility"
+    names = ("repeated_edge_ratio", "distance_error_m") if ka[0] == 0 else ("distance_error_m", "repeated_edge_ratio")
+    for name, x, y in zip(names, ka[1:], kb[1:]):
+        if x != y:
+            return name
+    return "equal"
+
+
 def _record_pending(stats: Optional[AlnsStatsAccumulator], result: Optional[ALNSResult],
-                    accepted: bool) -> None:
+                    accepted: bool, outcome: str, decided_by: Optional[str] = None) -> None:
     if stats is not None:
         stats.pending_result, stats.pending_accepted = result, accepted
+        stats.pending_outcome = outcome
+        stats.outcome_counts[outcome] = stats.outcome_counts.get(outcome, 0) + 1
+        if decided_by is not None:
+            bucket = stats.comparison_decided_by.setdefault(outcome, {})
+            bucket[decided_by] = bucket.get(decided_by, 0) + 1
 
 
 def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
@@ -500,7 +576,7 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
         )
     except ValueError as e:
         logger.warning("ALNS 실행 실패(%s) — 개선 없이 구축 단계 해를 그대로 씁니다.", e)
-        _record_pending(stats, None, False)
+        _record_pending(stats, None, False, "search_failed")
         return route
 
     if stats is not None:
@@ -508,7 +584,7 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
 
     new_waypoints = list(result.best.waypoint_ids)
     if new_waypoints == route.waypoints:
-        _record_pending(stats, result, False)
+        _record_pending(stats, result, False, "unchanged")
         return route  # ALNS가 개선하지 못함 — 불필요한 재연결 생략
 
     if cfg.min_waypoint_separation_ratio:
@@ -519,18 +595,50 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
                     "ALNS 결과가 경유지 최소거리 조건을 위반해 기각합니다: %.1fm < %.1fm",
                     pair_m, target_m * cfg.min_waypoint_separation_ratio,
                 )
-                _record_pending(stats, result, False)
+                _record_pending(stats, result, False, "separation_violation")
                 return route
 
     improved = BuildCycleRoute(G, cost_cache.astar_path, start_node, new_waypoints)
     if improved is None:
-        _record_pending(stats, result, False)
+        _record_pending(stats, result, False, "rebuild_failed")
         return route
 
     tolerance = target_m * cfg.distance_tolerance_ratio
-    accepted = better(evaluate_route(improved, target_m, tolerance), evaluate_route(route, target_m, tolerance))
-    _record_pending(stats, result, accepted)
+    improved_obj = evaluate_route(improved, target_m, tolerance)
+    route_obj = evaluate_route(route, target_m, tolerance)
+    accepted = better(improved_obj, route_obj)
+    _record_pending(stats, result, accepted, "accepted" if accepted else "not_better",
+                    decided_by=_decisive_key(improved_obj, route_obj))
     return improved if accepted else route  # 기각 시 원래 구축 해 유지
+
+
+def shared_refinement_defaults() -> dict[str, dict[str, Any]]:
+    """정제별 공용 기본값(알고리즘별 확정값이 없을 때 실제로 쓰이는 값)을 실행 메타데이터에
+    남기기 위한 단일 창구다(2026-09-16).
+
+    벤치마크 CSV의 행만 보고는 어떤 상한·반복 수로 돈 결과인지 알 수 없다 — 노브는 결과
+    컬럼에 들어가지 않고, 러너가 남기던 algorithm_defaults()는 공용 기본값과 달라진
+    알고리즘만 적기 때문이다. 그래서 이 모듈의 상수가 바뀌면(ex) _MAX_ITERATIONS 도입)
+    과거 CSV와 새 CSV를 구분할 근거가 사라진다.
+
+    호출 문맥에서 정해지는 값은 담지 않는다 — ALNS의 start_temperature_m(target_m 비례),
+    candidate_limit(cfg.rcl_size), seed(호출마다 rng에서 새로 뽑음)는 _alns_config()가
+    매번 계산하므로 고정값이 아니다. 키는 OPTIONS_AWARE_REFINEMENTS와 같아야 한다 —
+    주입으로 덮어쓸 수 있는 노브가 곧 기록해야 할 기본값이다."""
+    return {
+        "vns": {
+            "max_shake_level": _MAX_SHAKE_LEVEL,
+            "max_iterations": _MAX_ITERATIONS,
+        },
+        "alns": {
+            "iterations": _ALNS_ITERATIONS,
+            "removal_fraction": _ALNS_REMOVAL_FRACTION,
+            "cooling_rate": _ALNS_COOLING_RATE,
+            "segment_length": _ALNS_SEGMENT_LENGTH,
+            "reaction_factor": _ALNS_REACTION_FACTOR,
+            "max_cost_calls": _ALNS_MAX_COST_CALLS,
+        },
+    }
 
 
 REFINEMENT_REGISTRY = {
