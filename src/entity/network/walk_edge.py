@@ -1,7 +1,7 @@
 from src.entity.base import Base
 from geoalchemy2 import Geometry
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import BigInteger, Boolean, Float, Index, text
+from sqlalchemy import BigInteger, Float, Index, text
 
 
 class WalkEdge(Base):

@@ -1,0 +1,3080 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>루디 경로 생성 — 팀 공유 문서</title>
+<style>
+:root{
+ --bg:#fcfbf9; --fg:#1b1a17; --mut:#6a665e; --line:#e5e1d9; --card:#fff; --soft:#f5f2ec;
+ --brand:#2f6b3a; --brand2:#7fa663; --ink2:#3d5a44;
+ --ok:#2f6b3a; --okbg:#e8f1e6; --no:#a8452a; --nobg:#fbeae4; --warn:#8a6314; --warnbg:#faf0d8;
+}
+@media(prefers-color-scheme:dark){:root{
+ --bg:#151714; --fg:#e9e7e1; --mut:#a19d94; --line:#2d302b; --card:#1c1f1b; --soft:#212420;
+ --brand:#95c48a; --brand2:#7fa663; --ink2:#a8cfa0;
+ --ok:#9ccf90; --okbg:#1f2c1f; --no:#e79a7f; --nobg:#2e1f19; --warn:#d9b25f; --warnbg:#2c2415;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:16.5px;line-height:1.82;
+ font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+ -webkit-font-smoothing:antialiased}
+#wrap{display:flex;max-width:1460px;margin:0 auto}
+#side{width:322px;flex:0 0 322px;height:100vh;position:sticky;top:0;overflow-y:auto;
+ border-right:1px solid var(--line);padding:26px 16px 80px;background:var(--card)}
+#side h4{margin:0 0 6px;font-size:11px;letter-spacing:.16em;color:var(--mut);text-transform:uppercase}
+#side a{display:block;text-decoration:none;color:var(--fg);padding:5px 10px;border-radius:7px;
+ font-size:13.5px;line-height:1.5;border-left:2px solid transparent}
+#side a:hover{background:var(--soft)}
+#side a.nav-l1{font-weight:800;margin-top:16px;font-size:14px;color:var(--brand)}
+#side a.nav-l2{padding-left:22px;color:var(--mut);font-size:13px}
+#side a.active{background:var(--soft);border-left-color:var(--brand);color:var(--fg)}
+main{flex:1;min-width:0;padding:44px 56px 160px;max-width:960px}
+h1{font-size:30px;font-weight:800;line-height:1.3;margin:86px 0 26px;padding-top:26px;
+ border-top:3px solid var(--brand);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+h1:first-child{margin-top:0;border-top:0;padding-top:0}
+h1 .chip{display:inline-block;background:var(--brand);color:#fff;font-size:15px;font-weight:800;
+ padding:5px 14px;border-radius:20px;letter-spacing:.02em}
+h2{font-size:21px;font-weight:800;margin:52px 0 16px;line-height:1.42;display:flex;gap:10px;align-items:baseline}
+h2 .dia{color:var(--brand2);font-size:15px;flex:0 0 auto}
+h3{font-size:17px;font-weight:700;margin:34px 0 12px;color:var(--ink2);display:flex;gap:8px;align-items:baseline}
+h3 .tri{color:var(--brand2);font-size:13px}
+h4{font-size:15.5px;margin:24px 0 8px}
+p{margin:14px 0}
+a{color:var(--brand)}
+strong{font-weight:800}
+table{border-collapse:collapse;width:100%;margin:20px 0;font-size:14.8px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:10px 13px;text-align:left;vertical-align:top;line-height:1.65}
+th{background:var(--soft);font-weight:800;white-space:nowrap}
+code{background:var(--soft);padding:.14em .4em;border-radius:5px;font-size:.88em;
+ font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+pre{background:var(--soft);padding:18px 20px;border-radius:10px;overflow-x:auto;
+ border:1px solid var(--line);font-size:13.6px;line-height:1.78;margin:20px 0}
+pre code{background:none;padding:0;font-size:inherit}
+blockquote{margin:22px 0;padding:16px 20px;border-radius:10px;border:1px solid var(--line);background:var(--card)}
+blockquote p:first-child{margin-top:0}blockquote p:last-child{margin-bottom:0}
+blockquote.tldr{background:var(--okbg);border:1px solid transparent;border-left:4px solid var(--brand)}
+blockquote.tldr .tl{display:inline-block;background:var(--brand);color:#fff;font-size:11.5px;
+ font-weight:800;padding:2px 10px;border-radius:11px;margin-right:9px;letter-spacing:.04em;vertical-align:2px}
+blockquote.warnbox{background:var(--warnbg);border:1px solid transparent;border-left:4px solid var(--warn)}
+blockquote.note{border-left:4px solid var(--brand2)}
+.badge{display:inline-block;font-size:11.5px;font-weight:800;padding:2px 9px;border-radius:11px;
+ letter-spacing:.02em;white-space:nowrap;vertical-align:1px}
+.badge.b-ok{background:var(--okbg);color:var(--ok)}
+.badge.b-no{background:var(--nobg);color:var(--no)}
+.badge.b-warn{background:var(--warnbg);color:var(--warn)}
+hr{border:0;border-top:1px solid var(--line);margin:58px 0}
+ul,ol{padding-left:25px}li{margin:6px 0}
+#top{position:fixed;right:24px;bottom:24px;background:var(--brand);color:#fff;border:0;
+ padding:11px 16px;border-radius:22px;cursor:pointer;font-size:13px;box-shadow:0 3px 16px rgba(0,0,0,.24)}
+#burger{display:none}
+@media(max-width:1040px){
+ #side{display:none}main{padding:26px 18px 130px}
+ #burger{display:block;position:fixed;left:14px;top:14px;z-index:20;background:var(--brand);
+  color:#fff;border:0;padding:10px 14px;border-radius:9px;cursor:pointer;font-weight:700}
+ #side.open{display:block;position:fixed;z-index:19;width:88%;max-width:350px}
+ h1{margin-top:52px;font-size:25px}h2{font-size:19px}
+ body{font-size:16px}
+}
+</style></head><body>
+<button id="burger">목차</button>
+<div id="wrap">
+<nav id="side"><h4>목차</h4><a class="nav-l1" href="#_1">루디 경로 생성 — 팀 공유 문서</a>
+<a class="nav-l2" href="#_2">읽는 순서</a>
+<a class="nav-l1" href="#1">1부루디는 무슨 문제를 푸는가</a>
+<a class="nav-l2" href="#1-1">◆1-1 지도 앱과 무엇이 다른가</a>
+<a class="nav-l2" href="#1-2">◆1-2 그래서 두 가지를 만들어야 합니다</a>
+<a class="nav-l2" href="#1-3">◆1-3 왜 어려운 문제인가</a>
+<a class="nav-l2" href="#1-4">◆1-4 세 가지 모드는 서로 다른 문제입니다</a>
+<a class="nav-l2" href="#1-5">◆1-5 그래서 알고리즘이 두 부류로 갈립니다</a>
+<a class="nav-l1" href="#2">2부지도를 어떻게 만들었는가</a>
+<a class="nav-l2" href="#2-1">◆2-1 우리는 지도 앱 위에 얹은 게 아닙니다</a>
+<a class="nav-l2" href="#2-2-4">◆2-2 원본 데이터에서 계산용 지도까지 4단계</a>
+<a class="nav-l2" href="#2-3">◆2-3 점수는 어떻게 길에 붙나 — 육각형 격자</a>
+<a class="nav-l2" href="#2-4-1">◆2-4 점수의 방향은 &quot;1이 좋다&quot;로 통일했습니다</a>
+<a class="nav-l2" href="#2-5">◆2-5 &quot;그래프에 전달하지 않는다&quot;가 무슨 뜻인가</a>
+<a class="nav-l2" href="#2-6">◆2-6 왜 화장실을 지점으로 추가하지 않았나</a>
+<a class="nav-l1" href="#3">3부길에 점수를 어떻게 매기는가</a>
+<a class="nav-l2" href="#3-1">◆3-1 왜 점수를 하나로 합쳐야 하나</a>
+<a class="nav-l2" href="#3-2">◆3-2 비용을 만드는 공식</a>
+<a class="nav-l2" href="#3-3">◆3-3 비용 계산에 들어가는 항목 전체</a>
+<a class="nav-l2" href="#3-4">◆3-4 어린이 점수는 지금 쓰이지 않습니다 확인 필요</a>
+<a class="nav-l2" href="#3-5">◆3-5 러닝 점수는 어디서 오나 확인 필요</a>
+<a class="nav-l2" href="#3-6">◆3-6 왜 좋은 요소는 나누고 나쁜 요소는 곱하나</a>
+<a class="nav-l2" href="#3-7">◆3-7 세부 규칙 네 가지</a>
+<a class="nav-l2" href="#3-8">◆3-8 터널 페널티 — 숫자에는 근거가 없습니다 근거 없음</a>
+<a class="nav-l2" href="#3-9-tags">◆3-9 완전 차단 장치 — 표시(tags) 기반</a>
+<a class="nav-l2" href="#3-10-9">◆3-10 프로필 9종 — 손잡이만 바꿉니다</a>
+<a class="nav-l2" href="#3-11">◆3-11 근거가 있는 것과 없는 것</a>
+<a class="nav-l1" href="#4_1">4부길을 어떻게 찾는가</a>
+<a class="nav-l2" href="#4-0">◆4-0 전체 그림부터</a>
+<a class="nav-l2" href="#4-1-dijkstra">◆4-1 Dijkstra — 모든 것의 기준</a>
+<a class="nav-l2" href="#4-2-a">◆4-2 A* — 편도 최단에 실제로 쓰는 것</a>
+<a class="nav-l2" href="#4-3-alt">◆4-3 ALT — 실제 도로 거리를 미리 재두기</a>
+<a class="nav-l2" href="#4-4-beam">◆4-4 Beam — 순환·편도 우회에 실제로 쓰는 것</a>
+<a class="nav-l2" href="#4-5">◆4-5 만들었지만 쓰지 않는 네 개</a>
+<a class="nav-l2" href="#4-6">◆4-6 나머지 두 모드는 새 알고리즘이 아닙니다</a>
+<a class="nav-l1" href="#5">5부어떻게 실험했는가</a>
+<a class="nav-l2" href="#5-0">◆5-0 용어 두 개만 먼저</a>
+<a class="nav-l2" href="#5-1">◆5-1 목표를 문장으로 먼저 정했습니다</a>
+<a class="nav-l2" href="#5-2">◆5-2 알고리즘은 함수 하나만 구현합니다</a>
+<a class="nav-l2" href="#5-3">◆5-3 가짜 알고리즘이 있는 이유</a>
+<a class="nav-l2" href="#5-4">◆5-4 알고리즘의 보고를 믿지 않습니다</a>
+<a class="nav-l2" href="#5-5">◆5-5 실패해도 실험이 멈추지 않게</a>
+<a class="nav-l2" href="#5-6">◆5-6 알고리즘마다 별도 프로그램으로 띄웁니다</a>
+<a class="nav-l2" href="#5-7">◆5-7 &quot;성공/실패&quot;와 &quot;쓸 수 있음/못 씀&quot;을 따로 기록합니다</a>
+<a class="nav-l2" href="#5-8">◆5-8 실험 시나리오는 어떻게 만들었나</a>
+<a class="nav-l2" href="#5-9">◆5-9 시간을 재는 방법</a>
+<a class="nav-l2" href="#5-10-24">◆5-10 실험 도구 자체를 테스트했습니다 — 24개</a>
+<a class="nav-l2" href="#5-11">◆5-11 실험 규모를 키운 방법</a>
+<a class="nav-l2" href="#5-12">◆5-12 &quot;지도와 데이터를 한 번만 읽어서 재사용한다&quot;가 무슨 뜻인가</a>
+<a class="nav-l1" href="#6">6부무엇을 골랐는가</a>
+<a class="nav-l2" href="#6-1">◆6-1 정의로 걸러낸 것과 실측으로 걸러낸 것은 다릅니다</a>
+<a class="nav-l2" href="#6-2">◆6-2 편도 최단 — 답은 다 같고 속도만 다릅니다</a>
+<a class="nav-l2" href="#6-3">◆6-3 순환 — 네 알고리즘</a>
+<a class="nav-l2" href="#6-4">◆6-4 편도 우회 — 다섯 알고리즘</a>
+<a class="nav-l2" href="#6-5">◆6-5 최종 정리</a>
+<a class="nav-l1" href="#7">7부지금 남아 있는 문제</a>
+<a class="nav-l2" href="#7-1">◆7-1 실험과 실제 서비스의 비용 공식이 다릅니다 확인 필요</a>
+<a class="nav-l2" href="#7-2">◆7-2 실험용 지도에 경사 데이터가 없습니다 확인 필요</a>
+<a class="nav-l2" href="#7-3-git">◆7-3 결과 파일이 git에 올라가지 않고 있었습니다</a>
+<a class="nav-l2" href="#7-4">◆7-4 자전거도로가 문서와 코드에서 어긋납니다 확인 필요</a>
+<a class="nav-l2" href="#7-5">◆7-5 어린이 점수가 아무도 안 읽는 상태로 남아 있습니다 확인 필요</a>
+<a class="nav-l2" href="#7-6">◆7-6 설정값에 실험 근거가 없습니다 근거 없음</a>
+<a class="nav-l2" href="#7-7">◆7-7 러닝 모드에 설명 없는 항이 하나 있습니다 근거 없음</a>
+<a class="nav-l2" href="#7-8">◆7-8 지도 자체의 한계</a>
+<a class="nav-l2" href="#7-9">◆7-9 대응 순서 (제안)</a>
+<a class="nav-l1" href="#_41">부록용어 사전</a>
+<a class="nav-l2" href="#_42">◆지도에 관한 말</a>
+<a class="nav-l2" href="#_43">◆점수에 관한 말</a>
+<a class="nav-l2" href="#_44">◆알고리즘에 관한 말</a>
+<a class="nav-l2" href="#_45">◆실험에 관한 말</a>
+<a class="nav-l2" href="#_46">◆문제 종류에 관한 말</a>
+<a class="nav-l2" href="#_47">◆참고 문헌</a></nav>
+<main><h1 id="_1">루디 경로 생성 — 팀 공유 문서</h1>
+<blockquote class="note">
+<p><strong>누구를 위한 문서인가</strong>
+루디 팀원 누구나. 컴퓨터 전공이 아니어도, 알고리즘을 배운 적이 없어도 읽을 수 있게 썼습니다.
+어려운 용어가 나올 때마다 그 자리에서 풀어 설명하고, 정식 용어는 맨 뒤 <strong>용어 사전</strong>에 모았습니다.</p>
+<p><strong>다루는 범위</strong>
+"사용자가 3km 산책을 요청했을 때 경로가 만들어지는 과정" 전체입니다.
+지도를 만드는 것부터, 길에 점수를 매기는 것, 길을 찾는 알고리즘, 그걸 실험한 방법까지.</p>
+<p><strong>표기 약속</strong>
+<span class="badge b-ok">근거 있음</span> 코드·커밋·문서에 이유가 남아 있는 것 · <span class="badge b-no">근거 없음</span> 그냥 정한 값 ·
+<span class="badge b-warn">확인 필요</span> 코드와 문서가 어긋난 것</p>
+</blockquote>
+<hr />
+<h2 id="_2">읽는 순서</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>무엇을 다루나</th>
+<th>읽는 데</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>1부</strong></td>
+<td>루디가 푸는 문제가 무엇인가</td>
+<td>5분</td>
+</tr>
+<tr>
+<td><strong>2부</strong></td>
+<td>지도를 어떻게 만들었나</td>
+<td>8분</td>
+</tr>
+<tr>
+<td><strong>3부</strong></td>
+<td>길에 점수를 어떻게 매기나</td>
+<td>12분</td>
+</tr>
+<tr>
+<td><strong>4부</strong></td>
+<td>길을 어떻게 찾나 (알고리즘)</td>
+<td>15분</td>
+</tr>
+<tr>
+<td><strong>5부</strong></td>
+<td>어떻게 실험했나</td>
+<td>10분</td>
+</tr>
+<tr>
+<td><strong>6부</strong></td>
+<td>무엇을 골랐나</td>
+<td>5분</td>
+</tr>
+<tr>
+<td><strong>7부</strong></td>
+<td>지금 남아 있는 문제</td>
+<td>5분</td>
+</tr>
+<tr>
+<td><strong>부록</strong></td>
+<td>용어 사전</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>바쁘면 1부와 6부만</strong> 읽어도 큰 그림은 잡힙니다.</p>
+<hr />
+<h1 id="1"><span class="chip">1부</span>루디는 무슨 문제를 푸는가</h1>
+<h2 id="1-1"><span class="dia">◆</span>1-1 지도 앱과 무엇이 다른가</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+지도 앱은 "어디로 갈까"를 풀고, 루디는 "얼마나 걸을까"를 풉니다. 이게 전부 다르게 만듭니다.</p>
+</blockquote>
+<p>지도 앱에 목적지를 넣으면 <strong>거기까지 가장 빠른 길</strong>이 나옵니다.
+출발지와 목적지가 둘 다 정해져 있고, 답은 하나입니다.</p>
+<p>산책은 다릅니다. 산책하러 나갈 때 우리가 하는 생각은 이렇습니다.</p>
+<blockquote class="note">
+<p>"1시간 정도 걷고 올 데 없나"</p>
+</blockquote>
+<p><strong>목적지가 없습니다.</strong> 대신 <strong>얼마나 걸을지</strong>가 있습니다.
+그리고 "빠른 길"을 원하는 게 아니라 <strong>"걷기 좋은 길"</strong> 을 원합니다.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>지도 앱</th>
+<th>루디</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>사용자가 주는 것</td>
+<td>출발지 + <strong>목적지</strong></td>
+<td>출발지 + <strong>거리</strong></td>
+</tr>
+<tr>
+<td>원하는 답</td>
+<td>가장 빠른 길</td>
+<td>거리가 맞고 <strong>걷기 좋은</strong> 길</td>
+</tr>
+<tr>
+<td>답이 몇 개인가</td>
+<td>1개</td>
+<td>여러 개여도 된다</td>
+</tr>
+<tr>
+<td>"좋다"의 기준</td>
+<td>시간, 거리</td>
+<td>안전, 녹지, 경사, 편의시설…</td>
+</tr>
+</tbody>
+</table>
+<p>이 차이 때문에 <strong>지도 앱이 쓰는 방법을 그대로 가져올 수 없습니다.</strong>
+목적지가 없으면 "최단 경로"라는 개념 자체가 성립하지 않으니까요.</p>
+<h2 id="1-2"><span class="dia">◆</span>1-2 그래서 두 가지를 만들어야 합니다</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+① 길마다 "걷기 좋은 정도"를 숫자로 붙인다 → 2부, 3부
+② 그 숫자를 보고 거리를 맞춰 길을 잇는다 → 4부</p>
+</blockquote>
+<p><strong>하나. 컴퓨터는 "이 길이 좋다"를 모릅니다.</strong></p>
+<p>사람은 골목을 보면 "여긴 좀 무섭네", "여긴 나무가 많아 좋네"를 바로 압니다.
+컴퓨터는 못 합니다. 그래서 <strong>길 하나하나에 점수를 미리 붙여줘야</strong> 합니다.
+서울시가 공개한 CCTV 위치, 공원 경계, 화장실 위치 같은 데이터로 그 점수를 만들었습니다.</p>
+<p><strong>둘. 점수가 붙었다고 경로가 나오는 건 아닙니다.</strong></p>
+<p>"좋은 길만 골라 이으면" 될 것 같지만 안 됩니다.
+좋은 길만 잇다 보면 거리가 10km가 되거나, 엉뚱한 데로 가서 못 돌아오거나,
+같은 길을 왕복하게 됩니다. <strong>거리를 맞추면서 이어 붙이는 방법</strong>이 따로 필요합니다.
+그게 알고리즘이고 4부의 내용입니다.</p>
+<h2 id="1-3"><span class="dia">◆</span>1-3 왜 어려운 문제인가</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+3km 경로를 만드는 일은 "3kg 배낭을 좋은 물건으로 딱 맞게 채우기"와 같습니다.
+이건 컴퓨터과학에서 "빨리 푸는 방법이 없다"고 알려진 종류의 문제입니다.</p>
+</blockquote>
+<h3 id="_3"><span class="tri">▸</span>배낭에 비유하면</h3>
+<p>3km 산책 경로를 만드는 일을 배낭 싸기로 바꿔 봅시다.</p>
+<ul>
+<li>길 조각 하나하나가 <strong>물건</strong>입니다. 물건의 <strong>무게 = 길이</strong>, <strong>가치 = 걷기 좋은 정도</strong>.</li>
+<li>배낭 용량이 <strong>3kg = 3km</strong>입니다. 넘쳐도 안 되고 모자라도 안 됩니다.</li>
+<li>가치가 최대가 되게 채우고 싶습니다.</li>
+</ul>
+<p>여기까지가 절반입니다. 나머지 절반이 산책을 더 어렵게 만듭니다.</p>
+<ul>
+<li>물건을 아무 순서로나 담을 수 없습니다. <strong>길 조각은 실제로 이어진 것끼리만</strong> 붙습니다.
+  A 다음에는 A와 맞닿은 길만 올 수 있습니다.</li>
+<li>순환 모드라면 <strong>출발한 자리로 돌아와야</strong> 합니다.</li>
+</ul>
+<p>앞의 "무게 맞춰 가치 최대화"를 <strong>배낭 문제</strong>라고 부르고,
+뒤의 "순서대로 이어 붙여 제자리로 돌아오기"를 <strong>외판원 문제</strong>라고 부릅니다.
+컴퓨터과학에서 <strong>둘 다 "빨리 푸는 방법이 없다"</strong> 고 알려진 대표적인 문제입니다.
+우리 문제는 이 두 개가 합쳐진 것입니다.</p>
+<h3 id="_4"><span class="tri">▸</span>"빨리 못 푼다"가 정확히 무슨 뜻인가</h3>
+<p><strong>답을 찾는 방법이 없다는 뜻이 아닙니다.</strong> 모든 경우를 하나씩 다 세어 보면 반드시 찾습니다.
+문제는 <strong>경우의 수가 감당이 안 된다</strong>는 것입니다.</p>
+<p>한 지점에서 갈 수 있는 방향이 평균 3개라고 해봅시다.
+길 조각 하나를 지날 때마다 가능한 경로 수가 3배로 늘어납니다.</p>
+<table>
+<thead>
+<tr>
+<th>몇 걸음 갔을 때</th>
+<th>가능한 경로의 수</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>5걸음</td>
+<td>243개</td>
+</tr>
+<tr>
+<td>10걸음</td>
+<td>약 6만 개</td>
+</tr>
+<tr>
+<td>20걸음</td>
+<td>약 35억 개</td>
+</tr>
+<tr>
+<td>30걸음</td>
+<td>약 20조 개</td>
+</tr>
+</tbody>
+</table>
+<p>3km 경로는 길 조각 수백 개를 지납니다. 세어 볼 수가 없습니다.
+<strong>컴퓨터가 아무리 빨라도 몇 초 안에 끝나지 않습니다.</strong>
+산책 앱은 사용자가 버튼을 누르면 몇 초 안에 답을 줘야 하니까 이 방법은 못 씁니다.</p>
+<h3 id="_5"><span class="tri">▸</span>그래서 우리가 한 선택</h3>
+<p><strong>"완벽한 답"을 포기했습니다.</strong> 대신 <strong>"정해진 시간 안에 충분히 좋은 답"</strong> 을 찾는 방법을 씁니다.</p>
+<p>이런 방법을 여러 개 만들어 비교했습니다. 5개입니다 —
+<strong>Beam · GRASP · ALNS · RCSP · Plateau</strong>. 4부에서 하나씩 설명합니다.</p>
+<blockquote class="warnbox">
+<p><strong>※ 여기가 발표에서 가장 중요했던 지점입니다</strong>
+네이버 지도는 완벽한 답을 구합니다. 우리는 못 구합니다.
+<strong>못 하는 게 실력 부족이 아니라 문제의 성질입니다.</strong>
+그래서 "정답 하나"가 아니라 "여러 방법 비교"가 우리 프로젝트의 내용이 됩니다.</p>
+</blockquote>
+<h2 id="1-4"><span class="dia">◆</span>1-4 세 가지 모드는 서로 다른 문제입니다</h2>
+<table>
+<thead>
+<tr>
+<th>모드</th>
+<th>사용자가 주는 것</th>
+<th>찾는 것</th>
+<th>완벽한 답을 구할 수 있나</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>편도 최단</strong></td>
+<td>출발지 + 도착지</td>
+<td>점수가 가장 좋은 길</td>
+<td><strong>구할 수 있다</strong></td>
+</tr>
+<tr>
+<td><strong>편도 우회</strong></td>
+<td>출발지 + 도착지 + 거리</td>
+<td>거리가 맞고, 최단경로와 다른 좋은 길</td>
+<td>못 구한다</td>
+</tr>
+<tr>
+<td><strong>순환</strong></td>
+<td>출발지 + 거리</td>
+<td>거리가 맞고, 제자리로 돌아오는 좋은 길</td>
+<td>못 구한다</td>
+</tr>
+</tbody>
+</table>
+<p>거리 목표는 <strong>±10%</strong> 까지 맞으면 통과로 봅니다. 3km 요청이면 2.7~3.3km면 됩니다.</p>
+<p><strong>편도 최단만 완벽한 답이 나오는 이유</strong>는 <strong>거리 조건이 없기</strong> 때문입니다.
+"점수 최고"만 만족하면 되니까, 이미 잘 알려진 방법으로 확실히 풀립니다.
+<strong>거리를 맞춰야 한다는 조건이 붙는 순간</strong> 그런 방법이 사라집니다.</p>
+<blockquote class="warnbox">
+<p><strong>※ 학술 명칭 (외울 필요 없습니다)</strong>
+편도 최단은 <strong>최단경로 문제</strong>, 편도 우회는 <strong>Arc Orienteering Problem</strong>,
+순환은 <strong>Cycle Trip Planning Problem</strong> 이라고 부릅니다.
+뒤 두 개는 "빨리 못 푼다"가 수학적으로 증명된 문제입니다.
+우리가 임의로 만든 문제가 아니라 <strong>논문에 이름이 있는 문제</strong>라는 뜻입니다.</p>
+</blockquote>
+<h2 id="1-5"><span class="dia">◆</span>1-5 그래서 알고리즘이 두 부류로 갈립니다</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>편도 최단</th>
+<th>편도 우회 · 순환</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>완벽한 답</td>
+<td>구할 수 있다</td>
+<td>못 구한다</td>
+</tr>
+<tr>
+<td>알고리즘의 목표</td>
+<td>같은 답을 <strong>더 빨리</strong> 구하기</td>
+<td><strong>더 좋은 답</strong>을 구하기</td>
+</tr>
+<tr>
+<td>비교할 것</td>
+<td><strong>속도만</strong> (답은 어차피 같으니까)</td>
+<td>답의 <strong>품질</strong> + 속도</td>
+</tr>
+<tr>
+<td>우리가 만든 것</td>
+<td>Dijkstra, 양방향 Dijkstra, A* 3종</td>
+<td>Beam, GRASP, ALNS, RCSP, Plateau</td>
+</tr>
+</tbody>
+</table>
+<p><strong>"A*가 Dijkstra보다 좋다"는 더 빠르다는 뜻</strong>이고,
+<strong>"Beam이 GRASP보다 좋다"는 더 좋은 길을 준다는 뜻</strong>입니다. 같은 "좋다"가 아닙니다.</p>
+<p>실제로 편도 최단에서는 25번의 실험 전부 <strong>세 알고리즘이 완전히 똑같은 길</strong>을 냈습니다.
+답이 같으니 속도만 볼 수밖에 없었습니다.</p>
+<hr />
+<h1 id="2"><span class="chip">2부</span>지도를 어떻게 만들었는가</h1>
+<h2 id="2-1"><span class="dia">◆</span>2-1 우리는 지도 앱 위에 얹은 게 아닙니다</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+화면에 보이는 배경 지도와, 경로를 계산하는 지도는 <strong>완전히 다른 것</strong>입니다.
+배경은 그림이고, 계산용 지도는 우리가 서울시 데이터로 직접 만든 자료입니다.</p>
+</blockquote>
+<p>가장 먼저 풀어야 하는 오해입니다.
+<strong>네이버 지도나 카카오맵 위에 우리 데이터를 얹은 구조가 아닙니다.</strong></p>
+<p>앱 화면의 배경 지도(카카오맵 타일)는 <strong>그냥 그림</strong>입니다.
+사용자가 위치를 알아보기 쉽게 깔아둔 배경이고, 경로 계산은 이걸 전혀 참조하지 않습니다.</p>
+<p>경로 계산에 쓰는 지도는 따로 있습니다. 서울시가 공개한 <strong>보행 도로망 데이터</strong>로 우리가 만들었습니다.</p>
+<h3 id="_6"><span class="tri">▸</span>계산용 지도는 무엇으로 되어 있나</h3>
+<p>딱 두 가지입니다.</p>
+<pre><code>● 지점   길이 갈라지거나 만나는 곳. 교차로, 횡단보도 앞 같은 곳.
+          → 서울 전체에 약 16만 개
+
+━ 길 조각  지점과 지점을 잇는 하나의 구간.
+          → 서울 전체에 약 22만 개
+</code></pre>
+<p>그림으로 보면 이렇습니다.</p>
+<pre><code>        ●──────────●──────●
+        │          │      │
+        │          ●──────●
+        ●──────────┘
+</code></pre>
+<p><strong>이게 전부입니다.</strong> 건물도 없고 지명도 없습니다.
+경로 탐색 알고리즘은 "지점"과 "길 조각"과 "그 길 조각의 점수"만 봅니다.</p>
+<blockquote class="note">
+<p><strong>용어</strong>: 정식으로는 지점을 <strong>노드(node)</strong>, 길 조각을 <strong>엣지(edge)</strong> 라고 부르고,
+이렇게 지점과 연결로만 표현한 구조를 <strong>그래프(graph)</strong> 라고 합니다.
+그래프는 "막대그래프" 같은 차트가 아니라, <strong>연결 관계를 나타내는 자료구조</strong>입니다.</p>
+</blockquote>
+<h2 id="2-2-4"><span class="dia">◆</span>2-2 원본 데이터에서 계산용 지도까지 4단계</h2>
+<pre><code>1단계  서울시 보행 네트워크 공개 데이터
+       ┌ 지점 목록 (좌표)
+       └ 길 조각 목록 (어느 지점에서 어느 지점까지, 길이 몇 m)
+                     │
+                     │  수집 프로그램이 다운로드·정리  (src/data/collectors/)
+                     ▼
+2단계  데이터베이스 (PostgreSQL + PostGIS)
+       ┌ walk_nodes   지점 16만 개
+       ├ walk_edges   길 조각 22만 개  ← 여기에 점수 칸이 붙습니다
+       └ 그 밖에 CCTV·공원·화장실 위치 테이블들
+                     │
+                     │  GraphRepository.load_graph()
+                     ▼
+3단계  파이썬 메모리 위의 계산용 지도 (NetworkX Graph)
+       길 조각마다 길이 + 점수 8종 + 표시(tags)가 붙어 있는 상태
+                     │
+                     │  파일로 저장
+                     ▼
+4단계  artifacts/walk_graph_v1.pkl  (64 MB)
+       서버가 켜질 때 이 파일을 읽어 메모리에 올립니다 (8.4초 걸림)
+</code></pre>
+<p><strong>2단계에서 3단계로 갈 때 걸러지는 것이 있습니다.</strong>
+"보행 불가"로 표시된 길 조각은 데이터베이스에는 남겨두고 <strong>계산용 지도에서만 빼버립니다.</strong></p>
+<pre><code class="language-python">if not row.is_walkable:
+    return None      # 이 길 조각은 계산용 지도에 넣지 않는다
+</code></pre>
+<p>자동차전용도로 같은 것이 여기서 빠집니다. <strong>원본은 보존하고 계산에서만 제외</strong>하는 방식입니다.</p>
+<h2 id="2-3"><span class="dia">◆</span>2-3 점수는 어떻게 길에 붙나 — 육각형 격자</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+CCTV는 <strong>점</strong>이고 길은 <strong>선</strong>입니다. 서울 전체를 벌집처럼 육각형으로 덮고,
+<strong>같은 육각형 안에 있는 것끼리 묶어서</strong> 점을 선에 붙였습니다.</p>
+</blockquote>
+<h3 id="_7"><span class="tri">▸</span>문제 상황</h3>
+<p>CCTV 데이터는 "위도 37.5, 경도 127.0에 CCTV 1대" 같은 <strong>점 목록</strong>입니다.
+그런데 우리가 점수를 붙여야 하는 대상은 <strong>길 조각(선)</strong> 입니다.</p>
+<p>"이 CCTV는 어느 길 것인가?"를 정해야 하는데, 딱 잘라 정할 수가 없습니다.
+CCTV 하나가 교차로에 있으면 그 교차로에 모이는 길 4개 모두에 해당하니까요.</p>
+<h3 id="_8"><span class="tri">▸</span>해결 — 벌집으로 덮는다</h3>
+<p>서울 전체를 <strong>육각형 격자</strong>로 덮습니다. 벌집 모양이라고 생각하면 됩니다.</p>
+<pre><code>     ⬡ ⬡ ⬡ ⬡
+    ⬡ ⬡ ⬡ ⬡ ⬡
+     ⬡ ⬡ ⬡ ⬡      ← 육각형 하나가 한 변 약 174m, 도시 블록 몇 개 크기
+    ⬡ ⬡ ⬡ ⬡ ⬡
+</code></pre>
+<p>그리고 이렇게 셉니다.</p>
+<pre><code>1) 길 조각의 가운데 점이 어느 육각형에 들어가는지 본다
+2) 그 육각형 안에 CCTV가 몇 대 있는지 센다
+3) 그 개수를 0~1 사이 점수로 바꿔서 길 조각에 붙인다
+</code></pre>
+<p><strong>"이 길 주변에 CCTV가 얼마나 많은가"</strong> 를 점수로 만든 것입니다.</p>
+<blockquote class="note">
+<p><strong>왜 육각형인가</strong>: 정사각형 격자는 대각선 이웃과 변을 맞대는 이웃의 거리가 달라서
+"주변"의 크기가 방향마다 달라집니다. 육각형은 여섯 이웃이 모두 같은 거리라 <strong>"주변"이 균일</strong>합니다.
+우리가 쓰는 격자 체계는 우버가 만든 <strong>H3</strong>이고, 크기 단계는 <strong>9단계</strong>를 씁니다. <span class="badge b-no">근거 없음</span></p>
+</blockquote>
+<h3 id="01"><span class="tri">▸</span>개수를 0~1로 바꾸는 방법</h3>
+<pre><code>점수 = log(개수 + 1) ÷ log(가장 많은 곳의 개수 + 1)
+</code></pre>
+<p><code>log</code>(로그)가 하는 일은 <strong>큰 숫자를 눌러주는 것</strong>입니다.</p>
+<table>
+<thead>
+<tr>
+<th>CCTV 개수</th>
+<th>로그를 안 쓰면</th>
+<th>로그를 쓰면</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1대</td>
+<td>0.02</td>
+<td>0.19</td>
+</tr>
+<tr>
+<td>2대</td>
+<td>0.05</td>
+<td>0.30</td>
+</tr>
+<tr>
+<td>5대</td>
+<td>0.12</td>
+<td>0.49</td>
+</tr>
+<tr>
+<td>40대 (가장 많은 곳)</td>
+<td>1.00</td>
+<td>1.00</td>
+</tr>
+</tbody>
+</table>
+<p><strong>로그를 안 쓰면 CCTV 1~5대인 대부분의 길이 0에 붙어버려서 서로 구분이 안 됩니다.</strong>
+로그를 쓰면 1대와 2대의 차이가 크게 벌어지고, 20대와 40대의 차이는 작아집니다.</p>
+<p>이게 <strong>사람의 체감과 맞습니다.</strong> CCTV가 0대인 골목과 1대인 골목은 느낌이 아주 다르지만,
+20대와 40대는 별 차이가 없습니다. 어차피 둘 다 "밝고 안전한 길"입니다.</p>
+<p><strong>마지막에 가장 많은 곳의 값으로 나누는 이유</strong>는 점수를 0~1로 맞추기 위해서입니다.
+CCTV 개수, 공원 면적 비율, 상권 밀도는 단위가 전혀 다릅니다.
+<strong>같은 자에 올려놓지 않으면 서로 비교하거나 섞을 수 없습니다.</strong></p>
+<h2 id="2-4-1"><span class="dia">◆</span>2-4 점수의 방향은 "1이 좋다"로 통일했습니다</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+점수 8종 전부 <strong>1에 가까우면 좋고 0에 가까우면 나쁘다</strong>로 맞춰 뒀습니다.
+경사 점수만 이름이 오해를 부르니 주의하세요.</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>점수 이름</th>
+<th>1에 가까우면</th>
+<th>0에 가까우면</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>안전 점수</td>
+<td>CCTV·가로등이 많다</td>
+<td>없다</td>
+</tr>
+<tr>
+<td>자연 점수</td>
+<td>나무·공원이 많다</td>
+<td>없다</td>
+</tr>
+<tr>
+<td><strong>경사 점수</strong></td>
+<td><strong>평지다</strong></td>
+<td><strong>급경사다</strong></td>
+</tr>
+<tr>
+<td>랜드마크 점수</td>
+<td>볼거리가 많다</td>
+<td>없다</td>
+</tr>
+<tr>
+<td>편의 점수</td>
+<td>화장실·정류장이 가깝다</td>
+<td>없다</td>
+</tr>
+</tbody>
+</table>
+<p><strong>경사 점수(<code>slope_score</code>)가 헷갈리는 지점입니다.</strong>
+이름만 보면 "경사가 심한 정도"처럼 읽히는데, 실제로는 <strong>"평평한 정도"</strong> 입니다.</p>
+<pre><code>급경사 언덕길  →  경사 점수 0.1   (나쁨)
+평지 산책로    →  경사 점수 0.9   (좋음)
+</code></pre>
+<p><strong>왜 이렇게 통일했나</strong>: 3부의 점수 계산 공식에서 <strong>"모든 점수는 클수록 좋다"</strong> 라는
+한 문장으로 처리할 수 있기 때문입니다. 점수마다 방향이 다르면 공식이 항목마다 갈라져서
+읽기도 어렵고 실수도 늘어납니다.</p>
+<h2 id="2-5"><span class="dia">◆</span>2-5 "그래프에 전달하지 않는다"가 무슨 뜻인가</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+가로수길·자전거도로 같은 일부 데이터는 <strong>데이터베이스에는 있지만 계산용 지도로 넘기지 않습니다.</strong>
+데이터 모양이 검증되지 않아서입니다.</p>
+</blockquote>
+<p>문서(<code>docs/route_engine/graph_contract.md</code>)에 이렇게 적혀 있습니다.</p>
+<blockquote class="note">
+<p><em>"가로수길·보행자우선도로·외부 터널 후보 Line은 검증된 태그가 아니므로 그래프에 전달하지 않는다."</em></p>
+</blockquote>
+<p><strong>"전달하지 않는다"는 세 가지를 뜻합니다.</strong></p>
+<pre><code>1)  그 데이터로 길을 새로 만들지 않는다      → 없던 길이 생기지 않는다
+2)  그 데이터로 점수를 올리거나 내리지 않는다
+3)  그 데이터가 &quot;표시(tags)&quot;에 들어가지 않는다  → 따라서 차단 대상도 될 수 없다 (3-9절)
+</code></pre>
+<h3 id="_9"><span class="tri">▸</span>왜 막았나 — 데이터 모양이 틀렸기 때문</h3>
+<p><code>docs/data/dataset_roles.md</code>에 사유가 하나씩 적혀 있습니다. <span class="badge b-ok">근거 있음</span></p>
+<table>
+<thead>
+<tr>
+<th>데이터</th>
+<th>문서에 적힌 사유</th>
+<th>무슨 말인가</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>자전거도로</strong></td>
+<td><em>"기·종점 직선 대신 실제 경로 복원 필요"</em></td>
+<td>원본이 <strong>시작점과 끝점을 직선으로 이어놓은</strong> 형태입니다. 실제 자전거도로는 구불구불한데 데이터는 직선 하나뿐입니다. 그대로 쓰면 <strong>건물을 관통하는 길</strong>이 생깁니다</td>
+</tr>
+<tr>
+<td>가로수길 · 보행자우선도로</td>
+<td><em>"도로명·연속성 확인 전 자동 태그 금지"</em></td>
+<td>어느 실제 도로에 해당하는지 확정되지 않았습니다</td>
+</tr>
+<tr>
+<td>둘레길 · 문화길</td>
+<td><em>"정상 Line geometry 필요"</em></td>
+<td>선 데이터 자체가 깨져 있습니다</td>
+</tr>
+<tr>
+<td>지하도</td>
+<td><em>"건물내·지하철·터널 의미 분류 필요"</em></td>
+<td>세 가지가 구분 없이 섞여 있습니다</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tags"><span class="tri">▸</span>"표시(tags)"는 어디서 오나 — 원본에 이미 있던 것만</h3>
+<p><code>tags</code>는 우리가 새로 만드는 게 아니라, <strong>원본 보행 네트워크 데이터에 이미 있던
+참/거짓 칸을 이름으로 바꾼 것</strong>입니다. 8개뿐입니다.</p>
+<pre><code>raw_is_tunnel          →  &quot;tunnel&quot;           터널이다
+raw_is_bridge          →  &quot;bridge&quot;           교량이다
+raw_is_overpass        →  &quot;overpass&quot;         육교다
+raw_is_crosswalk       →  &quot;crosswalk&quot;        횡단보도다
+raw_is_elevated        →  &quot;elevated&quot;         고가다
+raw_is_subway_network  →  &quot;subway_network&quot;   지하철 통로다
+raw_is_park_green      →  &quot;park_green&quot;       공원 녹지다
+raw_is_building_inside →  &quot;building_inside&quot;  건물 내부다
+</code></pre>
+<p>이름 앞의 <code>raw_</code>가 <strong>"원본에서 온 값이고 우리가 만든 게 아니다"</strong> 라는 표시입니다.
+그래서 이 8개만 "검증된 표시"입니다. 다른 후보 데이터는 여기 들어올 수 없습니다.</p>
+<h2 id="2-6"><span class="dia">◆</span>2-6 왜 화장실을 지점으로 추가하지 않았나</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+화장실을 지점으로 추가하면 <strong>길 조각이 둘로 쪼개져서 지도의 구조 자체가 바뀝니다.</strong>
+그래서 구조는 그대로 두고 <strong>"이 길에 화장실 몇 개"라는 숫자만</strong> 붙였습니다.</p>
+</blockquote>
+<p>문서(<code>dataset_roles.md</code>)의 규칙:</p>
+<blockquote class="note">
+<p><em>"Point는 새 WalkNode가 아니라 기존 WalkEdge와의 관계로 저장한다."</em></p>
+</blockquote>
+<h3 id="a"><span class="tri">▸</span>방법 A — 지점으로 추가한다 (쓰지 않음)</h3>
+<p>계산용 지도에서 <strong>지점은 "길이 갈라지거나 만나는 곳"</strong> 입니다.
+길 조각은 지점과 지점 <strong>사이</strong>를 잇습니다.</p>
+<p>화장실을 지점으로 넣으려면, 화장실이 붙어 있는 길 조각을 <strong>둘로 쪼개야</strong> 합니다.</p>
+<pre><code>추가 전    ●───────────────●        길 조각 1개, 200m
+           A               B
+
+추가 후    ●───────T───────●        길 조각 2개, 100m + 100m
+           A       ↑       B
+                 화장실
+</code></pre>
+<p>이러면 <strong>지도의 구조가 달라집니다.</strong> 무엇이 바뀌는지 구체적으로 보면:</p>
+<table>
+<thead>
+<tr>
+<th>바뀌는 것</th>
+<th>왜 문제인가</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>길 조각 개수</strong></td>
+<td>22만 개가 화장실 개수만큼 늘어납니다</td>
+</tr>
+<tr>
+<td><strong>경로 탐색 결과</strong></td>
+<td>Beam 알고리즘은 "한 걸음에 옆 지점으로 이동"을 셉니다. 길이 쪼개지면 같은 거리를 가는 데 필요한 걸음 수가 달라져서, <strong>"최대 400걸음"이라는 설정의 의미가 변합니다</strong></td>
+</tr>
+<tr>
+<td><strong>점수 계산</strong></td>
+<td>육각형 집계는 길 조각의 <strong>가운데 점</strong> 기준입니다. 쪼개면 가운데가 두 개로 바뀌고, 각각 다른 육각형에 들어갈 수 있습니다</td>
+</tr>
+<tr>
+<td><strong>재현성</strong></td>
+<td>화장실 데이터가 갱신되면 지도 구조가 흔들려서 <strong>이전 실험 결과와 비교할 수 없게 됩니다</strong></td>
+</tr>
+</tbody>
+</table>
+<blockquote class="note">
+<p><strong>용어</strong>: "무엇이 무엇과 이어져 있는지"의 구조를 <strong>위상(topology)</strong> 이라고 부릅니다.
+길 조각이 쪼개지는 건 위상이 바뀌는 것입니다.</p>
+</blockquote>
+<h3 id="b"><span class="tri">▸</span>방법 B — 개수만 세서 붙인다 (채택)</h3>
+<pre><code class="language-python">&quot;toilet_count&quot;: 0,                 # 이 길 조각에 연결된 화장실 개수
+&quot;transit_count&quot;: 0,                # 버스정류소 개수
+&quot;accessibility_poi_count&quot;: 0,      # 엘리베이터·리프트 개수
+</code></pre>
+<p><strong>지도 구조는 손대지 않고 숫자만 올립니다.</strong> 데이터가 늘어도 지도는 그대로입니다.</p>
+<p>연결 기준은 <strong>50m 이내</strong>입니다. 50m 밖의 시설은 화면 표시용으로만 쓰고 점수에는 넣지 않습니다.
+<span class="badge b-no">근거 없음</span> — "길에서 보이거나 닿는다고 느끼는 거리" 정도의 관례값이고 실험으로 정하지 않았습니다.</p>
+<hr />
+<h1 id="3"><span class="chip">3부</span>길에 점수를 어떻게 매기는가</h1>
+<h2 id="3-1"><span class="dia">◆</span>3-1 왜 점수를 하나로 합쳐야 하나</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+길찾기 알고리즘은 <strong>"길마다 숫자 하나"</strong> 밖에 못 받습니다.
+안전·자연·경사를 따로 넣을 수 없어서, 여러 점수를 숫자 하나로 압축합니다.</p>
+</blockquote>
+<p>세상의 모든 길찾기 알고리즘은 이렇게 생겼습니다.</p>
+<blockquote class="note">
+<p>"길 조각마다 <strong>비용</strong>이 하나씩 붙어 있다. 비용의 합이 가장 작은 길을 찾아라."</p>
+</blockquote>
+<p>내비게이션에서는 이 비용이 <strong>시간</strong>입니다. "총 시간이 가장 짧은 길"을 찾습니다.
+지하철 앱에서는 <strong>환승 횟수</strong>나 <strong>요금</strong>일 수 있습니다.</p>
+<p>우리는 시간도 거리도 아니고 <strong>"걷기 싫은 정도"</strong> 를 비용으로 씁니다.</p>
+<h3 id="_10"><span class="tri">▸</span>핵심 아이디어 — 체감 거리</h3>
+<blockquote class="note">
+<p><strong>300m인데 어둡고 급경사인 길</strong>과 <strong>400m인데 밝고 평지인 공원길</strong>이 있습니다.
+사람은 보통 후자를 고릅니다. 더 멀어도 걷기 편하니까요.</p>
+</blockquote>
+<p>그래서 우리는 <strong>길 조각의 비용을 "실제 길이"가 아니라 "체감 거리"로 만듭니다.</strong></p>
+<pre><code>실제 300m,  어둡고 급경사        →  비용 540   (500m처럼 느껴진다)
+실제 400m,  밝고 평지인 공원길    →  비용 267   (270m처럼 느껴진다)
+</code></pre>
+<p>이렇게 만들어 두면 알고리즘은 아무것도 몰라도 됩니다.
+<strong>그냥 비용 합이 작은 길을 찾으면 자동으로 공원길이 나옵니다.</strong></p>
+<p>이 "체감 거리"의 코드상 이름이 <code>custom_score</code>입니다.
+이 문서에서는 <strong>비용</strong> 또는 <strong>체감 거리</strong>라고 부릅니다.</p>
+<h2 id="3-2"><span class="dia">◆</span>3-2 비용을 만드는 공식</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+실제 길이에서 시작해서, <strong>나쁜 요소는 곱해서 늘리고</strong>, <strong>좋은 요소는 나눠서 줄입니다.</strong></p>
+</blockquote>
+<p>말로 쓰면 이렇습니다.</p>
+<pre><code>                실제 길이 × (나쁜 요소들)
+  체감 거리 =  ──────────────────────────
+                     (좋은 요소들)
+</code></pre>
+<p>칸을 채우면 이렇습니다.</p>
+<pre><code>              길이 m  ×  경사 페널티  ×  차량주의 페널티  ×  터널·육교 페널티
+ 체감 거리 = ────────────────────────────────────────────────────────────────
+              안전 가점 × 자연 가점 × 랜드마크 가점 × 편의 가점 × 접근성 가점
+
+ (계산 결과가 1보다 작으면 1로 올린다 — 이유는 3-7절)
+</code></pre>
+<p><strong>나쁜 요소는 위(분자)에서 곱합니다.</strong> 곱하면 숫자가 커지니까 체감 거리가 늘어납니다.
+<strong>좋은 요소는 아래(분모)에서 곱합니다.</strong> 나누면 숫자가 작아지니까 체감 거리가 줄어듭니다.</p>
+<h3 id="_11"><span class="tri">▸</span>숫자를 넣어 계산해 보기</h3>
+<p>같은 300m 길인데 조건만 다른 두 경우를 계산해 봅시다.
+기본 프로필(안전 0.5, 자연 0.5, 경사 0.5)을 쓴다고 하겠습니다.</p>
+<p><strong>경우 1 — 어둡고 급경사인 골목</strong></p>
+<pre><code>안전 점수 0.1, 자연 점수 0.0, 경사 점수 0.1  (급경사)
+
+경사 페널티 = 1 + (1 − 0.1) × 0.5 = 1.45
+안전 가점   = 1 + 0.1 × 0.5      = 1.05
+자연 가점   = 1 + 0.0 × 0.5      = 1.00
+
+체감 거리 = 300 × 1.45 ÷ (1.05 × 1.00) = 414
+</code></pre>
+<p><strong>경우 2 — 밝고 평지인 공원길</strong></p>
+<pre><code>안전 점수 0.8, 자연 점수 0.9, 경사 점수 0.9  (거의 평지)
+
+경사 페널티 = 1 + (1 − 0.9) × 0.5 = 1.05
+안전 가점   = 1 + 0.8 × 0.5      = 1.40
+자연 가점   = 1 + 0.9 × 0.5      = 1.45
+
+체감 거리 = 300 × 1.05 ÷ (1.40 × 1.45) = 155
+</code></pre>
+<p><strong>같은 300m인데 체감 거리가 414 대 155입니다. 2.7배 차이.</strong>
+알고리즘은 이제 아무 판단 없이 "작은 쪽"을 고르면 됩니다.</p>
+<h2 id="3-3"><span class="dia">◆</span>3-3 비용 계산에 들어가는 항목 전체</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+길 조각에서 읽는 데이터는 <strong>13개</strong>, 그걸 정리한 항목은 <strong>8개 + 페널티 2개 + 차단 1개</strong>입니다.</p>
+</blockquote>
+<p>코드(<code>scoring_engine.py</code>)가 길 조각에서 실제로 읽는 값은 정확히 이 13개입니다.</p>
+<pre><code>길이            안전 점수         자연 점수        공원 겹침 비율
+경사 점수       랜드마크 점수     러닝 점수        상권 편의 점수
+화장실 개수     정류소 개수       엘리베이터 개수
+차량주의 여부   표시(tags)
+</code></pre>
+<p>이걸 이렇게 씁니다.</p>
+<table>
+<thead>
+<tr>
+<th>어떻게 쓰나</th>
+<th>항목</th>
+<th>어느 데이터에서</th>
+<th>사용자가 조절 가능?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>좋으면 비용을 깎는다</strong></td>
+<td>안전</td>
+<td>안전 점수</td>
+<td>✔ 안전 가중치</td>
+</tr>
+<tr>
+<td></td>
+<td>자연</td>
+<td>자연 점수와 공원 겹침 비율 중 <strong>큰 값</strong></td>
+<td>✔ 자연 가중치</td>
+</tr>
+<tr>
+<td></td>
+<td>랜드마크</td>
+<td>랜드마크 점수</td>
+<td>✔ 랜드마크 가중치</td>
+</tr>
+<tr>
+<td></td>
+<td>편의</td>
+<td>상권 편의 점수와 (화장실+정류소 개수) 중 <strong>큰 값</strong></td>
+<td>✔ 편의 가중치</td>
+</tr>
+<tr>
+<td></td>
+<td>접근성</td>
+<td>엘리베이터·리프트 개수</td>
+<td>✔ 접근성 가중치</td>
+</tr>
+<tr>
+<td><strong>나쁘면 비용을 키운다</strong></td>
+<td>경사</td>
+<td>경사 점수</td>
+<td>✔ 경사 가중치</td>
+</tr>
+<tr>
+<td></td>
+<td>차량 주의</td>
+<td>차량주의 여부 (참/거짓)</td>
+<td>✔ <strong>어린이 가중치</strong></td>
+</tr>
+<tr>
+<td></td>
+<td>터널·육교 등</td>
+<td>표시(tags)</td>
+<td>✘ 고정값</td>
+</tr>
+<tr>
+<td><strong>아예 못 지나가게 한다</strong></td>
+<td>차단</td>
+<td>표시(tags) 중 지정된 것</td>
+<td>✘ (3-9절)</td>
+</tr>
+<tr>
+<td>(러닝 모드 전용)</td>
+<td>러닝</td>
+<td>러닝 점수</td>
+<td>✔ 러닝 가중치</td>
+</tr>
+</tbody>
+</table>
+<h3 id="13-8"><span class="tri">▸</span>왜 데이터는 13개인데 조절 손잡이는 8개인가</h3>
+<p>세는 대상이 다릅니다.</p>
+<pre><code>데이터 13개   =  길 조각에 붙어 있는 값의 개수
+손잡이 8개    =  사용자(프로필)가 조절할 수 있는 것의 개수
+</code></pre>
+<p>숫자가 안 맞는 이유가 세 개입니다.</p>
+<p><strong>첫째, 여러 데이터가 한 항목으로 합쳐집니다.</strong></p>
+<pre><code>자연 점수 + 공원 겹침 비율            →  &quot;자연&quot; 항목 1개
+상권 편의 점수 + 화장실·정류소 개수   →  &quot;편의&quot; 항목 1개
+</code></pre>
+<p><strong>둘 중 큰 값을 씁니다.</strong> 같은 성질을 다른 데이터로 두 번 측정한 것이기 때문입니다.
+공원 안을 지나는 길은 "공원 겹침 비율"이 높고, 가로수가 있는 길은 "자연 점수"가 높습니다.
+<strong>더하면 이중으로 점수를 주는 셈</strong>이고, <strong>하나만 쓰면 다른 근거를 버리는 셈</strong>입니다. 그래서 큰 쪽입니다.</p>
+<p><strong>둘째, 조절할 수 없는 항목이 있습니다.</strong> 터널 페널티는 고정값입니다.
+"터널을 좀 더 피해 줘"라는 옵션은 없습니다.</p>
+<p><strong>셋째, 손잡이는 있는데 대응하는 점수가 없는 항목이 하나 있습니다</strong> — 어린이 가중치.
+바로 다음 절입니다.</p>
+<h2 id="3-4"><span class="dia">◆</span>3-4 어린이 점수는 지금 쓰이지 않습니다 <span class="badge b-warn">확인 필요</span></h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+계산용 지도에 "어린이 점수"가 실려 있는데 <strong>아무도 읽지 않습니다.</strong>
+"어린이 가중치"는 어린이 점수를 쓰는 게 아니라 <strong>차량주의 구간을 피하는 강도</strong>를 정합니다.</p>
+</blockquote>
+<p>계산용 지도에는 <code>child_score</code>(어린이 점수)가 들어 있습니다.
+문서(<code>graph_contract.md</code>)의 항목 목록에도 있습니다.</p>
+<p>그런데 점수 계산 코드에서 <code>child</code>를 찾으면 두 줄만 나오고, <strong>둘 다 어린이 점수가 아닙니다.</strong></p>
+<pre><code class="language-python">child_w         = 어린이 가중치 가져오기                              # 118행
+차량주의_페널티 = 차량주의 구간이면 (1 + child_w), 아니면 1          # 133행
+</code></pre>
+<p><strong>무슨 뜻인가</strong>: <code>child</code> 프로필의 가중치 0.8은
+"어린이보호구역 점수가 높은 길을 <strong>좋아한다</strong>"가 아니라
+<strong>"차량주의 구간의 비용을 1.8배로 올려서 피한다"</strong> 는 뜻입니다.</p>
+<h3 id="_12"><span class="tri">▸</span>왜 이렇게 됐나</h3>
+<p>옛 공식에는 어린이 점수를 가점으로 쓰는 줄이 있었습니다.
+2026년 7월 30일 커밋(<code>6578cfa</code>)에서 <strong>차량주의 페널티로 바뀌면서 어린이 점수가 빠졌습니다.</strong></p>
+<p><strong>지금 상태는 버그가 아닙니다</strong> — 잘못된 결과를 내지는 않습니다. 다만 세 가지가 정리되지 않았습니다.</p>
+<pre><code>1)  계산용 지도 용량을 조금 차지한다 (아무도 안 읽는 값이)
+2)  문서만 보면 쓰이는 것처럼 읽힌다
+3)  벤치마크는 옛 공식이라 아직 이걸 쓴다  → 7부
+</code></pre>
+<p><strong>어느 쪽이 맞는 설계인지는 팀이 정할 일입니다.</strong>
+"어린이보호구역 안쪽을 선호"(옛 방식)와 "차량주의 구간을 회피"(현 방식)는 다른 의도입니다.
+지금 코드는 후자입니다.</p>
+<h2 id="3-5"><span class="dia">◆</span>3-5 러닝 점수는 어디서 오나 <span class="badge b-warn">확인 필요</span></h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+도보망 자체의 속성이 아니라, <strong>러닝 코스로 등록된 곳들을 따로 모아서</strong> 육각형으로 집계한 값입니다.
+여기에 <strong>자전거도로가 들어와 있습니다.</strong></p>
+</blockquote>
+<p><code>running_collector.py</code>를 확인한 결과, 러닝 점수는 별도의 "러닝 레이어"를 만들어 집계한 값입니다.
+들어가는 것이 5종입니다.</p>
+<table>
+<thead>
+<tr>
+<th>종류</th>
+<th>내용</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>하천변 코스</td>
+<td><strong>코드에 직접 적어놓은 5개</strong> — 한강 반포·여의도, 청계천, 안양천, 중랑천</td>
+</tr>
+<tr>
+<td>하천 GeoJSON</td>
+<td>하천 데이터에서 추출한 코스</td>
+</tr>
+<tr>
+<td>러닝 적합 공원</td>
+<td><strong>공원 이름이 코드에 나열돼 있습니다</strong> — 올림픽공원, 서울숲, 남산공원 등</td>
+</tr>
+<tr>
+<td>둘레길</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>자전거도로</strong></td>
+<td>← 문서에는 "보류"로 되어 있는데 코드에서는 씁니다</td>
+</tr>
+</tbody>
+</table>
+<p>이걸 모아서 2-3절과 같은 방식(육각형 집계 → 로그로 0~1 변환)으로 길에 붙입니다.</p>
+<p>즉 러닝 점수는 <strong>"이 길 주변에 러닝 코스로 등록된 것이 얼마나 많은가"</strong> 입니다.
+길의 폭이나 포장 상태 같은 도보망 자체의 속성이 아닙니다.</p>
+<h3 id="_13"><span class="tri">▸</span>자전거도로 — 문서와 코드가 어긋납니다</h3>
+<p><code>dataset_roles.md</code>는 자전거도로를 <strong>"보류"</strong> 로 두고 사유까지 적어 뒀습니다
+(<em>"기·종점 직선 대신 실제 경로 복원 필요"</em>).
+그런데 자전거도로를 읽어오는 함수가 <strong>러닝 레이어 만들 때 실제로 호출됩니다.</strong></p>
+<p><strong>영향 범위는 제한적입니다.</strong></p>
+<pre><code>✔  러닝 점수는 &quot;러닝&quot; 프로필에서만 비용에 반영된다. 다른 8개 프로필은 이 값을 안 쓴다
+✔  자전거도로가 길을 새로 만들지는 않는다. 육각형 개수 세기에만 기여한다
+✘  다만 원본이 기·종점 직선이면, 엉뚱한 육각형에 개수가 찍힌다
+    → 건물 위를 지나는 직선이 통과한 육각형의 러닝 점수가 올라간다
+</code></pre>
+<p><strong>정리하면</strong> 채원님의 "보류"는 <em>"길·표시·차단 입력으로는 쓰지 않는다"</em> 는 층에서 맞고,
+러닝 점수 가점 경로로는 들어와 있습니다. <strong>둘 다 사실이고 층이 다릅니다.</strong>
+러닝 프로필을 실제로 쓸 거면 이 부분을 정리해야 합니다.</p>
+<h2 id="3-6"><span class="dia">◆</span>3-6 왜 좋은 요소는 나누고 나쁜 요소는 곱하나</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+<strong>"데이터가 없다"와 "나쁘다"를 구분하기 위해서</strong>입니다.
+CCTV가 서울 전역에 균등하게 없기 때문에, 감점 방식으로 만들면 데이터 없는 구가 통째로 버려집니다.</p>
+</blockquote>
+<p><strong>이게 이 공식에서 가장 중요한 결정이고, 근거가 코드에 남아 있습니다.</strong> <span class="badge b-ok">근거 있음</span></p>
+<p>커밋 <code>6578cfa</code>(2026-07-30)의 설명:</p>
+<blockquote class="note">
+<p><em>"양의 근거는 (1 + 점수 × 가중치) 가점으로 사용하여 </em><em>데이터가 없는 지역(점수=0)을 감점하지 않습니다.</em><em>
+경사·차량 주의·불쾌 구간은 분자에 페널티로 반영합니다."</em></p>
+</blockquote>
+<p>같은 원칙이 데이터 문서(<code>data_score_mapping.md</code>)에도 있습니다:</p>
+<blockquote class="note">
+<p><em>"양의 근거는 확인된 길에만 제한 가점한다. </em><em>데이터가 없는 길은 감점하지 않는다.</em><em>"</em></p>
+</blockquote>
+<h3 id="cctv"><span class="tri">▸</span>CCTV로 설명하면</h3>
+<p>CCTV·스마트가로등 데이터는 <strong>서울 전역에 고르게 있지 않습니다.</strong>
+어떤 구는 데이터를 제공하고 어떤 구는 안 합니다.
+데이터 문서가 이걸 알고 <em>"미설치 지역 감점 금지"</em>, <em>"미제공 구 감점 금지"</em> 라고 못 박아 뒀습니다.</p>
+<p>만약 <strong>"CCTV 없으면 감점"</strong> 으로 만들었다면 이런 일이 생깁니다.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>CCTV가 진짜로 없는 어두운 길</th>
+<th><strong>CCTV 데이터가 제공되지 않은 구의 길</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>감점 방식</td>
+<td>감점 — 맞는 동작</td>
+<td><strong>감점 — 틀린 동작</strong></td>
+</tr>
+<tr>
+<td>가점 방식</td>
+<td>가점 없음 = 중립</td>
+<td>가점 없음 = 중립</td>
+</tr>
+</tbody>
+</table>
+<p><strong>감점 방식이면 데이터 미제공 구 전체가 경로에서 사라집니다.</strong>
+그 구에 사는 사용자는 서비스를 쓸 수 없습니다.
+공식이 <strong>"데이터가 없다"와 "나쁘다"를 구분하지 못하기</strong> 때문입니다.</p>
+<p>가점 방식에서는 점수가 0일 때 이렇게 됩니다.</p>
+<pre><code>안전 가점 = 1 + 0 × 가중치 = 1
+→ 1로 나누는 건 아무 일도 안 하는 것
+→ 체감 거리 = 실제 길이 그대로
+</code></pre>
+<p><strong>데이터가 없으면 그냥 중립이 됩니다.</strong> 이게 우리가 원한 동작입니다.</p>
+<h3 id="_14"><span class="tri">▸</span>왜 더하지 않고 곱하나</h3>
+<p>가점을 더하는 방식이라면 이렇게 됩니다.</p>
+<pre><code>더하기:  1 + 안전×w + 자연×w + 랜드마크×w + ...
+</code></pre>
+<p>이러면 <strong>한 항목만 만점이어도 나머지를 덮어버립니다.</strong>
+안전 점수가 최고면 자연 점수가 0이어도 총점이 높게 나옵니다.</p>
+<p>곱하기 방식은 다릅니다.</p>
+<pre><code>곱하기:  (1 + 안전×w) × (1 + 자연×w) × (1 + 랜드마크×w) × ...
+</code></pre>
+<p><strong>여러 항목이 동시에 좋을 때만 크게 유리해집니다.</strong></p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>안전 가점</th>
+<th>자연 가점</th>
+<th>더하기</th>
+<th>곱하기</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>밝지만 차도 옆</td>
+<td>1.40</td>
+<td>1.00</td>
+<td>1.40</td>
+<td><strong>1.40</strong></td>
+</tr>
+<tr>
+<td>적당히 밝고 나무도 있음</td>
+<td>1.20</td>
+<td>1.20</td>
+<td>1.40</td>
+<td><strong>1.44</strong></td>
+</tr>
+</tbody>
+</table>
+<p>더하기로는 두 길이 같은 점수인데, 곱하기로는 후자가 이깁니다.
+<strong>산책은 한 가지만 좋아서 되는 일이 아닙니다.</strong> 밝지만 차 옆인 길은 산책로가 아니니까요.</p>
+<h2 id="3-7"><span class="dia">◆</span>3-7 세부 규칙 네 가지</h2>
+<h3 id="1_1"><span class="tri">▸</span>① 왜 경사만 페널티인가</h3>
+<p>3-6절과 반대 방향이라 헷갈릴 수 있습니다. <strong>기준은 "데이터가 빠질 수 있는가"</strong> 입니다.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>안전·자연·편의…</th>
+<th>경사</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>데이터가 없는 길이 있나</td>
+<td><strong>있다</strong> (CCTV 미설치 구)</td>
+<td><strong>없다</strong></td>
+</tr>
+<tr>
+<td>왜</td>
+<td>시설이 실제로 설치돼야 데이터가 생긴다</td>
+<td>지형에서 계산하므로 모든 길에 값이 있다</td>
+</tr>
+<tr>
+<td>그래서</td>
+<td>없으면 중립이어야 한다 → <strong>가점</strong></td>
+<td>빠지는 경우가 없으니 감점해도 안전 → <strong>페널티</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>"경사가 특별해서 페널티"가 아니라, "경사는 빠지는 데이터가 없으니 페널티를 써도 부작용이 없다"</strong> 입니다.</p>
+<p>형태는 이렇습니다.</p>
+<pre><code>경사 페널티 = 1 + (1 − 경사 점수) × 경사 가중치
+</code></pre>
+<p>경사 점수는 <strong>평평한 정도</strong>입니다(2-4절). 그래서 <code>(1 − 경사 점수)</code>가 <strong>급한 정도</strong>가 됩니다.</p>
+<table>
+<thead>
+<tr>
+<th>길</th>
+<th>경사 점수</th>
+<th>급한 정도</th>
+<th>평지 프로필(가중치 0.8)의 페널티</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>평지</td>
+<td>1.0</td>
+<td>0.0</td>
+<td>1 + 0 × 0.8 = <strong>1.0</strong> (없음)</td>
+</tr>
+<tr>
+<td>중간</td>
+<td>0.5</td>
+<td>0.5</td>
+<td>1 + 0.5 × 0.8 = <strong>1.4</strong></td>
+</tr>
+<tr>
+<td>급경사</td>
+<td>0.0</td>
+<td>1.0</td>
+<td>1 + 1 × 0.8 = <strong>1.8</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>"급경사 300m는 평지 540m처럼 느껴진다"</strong> 를 숫자로 옮긴 것입니다(300 × 1.8 = 540).</p>
+<h3 id="2_1"><span class="tri">▸</span>② 클램핑이란 무엇인가</h3>
+<p><strong>클램핑(clamping)</strong> 은 <strong>"값을 정해진 범위 안으로 강제로 밀어 넣는 것"</strong> 입니다.
+"물리다, 고정하다"라는 뜻의 clamp에서 왔습니다. 목공에서 쓰는 클램프와 같은 단어입니다.</p>
+<p>우리 점수는 전부 0~1이어야 합니다(2-4절). 그 범위를 벗어난 값은 <strong>데이터 오류</strong>입니다.</p>
+<table>
+<thead>
+<tr>
+<th>들어온 값</th>
+<th>클램핑 후</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>−0.3</td>
+<td><strong>0.0</strong></td>
+</tr>
+<tr>
+<td>0.7</td>
+<td>0.7 (그대로)</td>
+</tr>
+<tr>
+<td>1.5</td>
+<td><strong>1.0</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>왜 필요한지는 실제로 겪은 사례가 코드에 남아 있었습니다.</strong> <span class="badge b-ok">근거 있음</span></p>
+<p>당시 삭제된 주석:</p>
+<blockquote class="note">
+<p><em>"DB 이상값이 [0, 1] 범위를 벗어날 경우 공식이 역효과를 낼 수 있어 클램핑.</em>
+<em>예: 경사=1.5 → (2.0 − 1.5)^가중치 = 0.5 → </em><em>패널티 감소 → 급경사를 오히려 선호</em>*<em>"</em></p>
+</blockquote>
+<p>당시 경사 페널티는 <code>(2 − 경사 점수)</code>를 쓰는 형태였습니다.
+경사 점수가 1.5 같은 이상값으로 들어오면 <code>2 − 1.5 = 0.5</code>가 되고,
+<strong>1보다 작으니 페널티가 아니라 보너스가 됩니다.</strong>
+알고리즘이 <strong>급경사 언덕을 일부러 골라 걷는</strong> 경로를 만들었습니다.</p>
+<p><strong>가정이 아니라 실제로 발견해서 막은 버그입니다.</strong> 클램핑의 근거는 이 사례입니다.</p>
+<h3 id="3-1_1"><span class="tri">▸</span>③ 왜 비용의 최소값이 1인가</h3>
+<p>가점이 크면 <code>길이 ÷ 가점</code>이 1보다 작아질 수 있습니다. 심하면 0에 가까워집니다.</p>
+<p><strong>비용이 0이 되면 알고리즘이 망가집니다.</strong>
+4부에 나오는 Dijkstra가 정답을 보장하는 조건이 <strong>"모든 비용이 0 이상"</strong> 이기 때문입니다.</p>
+<p>비용이 0인 길 조각이 있으면 어떻게 되는지 생각해 보세요.
+그 길을 왕복해도 비용이 안 늘어납니다. 그러면 <strong>거리 목표를 채우려고 같은 길을 무한히 왕복하는 것</strong>이
+알고리즘 입장에서 완벽하게 합리적인 행동이 됩니다.</p>
+<p><code>최소 1로 올리기</code>가 그걸 구조적으로 막습니다.
+<strong>비용 공식이 알고리즘이 요구하는 조건을 보증하는 관계</strong>입니다.
+그리고 이 최소값 덕분에 4부의 A* 안전성 설명도 성립합니다.</p>
+<h3 id="4"><span class="tri">▸</span>④ 왜 화장실 개수는 로그로 누르나</h3>
+<p>화장실·정류소·엘리베이터는 <strong>개수</strong>입니다. 0, 1, 2, 7, 23…
+다른 점수는 전부 0~1입니다. <strong>개수를 그대로 쓰면 단위가 안 맞아서 섞을 수 없습니다.</strong></p>
+<p>그래서 0~1로 바꿔야 하는데, 어떻게 바꿀지가 문제입니다.</p>
+<p><strong>방법 1 — 가장 많은 곳의 개수로 나눈다 (안 씁니다)</strong></p>
+<p>서울 어딘가에 정류소 40개가 몰린 곳이 있으면, 정류소 3개인 길은 <code>3 ÷ 40 = 0.075</code>가 됩니다.
+<strong>대부분의 길이 0에 붙어서 서로 구분이 안 됩니다.</strong></p>
+<p><strong>방법 2 — 로그로 누르고 일정 개수에서 상한 (채택)</strong></p>
+<p>상한 기준은 <strong>화장실+정류소 3개</strong>, <strong>엘리베이터 2개</strong>입니다. <span class="badge b-no">근거 없음</span></p>
+<table>
+<thead>
+<tr>
+<th>개수</th>
+<th>점수</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0개</td>
+<td>0.00</td>
+</tr>
+<tr>
+<td>1개</td>
+<td>0.50</td>
+</tr>
+<tr>
+<td>2개</td>
+<td>0.79</td>
+</tr>
+<tr>
+<td><strong>3개</strong></td>
+<td><strong>1.00</strong> ← 여기서 상한</td>
+</tr>
+<tr>
+<td>10개</td>
+<td>1.00 (더 안 오름)</td>
+</tr>
+<tr>
+<td>40개</td>
+<td>1.00</td>
+</tr>
+</tbody>
+</table>
+<p>이걸 <strong>포화(saturation)</strong> 라고 부릅니다. <strong>더 넣어도 안 차는 상태</strong>를 뜻합니다.</p>
+<p><strong>왜 이게 맞나</strong>: 산책 중에 화장실이 0개인 것과 1개인 것은 큰 차이입니다.
+3개와 10개는 사실상 같습니다 — 어차피 한 번 씁니다.
+<strong>체감이 포화된 지점을 넘어서까지 점수를 올리면, 번화가 한 구간이 경로 전체를 지배합니다.</strong></p>
+<blockquote class="warnbox">
+<p><strong>※ 로그가 두 번 나옵니다</strong>
+2-3절(데이터 수집)에서 육각형 안의 시설 밀도에 로그를 썼고, 여기서 또 씁니다.
+<strong>대상이 다릅니다</strong> — 앞은 "이 길 주변 육각형의 시설 밀도", 여기는 "이 길에 직접 연결된 개수"입니다.</p>
+</blockquote>
+<h2 id="3-8"><span class="dia">◆</span>3-8 터널 페널티 — 숫자에는 근거가 없습니다 <span class="badge b-no">근거 없음</span></h2>
+<pre><code>터널          비용 × 1.20
+육교          비용 × 1.12
+지하철 통로   비용 × 1.08
+건물 내부     비용 × 1.08
+</code></pre>
+<p><strong>솔직히 말하면 이 숫자들에는 근거가 없습니다.</strong>
+저장소 전체를 확인했지만 주석·커밋·문서 어디에도 어떻게 정했는지가 없습니다. 관례로 정한 초기값입니다.</p>
+<p><strong>근거가 있는 것은 "차단이 아니라 페널티"라는 선택입니다.</strong> <span class="badge b-ok">근거 있음</span></p>
+<ul>
+<li><code>data_score_mapping.md</code>: <em>"터널·육교·지하철망·건물 내부는 기본 차단하지 않는다."</em></li>
+<li><code>dataset_roles.md</code>: <em>"완전 차단이 아닌 쾌적도 페널티"</em></li>
+</ul>
+<p><strong>왜 차단하지 않나 — 막으면 지도가 끊깁니다.</strong>
+육교는 대로를 건너는 <strong>유일한 통로</strong>인 경우가 많습니다.
+육교를 지우면 대로 반대편으로 갈 방법이 없어져서 <strong>경로 자체가 안 만들어집니다.</strong></p>
+<p>페널티는 <strong>"가능하면 피하되, 그것뿐이면 쓴다"</strong> 를 표현합니다.
+1.20은 <strong>200m 터널을 240m로 취급</strong>하는 정도입니다. 대안이 있으면 피하고, 없으면 통과합니다.</p>
+<p><strong>순서(터널 &gt; 육교 &gt; 실내)는 설명할 수 있습니다.</strong>
+터널이 가장 답답하고, 육교는 계단이 있고, 지하철 통로·건물 내부는 실내지만 걷기 자체는 편합니다.
+<strong>순서는 설명되지만 1.20이라는 값은 설명되지 않습니다.</strong></p>
+<blockquote class="warnbox">
+<p><strong>※ 주의 — 쌓이지 않습니다</strong>
+터널이면서 건물 내부인 구간은 <code>1.20 × 1.08</code>이 아니라 <strong><code>1.20</code> 하나만</strong> 적용됩니다.
+코드가 "해당하는 것 중 가장 큰 값 하나"를 쓰도록 되어 있습니다.</p>
+</blockquote>
+<h2 id="3-9-tags"><span class="dia">◆</span>3-9 완전 차단 장치 — 표시(tags) 기반</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+페널티는 "피하되 필요하면 통과"입니다. <strong>절대 못 지나가게</strong> 해야 할 때는 비용을 <strong>무한</strong>으로 만듭니다.</p>
+</blockquote>
+<pre><code class="language-python">차단 대상이면  비용 = 무한(∞)
+</code></pre>
+<p>알고리즘은 비용이 작은 쪽을 고르니까 <strong>무한인 길은 절대 선택하지 않습니다.</strong>
+길을 삭제하는 것과 사실상 같은 효과인데, <strong>지도를 건드리지 않고 요청마다 다르게 적용할 수 있습니다.</strong></p>
+<p>프로필마다 "무엇을 차단할지" 목록을 지정할 수 있게 만들어 뒀지만,
+<strong>현재 9개 프로필 모두 목록이 비어 있어 실제로는 아무것도 차단하지 않습니다.</strong> 장치만 준비된 상태입니다.</p>
+<h3 id="_15"><span class="tri">▸</span>"검증된 표시에만 적용"이 왜 제약인가</h3>
+<p>문서가 <em>"검증된 실제 표시에만 적용"</em> 이라고 못 박은 이유는 <strong>차단이 표시(tags) 목록에서만 동작하기 때문</strong>입니다.</p>
+<p>2-5절에서 봤듯이 표시에 들어가는 건 원본에서 온 8개뿐입니다.
+가로수길·자전거도로 같은 후보 데이터는 <strong>계산용 지도로 넘어오지 않으므로 표시에 없습니다.</strong></p>
+<p><strong>따라서 "가로수길을 차단해라"라고 설정해도 아무 일도 일어나지 않습니다.</strong>
+맞출 표시가 애초에 지도에 없기 때문입니다.</p>
+<p><strong>이게 왜 안전장치인가</strong>: 검증되지 않은 데이터로 차단을 하면 <strong>멀쩡한 길이 사라집니다.</strong>
+자전거도로처럼 모양이 틀린 데이터로 "이 길을 막아라"를 실행하면,
+실제로는 문제없는 길이 통째로 지워져서 경로가 안 나옵니다.
+그래서 <strong>차단은 원본에서 검증된 표시로만</strong> 하도록 층을 나눠 둔 것입니다.</p>
+<blockquote class="warnbox">
+<p><strong>※ 이름이 비슷한 다른 장치가 하나 더 있습니다</strong>
+<code>graph_filter</code>는 <strong>지점</strong>을 지웁니다(지하·고가 지점 등). 차단 장치는 <strong>길 조각의 비용</strong>을 무한으로 만듭니다.
+둘은 다른 단계에서 동작합니다.</p>
+</blockquote>
+<h2 id="3-10-9"><span class="dia">◆</span>3-10 프로필 9종 — 손잡이만 바꿉니다</h2>
+<p>프로필이 9개인데 계산용 지도는 하나입니다.
+<strong>프로필은 가중치 8개만 바꾸고 지도와 원본 데이터는 건드리지 않습니다.</strong> <span class="badge b-ok">근거 있음</span></p>
+<table>
+<thead>
+<tr>
+<th>프로필</th>
+<th>올린 가중치</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>기본</td>
+<td>안전 0.5 · 자연 0.5 · 경사 0.5 · 편의 0.2</td>
+</tr>
+<tr>
+<td>자연</td>
+<td>자연 <strong>0.8</strong></td>
+</tr>
+<tr>
+<td>안전</td>
+<td>안전 <strong>0.8</strong></td>
+</tr>
+<tr>
+<td>평지</td>
+<td>경사 <strong>0.8</strong></td>
+</tr>
+<tr>
+<td>러닝</td>
+<td>러닝 <strong>0.8</strong> (+ 러닝 전용 계산 분기)</td>
+</tr>
+<tr>
+<td>랜드마크</td>
+<td>랜드마크 <strong>0.8</strong></td>
+</tr>
+<tr>
+<td>어린이</td>
+<td>어린이 <strong>0.8</strong> · 안전 0.6 · 편의 0.3</td>
+</tr>
+<tr>
+<td>편의</td>
+<td>편의 <strong>0.8</strong> · 자연 0.4</td>
+</tr>
+<tr>
+<td>접근성</td>
+<td>접근성 <strong>0.8</strong> · 경사 0.7 · 자연 0.4</td>
+</tr>
+</tbody>
+</table>
+<p><strong>왜 지도를 안 건드리나</strong>: 프로필마다 지도를 따로 만들면 <strong>64MB 지도가 9개</strong> 필요하고,
+데이터가 갱신될 때 9번 다시 만들어야 합니다.
+가중치만 바꾸는 구조라 <strong>지도는 한 번만 올려두고 요청마다 손잡이만 갈아 끼웁니다.</strong></p>
+<p>이 설계가 실제로 성능 개선으로 이어졌습니다. 커밋 <code>bd37e9c</code>:</p>
+<blockquote class="note">
+<p><em>"엣지별 정적 피처를 그래프 로드 시 1회 캐싱하고, 프로필/가중치 조합 계산을 numpy 배열 연산으로 바꿔
+매 요청 22만 엣지 순회 비용을 없앤다."</em></p>
+</blockquote>
+<p><strong>데이터에서 오는 값(고정)과 요청에서 오는 값(가변)을 분리했기 때문에</strong> 앞의 것을 미리 계산해 둘 수 있었습니다.</p>
+<h2 id="3-11"><span class="dia">◆</span>3-11 근거가 있는 것과 없는 것</h2>
+<table>
+<thead>
+<tr>
+<th>항목</th>
+<th>근거</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>좋은 요소를 나누기(가점)로</td>
+<td><span class="badge b-ok">근거 있음</span> 데이터 없는 구 감점 방지 — 커밋 + 데이터 계약 문서</td>
+</tr>
+<tr>
+<td>나쁜 요소를 곱하기(페널티)로</td>
+<td><span class="badge b-ok">근거 있음</span> 빠지는 데이터가 없는 항목이라 안전</td>
+</tr>
+<tr>
+<td>곱하기 (더하기 아님)</td>
+<td><span class="badge b-ok">근거 있음</span> 한 항목만 좋은 길을 걸러내려고</td>
+</tr>
+<tr>
+<td>클램핑</td>
+<td><span class="badge b-ok">근거 있음</span> 경사 1.5 → 급경사 선호 역효과 실제 사례</td>
+</tr>
+<tr>
+<td>비용 최소값 1</td>
+<td><span class="badge b-ok">근거 있음</span> 알고리즘의 "비용 0 이상" 조건 보증</td>
+</tr>
+<tr>
+<td>로그 포화 (형태)</td>
+<td><span class="badge b-ok">근거 있음</span> 중복 가점 방지 원칙</td>
+</tr>
+<tr>
+<td>차단 대신 페널티</td>
+<td><span class="badge b-ok">근거 있음</span> 육교 차단 시 지도 단절</td>
+</tr>
+<tr>
+<td>차단을 검증된 표시로만</td>
+<td><span class="badge b-ok">근거 있음</span> 모양 틀린 데이터로 차단하면 멀쩡한 길 삭제</td>
+</tr>
+<tr>
+<td>터널·육교 페널티의 <strong>순서</strong></td>
+<td>상식적으로 설명 가능</td>
+</tr>
+<tr>
+<td>터널 1.20 / 육교 1.12 / 1.08</td>
+<td><span class="badge b-no">근거 없음</span></td>
+</tr>
+<tr>
+<td>포화 기준 3개, 2개</td>
+<td><span class="badge b-no">근거 없음</span></td>
+</tr>
+<tr>
+<td>화장실 연결 반경 50m</td>
+<td><span class="badge b-no">근거 없음</span></td>
+</tr>
+<tr>
+<td>프로필 가중치 0.5 / 0.8</td>
+<td><span class="badge b-no">근거 없음</span></td>
+</tr>
+<tr>
+<td>육각형 크기 9단계</td>
+<td><span class="badge b-no">근거 없음</span></td>
+</tr>
+<tr>
+<td>거리 허용 오차 ±10%</td>
+<td><span class="badge b-no">근거 없음</span></td>
+</tr>
+<tr>
+<td>직선→도로 거리 환산 1.4배</td>
+<td>추정치 (실측 아님)</td>
+</tr>
+<tr>
+<td>러닝 모드의 "긴 길일수록 유리" 항</td>
+<td><span class="badge b-no">근거 없음</span> 주석·커밋에 설명이 없음 → 7부</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h1 id="4_1"><span class="chip">4부</span>길을 어떻게 찾는가</h1>
+<h2 id="4-0"><span class="dia">◆</span>4-0 전체 그림부터</h2>
+<h3 id="8"><span class="tri">▸</span>8개 알고리즘, 한 줄 비유</h3>
+<table>
+<thead>
+<tr>
+<th>알고리즘</th>
+<th>비유</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Dijkstra</strong></td>
+<td>출발점에 물감을 떨어뜨려 사방으로 고르게 번지게 한다. 목적지에 물감이 닿는 순간이 답이다</td>
+</tr>
+<tr>
+<td><strong>A*</strong></td>
+<td>같은 물감인데 <strong>나침반</strong>을 들려준다. 목적지 쪽을 먼저 칠한다</td>
+</tr>
+<tr>
+<td><strong>ALT</strong></td>
+<td>나침반의 정확도를 높인 것. 미리 재둔 실제 도로 거리로 방향을 잡는다</td>
+</tr>
+<tr>
+<td><strong>양방향 A*</strong></td>
+<td>출발지와 목적지에서 <strong>동시에</strong> 칠해서 중간에서 만난다</td>
+</tr>
+<tr>
+<td><strong>Beam</strong></td>
+<td>탐험대 8팀을 동시에 보낸다. 한 걸음마다 성적 나쁜 팀을 해산시키고 8팀만 남긴다</td>
+</tr>
+<tr>
+<td><strong>GRASP</strong></td>
+<td>제비뽑기로 경로 24개를 만들고, 각각을 조금씩 손봐서 개선한다</td>
+</tr>
+<tr>
+<td><strong>ALNS</strong></td>
+<td>완성된 경로의 일부를 <strong>뜯어내고 다시 메운다.</strong> 200번 반복하고, 잘 먹힌 방법에 상을 준다</td>
+</tr>
+<tr>
+<td><strong>RCSP</strong></td>
+<td>지점마다 "여기까지 비용 얼마, 거리 얼마" 쪽지를 붙인다. 둘 다 나쁜 쪽지는 버린다</td>
+</tr>
+<tr>
+<td><strong>Plateau</strong></td>
+<td>출발지와 목적지에서 각각 나무를 키우고, <strong>두 나무가 만나는 지점</strong>을 경유지로 쓴다</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_16"><span class="tri">▸</span>얼마나 걸리나</h3>
+<p>"복잡도"는 <strong>문제가 커질 때 시간이 어떻게 늘어나는가</strong>를 말합니다.
+정확한 수식보다 오른쪽 칸이 실무에서 훨씬 쓸모 있습니다.</p>
+<table>
+<thead>
+<tr>
+<th>알고리즘</th>
+<th>한 줄로 말하면</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Dijkstra</td>
+<td><strong>지도를 한 번 훑는 정도.</strong> 지점·길 개수에 거의 비례해서 늘어난다</td>
+</tr>
+<tr>
+<td>A*</td>
+<td><strong>나침반이 정확한 만큼 훑는 범위가 줄어든다.</strong> 나침반이 엉망이면 Dijkstra와 같아진다</td>
+</tr>
+<tr>
+<td><strong>Beam</strong></td>
+<td><strong>지도가 커져도 시간이 안 늘어난다.</strong> 걸음 400 · 탐험대 8로 상한이 정해져 있다</td>
+</tr>
+<tr>
+<td>GRASP</td>
+<td><strong>Beam을 24번 돌리는 값</strong> + 손보는 시간</td>
+</tr>
+<tr>
+<td>ALNS</td>
+<td>메울 때마다 최단경로를 계산하니까 <strong>Dijkstra를 200번 돌리는 값</strong></td>
+</tr>
+<tr>
+<td>RCSP</td>
+<td><strong>쪽지 개수만큼 늘어난다.</strong> 상한을 안 걸면 폭발한다</td>
+</tr>
+<tr>
+<td>Plateau</td>
+<td><strong>Dijkstra 두 번</strong>이 하한. 더 줄일 방법이 없다</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Beam만 "지도 크기와 무관하게 시간 상한이 정해져 있습니다."</strong>
+사용자가 어디에 있어도 응답 시간이 예측된다는 뜻이고, <strong>실시간 앱에서는 이게 사실상 필수 조건</strong>입니다.</p>
+<hr />
+<h2 id="4-1-dijkstra"><span class="dia">◆</span>4-1 Dijkstra — 모든 것의 기준</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+<strong>"지금까지 가장 싸게 온 곳부터 하나씩 확정한다"</strong> 를 반복하면 최소 비용 경로가 나옵니다.
+우리는 이걸 프로덕션에 쓰지 않고, <strong>다른 알고리즘의 정답을 확인하는 기준</strong>으로 씁니다.</p>
+</blockquote>
+<h3 id="_17"><span class="tri">▸</span>어떻게 도는가</h3>
+<p>규칙은 두 개뿐입니다.</p>
+<pre><code>규칙 1.  아직 확정 안 된 곳 중 &quot;지금까지 비용이 가장 작은 곳&quot;을 하나 골라 확정한다
+규칙 2.  확정한 곳의 이웃들에게 &quot;나를 거쳐 오면 이만큼&quot;을 알려주고, 그게 더 싸면 갱신한다
+</code></pre>
+<p>목적지가 확정될 때까지 반복합니다. 끝.</p>
+<h3 id="_18"><span class="tri">▸</span>손으로 따라가 보기</h3>
+<p>지점 A에서 D까지 가려고 합니다. 괄호 안은 그 길 조각의 비용입니다.</p>
+<pre><code>        A ──(4)── B ──(3)── D
+        │                   │
+       (2)                 (7)
+        │                   │
+        C ──────(9)─────────┘
+</code></pre>
+<p>A에서 D로 가는 방법이 두 가지 보입니다.</p>
+<pre><code>A → B → D  =  4 + 3  = 7
+A → C → D  =  2 + 9  = 11
+</code></pre>
+<p>정답은 7입니다. Dijkstra가 이걸 어떻게 찾는지 봅시다.</p>
+<table>
+<thead>
+<tr>
+<th>단계</th>
+<th>확정하는 곳</th>
+<th>왜</th>
+<th>그 순간 알고 있는 값</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>시작</td>
+<td>—</td>
+<td>—</td>
+<td>A = 0, 나머지는 모름</td>
+</tr>
+<tr>
+<td>1</td>
+<td><strong>A</strong></td>
+<td>0이 가장 작다</td>
+<td>A를 거쳐서: B = 4, C = 2</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>C</strong></td>
+<td>2 &lt; 4</td>
+<td>C를 거쳐서: D = 2 + 9 = <strong>11</strong></td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>B</strong></td>
+<td>4 &lt; 11</td>
+<td>B를 거쳐서: D = 4 + 3 = <strong>7</strong> → 11보다 싸니 <strong>갱신</strong></td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>D</strong></td>
+<td>7</td>
+<td>확정. 답은 A → B → D, 비용 7</td>
+</tr>
+</tbody>
+</table>
+<p><strong>3단계가 핵심입니다.</strong> C를 먼저 확정했을 때는 D까지 11이라고 알고 있었습니다.
+그런데 나중에 B를 확정하면서 더 싼 길(7)이 발견되어 값이 갱신됐습니다.</p>
+<p>Dijkstra는 <strong>성급하게 결론을 내리지 않고, 더 싼 길이 나타나면 계속 고쳐 씁니다.</strong></p>
+<h3 id="_19"><span class="tri">▸</span>왜 이게 최소 비용을 보장하나</h3>
+<p><strong>"가장 싼 곳부터 확정한다"</strong> 가 이유입니다.</p>
+<p>어떤 지점을 확정하는 순간, <strong>그보다 싼 지점은 이미 다 확정돼 있습니다.</strong>
+그러니까 아직 확정 안 된 곳을 빙 돌아서 여기로 더 싸게 오는 방법은 <strong>있을 수 없습니다.</strong>
+돌아가면 비용이 더 붙으니까요.</p>
+<p><strong>여기에 조건이 하나 붙습니다.</strong></p>
+<blockquote class="note">
+<p><strong>모든 비용이 0 이상이어야 합니다.</strong></p>
+</blockquote>
+<p>비용이 음수인 길이 있으면 "돌아가면 오히려 싸진다"가 가능해져서 위 논리가 깨집니다.
+<strong>우리 비용의 최소값이 1로 강제된 이유가 이것입니다</strong>(3-7절 ③).</p>
+<h3 id="_20"><span class="tri">▸</span>잘하는 것과 못하는 것</h3>
+<pre><code>잘하는 것
+  ✔ 최소 비용 경로를 반드시 찾는다
+  ✔ 길이 있으면 반드시 발견한다
+  ✔ 난수를 안 써서 매번 같은 답이 나온다
+
+못하는 것
+  ✘ 목적지가 어느 쪽인지 모른다
+    → 출발점에서 사방으로 고르게 번지므로, 서울 서쪽에서 동쪽으로 갈 때
+      북쪽·남쪽까지 다 훑는다
+</code></pre>
+<h3 id="_21"><span class="tri">▸</span>우리 프로젝트에서의 역할</h3>
+<ul>
+<li>코드: <code>dataspace/route_engine/engines/dijkstra.py</code></li>
+<li><strong>프로덕션에 등록되어 있지 않습니다.</strong> 실제 서비스에서는 안 씁니다.</li>
+<li><strong>역할은 "정답지"입니다.</strong> A*가 낸 경로의 비용이 Dijkstra와 같은지 확인하는 기준선입니다.</li>
+</ul>
+<blockquote class="note">
+<p>Dijkstra를 "탈락한 알고리즘"으로 이해하면 안 됩니다.
+<strong>Dijkstra 없이는 A*가 옳은 답을 냈는지 확인할 방법이 없습니다.</strong></p>
+</blockquote>
+<hr />
+<h2 id="4-2-a"><span class="dia">◆</span>4-2 A* — 편도 최단에 실제로 쓰는 것</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+Dijkstra에 <strong>"목적지까지 얼마 남았을 것 같다"</strong> 는 추측을 더한 것입니다.
+바뀌는 건 "다음에 어디를 볼지 고르는 기준" <strong>딱 한 줄</strong>입니다.</p>
+</blockquote>
+<h3 id="dijkstra"><span class="tri">▸</span>Dijkstra의 낭비를 없앤다</h3>
+<p>Dijkstra는 목적지 방향을 모릅니다. 강남에서 잠실로 가는데 <strong>홍대 쪽까지 훑습니다.</strong>
+사람이 길을 찾을 때는 절대 그렇게 안 합니다. 목적지 쪽으로 갑니다.</p>
+<p>A*는 이걸 반영합니다.</p>
+<pre><code>Dijkstra의 우선순위  =  지금까지 쓴 비용
+A*의 우선순위        =  지금까지 쓴 비용  +  앞으로 들 것 같은 비용
+                                            └─ 추측값
+</code></pre>
+<p><strong>나머지 동작은 Dijkstra와 완전히 같습니다.</strong> 그래서 추측을 전부 0으로 두면
+A*는 <strong>정확히 Dijkstra가 됩니다.</strong></p>
+<h3 id="_22"><span class="tri">▸</span>같은 예시로 비교</h3>
+<p>앞의 A·B·C·D 그림에서, C는 D 반대편에 있고 B는 D 쪽에 있다고 해봅시다.</p>
+<table>
+<thead>
+<tr>
+<th>A를 확정한 직후</th>
+<th>Dijkstra의 판단</th>
+<th>A*의 판단</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>B의 우선순위</td>
+<td>4</td>
+<td>4 + (B에서 D까지 추측 3) = <strong>7</strong></td>
+</tr>
+<tr>
+<td>C의 우선순위</td>
+<td><strong>2</strong></td>
+<td>2 + (C에서 D까지 추측 9) = 11</td>
+</tr>
+<tr>
+<td><strong>다음에 볼 곳</strong></td>
+<td><strong>C</strong> (2가 작으니까)</td>
+<td><strong>B</strong> (7이 작으니까)</td>
+</tr>
+</tbody>
+</table>
+<p>Dijkstra는 목적지에서 멀어지는 C를 먼저 봅니다. A*는 목적지 쪽인 B를 먼저 봅니다.
+<strong>최종 경로는 같지만 들여다본 지점 수가 줄어듭니다.</strong> 그래서 빠릅니다.</p>
+<h3 id="_23"><span class="tri">▸</span>추측이 지켜야 하는 규칙 하나</h3>
+<p>여기가 A*의 전부입니다. 추측을 아무렇게나 하면 <strong>답이 틀립니다.</strong></p>
+<blockquote class="note">
+<p><strong>규칙: 추측은 실제 남은 비용보다 크면 안 된다.</strong>
+작게 잡는 건 괜찮습니다. 정확히 맞히는 것도 좋습니다. <strong>부풀리는 것만 안 됩니다.</strong></p>
+</blockquote>
+<p>이 문서에서는 이 조건을 만족하는 추측을 <strong>"안전한 추측"</strong> 이라고 부릅니다.
+항상 실제보다 작거나 같게, 즉 <strong>낙관적으로</strong> 잡는다는 뜻입니다.</p>
+<p><strong>왜 부풀리면 안 되나</strong></p>
+<p>어떤 지점의 남은 비용을 실제보다 크게 추측하면, 그 지점의 우선순위가 실제보다 낮아집니다.
+그러면 <strong>거기가 진짜 최적 경로인데도 순서가 뒤로 밀립니다.</strong>
+그 사이에 더 나쁜 경로가 먼저 목적지에 도착하고, 알고리즘은 그걸 답으로 채택합니다.
+<strong>빠르지만 틀린 답이 나옵니다.</strong></p>
+<p><strong>반대로 너무 작게 잡으면</strong> 답은 맞지만 효과가 없습니다.
+극단적으로 0으로 잡으면 Dijkstra와 똑같아집니다.</p>
+<p><strong>그래서 좋은 추측은 "부풀리지 않으면서 최대한 실제에 가까운" 추측입니다.</strong></p>
+<blockquote class="warnbox">
+<p><strong>※ 정식 용어</strong>
+이 조건을 논문에서는 <strong>admissible(허용 가능)</strong> 하다고 부릅니다.
+뜻은 위에 쓴 그대로입니다 — "절대 부풀리지 않는다".</p>
+</blockquote>
+<h3 id="_24"><span class="tri">▸</span>추측 방법 세 가지를 만들어 비교했습니다</h3>
+<table>
+<thead>
+<tr>
+<th>방법</th>
+<th>남은 거리를 무엇으로 추측하나</th>
+<th>실제에 얼마나 가깝나</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>직선거리</strong></td>
+<td>지도 위 직선거리</td>
+<td>서울 도심은 블록 구조라 실제 도로 거리가 직선의 <strong>약 1.4배</strong><br>→ 추측이 실제의 <strong>70% 수준</strong>. 너무 작다</td>
+</tr>
+<tr>
+<td><strong>ALT</strong></td>
+<td>미리 재둔 <strong>실제 도로 거리</strong></td>
+<td>훨씬 가깝다 → <strong>채택</strong></td>
+</tr>
+<tr>
+<td>양방향</td>
+<td>(양쪽에서 동시에 찾는 다른 전략)</td>
+<td>ALT가 이미 줄여놔서 추가 이득이 적었다</td>
+</tr>
+</tbody>
+</table>
+<p>직선거리는 <strong>항상 실제 도로 거리보다 짧습니다.</strong> 길이 직선으로 나 있는 경우가 없으니까요.
+그래서 "부풀리지 않기" 규칙은 자동으로 지켜집니다.
+문제는 <strong>너무 작아서 효과가 약하다</strong>는 것입니다.</p>
+<h3 id="_25"><span class="tri">▸</span>거리 추측을 비용 추측으로 바꾸는 한 단계</h3>
+<p>우리 비용은 미터가 아니라 <strong>체감 거리</strong>입니다(3-1절). 거리 추측을 그대로 쓸 수 없습니다.
+<strong>미터를 체감 거리로 환산하는 값</strong>이 필요합니다.</p>
+<pre><code>최저비율 = 서울의 모든 길 조각 중,
+           (체감 거리 ÷ 실제 길이)가 가장 작은 것의 값
+</code></pre>
+<p><strong>"서울에서 가장 가성비 좋은 길 조각 하나"의 비율</strong>입니다.
+어떤 길도 이보다 싸게 미터당 비용을 낼 수 없습니다. 그래서</p>
+<pre><code>비용 추측 = 거리 추측 × 최저비율
+</code></pre>
+<p>로 쓰면 <strong>절대 부풀려지지 않습니다.</strong> 가장 싼 비율을 곱했으니 실제 비용은 이보다 클 수밖에 없습니다.</p>
+<blockquote class="warnbox">
+<p><strong>※ 세 문장으로 정리</strong>
+① 거리 추측은 실제 거리보다 작다 →
+② 모든 길 조각에서 (체감 거리) ≥ (최저비율 × 실제 길이) →
+③ 따라서 (거리 추측 × 최저비율) ≤ 실제 비용. 규칙 통과.</p>
+<p>②가 성립하는 근거가 <strong>비용 최소값 1</strong>(3-7절 ③)입니다. 두 절이 이렇게 연결됩니다.</p>
+</blockquote>
+<hr />
+<h2 id="4-3-alt"><span class="dia">◆</span>4-3 ALT — 실제 도로 거리를 미리 재두기</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+서울에 <strong>기준점 8개</strong>를 정하고, 각 기준점에서 모든 지점까지의 실제 도로 거리를 서버 켤 때 한 번 계산해 둡니다.
+그 표로 "여기서 목적지까지 최소 몇 m"를 즉시 알아낼 수 있습니다.</p>
+</blockquote>
+<h3 id="_26"><span class="tri">▸</span>무엇을 미리 재는가</h3>
+<p><strong>기준점</strong>(코드에서는 landmark)을 몇 개 정하고, <strong>각 기준점에서 서울 모든 지점까지의
+실제 도로 거리</strong>를 미리 계산해 저장합니다.</p>
+<pre><code>기준점 8개 정하기
+      ↓
+각 기준점에서 Dijkstra 한 번 돌리기  (목적지에서 멈추지 않고 끝까지)
+      ↓
+지점마다 &quot;기준점 8개까지의 거리&quot; 8개짜리 목록이 저장됨
+</code></pre>
+<p><strong>계산 방법이 Dijkstra입니다.</strong> 4-1절에서 본 Dijkstra는 원래
+"한 지점에서 <strong>모든</strong> 지점까지의 최소 거리"를 구하는 알고리즘입니다.
+목적지에서 멈추지 않고 끝까지 돌리면 그 표가 나옵니다.</p>
+<p>기준점이 8개면 <strong>Dijkstra를 8번</strong> 돌립니다. 결과는 이렇게 저장됩니다.</p>
+<pre><code>지점 12345 의 기준점 거리 목록 = [3200m, 8100m, 15400m, ..., 6700m]
+                                   ↑기준점1  ↑기준점2   ...
+</code></pre>
+<p><strong>중요한 점</strong>: 이때 재는 건 <strong>실제 미터 거리</strong>이고 체감 거리가 아닙니다.
+그래서 <strong>프로필이 바뀌어도 다시 계산할 필요가 없습니다.</strong> 9개 프로필이 이 표 하나를 같이 씁니다.</p>
+<h3 id="_27"><span class="tri">▸</span>이 표로 어떻게 거리를 추측하나</h3>
+<p>지금 있는 지점에서 목적지까지 거리를 알고 싶습니다. 직접 계산하면 비쌉니다.
+그런데 <strong>기준점까지의 거리는 둘 다 이미 알고 있습니다.</strong></p>
+<pre><code>                기준점
+               ╱     ╲
+    10km 떨어짐        3km 떨어짐
+             ╱           ╲
+       현재 위치 ─── ? ─── 목적지
+</code></pre>
+<p>현재 위치는 기준점에서 10km, 목적지는 기준점에서 3km입니다.
+그러면 현재 위치와 목적지는 <strong>최소 7km는 떨어져 있습니다.</strong></p>
+<p><strong>왜 그런가</strong>: 만약 둘이 7km보다 가깝다면,
+<code>기준점 → 목적지 3km</code> + <code>목적지 → 현재 위치 7km 미만</code> = <strong>10km 미만</strong>이 됩니다.
+그런데 기준점에서 현재 위치까지는 10km라고 이미 알고 있으니 모순입니다.</p>
+<p><strong>즉 두 거리의 차이가 곧 "최소 이만큼은 떨어져 있다"가 됩니다.</strong></p>
+<pre><code>최소 거리 ≥ | 기준점~현재 위치 거리  −  기준점~목적지 거리 |
+</code></pre>
+<p>기준점이 8개면 이런 하한이 8개 나옵니다. <strong>그중 가장 큰 것</strong>을 씁니다.
+"최소 7km"보다 "최소 9km"가 더 유용한 정보니까요. (둘 다 참이면 큰 쪽이 더 팽팽합니다.)</p>
+<blockquote class="warnbox">
+<p><strong>※ 정식 용어</strong>
+이 성질을 <strong>삼각부등식</strong>이라고 부르고, 이 기법의 이름이 <strong>ALT</strong>입니다.
+A*(A star) + Landmarks(기준점) + Triangle inequality(삼각부등식)의 머리글자입니다.</p>
+</blockquote>
+<h3 id="_28"><span class="tri">▸</span>왜 이렇게까지 하나</h3>
+<p>직선거리 추측은 실제의 70% 수준이라 효과가 약했습니다.
+<strong>실제 도로 거리 기반 추측은 훨씬 팽팽해서</strong> 훑는 범위가 크게 줄어듭니다.</p>
+<p>전처리 비용(Dijkstra 8회)은 <strong>서버 켤 때 한 번</strong>만 들고,
+그 뒤 모든 사용자 요청이 그 결과를 재사용합니다.</p>
+<h3 id="_29"><span class="tri">▸</span>우리 구현의 약한 지점 <span class="badge b-no">근거 없음</span></h3>
+<p>기준점을 고르는 방법이 <strong>"서울 경계의 가장 바깥 지점 8개"</strong> 입니다
+(동·서·남·북 극단 + 대각선 4방향).</p>
+<p><strong>이건 ALT 논문의 권장 방식이 아닙니다.</strong> 보통은 기준점을 잘 고르는 별도 알고리즘을 씁니다.
+우리 방식의 근거는 "구현이 단순하고 서울처럼 둥근 영역에서는 무난하다" 정도이고,
+<strong>개수 8과 고르는 방법 모두 실험으로 정하지 않았습니다.</strong></p>
+<hr />
+<h2 id="4-4-beam"><span class="dia">◆</span>4-4 Beam — 순환·편도 우회에 실제로 쓰는 것</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+후보 경로 8개를 동시에 키우면서, <strong>한 걸음마다 성적 나쁜 후보를 버립니다.</strong>
+완벽한 답은 포기하지만 <strong>시간이 예측됩니다.</strong></p>
+</blockquote>
+<h3 id="_30"><span class="tri">▸</span>먼저 "아무것도 안 버리는 탐색"부터</h3>
+<p>Beam을 이해하려면 이것부터 알아야 합니다.</p>
+<p><strong>너비 우선 탐색</strong>은 <strong>가까운 곳부터 한 겹씩 전부 펼쳐 보는</strong> 방법입니다.</p>
+<pre><code>0겹:  출발점
+1겹:  출발점의 이웃 전부                    →  3곳
+2겹:  그 3곳의 이웃 전부                    →  9곳
+3겹:  또 그 9곳의 이웃 전부                 →  27곳
+</code></pre>
+<p><strong>"완전"이라는 말은 아무것도 버리지 않는다는 뜻</strong>입니다.
+한 겹에서 나온 후보를 전부 들고 다음 겹으로 갑니다.</p>
+<p>장점은 놓치는 게 없다는 것이고, <strong>단점은 후보 수가 겹마다 곱으로 늘어난다</strong>는 것입니다.</p>
+<table>
+<thead>
+<tr>
+<th>몇 겹</th>
+<th>후보 수</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1겹</td>
+<td>3</td>
+</tr>
+<tr>
+<td>5겹</td>
+<td>243</td>
+</tr>
+<tr>
+<td>10겹</td>
+<td>약 6만</td>
+</tr>
+<tr>
+<td>20겹</td>
+<td>약 35억</td>
+</tr>
+</tbody>
+</table>
+<p>3km 산책 경로는 <strong>수백 겹</strong>입니다. <strong>완전 탐색은 애초에 불가능합니다.</strong>
+1-3절에서 본 "경우의 수 폭발"이 바로 이것입니다.</p>
+<h3 id="beam"><span class="tri">▸</span>Beam은 겹마다 잘라냅니다</h3>
+<pre><code>1겹:  후보 24개 만들고 → 좋은 순으로 줄 세워 → 상위 8개만 남기고 버림
+2겹:  그 8개를 각각 확장해 후보 24개 → 줄 세워 → 상위 8개만
+3겹:  ...
+</code></pre>
+<p>남기는 개수를 <strong>탐험대 수</strong>(정식 용어는 beam width, 빔 폭)라고 하고,
+우리는 <strong>8</strong>을 씁니다. <span class="badge b-no">근거 없음</span></p>
+<pre><code>8을 1로 하면    →  매번 제일 좋아 보이는 것 하나만 (성급한 선택)
+8을 8로 하면    →  우리 설정
+8을 무한으로    →  완전 탐색 (아무것도 안 버림, 불가능)
+</code></pre>
+<p><strong>즉 Beam은 "성급한 선택"과 "완전 탐색" 사이를 숫자 하나로 조절하는 방법입니다.</strong></p>
+<h3 id="_31"><span class="tri">▸</span>무엇을 잃고 무엇을 얻나</h3>
+<pre><code>잃는 것
+  ✘ 버린 후보 중에 정답이 있었을 수 있다. 한 번 버리면 되돌릴 수 없다
+  ✘ 모든 후보가 막히면 답을 못 찾을 수도 있다
+
+얻는 것
+  ✔ 시간 상한이 정해진다   한 겹당 후보가 최대 8 × 이웃수로 묶인다
+                          → 지도가 커져도 시간이 안 늘어난다
+  ✔ 메모리 상한이 정해진다  항상 8개 경로만 들고 있다
+  ✔ 매번 같은 답이 나온다   난수를 안 쓴다. 이웃을 항상 같은 순서로 훑는다
+                          → 실험 결과를 신뢰할 수 있다
+</code></pre>
+<p><strong>마지막 항목이 우리가 Beam을 고른 큰 이유입니다.</strong>
+난수를 쓰는 알고리즘은 돌릴 때마다 답이 달라져서, <strong>"이 알고리즘이 좋다"는 판정 자체가 흔들립니다.</strong></p>
+<h3 id="_32"><span class="tri">▸</span>"좋은 순"이 무엇인가 — 기준 두 개, 순서 있음</h3>
+<pre><code>1순위:  목표 거리에 얼마나 가까운가       (±10% 안에 들어오면 통과)
+2순위:  1m 걸을 때마다 비용이 얼마나 낮은가
+</code></pre>
+<p><strong>1순위를 먼저 보고, 같을 때만 2순위를 봅니다.</strong> 사전에서 단어 찾는 순서와 같습니다.
+"3km 걷겠다"는 약속을 지키는 게 품질보다 먼저라는 뜻입니다.</p>
+<p>거리를 볼 때 <strong>"앞으로 더 갈 거리"를 추정해야</strong> 합니다.
+지금까지 온 거리만 보면 목표를 넘길지 알 수 없으니까요.
+추정은 <strong>직선거리 × 1.4</strong> 로 합니다(서울 도심 블록 구조 기준 환산값, 추정치입니다).</p>
+<h3 id="3_1"><span class="tri">▸</span>순환 경로는 3단계로 만듭니다</h3>
+<p>목적지가 없으니 <strong>"나갔다가 돌아오는" 구조를 직접 만들어야</strong> 합니다.</p>
+<pre><code>┌ 1단계  나가기
+│  출발점에서 탐험대 8팀으로 뻗어 나간다.
+│  한 걸음마다: 아직 안 간 이웃으로 확장 → 줄 세우기 → 상위 8개만
+│
+│  &quot;돌아갈 시점&quot; 판정:
+│     지금까지 온 거리가 목표의 30%를 넘었고
+│     그리고 (지금 거리 + 돌아갈 예상 거리)가 목표의 95%에 도달하면
+│     → 그 팀을 &quot;반환 후보&quot;로 보관하고 더 안 뻗는다
+│
+├ 1.5단계  후보 모으기
+│  반환 후보가 하나라도 있으면 그것들을 쓴다.
+│  하나도 없으면 아직 뻗어 나가던 8팀을 쓴다
+│
+└ 2단계  돌아오기
+   각 후보의 끝점에서 출발점까지 Dijkstra로 이어 붙인다.
+   이때 이미 지나온 지점을 다시 쓰면 비용을 5배로 매긴다
+   → 같은 길로 돌아오는 것을 억제
+</code></pre>
+<p><strong>1.5단계를 따로 세는 이유</strong>는 "반환 시점에 도달한 팀이 하나도 없는 경우"가 실제로 있기 때문입니다.
+그 경우를 처리하지 않으면 결과가 아예 없습니다. <strong>1 → 1.5 → 2단계로 세야 맞습니다.</strong></p>
+<p><strong>2단계의 5배 페널티는 "금지"가 아니라 "억제"입니다.</strong>
+되밟는 것 말고 방법이 없으면 되밟습니다. 막다른 길에 갇히는 것보다는 나으니까요.
+대신 나중에 400m 미만의 짧은 왕복 가지는 잘라냅니다.</p>
+<h3 id="_33"><span class="tri">▸</span>편도 우회는 기준이 하나 더 붙습니다</h3>
+<p>편도 우회에는 목적지가 있습니다. 그래서 <strong>그냥 최단경로를 내면 안 되고
+"최단경로와 다른 길"</strong> 이어야 합니다.</p>
+<p>기준이 3개가 됩니다.</p>
+<pre><code>1순위:  목표 거리에 가까운가
+2순위:  최단경로와 얼마나 안 겹치는가      ← 새로 추가된 것
+3순위:  1m당 비용이 낮은가
+</code></pre>
+<p>먼저 기준이 되는 최단경로를 한 번 구해서 그 길 조각들을 기억해 두고,
+후보 경로가 그것과 겹치는 <strong>거리 비율</strong>을 계산합니다. 이걸 <strong>겹침 비율</strong>이라고 부릅니다.</p>
+<pre><code>겹침 비율 0.5  →  경로의 절반이 최단경로와 같은 길
+겹침 비율 0.2  →  경로의 20%만 겹친다. 잘 우회했다
+</code></pre>
+<h3 id="_34"><span class="tri">▸</span>여기서 실제로 개선한 것 하나</h3>
+<p>처음에는 <strong>최종 후보를 고를 때만</strong> 겹침 비율을 봤습니다.
+그런데 결과가 계속 최단경로와 많이 겹쳤습니다.</p>
+<p>원인은 이것이었습니다.</p>
+<pre><code>문제:  한 걸음마다 후보를 8개로 자를 때 겹침 비율을 안 봤다
+       ↓
+       최단경로 위의 지점들이 &quot;1m당 비용&quot;에서 유리하다
+       (최단경로는 애초에 비용이 낮게 뽑힌 길이니까)
+       ↓
+       탐험대 8팀이 전부 최단경로 근처로 모여든다
+       ↓
+       최종 선택 시점에는 선택지가 다 오염된 상태
+</code></pre>
+<p><strong>한 걸음마다 자르는 기준에도 겹침 비율을 넣었더니</strong> 겹침이 <strong>0.331 → 0.276</strong> 으로 개선됐습니다
+(커밋 <code>f2e63a3</code>).</p>
+<h3 id="3_2"><span class="tri">▸</span>왜 경로를 3개 돌려주나</h3>
+<p>경로를 하나만 주면 사용자가 마음에 안 들 때 할 게 없습니다. 그래서 최대 3개를 돌려줍니다.</p>
+<pre><code>1번 후보:  위 기준의 1등
+2·3번:     1번과 &quot;거리 등급이 같은&quot; 후보들 중에서
+           점수 성향이 1번과 가장 다른 것을 고른다
+</code></pre>
+<p>"점수 성향"은 5개 항목(안전·자연·경사·편의·접근성)의 값을 나열한 것입니다.
+1번이 안전 위주라면 2번은 녹지 위주가 되도록 고릅니다.</p>
+<blockquote class="warnbox">
+<p><strong>※ 흔한 오해</strong>
+3개는 <strong>"물리적으로 겹치지 않는 3개"가 아닙니다.</strong> <strong>"점수 성향이 서로 먼 3개"</strong> 입니다.
+같은 길을 상당 부분 공유할 수 있습니다.</p>
+</blockquote>
+<h3 id="_35"><span class="tri">▸</span>우리 구현</h3>
+<ul>
+<li>코드: <code>circular_beam.py</code>(순환), <code>oneway_beam.py</code>(편도 우회). <strong>둘 다 프로덕션 사용 중.</strong></li>
+<li>설정: 탐험대 8팀, 최대 400걸음. <strong>두 값 모두 실험으로 정하지 않았습니다.</strong> <span class="badge b-no">근거 없음</span></li>
+<li><strong>지도를 복사합니다.</strong> 이 알고리즘은 비용을 지도에 직접 써넣는 방식이라
+  원본 보호용으로 복사본을 만듭니다. <strong>요청마다 22만 개 길 조각을 복사하므로
+  현재 가장 큰 성능 개선 여지입니다.</strong> A*·Dijkstra는 이미 복사를 없앴습니다.</li>
+</ul>
+<hr />
+<h2 id="4-5"><span class="dia">◆</span>4-5 만들었지만 쓰지 않는 네 개</h2>
+<p>정의상 강점이 있어서 만들었고, 우리 문제에서 그 강점이 살지 않아서 버렸습니다.</p>
+<h3 id="grasp"><span class="tri">▸</span>GRASP — 제비뽑기로 여러 개 만들고 손보기</h3>
+<p><strong>어떻게</strong>: 한 걸음마다 좋은 후보 8개로 좁힌 뒤 <strong>그중 하나를 제비뽑기로</strong> 고릅니다.
+끝까지 반복해 경로 하나를 만들고, 전체를 <strong>24번</strong> 반복해 서로 다른 경로 24개를 얻습니다.
+그다음 각 경로를 "지점 하나 빼기 / 지점 하나 넣기"를 번갈아 적용해 손봅니다.
+좋아지면 처음 방법으로 돌아가고, 둘 다 실패하면 멈춥니다.</p>
+<p><strong>만든 이유</strong>: 제비뽑기로 출발을 흩어 놓으면 <strong>한 곳에 갇히는 것을 피할</strong> 가능성이 높습니다.</p>
+<p><strong>버린 이유</strong>: 편도 우회에서 <strong>겹침 비율이 0.510</strong> 이었습니다. 경로의 절반이 최단경로와 같습니다.
+사용자가 "우회 경로"를 요청했는데 절반을 그대로 걷게 되면 기능이 성립하지 않습니다.
+손보는 단위가 "지점 하나"라 <strong>경로의 큰 모양을 바꾸지 못하는</strong> 것이 원인으로 보입니다.</p>
+<p><strong>재현성</strong>: 난수를 쓰지만 씨앗값을 42로 고정해서 같은 답이 나옵니다.
+다만 재현성이 <strong>씨앗값에 의존</strong>합니다 — Beam은 난수가 아예 없습니다.</p>
+<h3 id="alns"><span class="tri">▸</span>ALNS — 뜯어내고 다시 메우기</h3>
+<p><strong>어떻게</strong>: 완성된 경로의 일부(지점 1~6개)를 <strong>뜯어내고 다시 메웁니다.</strong>
+뜯는 방법 2가지, 메우는 방법 2가지를 두고 <strong>잘 먹힌 방법에 상을 줘서</strong> 다음에 더 자주 뽑히게 합니다.
+가끔은 더 나빠진 결과도 받아들여 갇힌 곳을 벗어납니다(받아들일 확률을 점점 낮춥니다).
+<strong>200번</strong> 반복합니다.</p>
+<p><strong>만든 이유</strong>: 탐색 범위가 가장 넓습니다. <strong>이론적으로는 답의 품질이 가장 높을 수 있습니다.</strong></p>
+<p><strong>버린 이유</strong>: 순환에서 <strong>25번 중 2번 실패(8%)</strong> 했습니다. 유효한 경로를 아예 못 냈습니다.
+실시간 앱에서 8% 실패는 감당할 수 없는 수준입니다.
+게다가 <strong>조절할 값이 7개</strong>라(반복 횟수, 뜯는 크기, 감쇠, 하한, 초기 확률, 감소율, 상 3종)
+실패율을 낮추려면 그걸 다 맞춰야 하는데 그 실험 예산이 없었습니다.
+또 뜯고 메우는 단위가 지점 몇 개라 <strong>"크게 뜯는다"는 강점이 실제로는 살지 않았습니다.</strong></p>
+<h3 id="rcsp"><span class="tri">▸</span>RCSP — 쪽지 붙이기</h3>
+<p><strong>어떻게</strong>: 지점마다 <strong>"여기까지 오는 데 비용 얼마, 거리 얼마"</strong> 를 적은 쪽지를 붙입니다.
+같은 지점에 쪽지가 여러 장 오면, <strong>비용도 더 크고 거리도 더 긴 쪽지는 버립니다</strong>
+(어느 면에서도 나을 게 없으니까요). 목표 거리에 닿은 쪽지를 모아 경로 후보로 씁니다.</p>
+<p><strong>만든 이유</strong>: <strong>"거리 조건 + 비용 최소"를 동시에 다루는 정석적인 방법</strong>입니다.
+쪽지를 하나도 안 버리면 완벽한 답을 보장합니다.</p>
+<p><strong>버린 이유</strong>: 쪽지를 안 버리면 <strong>서울 규모에서 개수가 폭발해서 못 돌립니다.</strong>
+그래서 지점당 4장, 한 걸음당 64장으로 상한을 걸었는데,
+<strong>상한을 거는 순간 완벽한 답 보장이 사라집니다.</strong> RCSP를 쓸 유일한 이유가 없어지는 셈입니다.
+실측도 좋지 않았습니다 — 편도 우회 겹침 비율 <strong>0.723</strong> 으로 다섯 중 최악이었습니다.
+상한이 좋은 후보를 미리 잘라낸 탓으로 보입니다. <strong>쪽지를 저장해야 해서 메모리도 가장 많이 썼습니다.</strong></p>
+<h3 id="plateau"><span class="tri">▸</span>Plateau — 양쪽에서 나무 키워 만나는 지점 찾기</h3>
+<p><strong>어떻게</strong>: 출발지에서 최단경로 나무를 하나 키우고, 목적지에서도 하나 키웁니다.
+<strong>두 나무에 모두 등장하는 지점</strong>을 경유지 후보로 보고, 그중 하나를 골라 경로를 만듭니다.</p>
+<p><strong>만든 이유</strong>: <strong>조절할 값이 아예 없고 난수도 없습니다.</strong>
+Dijkstra 두 번이면 끝나서 시간이 예측됩니다.</p>
+<p><strong>버린 이유</strong>: <strong>6.147초.</strong> Beam(1.829초)의 3.4배입니다. 실시간 앱에 못 씁니다.
+조절할 값이 없다는 게 여기서는 단점이 됩니다 — <strong>속도를 개선할 손잡이가 없습니다.</strong>
+Dijkstra 두 번이 구조적 하한입니다.</p>
+<p>겹침 비율은 0.205로 다섯 중 가장 좋았습니다.
+하지만 그 이유가 "탐색을 잘해서"가 아니라 <strong>경유지가 최단경로 나무 위로 제한되는 구조 때문</strong>입니다.
+다른 출발-도착 쌍에서도 좋을지는 보장되지 않습니다.</p>
+<p><strong>순환에는 아예 못 씁니다.</strong> 출발지와 목적지에서 각각 나무를 키우는 구조인데,
+순환은 출발지 = 목적지라서 나무가 두 개가 아닙니다.
+→ <strong>순환 비교표에 Plateau가 없는 이유는 실측 탈락이 아니라 구조적 불가능입니다.</strong></p>
+<hr />
+<h2 id="4-6"><span class="dia">◆</span>4-6 나머지 두 모드는 새 알고리즘이 아닙니다</h2>
+<table>
+<thead>
+<tr>
+<th>모드</th>
+<th>실제로 하는 일</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>경유지</strong></td>
+<td>구간마다 사용자가 지정한 모드의 엔진을 불러 이어 붙입니다. 최단이면 A*, 우회면 Beam. <strong>새 알고리즘 없음.</strong> 구간끼리 겹치는 건 5배 페널티로 억제</td>
+</tr>
+<tr>
+<td><strong>GPS 아트</strong></td>
+<td>도형을 좌표 목록으로 바꾼 뒤 그 목록을 <strong>경유지 엔진에 그대로 넘깁니다.</strong> 모든 구간을 최단으로 고정해서(도형이 일그러지지 않게) 결과적으로 구간마다 A*를 부르는 것과 같습니다</td>
+</tr>
+</tbody>
+</table>
+<p>즉 <strong>GPS 아트 → 경유지 → A*</strong> 의 2단 위임 구조입니다.</p>
+<hr />
+<h1 id="5"><span class="chip">5부</span>어떻게 실험했는가</h1>
+<h2 id="5-0"><span class="dia">◆</span>5-0 용어 두 개만 먼저</h2>
+<pre><code>solver    알고리즘 하나를 실험에 물리기 위한 껍데기.
+          Beam·GRASP 같은 엔진을 감싸서 전부 같은 모양으로 만든다
+
+하네스    solver들을 돌리고, 시간을 재고, 결과를 표로 모으는 실행기.
+          benchmark.py 가 그것이다
+</code></pre>
+<p><strong>"하네스(harness)"</strong> 는 원래 말이나 개에 채우는 마구를 뜻합니다.
+여러 알고리즘을 같은 틀에 물려서 돌린다는 뜻으로 씁니다.</p>
+<h2 id="5-1"><span class="dia">◆</span>5-1 목표를 문장으로 먼저 정했습니다</h2>
+<p><code>benchmark.py</code> 첫 주석:</p>
+<blockquote class="note">
+<p><em>"이 프로젝트의 실제 목적('적당한 시간 내에 사용자가 원하는 순환 경로가 나오는가')에 맞춰,
+solver의 자기 신고를 그대로 믿지 않고 하네스가 독립적으로 재계산한 품질 지표를 함께 기록한다."</em></p>
+</blockquote>
+<p><strong>목표가 "빠른 알고리즘 찾기"가 아닙니다.</strong> "사용자가 원하는 경로가 시간 안에 나오는가"입니다.
+아래 설계 결정 전부가 이 문장에서 나옵니다.</p>
+<h2 id="5-2"><span class="dia">◆</span>5-2 알고리즘은 함수 하나만 구현합니다</h2>
+<p>알고리즘을 추가할 때 <strong>함수 하나(<code>solve</code>)만 구현</strong>하면 목록에 등록되어 그대로 돌아갑니다.
+하네스 코드는 건드리지 않습니다.</p>
+<p><strong>왜 중요한가</strong>: 알고리즘마다 실행 코드를 따로 쓰면,
+<strong>어떤 알고리즘에만 유리한 조건이 슬쩍 섞여 들어가는 걸 막을 수 없습니다.</strong>
+예를 들어 한 알고리즘만 그래프를 미리 준비된 상태로 받으면 그것만 빨라 보입니다.</p>
+<p>같은 진입점·같은 입력·같은 측정 코드를 강제하면
+<strong>공정한 비교가 사람의 주의력이 아니라 구조로 보장됩니다.</strong></p>
+<p>등록된 것 14개: Beam·GRASP·ALNS·RCSP 각 순환/편도 2종(8개) + Plateau + A* + 양방향 A* + Dijkstra
++ <strong>가짜 알고리즘 2개</strong>.</p>
+<h2 id="5-3"><span class="dia">◆</span>5-3 가짜 알고리즘이 있는 이유</h2>
+<p><code>DummySolver</code> 두 개가 등록돼 있습니다. <strong>경로를 찾지 않습니다.</strong>
+0.05초 또는 0.1초만 자고 정해진 결과를 돌려줍니다.</p>
+<p><strong>하네스가 시간을 제대로 재는지 확인하려면 "정답을 아는 알고리즘"이 필요합니다.</strong>
+0.05초 자는 알고리즘이 0.05초로 안 나오면 <strong>하네스 버그</strong>입니다.</p>
+<p>계산용 지도 파일이 없어도 가짜 알고리즘만으로 하네스를 돌릴 수 있게 만들어 뒀습니다.</p>
+<h2 id="5-4"><span class="dia">◆</span>5-4 알고리즘의 보고를 믿지 않습니다</h2>
+<blockquote class="tldr">
+<p><strong><span class="tl">한 줄로</span></strong>
+알고리즘이 "3km 찾았다"고 하면 그걸 표에 적는 게 아니라,
+<strong>하네스가 경로를 지도에서 다시 따라가며 직접 재서</strong> 적습니다.</p>
+</blockquote>
+<h3 id="_36"><span class="tri">▸</span>문제 상황</h3>
+<p>알고리즘이 이런 걸 돌려줍니다.</p>
+<pre><code>{ &quot;지나간 지점 목록&quot;: [101, 205, 388, 412, 101],
+  &quot;비용&quot;:            3120.5 }
+</code></pre>
+<p>여기서 비용은 <strong>알고리즘이 스스로 계산한 값</strong>입니다.
+그런데 우리가 알고 싶은 건 이것입니다.</p>
+<pre><code>이 경로가 실제로 몇 km인가?
+정말 제자리로 돌아왔는가?
+같은 길을 되밟지 않았는가?
+</code></pre>
+<p><strong>알고리즘이 계산을 잘못했거나, 애초에 이어지지도 않은 지점을 붙였을 수도 있습니다.</strong>
+그걸 알고리즘 본인의 보고로 검증할 수는 없습니다. <strong>시험 답안을 본인이 채점하는 것</strong>과 같습니다.</p>
+<h3 id="_37"><span class="tri">▸</span>해결 — 지점 목록만 받아서 지도에서 다시 잰다</h3>
+<p>돌려받은 것 중 <strong>지점 목록</strong>은 그냥 숫자 목록이라 거짓말할 여지가 적습니다.
+그리고 <strong>계산용 지도에는 지점과 지점 사이의 실제 길이가 들어 있습니다.</strong></p>
+<p>그래서 이렇게 합니다.</p>
+<pre><code>1) 경로의 지점을 앞에서부터 두 개씩 짝짓는다
+      101→205,  205→388,  388→412,  412→101
+
+2) 각 짝에 대해 지도에서 &quot;그 구간의 실제 길이&quot;를 꺼낸다
+      101→205 는 지도에서 120m
+      205→388 은 지도에서  85m
+      ...
+
+3) 다 더한다  →  이게 하네스가 계산한 실제 거리
+</code></pre>
+<p><strong>알고리즘이 보고한 숫자는 안 씁니다.</strong> 지점 목록만 받아서 지도의 길이를 다시 합산합니다.</p>
+<p>여기서 <strong>덤으로 얻는 것</strong>이 있습니다.
+2번 단계에서 <strong>"그 구간이 지도에 없으면 오류가 납니다."</strong>
+즉 알고리즘이 실제로는 이어지지 않은 두 지점을 붙였다면 <strong>여기서 걸립니다.</strong>
+경로가 진짜 걸을 수 있는 경로인지 검증하는 게 거리 계산에 딸려 옵니다.</p>
+<h3 id="4_2"><span class="tri">▸</span>같은 방식으로 다시 재는 것 4가지</h3>
+<table>
+<thead>
+<tr>
+<th>재는 것</th>
+<th>하네스가 계산하는 방법</th>
+<th>왜 필요한가</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>실제 거리</strong></td>
+<td>위 방법</td>
+<td>목표 거리를 정말 맞췄는지</td>
+</tr>
+<tr>
+<td><strong>순환이 닫혔나</strong></td>
+<td>첫 지점 == 마지막 지점인지</td>
+<td>안 닫힌 경로는 순환 모드에서 무효</td>
+</tr>
+<tr>
+<td><strong>잔가시 개수</strong></td>
+<td><code>1번째 지점 == 3번째 지점</code>인 곳 세기</td>
+<td>막다른 길에 들어갔다 나온 구간 개수</td>
+</tr>
+<tr>
+<td><strong>자기 되밟기 비율</strong></td>
+<td>각 구간을 몇 번 지났는지 세고, 2번 이상 지난 구간의 비율</td>
+<td>갈 때와 올 때 같은 길을 쓰는 문제</td>
+</tr>
+</tbody>
+</table>
+<p><strong>잔가시 판정 방법이 간단해서 소개할 만합니다.</strong>
+경로가 <code>… A B A …</code> 라면 1번째와 3번째가 같습니다.
+B로 갔다가 바로 A로 돌아온 것이니 <strong>막다른 길</strong>입니다.</p>
+<pre><code>A → B → A     1번째(A)와 3번째(A)가 같다  →  잔가시 1개
+</code></pre>
+<h3 id="_38"><span class="tri">▸</span>예외 하나는 정직하게 밝혀 둡니다</h3>
+<p><strong>겹침 비율</strong>(최단경로와 얼마나 겹치나)만은 <strong>알고리즘의 보고를 그대로 씁니다.</strong> 재계산하지 않습니다.</p>
+<p>근거는 주석에 있습니다 — <em>"모든 편도 solver가 같은 공통 함수를 쓰므로 비교 일관성은 유지됨."</em>
+<strong>공통 함수를 쓰니까 특정 알고리즘에 유리하게 기울지는 않는다</strong>는 논리입니다.
+다른 4개와 성격이 다르다는 점은 알고 있어야 합니다.</p>
+<h2 id="5-5"><span class="dia">◆</span>5-5 실패해도 실험이 멈추지 않게</h2>
+<p>반환값의 형식을 전부 검사하고, 형식이 틀리면 <strong>"실패" 한 줄로 기록</strong>합니다.
+프로그램이 죽지 않습니다.</p>
+<p><strong>왜</strong>: 5개 알고리즘을 비교하는데 3번째가 죽으면 4·5번째 결과를 잃습니다.
+그러면 실험을 다시 돌려야 하고, <strong>다시 돌리면 측정 환경이 바뀝니다</strong>(컴퓨터 상태가 달라지니까).</p>
+<p><strong>실패를 데이터의 한 줄로 만들어야</strong> 한 번의 실행에서 전부 얻을 수 있습니다.</p>
+<p>→ 이 설계 덕분에 <strong>"ALNS 25번 중 2번 실패"가 데이터로 남았습니다.</strong> 실패를 지우지 않는 설계입니다.</p>
+<h2 id="5-6"><span class="dia">◆</span>5-6 알고리즘마다 별도 프로그램으로 띄웁니다</h2>
+<p>각 알고리즘을 <strong>별도의 프로그램(프로세스)</strong> 으로 띄워서 돌립니다.
+같은 프로그램 안의 다른 작업 흐름(스레드)이 아닙니다.</p>
+<p><strong>왜</strong>: <strong>파이썬은 작업 흐름을 강제로 죽일 수 없습니다.</strong>
+무한 루프에 빠진 알고리즘을 같은 프로그램 안에서 돌리면,
+시간 초과로 기록해도 <strong>그 작업은 계속 CPU를 먹으면서 다음 알고리즘의 측정을 망칩니다.</strong></p>
+<p>별도 프로그램이면 운영체제 수준에서 확실히 죽일 수 있습니다.
+<strong>덤으로 메모리도 격리됩니다</strong> — RCSP가 쪽지로 메모리를 많이 쓴 뒤 그 상태가 다음 알고리즘에 안 남습니다.</p>
+<p><strong>시간은 자식 프로그램 안에서 잽니다.</strong> 밖에서 재면
+<strong>프로그램 띄우는 비용 + 64MB 지도를 넘기는 비용</strong>이 알고리즘 시간에 섞이는데,
+그건 알고리즘의 성질이 아닙니다.</p>
+<h2 id="5-7"><span class="dia">◆</span>5-7 "성공/실패"와 "쓸 수 있음/못 씀"을 따로 기록합니다</h2>
+<pre><code>강제 종료 기준  30초.  넘으면 죽이고 &quot;시간 초과&quot;로 기록
+체감 허용 시간  넘어도 실행은 계속되고 표시만 남는다
+</code></pre>
+<p>주석: <em>"기술적으로는 성공했지만 UX상 너무 느림을 구분하기 위한 지표."</em></p>
+<p>Plateau가 6.1초에 성공하는 건 "성공"이지만 <strong>산책 앱에서는 못 씁니다.</strong>
+이 구분이 6부에서 Plateau를 탈락시킨 근거가 됩니다.</p>
+<h2 id="5-8"><span class="dia">◆</span>5-8 실험 시나리오는 어떻게 만들었나</h2>
+<table>
+<thead>
+<tr>
+<th>항목</th>
+<th>값</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>총 시나리오</td>
+<td><strong>50개</strong> (편도 25 + 순환 25)</td>
+</tr>
+<tr>
+<td>뽑는 방법</td>
+<td>서울 전역 도보 지점에서 무작위 추출</td>
+</tr>
+<tr>
+<td>씨앗값</td>
+<td><strong>42</strong> 고정 → 같은 시나리오를 다시 쓸 수 있다</td>
+</tr>
+<tr>
+<td>프로필</td>
+<td>기본·자연·안전·랜드마크·어린이 — <strong>각 5개씩 균등</strong></td>
+</tr>
+<tr>
+<td>목표 거리</td>
+<td>편도 1.5~4.8km(평균 2.9), 순환 2.0~4.9km(평균 3.7)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>프로필을 균등하게 넣은 이유</strong>: 프로필이 바뀌면 비용 지형이 바뀌고,
+그러면 A*의 추측 정확도와 Beam의 잘라내기 결과가 달라집니다.
+<strong>한 프로필로만 재면 그 프로필에 유리한 알고리즘을 고르게 됩니다.</strong></p>
+<p>실제로 프로필별 평균이 <strong>안전 9.3ms ~ 기본 22.5ms로 2.4배</strong> 차이가 났습니다. 무시할 수 없는 차이입니다.</p>
+<h2 id="5-9"><span class="dia">◆</span>5-9 시간을 재는 방법</h2>
+<pre><code>① 재는 동안 파이썬의 자동 메모리 정리를 잠시 멈춘다
+② 첫 실행 1회는 버린다
+③ 그다음 15회를 재서 평균과 흔들림 정도를 기록한다
+④ 메모리 정리를 반드시 다시 켠다
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>왜 그렇게 하나</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>첫 실행 버리기</strong></td>
+<td>첫 실행은 CPU 임시 저장소가 비어 있고 파이썬이 코드를 처음 불러옵니다. <strong>알고리즘의 성질이 아닙니다</strong></td>
+</tr>
+<tr>
+<td><strong>15회 반복</strong></td>
+<td>1회만 재면 운영체제가 그 순간 다른 일을 하고 있었는지에 따라 값이 튑니다</td>
+</tr>
+<tr>
+<td><strong>메모리 정리 멈춤</strong></td>
+<td>파이썬이 쓰레기 메모리를 치우는 작업이 측정 구간에 끼면, <strong>특정 알고리즘에만 수십 ms가 얹힙니다</strong></td>
+</tr>
+<tr>
+<td><strong>흔들림 정도 기록</strong></td>
+<td>평균만 적으면 그 평균이 믿을 만한지 알 수 없습니다. 결과 파일에 남깁니다</td>
+</tr>
+</tbody>
+</table>
+<p>실제 흔들림은 1~2% 수준입니다. <strong>측정은 안정적이었습니다.</strong></p>
+<h3 id="_39"><span class="tri">▸</span>속도보다 정확성을 먼저 검증했습니다</h3>
+<p>세 알고리즘이 <strong>같은 비용의 경로를 냈는지 먼저 확인</strong>합니다. 하나라도 다르면 경고로 남깁니다.</p>
+<p>결과: <strong>25번 전부 일치.</strong> 세 알고리즘의 경로 비용이 소수점까지 같았습니다.</p>
+<p><strong>이 검증이 왜 먼저인가</strong>: A*가 Dijkstra보다 빨라도 <strong>더 나쁜 경로</strong>를 내면 아무 의미가 없습니다.
+4-2절에서 말한 <strong>"추측을 부풀리지 않으면 답이 맞는다"</strong> 가
+<strong>실제 코드에서 성립하는지를 25번 확인한 것</strong>입니다.</p>
+<h2 id="5-10-24"><span class="dia">◆</span>5-10 실험 도구 자체를 테스트했습니다 — 24개</h2>
+<p><strong>실험 도구가 틀렸으면 실험 결과 전부가 틀립니다.</strong> 그래서 하네스에 테스트를 붙였습니다.</p>
+<pre><code>하네스 견고성      8개
+측정 신뢰성        2개
+품질 지표 정확성  11개
+통합 시나리오      1개
+</code></pre>
+<p><strong>견고성 8개</strong> — 잘못된 반환값이 하네스를 죽이지 않는지, 일부 실패가 나머지를 멈추지 않는지,
+성공·실패 섞인 결과가 파일로 저장·복원되는지 등.</p>
+<p>그중 하나가 특히 중요합니다.</p>
+<blockquote class="note">
+<p><strong>"한 알고리즘이 지도를 오염시켜도 원본에 새지 않는지"</strong>
+Beam·GRASP·ALNS는 비용을 지도에 직접 써넣습니다(4-4절).
+그 오염이 원본에 새면 <strong>다음 알고리즘이 앞 알고리즘의 점수를 물려받아</strong> 측정이 무의미해집니다.</p>
+</blockquote>
+<p><strong>측정 신뢰성 2개</strong> — 같은 알고리즘을 반복 측정했을 때 흔들리지 않는지,
+그리고 <strong>잠자는 게 아니라 실제 계산량이 늘 때 측정 시간도 늘어나는지</strong>
+(= 하네스가 진짜 계산 시간을 재는지).</p>
+<p><strong>품질 지표 11개</strong> — 거리를 지도에서 독립 계산하는지, 순환 닫힘 판정, 잔가시 검출, 되밟기 검출,
+지도가 없을 때 오류 대신 "없음"을 주는지, 지표 계산이 실패해도 알고리즘 결과 전체를 버리지 않는지,
+강제 종료엔 안 걸려도 체감 시간은 넘는 경우를 구분하는지 등.</p>
+<p><strong>통합 1개</strong> — <em>"시간 안에, 목표 거리에 맞고, 잔가시·되밟기 없는 순환 경로가 나오는가"</em> 를 한 번에 확인.</p>
+<h2 id="5-11"><span class="dia">◆</span>5-11 실험 규모를 키운 방법</h2>
+<p>기본 실행기는 알고리즘마다 프로그램을 새로 띄웁니다(격리 우선).
+시나리오 50개 × 알고리즘 14개를 그렇게 돌리면 <strong>매번 64MB 지도를 다시 읽습니다.</strong></p>
+<p>별도 실행기(<code>run_all_scenarios.py</code>)는 작업자 6명을 두고,
+각 작업자가 <strong>지도 읽기 + 기준점 전처리 + 점수 준비를 1회만</strong> 하고 나머지 시나리오를 반복 처리합니다.</p>
+<p><strong>결과: 2301초 → 226초.</strong> 약 10배 단축.</p>
+<p><strong>이게 중요한 이유</strong>: 7부의 "설정값에 근거가 없다"를 고칠 여건이 생겼습니다.
+탐험대 4·8·16·32팀을 비교하는 실험이 이제 현실적인 시간에 돌아갑니다.</p>
+<h2 id="5-12"><span class="dia">◆</span>5-12 "지도와 데이터를 한 번만 읽어서 재사용한다"가 무슨 뜻인가</h2>
+<p>서로 다른 세 가지가 섞이기 쉬운 지점입니다. 하나씩 떼어놓겠습니다.</p>
+<h3 id="1-db"><span class="tri">▸</span>(1) DB를 한 번만 조회하는 건 속도가 아니라 "입력 고정" 때문입니다</h3>
+<p>실험은 <strong>데이터베이스에 접속하지 않습니다.</strong> 흐름이 두 단계로 나뉘어 있습니다.</p>
+<pre><code>[한 번만]   fixture 만들기
+            DB에서 지도를 읽어온다  ← DB 조회는 여기서만
+            → parquet 파일 두 개로 저장
+
+[매 실험]   parquet 파일 읽기 → 계산용 지도
+            ← DB를 전혀 건드리지 않는다
+</code></pre>
+<p><strong>"DB가 계속 바뀐다"는 게 무슨 뜻인지</strong>부터 정리하겠습니다.
+데이터가 이미 들어가 있는 건 맞습니다. 문제는 <strong>그게 고정되어 있지 않다</strong>는 것입니다.</p>
+<table>
+<thead>
+<tr>
+<th>언제 바뀌나</th>
+<th>무엇이 바뀌나</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>수집 프로그램을 다시 돌릴 때</td>
+<td><strong>모든 길 조각의 점수가 덮어써집니다.</strong> 2-3절의 정규화가 "가장 많은 곳"으로 나누는 방식이라, <strong>시설 하나만 추가돼도 서울 전체 길의 점수가 다 조금씩 바뀝니다</strong></td>
+</tr>
+<tr>
+<td>공개 데이터를 갱신할 때</td>
+<td>새 CCTV·화장실이 들어오고 육각형 개수가 변합니다</td>
+</tr>
+<tr>
+<td>화장실 연결을 다시 계산할 때</td>
+<td>개수 값이 변합니다</td>
+</tr>
+<tr>
+<td>개발 중 테이블 구조를 손볼 때</td>
+<td>칸이 늘거나 값이 초기화됩니다</td>
+</tr>
+<tr>
+<td>데이터를 Supabase로 옮길 때</td>
+<td>데이터베이스 자체가 바뀝니다</td>
+</tr>
+</tbody>
+</table>
+<p><strong>즉 "들어가 있다"와 "고정됐다"는 다릅니다.</strong></p>
+<p>실험이 매번 DB를 조회하면, <strong>어제 측정한 결과와 오늘 측정한 결과의 입력이 다를 수 있습니다.</strong>
+그러면 알고리즘 A와 B를 다른 날 측정했을 때 <strong>차이가 알고리즘 때문인지
+데이터가 바뀐 것 때문인지 구분할 수 없습니다.</strong></p>
+<p>파일로 얼려두면 입력이 고정됩니다.
+이건 실험에서 <strong>"다른 조건을 다 똑같이 두고 하나만 바꾸기"</strong> 를 확보하는 표준적인 방법이고,
+그래서 이름이 <strong>fixture(고정 입력)</strong> 입니다.</p>
+<h3 id="2_2"><span class="tri">▸</span>(2) 지도를 재사용하는 건 실제 서비스 조건을 재현한 것입니다</h3>
+<p>파이썬 스크립트는 실행할 때마다 새로 뜹니다.
+<strong>그런데 우리 서비스는 스크립트가 아닙니다.</strong></p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>스크립트 실행</th>
+<th>우리 서비스</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>형태</td>
+<td>실행하고 끝</td>
+<td><strong>계속 켜져 있는 서버</strong> (Cloud Run)</td>
+</tr>
+<tr>
+<td>지도 읽기</td>
+<td>실행마다 1회</td>
+<td><strong>서버 켤 때 1회</strong>, 그 뒤 메모리에 계속</td>
+</tr>
+<tr>
+<td>그 뒤</td>
+<td>—</td>
+<td>그 지도로 사용자 요청을 <strong>N건</strong> 처리</td>
+</tr>
+<tr>
+<td>실측</td>
+<td>—</td>
+<td>서버 켜지는 데 8.4초, 메모리 최대 1GB</td>
+</tr>
+</tbody>
+</table>
+<p>사용자가 경로를 요청할 때 서버는 <strong>지도를 다시 읽지 않습니다.</strong> 이미 메모리에 있습니다.
+따라서 사용자가 체감하는 시간은 <strong>"요청 한 건의 계산 시간"</strong> 이고, 지도 읽는 시간은 거기 없습니다.</p>
+<p><strong>실험이 매번 지도를 새로 읽고 그 시간까지 포함해 재면,
+재는 대상이 "알고리즘"이 아니라 "서버 켜기"가 됩니다.</strong></p>
+<h3 id="3_3"><span class="tri">▸</span>(3) 준비 시간이 결과를 망친다 — 숫자로</h3>
+<table>
+<thead>
+<tr>
+<th>항목</th>
+<th>시간</th>
+<th>실제 서비스에서</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>지도 읽기 + 전처리</td>
+<td><strong>8,400 ms</strong></td>
+<td>서버 켤 때 1회</td>
+</tr>
+<tr>
+<td><strong>경로 계산 1건</strong></td>
+<td><strong>7 ~ 18 ms</strong></td>
+<td><strong>요청마다</strong></td>
+</tr>
+<tr>
+<td>알고리즘 간 차이</td>
+<td><strong>약 0.8 ms</strong></td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>우리가 구분하려는 차이가 <strong>0.8ms</strong>, 준비 시간이 <strong>8,400ms</strong>. <strong>약 1만 배</strong>입니다.</p>
+<blockquote class="note">
+<p><strong>몸무게 0.8g 차이를 재려는데 저울에 8.4kg 가방을 같이 올려놓는 것</strong>과 같습니다.
+가방 무게가 매번 정확히 같으면 빼면 되지만, 컴퓨터 상태에 따라 매번 조금씩 달라집니다.
+<strong>그 흔들림만으로도 0.8ms는 완전히 묻힙니다.</strong></p>
+</blockquote>
+<h3 id="4_3"><span class="tri">▸</span>(4) 준비 시간을 실제로 빼는 건 재사용이 아니라 다른 세 장치입니다</h3>
+<p><strong>재사용은 실험 총 시간을 줄이는 장치</strong>이고, 측정에서 준비 시간을 <strong>빼는</strong> 것은 아래가 합니다.
+이 둘을 섞으면 설명이 꼬입니다.</p>
+<pre><code>① 자식 프로그램 안에서 알고리즘 실행 전후만 잰다   → 프로그램 띄우기·지도 넘기기 비용 제외
+② 첫 실행 1회를 버린다                            → 처음 불러오는 비용 제외
+③ 재는 동안 메모리 정리를 멈춘다                   → 청소 시간이 끼는 것 방지
+</code></pre>
+<h3 id="5_1"><span class="tri">▸</span>(5) 이 원칙을 지키지 못한 곳이 있습니다</h3>
+<p><strong>순환·편도 우회 표의 시간(2.1초, 1.8초 등)에는 점수 준비 시간이 포함되어 있습니다.</strong></p>
+<p>그 준비 작업은 <strong>길 조각 223,664개 전체의 점수를 계산해 지도에 써넣는 일</strong>이고,
+경로를 찾기 직전에 <strong>매번</strong> 실행됩니다.</p>
+<p>즉 <strong>그 표의 시간은 "준비 + 계산"이고 준비가 대부분입니다.</strong>
+네 알고리즘이 2.148 ~ 2.208초로 3% 안에 몰린 이유가 이것입니다 —
+<strong>공통 준비 시간이 지배해서 알고리즘 차이가 보이지 않습니다.</strong></p>
+<pre><code>A*·Dijkstra    ✔ 해결됐다. 지도에 안 쓰는 방식으로 바꾸고 계산 시간만 따로 보고한다
+Beam·GRASP·
+ALNS·RCSP·      ✘ 아직 분리되지 않았다
+Plateau
+</code></pre>
+<p>→ <strong>그래서 6부에서 그 표의 시간으로 알고리즘 속도를 판정하지 않았습니다.</strong>
+거리 정확도·되밟기·겹침 비율로 판정하고,
+시간은 "네 알고리즘이 사실상 같다"는 결론에만 썼습니다.</p>
+<hr />
+<h1 id="6"><span class="chip">6부</span>무엇을 골랐는가</h1>
+<h2 id="6-1"><span class="dia">◆</span>6-1 정의로 걸러낸 것과 실측으로 걸러낸 것은 다릅니다</h2>
+<pre><code>문제에 완벽한 답이 있는가?
+   ├─ 있다 (편도 최단)       → 최적 알고리즘만 후보. 비교는 속도 하나.
+   └─ 없다 (편도 우회·순환)  → 근사 알고리즘. 비교는 품질 + 속도.
+
+실험하기 전에 이미 배제된 것
+   ├─ Plateau  순환에는 구조적으로 못 쓴다 (4-5절)
+   └─ RCSP     상한 없으면 서울 규모 불가, 상한 걸면 완벽한 답 보장 소멸
+               → 쓸 이유 자체가 약해진다
+
+나머지는 실측으로 판정
+</code></pre>
+<h2 id="6-2"><span class="dia">◆</span>6-2 편도 최단 — 답은 다 같고 속도만 다릅니다</h2>
+<p><strong>먼저 확인한 것</strong>: 25번 전부 세 알고리즘의 경로 비용이 소수점까지 같았습니다.</p>
+<p><strong>결과 파일로 검증된 수치</strong> (25번 직접 재계산)</p>
+<table>
+<thead>
+<tr>
+<th>알고리즘</th>
+<th style="text-align: right;">평균</th>
+<th style="text-align: right;">중간값</th>
+<th style="text-align: right;">25번 중 가장 빨랐던 횟수</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>양방향 Dijkstra</strong></td>
+<td style="text-align: right;"><strong>8.12 ms</strong></td>
+<td style="text-align: right;">7.45 ms</td>
+<td style="text-align: right;"><strong>24 / 25</strong></td>
+</tr>
+<tr>
+<td>Dijkstra</td>
+<td style="text-align: right;">15.58 ms</td>
+<td style="text-align: right;">13.71 ms</td>
+<td style="text-align: right;">1 / 25</td>
+</tr>
+<tr>
+<td>A* (직선거리 추측)</td>
+<td style="text-align: right;">17.64 ms</td>
+<td style="text-align: right;">15.58 ms</td>
+<td style="text-align: right;"><strong>0 / 25</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>직선거리 추측 A*는 25번 중 한 번도 1위를 못 했습니다.</strong>
+평균만 그런 게 아니라 케이스별로 봐도 일관되게 느립니다.</p>
+<p><strong>결과 파일이 없는 수치</strong> (팀 발표자료 출처, 재현 불가) <span class="badge b-warn">확인 필요</span></p>
+<table>
+<thead>
+<tr>
+<th>알고리즘</th>
+<th style="text-align: right;">발표자료상</th>
+<th>상태</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A* (ALT)</td>
+<td style="text-align: right;">7.3 ms</td>
+<td><strong>결과 파일 없음</strong> — 그런데 이게 프로덕션 채택 근거</td>
+</tr>
+<tr>
+<td>양방향 A*</td>
+<td style="text-align: right;">11.4 ms</td>
+<td><strong>결과 파일 없음</strong></td>
+</tr>
+</tbody>
+</table>
+<blockquote class="note">
+<p>기존 문서는 양방향 Dijkstra를 8.6ms로 적었는데, 결과 파일을 다시 계산한 값은 <strong>8.12ms</strong>입니다.
+8.6은 출처가 확인되지 않습니다.</p>
+</blockquote>
+<h3 id="dijkstra_1"><span class="tri">▸</span>왜 직선거리 추측이 Dijkstra보다 느렸나</h3>
+<p><strong>지난 발표 자료의 설명이 틀렸습니다.</strong>
+<em>"Dijkstra는 C 언어로 최적화되어 실행된다"</em> 고 적혀 있었는데,
+<strong>우리가 쓰는 그래프 라이브러리는 순수 파이썬입니다.</strong> Dijkstra도 파이썬으로 돕니다.</p>
+<p>정정된 설명:</p>
+<pre><code>1) 직선거리 추측이 너무 작다
+   서울 도심 도로 거리는 직선의 약 1.4배 → 추측이 실제의 70% 수준
+   → 훑는 범위가 거의 안 줄어든다
+
+2) 거기에 &quot;최저비율&quot;을 곱한다 (4-2절)
+   최저비율은 서울에서 가장 싼 길 조각 하나의 비율이므로 아주 작다
+   → 추측이 한 번 더 작아진다
+
+3) 반면 A*는 지점을 볼 때마다 추측 함수를 호출한다
+   Dijkstra에는 없는 추가 작업이다
+
+4) (1)+(2)로 아낀 시간이 (3)의 추가 비용을 못 갚는다
+   → 총 시간이 늘어난다
+</code></pre>
+<h2 id="6-3"><span class="dia">◆</span>6-3 순환 — 네 알고리즘</h2>
+<table>
+<thead>
+<tr>
+<th>알고리즘</th>
+<th style="text-align: right;">거리 오차</th>
+<th style="text-align: right;">되밟기</th>
+<th style="text-align: right;">시간</th>
+<th>실패</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Beam</strong></td>
+<td style="text-align: right;"><strong>0.138</strong></td>
+<td style="text-align: right;"><strong>0.028</strong></td>
+<td style="text-align: right;">2.177 s</td>
+<td>0</td>
+</tr>
+<tr>
+<td>GRASP</td>
+<td style="text-align: right;">0.212</td>
+<td style="text-align: right;">0.035</td>
+<td style="text-align: right;">2.148 s</td>
+<td>0</td>
+</tr>
+<tr>
+<td>RCSP</td>
+<td style="text-align: right;">0.187</td>
+<td style="text-align: right;">0.035</td>
+<td style="text-align: right;">2.208 s</td>
+<td>0</td>
+</tr>
+<tr>
+<td>ALNS</td>
+<td style="text-align: right;">0.901</td>
+<td style="text-align: right;">0.036</td>
+<td style="text-align: right;">2.170 s</td>
+<td><strong>25번 중 2번</strong></td>
+</tr>
+</tbody>
+</table>
+<pre><code>거리 오차   목표 대비 실제 거리가 얼마나 벗어났나. 낮을수록 &quot;3km 걷겠다&quot;는 약속을 지킨다
+되밟기      경로가 자기 자신을 다시 지나는 비율. 낮을수록 진짜 고리 모양에 가깝다
+</code></pre>
+<p>시간이 2.148~2.208초로 사실상 같습니다(5-12절 (5)의 이유).
+<strong>속도로 구분이 안 되니 품질로 판정했습니다.</strong></p>
+<p>Beam이 두 지표 모두 1위이고, <strong>유일하게 난수를 안 씁니다.</strong>
+ALNS는 8% 실패로 제외했습니다.</p>
+<p><strong>선택: Beam</strong> — 거리 오차 최소 + 되밟기 최소 + 매번 같은 답 + 실패 0.</p>
+<h2 id="6-4"><span class="dia">◆</span>6-4 편도 우회 — 다섯 알고리즘</h2>
+<table>
+<thead>
+<tr>
+<th>알고리즘</th>
+<th style="text-align: right;">겹침 비율</th>
+<th style="text-align: right;">거리 오차</th>
+<th style="text-align: right;">시간</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Beam</strong></td>
+<td style="text-align: right;">0.276</td>
+<td style="text-align: right;">0.266</td>
+<td style="text-align: right;">1.829 s</td>
+</tr>
+<tr>
+<td>ALNS</td>
+<td style="text-align: right;">0.506</td>
+<td style="text-align: right;">0.276</td>
+<td style="text-align: right;"><strong>1.765 s</strong></td>
+</tr>
+<tr>
+<td>GRASP</td>
+<td style="text-align: right;">0.510</td>
+<td style="text-align: right;"><strong>0.186</strong></td>
+<td style="text-align: right;">2.030 s</td>
+</tr>
+<tr>
+<td>RCSP</td>
+<td style="text-align: right;">0.723</td>
+<td style="text-align: right;">0.348</td>
+<td style="text-align: right;">2.020 s</td>
+</tr>
+<tr>
+<td>Plateau</td>
+<td style="text-align: right;"><strong>0.205</strong></td>
+<td style="text-align: right;">0.203</td>
+<td style="text-align: right;">6.147 s</td>
+</tr>
+</tbody>
+</table>
+<p><strong>지표 세 개가 서로 다른 알고리즘을 가리켰습니다.</strong></p>
+<table>
+<thead>
+<tr>
+<th>1위인 지표</th>
+<th>그런데</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>겹침 비율 — <strong>Plateau</strong> (0.205)</td>
+<td>6.147초, Beam의 3.4배</td>
+</tr>
+<tr>
+<td>거리 오차 — <strong>GRASP</strong> (0.186)</td>
+<td>겹침 0.510, 경로 절반이 최단경로</td>
+</tr>
+<tr>
+<td>속도 — <strong>ALNS</strong> (1.765초)</td>
+<td>겹침 0.506 + 순환에서 8% 실패</td>
+</tr>
+</tbody>
+</table>
+<p><strong>어느 지표도 혼자서는 결정할 수 없습니다.</strong> 그래서 서비스 요건으로 우선순위를 정했습니다.</p>
+<blockquote class="note">
+<p>사용자가 "우회 경로"를 요청했는데 경로의 절반이 최단경로와 같으면 <strong>기능이 성립하지 않습니다.</strong>
+→ <strong>겹침 비율을 1순위</strong>로 둡니다.
+거리 오차는 ±10% 안이면 사용자가 체감하지 못하므로 2순위입니다.</p>
+</blockquote>
+<p>이 기준으로 Plateau는 속도 실격, GRASP·ALNS·RCSP는 겹침 실격.
+<strong>Beam만 겹침(0.276)과 속도(1.829초)를 동시에 만족합니다.</strong></p>
+<h2 id="6-5"><span class="dia">◆</span>6-5 최종 정리</h2>
+<table>
+<thead>
+<tr>
+<th>모드</th>
+<th>채택</th>
+<th>탈락 (이유의 종류)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>편도 최단</td>
+<td><strong>A*(ALT)</strong></td>
+<td>Dijkstra <em>(정답지로 사용)</em>, 양방향 Dijkstra·양방향 A*·직선거리 A* — <em>전부 속도</em></td>
+</tr>
+<tr>
+<td>편도 우회</td>
+<td><strong>Beam</strong></td>
+<td>Plateau <em>(속도)</em>, GRASP·ALNS·RCSP <em>(겹침 품질)</em></td>
+</tr>
+<tr>
+<td>순환</td>
+<td><strong>Beam</strong></td>
+<td>GRASP·RCSP <em>(거리 정확도)</em>, ALNS <em>(실패율)</em>, Plateau <em>(구조적 불가)</em></td>
+</tr>
+<tr>
+<td>경유지</td>
+<td>구간별 엔진 조합</td>
+<td>새 알고리즘 없음</td>
+</tr>
+<tr>
+<td>GPS 아트</td>
+<td>경유지 → A*</td>
+<td>새 알고리즘 없음</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h1 id="7"><span class="chip">7부</span>지금 남아 있는 문제</h1>
+<p>여기 있는 항목은 전부 <strong>코드를 다시 읽으면서 직접 확인한 것</strong>입니다.
+"고쳐야 한다"가 아니라 <strong>"알고 있어야 한다"</strong> 로 읽어 주세요. 대응 순서는 맨 뒤에 정리했습니다.</p>
+<h2 id="7-1"><span class="dia">◆</span>7-1 실험과 실제 서비스의 비용 공식이 다릅니다 <span class="badge b-warn">확인 필요</span></h2>
+<p>저장소에 있는 유일한 결과 파일을 만든 스크립트가 <strong>자체 비용 공식</strong>을 갖고 있습니다.
+주석에는 <em>"실제 공식과 동일"</em> 이라고 적혀 있는데 <strong>동일하지 않습니다.</strong></p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>실제 서비스</th>
+<th>실험 스크립트</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>안전·자연</td>
+<td><strong>나누기(가점)</strong> 방식</td>
+<td><strong>거듭제곱</strong> 방식</td>
+</tr>
+<tr>
+<td>경사</td>
+<td><code>1 + (1 − 점수) × 가중치</code></td>
+<td><code>(2 − 점수)</code> 거듭제곱</td>
+</tr>
+<tr>
+<td>데이터 없을 때</td>
+<td><strong>0으로 → 가점 없음(중립)</strong></td>
+<td><strong>0.5로 → 중간 가점</strong></td>
+</tr>
+<tr>
+<td>편의·접근성</td>
+<td>포함</td>
+<td><strong>없음</strong></td>
+</tr>
+<tr>
+<td>터널·차량주의·차단</td>
+<td>포함</td>
+<td><strong>없음</strong></td>
+</tr>
+<tr>
+<td>어린이 점수</td>
+<td><strong>안 읽음</strong></td>
+<td>가점으로 사용</td>
+</tr>
+</tbody>
+</table>
+<p><strong>원인은 시점 차이입니다.</strong></p>
+<pre><code>실험 스크립트 마지막 수정   2026-07-17
+실제 공식 변경             2026-07-30   ← 커밋 6578cfa
+</code></pre>
+<p><strong>작성 당시에는 주석이 사실이었고, 7월 30일에 거짓이 됐습니다.</strong> 스크립트는 그 후 갱신되지 않았습니다.</p>
+<h3 id="_40"><span class="tri">▸</span>결과에 미치는 영향 — 구분해서 봐야 합니다</h3>
+<table>
+<thead>
+<tr>
+<th>결론</th>
+<th>유효한가</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>세 알고리즘이 같은 답을 낸다</td>
+<td><strong>유효.</strong> 세 알고리즘이 같은 공식을 썼으므로 내부적으로 일관됩니다</td>
+</tr>
+<tr>
+<td>15.58 / 8.12 / 17.64 ms의 <strong>순위</strong></td>
+<td><strong>조건부 유효.</strong> 같은 조건에서 셋을 비교한 건 맞습니다</td>
+</tr>
+<tr>
+<td>이 수치가 <strong>실제 서비스 성능</strong>이다</td>
+<td><strong>무효.</strong> 실제 서비스의 비용 지형이 아닙니다</td>
+</tr>
+</tbody>
+</table>
+<p>어린이 프로필 시나리오가 10개인데, <strong>그 10개는 가중치가 작동하는 방향 자체가
+실제 서비스와 달랐습니다</strong>(3-4절).</p>
+<h2 id="7-2"><span class="dia">◆</span>7-2 실험용 지도에 경사 데이터가 없습니다 <span class="badge b-warn">확인 필요</span></h2>
+<p>실험용 지도를 만드는 코드에서 <strong>경사 점수가 모든 길 조각에 0.5로 고정</strong>되어 있습니다.</p>
+<pre><code class="language-python">slope_score=0.5,          # ← 모든 길 조각에 같은 값
+</code></pre>
+<p>fixture 파일 자체에도 경사 칸이 없습니다. 저장하는 칸이 6개뿐입니다
+(길이, 안전, 자연, 랜드마크, 어린이, 그리고 ID).
+파일 내용을 직접 확인한 결과 <strong>경사·편의·접근성·공원 겹침·표시·러닝·차량주의 칸이 전부 없습니다.</strong></p>
+<p><strong>따라서 순환·편도 우회 실험에서:</strong></p>
+<pre><code>1) 경사가 결과에 전혀 영향을 주지 않았습니다
+   모든 길이 같은 값이면 페널티가 상수가 되어 비교에서 약분됩니다
+   → &quot;평지&quot; 프로필은 실험에서 의미가 없습니다
+     (실제로 실험 프로필 5종에 평지가 없습니다)
+
+2) 편의·접근성·터널 페널티·차량주의·차단이 전부 작동하지 않았습니다
+   기본 프로필의 편의 0.2, 어린이 프로필의 차량주의 페널티가 무효였습니다
+
+3) 데이터가 없을 때 0.5로 채웁니다
+   3-6절의 데이터 원칙(실제 서비스는 0으로 채움)과 반대 방향입니다
+   → CCTV가 없는 길이 중간 수준의 안전 가점을 받습니다
+</code></pre>
+<p><strong>그래도 유효한 부분이 있습니다.</strong>
+5개 알고리즘이 <strong>같은 지도·같은 공식</strong>으로 돌았으므로 <strong>상호 비교는 공정합니다.</strong>
+그리고 6-3절의 주요 판정 근거인 <strong>거리 오차·되밟기는 비용 지형이 아니라
+경로의 모양에서 나오는 지표</strong>라 상대적으로 견고합니다.
+반면 <strong>겹침 비율은 비용 지형에 직접 의존</strong>하므로 값이 달라질 수 있습니다.</p>
+<h2 id="7-3-git"><span class="dia">◆</span>7-3 결과 파일이 git에 올라가지 않고 있었습니다</h2>
+<pre><code>.gitignore 12행의 *.csv 규칙에 결과 파일이 걸려 있었습니다
+</code></pre>
+<p><strong>결과 파일이 없는 게 실수가 아니라 규칙 때문</strong>이었습니다.
+원인이 규칙이므로 대응도 한 줄입니다 — 예외 규칙 추가.</p>
+<h2 id="7-4"><span class="dia">◆</span>7-4 자전거도로가 문서와 코드에서 어긋납니다 <span class="badge b-warn">확인 필요</span></h2>
+<p>3-5절에 자세히 썼습니다. 문서는 "보류"인데 코드는 러닝 점수 경로로 사용합니다.
+러닝 프로필에서만 영향을 주고 길을 새로 만들지는 않지만,
+원본이 기·종점 직선이라 <strong>엉뚱한 육각형에 개수가 찍힐 수 있습니다.</strong></p>
+<h2 id="7-5"><span class="dia">◆</span>7-5 어린이 점수가 아무도 안 읽는 상태로 남아 있습니다 <span class="badge b-warn">확인 필요</span></h2>
+<p>3-4절에 자세히 썼습니다.
+지도에 실려 있지만 점수 계산 코드가 읽지 않고, 문서만 보면 쓰이는 것처럼 읽힙니다.</p>
+<h2 id="7-6"><span class="dia">◆</span>7-6 설정값에 실험 근거가 없습니다 <span class="badge b-no">근거 없음</span></h2>
+<pre><code>탐험대 8팀           최대 400걸음         기준점 8개
+GRASP 반복 24번      ALNS 반복 200번      RCSP 쪽지 상한 4장
+포화 기준 3개·2개    화장실 반경 50m      육각형 9단계
+거리 허용 오차 ±10%  터널 1.20 / 육교 1.12 / 1.08
+</code></pre>
+<p><strong>전부 실험으로 정하지 않은 관례값입니다.</strong></p>
+<p>정직한 서술: <em>"탐험대 8팀이 최적이라는 근거는 없습니다. 4·8·16·32를 비교한 실험을 하지 않았습니다."</em></p>
+<p>5-11절의 개선으로 실험 시간이 2301초 → 226초가 됐으므로 <strong>이제 돌릴 수 있는 여건</strong>은 됐습니다.</p>
+<h2 id="7-7"><span class="dia">◆</span>7-7 러닝 모드에 설명 없는 항이 하나 있습니다 <span class="badge b-no">근거 없음</span></h2>
+<p>러닝 프로필에서만 적용되는 항이 하나 있는데, <strong>길 조각이 길수록 1m당 비용이 낮아지는</strong> 방향입니다.
+러닝 프로필에서 긴 직선 구간이 구조적으로 유리해집니다.</p>
+<p>신호 없이 쭉 뛰는 구간을 선호하게 만들려는 의도로 보이지만 <strong>주석·커밋에 근거가 없습니다.</strong></p>
+<h2 id="7-8"><span class="dia">◆</span>7-8 지도 자체의 한계</h2>
+<pre><code>정적 지도다
+   시간대·날씨·공사를 반영하지 않는다
+   밤에 어두운 길과 낮에 어두운 길이 같은 점수다
+
+품질을 정량화하지 못한다
+   완벽한 답을 모르므로 &quot;우리 답이 최적에서 몇 % 떨어졌나&quot;를 계산할 수 없다
+   우리가 한 것은 다섯 알고리즘의 상대 비교다
+
+지도 복사가 남아 있다
+   Beam 계열은 요청마다 22만 개 길 조각을 복사한다
+   → 가장 큰 성능 개선 여지
+</code></pre>
+<h2 id="7-9"><span class="dia">◆</span>7-9 대응 순서 (제안)</h2>
+<pre><code>1.  .gitignore에 결과 파일 예외 추가                       한 줄, 즉시
+2.  fixture 저장 칸에 빠진 7개 추가 후 다시 만들기          7-2 해소
+3.  실험 스크립트의 자체 공식을 삭제하고
+    실제 서비스 공식을 호출하도록 바꾸기                    7-1 해소, 공식 중복 자체를 없앰
+4.  ALT·양방향 A* 포함해 다시 측정하고 결과 파일 저장       6-2의 미검증 수치 해소
+5.  어린이 점수를 쓸지 뺄지 결정                            3-4
+6.  자전거도로를 러닝 레이어에 남길지 결정                  3-5
+7.  순환 계열도 계산 시간을 따로 보고하도록 수정            5-12 (5)
+8.  탐험대 수 비교 실험                                     7-6
+</code></pre>
+<hr />
+<h1 id="_41"><span class="chip">부록</span>용어 사전</h1>
+<p>이 문서에서 쓴 쉬운 말과, 코드·논문에 나오는 정식 용어의 대응표입니다.
+<strong>코드를 볼 때 이 표만 있으면 매칭됩니다.</strong></p>
+<h2 id="_42"><span class="dia">◆</span>지도에 관한 말</h2>
+<table>
+<thead>
+<tr>
+<th>이 문서의 표현</th>
+<th>정식 용어</th>
+<th>뜻</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>지점</td>
+<td>노드(node)</td>
+<td>길이 갈라지거나 만나는 곳. 교차로, 횡단보도 앞</td>
+</tr>
+<tr>
+<td>길 조각</td>
+<td>엣지(edge), LINK</td>
+<td>지점과 지점을 잇는 하나의 구간</td>
+</tr>
+<tr>
+<td>계산용 지도</td>
+<td>그래프(graph)</td>
+<td>지점과 길 조각으로만 이루어진 자료구조. 막대그래프가 아님</td>
+</tr>
+<tr>
+<td>구조가 바뀐다</td>
+<td>위상(topology)이 바뀐다</td>
+<td>무엇이 무엇과 이어져 있는지가 달라진다</td>
+</tr>
+<tr>
+<td>육각형 격자</td>
+<td>H3 (9단계)</td>
+<td>서울을 한 변 약 174m 육각형으로 덮은 격자</td>
+</tr>
+<tr>
+<td>표시</td>
+<td>tags</td>
+<td>길 조각에 붙은 참/거짓 표시 8종 (터널·육교 등)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_43"><span class="dia">◆</span>점수에 관한 말</h2>
+<table>
+<thead>
+<tr>
+<th>이 문서의 표현</th>
+<th>정식 용어</th>
+<th>뜻</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>체감 거리, 비용</td>
+<td><code>custom_score</code></td>
+<td>실제 길이를 품질로 보정한 값. 알고리즘이 최소화하는 대상</td>
+</tr>
+<tr>
+<td>손잡이</td>
+<td>가중치(weight)</td>
+<td>프로필이 조절하는 8개 값</td>
+</tr>
+<tr>
+<td>값을 범위 안으로 밀어 넣기</td>
+<td>클램핑(clamping)</td>
+<td>0~1을 벗어난 값을 0 또는 1로 바꾸기</td>
+</tr>
+<tr>
+<td>더 넣어도 안 차는 상태</td>
+<td>포화(saturation)</td>
+<td>개수를 로그로 눌러 일정 개수에서 1로 고정</td>
+</tr>
+<tr>
+<td>평평한 정도</td>
+<td><code>slope_score</code></td>
+<td><strong>경사가 심한 정도가 아님.</strong> 1이 평지</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_44"><span class="dia">◆</span>알고리즘에 관한 말</h2>
+<table>
+<thead>
+<tr>
+<th>이 문서의 표현</th>
+<th>정식 용어</th>
+<th>뜻</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>안전한 추측, 낙관적 추측</td>
+<td><strong>admissible heuristic</strong></td>
+<td>남은 비용을 절대 부풀리지 않는 추측. A*가 정답을 보장하는 조건</td>
+</tr>
+<tr>
+<td>나침반</td>
+<td>휴리스틱(heuristic)</td>
+<td>목적지까지 얼마 남았는지의 추측 함수</td>
+</tr>
+<tr>
+<td>기준점</td>
+<td>랜드마크(landmark)</td>
+<td>ALT가 미리 거리를 재두는 기준 지점</td>
+</tr>
+<tr>
+<td>두 거리의 차이가 하한이 된다</td>
+<td>삼각부등식</td>
+<td>ALT 추측의 근거</td>
+</tr>
+<tr>
+<td>미리 재두기</td>
+<td>전처리(precompute)</td>
+<td>서버 켤 때 한 번 계산해 저장</td>
+</tr>
+<tr>
+<td>겹, 걸음</td>
+<td>스텝(step), 깊이(depth)</td>
+<td>탐색이 한 번 확장되는 단위</td>
+</tr>
+<tr>
+<td>아무것도 안 버리는 탐색</td>
+<td>완전 너비 우선 탐색(BFS)</td>
+<td>한 겹의 후보를 전부 들고 다음 겹으로 가는 탐색</td>
+</tr>
+<tr>
+<td>탐험대 수</td>
+<td>빔 폭(beam width)</td>
+<td>Beam이 매 겹에 남기는 후보 수. 우리는 8</td>
+</tr>
+<tr>
+<td>잘라내기</td>
+<td>가지치기(pruning)</td>
+<td>후보를 버리는 것</td>
+</tr>
+<tr>
+<td>쪽지</td>
+<td>라벨(label)</td>
+<td>RCSP가 지점에 붙이는 (비용, 거리) 기록</td>
+</tr>
+<tr>
+<td>씨앗값</td>
+<td>시드(seed)</td>
+<td>난수를 고정하는 값. 우리는 42</td>
+</tr>
+<tr>
+<td>겹침 비율</td>
+<td><code>overlap_ratio</code></td>
+<td>최단경로와 겹치는 거리 비율</td>
+</tr>
+<tr>
+<td>잔가시</td>
+<td>spike</td>
+<td>A→B→A처럼 갔다가 바로 돌아온 구간</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_45"><span class="dia">◆</span>실험에 관한 말</h2>
+<table>
+<thead>
+<tr>
+<th>이 문서의 표현</th>
+<th>정식 용어</th>
+<th>뜻</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>실행기</td>
+<td>하네스(harness)</td>
+<td>알고리즘들을 돌리고 재고 기록하는 코드</td>
+</tr>
+<tr>
+<td>껍데기</td>
+<td>solver</td>
+<td>엔진을 실험에 물리기 위해 같은 모양으로 감싼 것</td>
+</tr>
+<tr>
+<td>고정 입력</td>
+<td>fixture</td>
+<td>실험 입력을 파일로 얼려둔 것</td>
+</tr>
+<tr>
+<td>흔들림 정도</td>
+<td>변동계수(CV)</td>
+<td>표준편차 ÷ 평균. 측정이 안정적인지 판정</td>
+</tr>
+<tr>
+<td>별도 프로그램</td>
+<td>프로세스(process)</td>
+<td>운영체제가 따로 관리하는 실행 단위. 강제 종료 가능</td>
+</tr>
+<tr>
+<td>작업 흐름</td>
+<td>스레드(thread)</td>
+<td>한 프로그램 안의 병렬 단위. 파이썬에서는 강제 종료 불가</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_46"><span class="dia">◆</span>문제 종류에 관한 말</h2>
+<table>
+<thead>
+<tr>
+<th>이 문서의 표현</th>
+<th>정식 용어</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>완벽한 답을 구할 수 있다</td>
+<td>다항 시간에 풀린다</td>
+</tr>
+<tr>
+<td>완벽한 답을 못 구한다</td>
+<td>NP-hard</td>
+</tr>
+<tr>
+<td>편도 최단 문제</td>
+<td>Shortest Path Problem</td>
+</tr>
+<tr>
+<td>편도 우회 문제</td>
+<td>Arc Orienteering Problem</td>
+</tr>
+<tr>
+<td>순환 문제</td>
+<td>Cycle Trip Planning Problem</td>
+</tr>
+<tr>
+<td>무게 맞춰 가치 최대화</td>
+<td>배낭 문제(Knapsack Problem)</td>
+</tr>
+<tr>
+<td>순서대로 이어 붙여 제자리로</td>
+<td>외판원 문제(TSP)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_47"><span class="dia">◆</span>참고 문헌</h2>
+<ul>
+<li>Verbeeck, C., Vansteenwegen, P., Aghezzaf, E.-H. (2014).
+  <em>An extension of the arc orienteering problem and its application to cycle trip planning.</em>
+  Transportation Research Part E, 68, 64–78. — 순환 모드에 해당하는 문제의 정식화</li>
+<li>Lu, Y., Shahabi, C. (2016).
+  <em>Scenic Routes Now: Efficiently Solving the Time-Dependent Arc Orienteering Problem.</em>
+  arXiv:1609.08484. — 편도 우회 문제의 정의와 난이도 증명</li>
+<li>Goldberg, A. V., Harrelson, C. (2005).
+  <em>Computing the Shortest Path: A* Search Meets Graph Theory.</em> — ALT 기법의 원전</li>
+</ul></main>
+</div>
+<button id="top">↑ 맨 위</button>
+<script>
+document.getElementById('top').onclick=()=>scrollTo({top:0,behavior:'smooth'});
+document.getElementById('burger').onclick=()=>document.getElementById('side').classList.toggle('open');
+document.querySelectorAll('#side a').forEach(a=>a.onclick=()=>document.getElementById('side').classList.remove('open'));
+const links=[...document.querySelectorAll('#side a')];
+const heads=links.map(a=>document.getElementById(a.hash.slice(1))).filter(Boolean);
+const onScroll=()=>{let i=0;heads.forEach((h,k)=>{if(h.getBoundingClientRect().top<150)i=k});
+ links.forEach(l=>l.classList.remove('active'));if(links[i])links[i].classList.add('active')};
+document.addEventListener('scroll',onScroll,{passive:true});onScroll();
+</script></body></html>

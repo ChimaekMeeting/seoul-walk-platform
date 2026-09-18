@@ -14,11 +14,6 @@ class PointResponse(BaseModel):
     category: str
 
 
-class LandmarkResponse(BaseModel):
-    lat: float
-    lon: float
-
-
 class EdgeResponse(BaseModel):
     path: list[list[float]]
     link_id: str

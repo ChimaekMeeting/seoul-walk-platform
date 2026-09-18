@@ -3,11 +3,7 @@ import logging
 
 from src.data import (
     BaseNetworkCollector,
-    NatureCollector,
     SafetyCollector,
-    LandmarkCollector,
-    RunningCourseCollector,
-    ChildCollector,
     CommercialCollector,
     EdgeFeatureCollector,
     RoutePoiCollector,
@@ -66,9 +62,6 @@ def collect_v1(network_mode: str) -> None:
     logger.info("--- CCTV·스마트가로등 안전 Layer·Score 적재 ---")
     SafetyCollector().save()
 
-    logger.info("--- 어린이보호구역 Layer·차량 주의 Edge 적재 ---")
-    ChildCollector().save(include_play_facility=False)
-
     logger.info("--- 외부 선형 Edge 검증 후보 Layer 적재 ---")
     EdgeFeatureCollector().save()
 
@@ -82,8 +75,8 @@ def collect_v1(network_mode: str) -> None:
     SeoulWaterCollector().save()
 
     logger.info(
-        "V1 보류 Collector는 실행하지 않습니다: "
-        "OSM nature, landmark, running, slope"
+        "V1 보류 Collector는 실행하지 않습니다: slope "
+        "(nature/landmark/running/child는 폐기 레이어 정리로 완전히 제거됨)"
     )
 
 
@@ -91,14 +84,8 @@ def collect_legacy_all(network_mode: str) -> None:
     """기존 전체 Layer·Score 파이프라인을 명시적으로 실행합니다."""
     collect_network(network_mode)
 
-    logger.info("--- 자연 데이터 적재 ---")
-    NatureCollector().save()
-
     logger.info("--- 안전 데이터 적재 ---")
     SafetyCollector().save()
-
-    logger.info("--- 어린이 시설 적재 ---")
-    ChildCollector().save()
 
     logger.info("--- 서울 행정구역 경계 적재 ---")
     SeoulBoundaryCollector().save()
@@ -106,14 +93,8 @@ def collect_legacy_all(network_mode: str) -> None:
     logger.info("--- 서울 수계 폴리곤 적재 ---")
     SeoulWaterCollector().save()
 
-    logger.info("--- 랜드마크 적재 ---")
-    LandmarkCollector().save()
-
     logger.info("--- 사고 다발지역 적재 ---")
     SafetyCollector().update_accident()
-
-    logger.info("--- 실외운동기구 적재 ---")
-    RunningCourseCollector().update_outdoor_exercise()
 
 
 def collect(network_mode: str = "upsert", scope: str = "v1") -> None:

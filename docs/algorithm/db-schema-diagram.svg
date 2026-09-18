@@ -1,0 +1,271 @@
+<svg width="1900" height="1600" viewBox="0 0 1900 1600" xmlns="http://www.w3.org/2000/svg" font-family="'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',Arial,sans-serif">
+  <defs>
+    <marker id="fk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3a4a52"/>
+    </marker>
+    <marker id="fk-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b9188"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1900" height="1600" fill="#f6f3ec"/>
+
+  <!-- Title -->
+  <text x="50" y="46" font-size="26" font-weight="700" fill="#1c2321">seoul-walk-platform DB 스키마 — public 스키마 22개 테이블</text>
+  <text x="50" y="72" font-size="14" fill="#5d655f">로컬 dev DB(localhost:5434) 실제 조회 기준 · 2026-09-15 · postgis tiger/topology 확장 테이블 22개는 제외</text>
+
+  <!-- legend -->
+  <g font-size="12.5" fill="#5d655f">
+    <circle cx="1260" cy="35" r="6" fill="#1f6f5c"/><text x="1274" y="40">데이터 있음</text>
+    <circle cx="1400" cy="35" r="6" fill="#c9bea3"/><text x="1414" y="40">현재 0행(비어있음)</text>
+    <rect x="1130" y="55" width="14" height="14" rx="3" fill="#c1611c"/><text x="1150" y="66">안전(오늘 작업)</text>
+    <rect x="1300" y="55" width="14" height="14" rx="3" fill="#a3311f"/><text x="1320" y="66">사고(오늘 작업)</text>
+    <rect x="1450" y="55" width="14" height="14" rx="3" fill="#8b9188"/><text x="1470" y="66">ORM 미등록(고아)</text>
+    <path d="M1130,80 L1160,80" stroke="#3a4a52" stroke-width="2" marker-end="url(#fk)"/><text x="1170" y="84">외래키(FK)</text>
+  </g>
+
+  <!-- ===== ZONE 1: 서비스 계열 ===== -->
+  <text x="50" y="118" font-size="15.5" font-weight="700" fill="#1c2321">① 서비스 · 사용자 계열</text>
+
+  <!-- chat_sessions -->
+  <rect x="50" y="133" width="330" height="148" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="68" y="158" font-size="14" font-weight="700" fill="#1c2321">chat_sessions</text>
+  <circle cx="358" cy="153" r="5" fill="#c9bea3"/>
+  <text x="68" y="180" font-size="11.5" fill="#5d655f">id (PK)</text>
+  <text x="68" y="198" font-size="11.5" fill="#5d655f">user_id → users.id</text>
+  <text x="68" y="216" font-size="11.5" fill="#5d655f">thread_id (unique)</text>
+  <text x="68" y="234" font-size="11.5" fill="#5d655f">current_state</text>
+  <text x="68" y="252" font-size="11.5" fill="#5d655f">created_at · updated_at</text>
+  <text x="68" y="270" font-size="11" fill="#8b9188">0 rows</text>
+
+  <!-- route_histories -->
+  <rect x="410" y="133" width="330" height="148" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="428" y="158" font-size="14" font-weight="700" fill="#1c2321">route_histories</text>
+  <circle cx="718" cy="153" r="5" fill="#c9bea3"/>
+  <text x="428" y="180" font-size="11.5" fill="#5d655f">id (PK)</text>
+  <text x="428" y="198" font-size="11.5" fill="#5d655f">user_id → users.id</text>
+  <text x="428" y="216" font-size="11.5" fill="#5d655f">mode · origin/destination_lat·lon</text>
+  <text x="428" y="234" font-size="11.5" fill="#5d655f">coordinates(JSON) · total_km</text>
+  <text x="428" y="252" font-size="11.5" fill="#5d655f">is_favorite · created_at</text>
+  <text x="428" y="270" font-size="11" fill="#8b9188">0 rows</text>
+
+  <!-- users (center, larger) -->
+  <rect x="770" y="123" width="330" height="168" rx="10" fill="#eef1ee" stroke="#26333a" stroke-width="2"/>
+  <text x="788" y="150" font-size="14.5" font-weight="700" fill="#1c2321">users</text>
+  <circle cx="1078" cy="145" r="5" fill="#c9bea3"/>
+  <text x="788" y="172" font-size="11.5" fill="#5d655f">id (PK)</text>
+  <text x="788" y="190" font-size="11.5" fill="#5d655f">provider · provider_id</text>
+  <text x="788" y="208" font-size="11.5" fill="#5d655f">(provider, provider_id) unique</text>
+  <text x="788" y="226" font-size="11.5" fill="#5d655f">nickname · created_at</text>
+  <text x="788" y="250" font-size="11.5" font-weight="600" fill="#26333a">3개 테이블이 FK로 참조</text>
+  <text x="788" y="270" font-size="11" fill="#8b9188">0 rows</text>
+
+  <!-- user_preferences -->
+  <rect x="1130" y="133" width="330" height="148" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="1148" y="158" font-size="14" font-weight="700" fill="#1c2321">user_preferences</text>
+  <circle cx="1438" cy="153" r="5" fill="#c9bea3"/>
+  <text x="1148" y="180" font-size="11.5" fill="#5d655f">id (PK)</text>
+  <text x="1148" y="198" font-size="11.5" fill="#5d655f">user_id → users.id (unique)</text>
+  <text x="1148" y="216" font-size="11.5" fill="#5d655f">survey_completed · default_target_km</text>
+  <text x="1148" y="234" font-size="11.5" fill="#5d655f">weights_safety/nature/slope/…(8종)</text>
+  <text x="1148" y="252" font-size="11.5" fill="#5d655f">selected_tags(JSON)</text>
+  <text x="1148" y="270" font-size="11" fill="#8b9188">0 rows</text>
+
+  <!-- banners -->
+  <rect x="1490" y="133" width="360" height="148" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="1508" y="158" font-size="14" font-weight="700" fill="#1c2321">banners</text>
+  <circle cx="1830" cy="153" r="5" fill="#1f6f5c"/>
+  <text x="1508" y="180" font-size="11.5" fill="#5d655f">id (PK) · key (unique)</text>
+  <text x="1508" y="198" font-size="11.5" fill="#5d655f">category · emoji</text>
+  <text x="1508" y="216" font-size="11.5" fill="#5d655f">text · sub</text>
+  <text x="1508" y="234" font-size="11.5" fill="#5d655f">scoring(JSON)</text>
+  <text x="1508" y="252" font-size="11.5" fill="#8b9188">FK 없음, 독립 테이블</text>
+  <text x="1508" y="270" font-size="11" font-weight="700" fill="#1f6f5c">6 rows</text>
+
+  <!-- FK arrows zone1 -->
+  <path d="M380,207 L770,190" stroke="#3a4a52" stroke-width="1.8" fill="none" marker-end="url(#fk)"/>
+  <path d="M740,207 L770,200" stroke="#3a4a52" stroke-width="1.8" fill="none" marker-end="url(#fk)"/>
+  <path d="M1130,207 L1100,200" stroke="#3a4a52" stroke-width="1.8" fill="none" marker-end="url(#fk)"/>
+
+  <!-- ===== ZONE 2: 원본 캐시 ===== -->
+  <text x="50" y="330" font-size="15.5" font-weight="700" fill="#1c2321">② 원본 캐시 계열 — 4개 테이블 모두 동일 구조 (query_key · geom · properties JSONB · fetched_at)</text>
+
+  <rect x="50" y="345" width="440" height="130" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="68" y="370" font-size="14" font-weight="700" fill="#1c2321">csv_raw</text>
+  <text x="68" y="392" font-size="11.5" fill="#5d655f">id(PK) · query_key(idx) · geom · properties(JSONB) · fetched_at</text>
+  <text x="68" y="412" font-size="11.5" fill="#5d655f">CSVSource가 로컬 CSV/XLSX 정제 후 캐시</text>
+  <text x="68" y="440" font-size="11" font-weight="700" fill="#1f6f5c">225,020 rows</text>
+  <circle cx="466" cy="360" r="5" fill="#1f6f5c"/>
+
+  <rect x="520" y="345" width="420" height="130" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="538" y="370" font-size="14" font-weight="700" fill="#1c2321">osm_raw</text>
+  <text x="538" y="392" font-size="11.5" fill="#5d655f">id(PK) · query_key(idx) · geom · properties(JSONB) · fetched_at</text>
+  <text x="538" y="412" font-size="11.5" fill="#5d655f">OSMSource(osmnx/Overpass) 캐시</text>
+  <text x="538" y="440" font-size="11" fill="#8b9188">0 rows</text>
+  <circle cx="916" cy="360" r="5" fill="#c9bea3"/>
+
+  <rect x="970" y="345" width="420" height="130" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="988" y="370" font-size="14" font-weight="700" fill="#1c2321">kakao_raw</text>
+  <text x="988" y="392" font-size="11.5" fill="#5d655f">id(PK) · query_key(idx) · geom · properties(JSONB) · fetched_at</text>
+  <text x="988" y="412" font-size="11.5" fill="#5d655f">카카오 API 캐시</text>
+  <text x="988" y="440" font-size="11" fill="#8b9188">0 rows</text>
+  <circle cx="1366" cy="360" r="5" fill="#c9bea3"/>
+
+  <rect x="1420" y="345" width="430" height="130" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="1438" y="370" font-size="14" font-weight="700" fill="#1c2321">public_raw</text>
+  <text x="1438" y="392" font-size="11.5" fill="#5d655f">id(PK) · query_key(idx) · geom · properties(JSONB) · fetched_at</text>
+  <text x="1438" y="412" font-size="11.5" fill="#5d655f">공공데이터 API 캐시 (TAAS 등 · 미사용 경로용)</text>
+  <text x="1438" y="440" font-size="11" fill="#8b9188">0 rows</text>
+  <circle cx="1836" cy="360" r="5" fill="#c9bea3"/>
+
+  <!-- ===== ZONE 3: 데이터 레이어 (row 1) ===== -->
+  <text x="50" y="522" font-size="15.5" font-weight="700" fill="#1c2321">③ 데이터 레이어 계열 — 도로 Score의 원본 Layer (safety_layer·accident_prone_area는 오늘 작업)</text>
+
+  <!-- safety_layer -->
+  <rect x="50" y="537" width="345" height="180" rx="10" fill="#f3e0c8" stroke="#c1611c" stroke-width="2"/>
+  <text x="68" y="562" font-size="14" font-weight="700" fill="#1c2321">safety_layer</text>
+  <text x="68" y="584" font-size="11.5" fill="#1c2321">id(PK)</text>
+  <text x="68" y="602" font-size="11.5" fill="#1c2321">csv_raw_id → csv_raw.id</text>
+  <text x="68" y="620" font-size="11.5" fill="#1c2321">safety_type · purpose</text>
+  <text x="68" y="638" font-size="11.5" fill="#1c2321">geom (POINT, srid 4326)</text>
+  <text x="68" y="660" font-size="11" fill="#8a5a2e">idx: geom, (geom::geography) GiST</text>
+  <text x="68" y="690" font-size="11" font-weight="700" fill="#1f6f5c">211,616 rows</text>
+  <circle cx="373" cy="552" r="5" fill="#1f6f5c"/>
+
+  <!-- accident_prone_area -->
+  <rect x="415" y="537" width="345" height="180" rx="10" fill="#f3ddd6" stroke="#a3311f" stroke-width="2"/>
+  <text x="433" y="562" font-size="14" font-weight="700" fill="#1c2321">accident_prone_area</text>
+  <text x="433" y="584" font-size="11.5" fill="#1c2321">id(PK) · FK 없음(독립)</text>
+  <text x="433" y="602" font-size="11.5" fill="#1c2321">accident_type · accident_year</text>
+  <text x="433" y="620" font-size="11.5" fill="#1c2321">death_count · has_death</text>
+  <text x="433" y="638" font-size="11.5" fill="#1c2321">geom (POLYGON, srid 4326)</text>
+  <text x="433" y="660" font-size="11" fill="#7a2418">idx: geom, (geom::geography) GiST</text>
+  <text x="433" y="690" font-size="11" font-weight="700" fill="#1f6f5c">234 rows</text>
+  <circle cx="738" cy="552" r="5" fill="#1f6f5c"/>
+
+  <!-- nature_layer -->
+  <rect x="780" y="537" width="345" height="180" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="798" y="562" font-size="14" font-weight="700" fill="#1c2321">nature_layer</text>
+  <text x="798" y="584" font-size="11.5" fill="#5d655f">id(PK)</text>
+  <text x="798" y="602" font-size="11.5" fill="#5d655f">osm_raw_id → osm_raw.id</text>
+  <text x="798" y="620" font-size="11.5" fill="#5d655f">green_type · green_weight</text>
+  <text x="798" y="638" font-size="11.5" fill="#5d655f">source_name/id · name · geom</text>
+  <text x="798" y="690" font-size="11" fill="#8b9188">0 rows</text>
+  <circle cx="1103" cy="552" r="5" fill="#c9bea3"/>
+
+  <!-- landmark_layer -->
+  <rect x="1145" y="537" width="345" height="180" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="1163" y="562" font-size="14" font-weight="700" fill="#1c2321">landmark_layer</text>
+  <text x="1163" y="584" font-size="11.5" fill="#5d655f">id(PK) · FK 없음</text>
+  <text x="1163" y="602" font-size="11.5" fill="#5d655f">name</text>
+  <text x="1163" y="620" font-size="11.5" fill="#5d655f">geom</text>
+  <text x="1163" y="690" font-size="11" fill="#8b9188">0 rows</text>
+  <circle cx="1468" cy="552" r="5" fill="#c9bea3"/>
+
+  <!-- child_layer -->
+  <rect x="1510" y="537" width="340" height="180" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="1528" y="562" font-size="14" font-weight="700" fill="#1c2321">child_layer</text>
+  <text x="1528" y="584" font-size="11.5" fill="#5d655f">id(PK)</text>
+  <text x="1528" y="602" font-size="11.5" fill="#5d655f">csv_raw_id → csv_raw.id</text>
+  <text x="1528" y="620" font-size="11.5" fill="#5d655f">public_raw_id → public_raw.id</text>
+  <text x="1528" y="638" font-size="11.5" fill="#5d655f">category · geom</text>
+  <text x="1528" y="690" font-size="11" fill="#8b9188">0 rows</text>
+  <circle cx="1828" cy="552" r="5" fill="#c9bea3"/>
+
+  <!-- ===== ZONE 3 row 2 ===== -->
+  <rect x="50" y="740" width="345" height="150" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="68" y="765" font-size="14" font-weight="700" fill="#1c2321">running_layer</text>
+  <text x="68" y="787" font-size="11.5" fill="#5d655f">id(PK) · csv_raw_id → csv_raw.id</text>
+  <text x="68" y="805" font-size="11.5" fill="#5d655f">name · course_type · difficulty</text>
+  <text x="68" y="823" font-size="11.5" fill="#5d655f">geom</text>
+  <text x="68" y="855" font-size="11" font-weight="700" fill="#1f6f5c">229 rows</text>
+  <circle cx="373" cy="755" r="5" fill="#1f6f5c"/>
+
+  <rect x="415" y="740" width="345" height="150" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="433" y="765" font-size="14" font-weight="700" fill="#1c2321">edge_feature_layer</text>
+  <text x="433" y="787" font-size="11.5" fill="#5d655f">id(PK) · FK 없음</text>
+  <text x="433" y="805" font-size="11.5" fill="#5d655f">source_name/id(unique) · feature_type</text>
+  <text x="433" y="823" font-size="11.5" fill="#5d655f">verification_status · properties · geom</text>
+  <text x="433" y="855" font-size="11" fill="#8b9188">0 rows</text>
+  <circle cx="738" cy="755" r="5" fill="#c9bea3"/>
+
+  <rect x="780" y="740" width="345" height="150" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="798" y="765" font-size="14" font-weight="700" fill="#1c2321">route_pois</text>
+  <text x="798" y="787" font-size="11.5" fill="#5d655f">id(PK) · FK 없음(source_name/id unique)</text>
+  <text x="798" y="805" font-size="11.5" fill="#5d655f">category · name · nearest_node/edge_id</text>
+  <text x="798" y="823" font-size="11.5" fill="#5d655f">distance_m · is_route_connected · geom</text>
+  <text x="798" y="855" font-size="11" fill="#8b9188">0 rows</text>
+  <circle cx="1103" cy="755" r="5" fill="#c9bea3"/>
+
+  <rect x="1145" y="740" width="345" height="150" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="1163" y="765" font-size="14" font-weight="700" fill="#1c2321">seoul_administrative_boundary</text>
+  <text x="1163" y="787" font-size="11.5" fill="#5d655f">id(PK) · district_code(unique)</text>
+  <text x="1163" y="805" font-size="11.5" fill="#5d655f">name · geom(POLYGON, 25개 자치구)</text>
+  <text x="1163" y="855" font-size="11" font-weight="700" fill="#1f6f5c">25 rows</text>
+  <circle cx="1468" cy="755" r="5" fill="#1f6f5c"/>
+
+  <rect x="1510" y="740" width="340" height="150" rx="10" fill="#ffffff" stroke="#c9bea3" stroke-width="1.5"/>
+  <text x="1528" y="765" font-size="14" font-weight="700" fill="#1c2321">seoul_water_polygons</text>
+  <text x="1528" y="787" font-size="11.5" fill="#5d655f">id(PK) · FK 없음</text>
+  <text x="1528" y="805" font-size="11.5" fill="#5d655f">water_type · geom</text>
+  <text x="1528" y="855" font-size="11" fill="#8b9188">0 rows</text>
+  <circle cx="1828" cy="755" r="5" fill="#c9bea3"/>
+
+  <!-- FK arrows zone3 -> zone2 -->
+  <g stroke="#3a4a52" stroke-width="1.6" fill="none" marker-end="url(#fk)">
+    <path d="M220,537 L220,475"/>
+    <path d="M950,537 L740,475"/>
+    <path d="M215,740 L270,475"/>
+    <path d="M1600,537 L1180,475"/>
+    <path d="M1650,537 L1670,475"/>
+  </g>
+  <text x="225" y="530" font-size="10" fill="#3a4a52">safety→csv_raw</text>
+  <text x="900" y="530" font-size="10" fill="#3a4a52">nature→osm_raw</text>
+  <text x="1470" y="530" font-size="10" fill="#3a4a52">child→csv_raw/public_raw</text>
+  <text x="130" y="735" font-size="10" fill="#3a4a52">running→csv_raw</text>
+
+  <!-- ===== ZONE 4: 네트워크 코어 ===== -->
+  <text x="50" y="945" font-size="15.5" font-weight="700" fill="#1c2321">④ 도보 네트워크 코어</text>
+
+  <rect x="50" y="960" width="480" height="300" rx="10" fill="#ffffff" stroke="#26333a" stroke-width="2"/>
+  <text x="68" y="988" font-size="15" font-weight="700" fill="#1c2321">walk_nodes</text>
+  <text x="68" y="1012" font-size="12" fill="#5d655f">node_id (PK)</text>
+  <text x="68" y="1032" font-size="12" fill="#5d655f">geom (POINT, srid 4326)</text>
+  <text x="68" y="1052" font-size="12" fill="#5d655f">elevation_m</text>
+  <text x="68" y="1080" font-size="11" fill="#8b9188">idx: geom, (geom::geography) GiST</text>
+  <text x="68" y="1240" font-size="12.5" font-weight="700" fill="#1f6f5c">214,217 rows</text>
+  <circle cx="498" cy="978" r="5" fill="#1f6f5c"/>
+
+  <rect x="560" y="960" width="1290" height="300" rx="10" fill="#eef1ee" stroke="#26333a" stroke-width="2.5"/>
+  <text x="578" y="988" font-size="15" font-weight="700" fill="#1c2321">walk_edges</text>
+  <text x="578" y="1012" font-size="12" fill="#5d655f">link_id (PK) · start_node · end_node · length_m · geom(LINESTRING)</text>
+  <text x="578" y="1040" font-size="12.5" font-weight="700" fill="#1c2321">현재 존재하는 score 컬럼 4개 (ALTER TABLE로 런타임 추가됨):</text>
+  <rect x="578" y="1054" width="150" height="30" rx="6" fill="#e7e3d5"/><text x="653" y="1074" font-size="12" text-anchor="middle" fill="#1c2321">slope_score</text>
+  <rect x="740" y="1054" width="170" height="30" rx="6" fill="#e7e3d5"/><text x="825" y="1074" font-size="12" text-anchor="middle" fill="#1c2321">running_score</text>
+  <rect x="922" y="1054" width="170" height="30" rx="6" fill="#f3e0c8"/><text x="1007" y="1074" font-size="12" text-anchor="middle" font-weight="700" fill="#8a4a12">safety_score</text>
+  <rect x="1104" y="1054" width="180" height="30" rx="6" fill="#f3ddd6"/><text x="1194" y="1074" font-size="12" text-anchor="middle" font-weight="700" fill="#7a2418">accident_score</text>
+  <text x="578" y="1112" font-size="12" font-weight="600" fill="#a3311f">⚠ 2026-09-11 작업 중 사고로 삭제된 뒤 미복구(팀 결정으로 폐기 예정) — 지금은 없음:</text>
+  <text x="598" y="1132" font-size="11.5" fill="#5d655f" text-decoration="line-through">nature_score · landmark_score · child_score · park_overlap_ratio ·</text>
+  <text x="598" y="1150" font-size="11.5" fill="#5d655f" text-decoration="line-through">convenience_score · is_school_zone · is_vehicle_caution</text>
+  <text x="578" y="1180" font-size="11" fill="#8b9188">idx: geom, (geom::geography) GiST</text>
+  <text x="578" y="1240" font-size="12.5" font-weight="700" fill="#1f6f5c">278,762 rows</text>
+
+  <!-- conceptual (non-FK) link from layer zone to walk_edges -->
+  <path d="M220,717 L578,960" stroke="#c1611c" stroke-width="2" stroke-dasharray="7 5" fill="none" marker-end="url(#fk-muted)"/>
+  <path d="M580,717 L900,960" stroke="#a3311f" stroke-width="2" stroke-dasharray="7 5" fill="none" marker-end="url(#fk-muted)"/>
+  <text x="640" y="900" font-size="11" fill="#5d655f">SQL 커버리지 계산 결과로 채움 (FK 아님)</text>
+
+  <!-- ===== ZONE 5: 관리 밖 테이블 ===== -->
+  <text x="50" y="1330" font-size="15.5" font-weight="700" fill="#1c2321">⑤ 관리 밖 테이블 — ORM에 등록되지 않은 고아 테이블</text>
+
+  <rect x="50" y="1345" width="900" height="180" rx="10" fill="#ece7db" stroke="#8b9188" stroke-width="1.5" stroke-dasharray="8 6"/>
+  <text x="68" y="1372" font-size="14.5" font-weight="700" fill="#5d655f">safe_return_road</text>
+  <text x="68" y="1396" font-size="12" fill="#5d655f">기본키(PK) 없음 · src/ 코드 어디에도 참조 없음 · entity/base.py register_entities()에 미등록</text>
+  <text x="68" y="1418" font-size="12" fill="#5d655f">length_src · gu · dong · bell_cnt · cctv_cnt · light_cnt · police_cnt</text>
+  <text x="68" y="1438" font-size="12" fill="#5d655f">name · built_year · location · geom</text>
+  <text x="68" y="1465" font-size="11.5" fill="#5d655f">analysis/load_safe_return_road.py 가 geopandas.to_postgis()로 직접 생성 (검증 전용, 점수·그래프에 미연결)</text>
+  <text x="68" y="1495" font-size="12" font-weight="700" fill="#1f6f5c">362 rows</text>
+  <circle cx="928" cy="1362" r="5" fill="#1f6f5c"/>
+
+  <text x="50" y="1565" font-size="12" fill="#8b9188">작성: Claude Sonnet 5 · seoul-walk-platform · 코드 수정 없이 조회만 수행</text>
+</svg>

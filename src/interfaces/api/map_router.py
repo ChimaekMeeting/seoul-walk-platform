@@ -14,7 +14,6 @@ from src.interfaces.dependencies import get_map_service
 from src.interfaces.schema.map_schema import (
     FacilityResponse,
     PointResponse,
-    LandmarkResponse,
     EdgeResponse,
 )
 from src.service import MapService
@@ -96,71 +95,6 @@ def get_nature_points(
         return df.to_dict(orient="records")
     except Exception as e:
         logger.exception("녹지 포인트 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/points/landmark", response_model=list[LandmarkResponse])
-def get_landmark_points(
-    lat: float,
-    lon: float,
-    radius_m: int = 2000,
-    service: MapService = Depends(get_map_service)
-):
-    """
-    input : lat, lon, radius_m
-    output: [{"lat", "lon"}, ...]
-
-    DB에서 반경 내 랜드마크 포인트 전체를 조회해 반환
-    """
-    try:
-        df = service.fetch_landmark_points(lat, lon, radius_m)
-        return df.to_dict(orient="records")
-    except Exception as e:
-        logger.exception("랜드마크 포인트 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/points/child", response_model=list[PointResponse])
-def get_child_points(
-    lat: float,
-    lon: float,
-    radius_m: int = 2000,
-    service: MapService = Depends(get_map_service)
-):
-    """
-    input : lat, lon, radius_m
-    output: [{"lat", "lon", "category"}, ...]
-
-    DB에서 반경 내 어린이 시설 포인트 전체를 조회해 반환
-    카테고리 필터링은 클라이언트가 수행
-    """
-    try:
-        df = service.fetch_child_points(lat, lon, radius_m)
-        return df.to_dict(orient="records")
-    except Exception as e:
-        logger.exception("어린이 시설 포인트 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/points/running", response_model=list[PointResponse])
-def get_running_points(
-    lat: float,
-    lon: float,
-    radius_m: int = 2000,
-    service: MapService = Depends(get_map_service)
-):
-    """
-    input : lat, lon, radius_m
-    output: [{"lat", "lon", "category"}, ...]
-
-    DB에서 반경 내 러닝 코스 포인트 전체를 조회해 반환
-    카테고리(course_type) 필터링은 클라이언트가 수행
-    """
-    try:
-        df = service.fetch_running_points(lat, lon, radius_m)
-        return df.to_dict(orient="records")
-    except Exception as e:
-        logger.exception("러닝 코스 포인트 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
         raise HTTPException(status_code=500, detail=str(e))
 
 

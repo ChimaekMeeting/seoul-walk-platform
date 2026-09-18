@@ -3,9 +3,6 @@ import pandas as pd
 from src.infrastructure.external.client.kakao_client import KakaoClient
 from src.repository.layer.safety_repository import SafetyRepository
 from src.repository.layer.nature_repository import NatureRepository
-from src.repository.layer.landmark_repository import LandmarkRepository
-from src.repository.layer.child_repository import ChildRepository
-from src.repository.layer.running_repository import RunningRepository
 from src.repository.network.edge_repository import EdgeRepository
 
 
@@ -42,24 +39,6 @@ class MapService:
         DB에서 주변 녹지 포인트 전체를 조회합니다.
         """
         return NatureRepository.get(lat, lon, radius_m)
-
-    def fetch_landmark_points(self, lat, lon, radius_m=2000) -> pd.DataFrame:
-        """
-        DB에서 주변 랜드마크 포인트 전체를 조회합니다.
-        """
-        return LandmarkRepository.get(lat, lon, radius_m)
-
-    def fetch_child_points(self, lat, lon, radius_m=2000) -> pd.DataFrame:
-        """
-        DB에서 주변 어린이 시설 포인트 전체를 조회합니다.
-        """
-        return ChildRepository.get(lat, lon, radius_m)
-
-    def fetch_running_points(self, lat, lon, radius_m=2000) -> pd.DataFrame:
-        """
-        DB에서 주변 러닝 코스 포인트 전체를 조회합니다.
-        """
-        return RunningRepository.get(lat, lon, radius_m)
 
     def fetch_db_lines(self, lat, lon, radius_m=2000) -> pd.DataFrame:
         """

@@ -6,12 +6,8 @@ from typing import Any
 
 _EXPORTS = {
     "BaseNetworkCollector": "src.data.collectors.base_collector",
-    "NatureCollector": "src.data.collectors.nature_collector",
     "SafetyCollector": "src.data.collectors.safety_collector",
-    "LandmarkCollector": "src.data.collectors.landmark_collector",
-    "RunningCourseCollector": "src.data.collectors.running_collector",
     "SlopeCalculator": "src.data.collectors.slope_collector",
-    "ChildCollector": "src.data.collectors.child_collector",
     "CommercialCollector": "src.data.collectors.commercial_collector",
     "EdgeFeatureCollector": "src.data.collectors.edge_feature_collector",
     "RoutePoiCollector": "src.data.collectors.route_poi_collector",
