@@ -47,7 +47,7 @@ from src.repository.user.route_feedback_repository import RouteFeedbackRepositor
 from src.repository.user.route_history_repository import RouteHistoryRepository
 from src.repository.user.user_preference_repository import UserPreferenceRepository
 from src.repository.user.user_repository import UserRepository
-from src.route_engine.scoring.scoring_engine import LONGTERM_DIMENSIONS
+from src.route_engine.scoring.scoring_engine import FEATURE_DIMENSIONS
 from src.service.route.route_service import MIN_CANDIDATES_FOR_PROFILE
 from src.service.user.auth_service import AuthService
 from src.service.user.survey_service import BASE_COMFORT, BASE_WEIGHTS
@@ -78,7 +78,7 @@ def _contrast_vector(candidate_features: list[dict[str, float]]) -> dict[str, fl
     n = len(others)
     return {
         dim: chosen.get(dim, 0.0) - sum(o.get(dim, 0.0) for o in others) / n
-        for dim in LONGTERM_DIMENSIONS
+        for dim in FEATURE_DIMENSIONS
     }
 
 
@@ -177,16 +177,16 @@ class LongTermProfileService:
         y_overall = _normalize_rating(rating_overall)
 
         # 1) 자기 축 스텝 — 각 축을 그 축 자신의 별점으로 갱신.
-        for dim in LONGTERM_DIMENSIONS:
+        for dim in FEATURE_DIMENSIONS:
             y_hat = _NEUTRAL_PREDICTION + weights[dim] * x_contrast[dim]
             weights[dim] += eta * (y[dim] - y_hat) * x_contrast[dim]
 
         # 2) 전체 별점 결합 스텝 — 두 축이 함께 전체 만족도를 설명하도록 결합 오차를 분배.
         y_hat_overall = _NEUTRAL_PREDICTION + sum(
-            weights[dim] * x_contrast[dim] for dim in LONGTERM_DIMENSIONS
-        ) / len(LONGTERM_DIMENSIONS)
+            weights[dim] * x_contrast[dim] for dim in FEATURE_DIMENSIONS
+        ) / len(FEATURE_DIMENSIONS)
         overall_error = y_overall - y_hat_overall
-        for dim in LONGTERM_DIMENSIONS:
+        for dim in FEATURE_DIMENSIONS:
             weights[dim] += eta * overall_error * x_contrast[dim]
 
         weights = {dim: max(0.0, min(1.0, value)) for dim, value in weights.items()}

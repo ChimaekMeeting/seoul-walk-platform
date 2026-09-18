@@ -19,9 +19,7 @@ class GraphArtifactError(RuntimeError):
 class GraphArtifactRepository:
     SCHEMA_VERSION = 1
     REQUIRED_NODE_ATTRIBUTES = frozenset({"lon", "lat"})
-    REQUIRED_EDGE_ATTRIBUTES = frozenset(
-        {"link_id", "length", "toilet_count", "transit_count", "accessibility_poi_count"}
-    )
+    REQUIRED_EDGE_ATTRIBUTES = frozenset({"link_id", "length"})
 
     @staticmethod
     def companion_paths(artifact_path: str | Path) -> tuple[Path, Path, Path]:
