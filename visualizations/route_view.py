@@ -17,7 +17,8 @@ from visualizations.network_view import EARTH_RADIUS_M, _korean_font, _local_xy,
 # 서비스에 연결된 엔진인지(RunConditions.service_use)를 이름에 같이 적는다. 순환·편도
 # Beam은 RouteService.base_engines에 있고, GRASP 계열은 아직 서비스에 연결되지 않았다.
 LABELS = {"shortest": "최단거리 · A*", "shortest_alt": "최단거리 · A* + ALT",
-          "detour": "편도 우회 · Beam(서비스)", "circular": "순환 · Beam(서비스)"}
+          "detour": "편도 우회 · A*(서비스, oneway_shortest와 동일 — 임시)",
+          "circular": "순환 · GRASP+ALNS(서비스)"}
 LABELS.update({f"grasp_{r}": f"GRASP + {r.upper()}(벤치마크)"
                for r in ("none", "local", "vnd", "vns", "alns")})
 LABELS["grasp_none"] = "GRASP · 구축만(벤치마크)"

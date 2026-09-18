@@ -107,19 +107,6 @@ def candidate_links(event):
     return []
 
 
-def _by_iteration(events, kind):
-    """Beam 장면을 반복 번호로 묶는다. 반복 번호가 없는 기록은 빼고 본다."""
-    grouped = {}
-    for event in events:
-        if event.get("kind") != kind:
-            continue
-        iteration = (event.get("values") or {}).get("iteration")
-        if iteration is not None:
-            grouped.setdefault(iteration, []).extend(
-                tuple(path) for path in event.get("paths") or [])
-    return grouped
-
-
 def _path_distance(graph, nodes):
     """노드열을 실제 엣지 길이로 다시 잰다. 끊긴 노드열이면 None."""
     if len(nodes) < 2 or not all(graph.has_edge(a, b) for a, b in zip(nodes, nodes[1:])):
@@ -150,7 +137,7 @@ def check_format(context, report):
 
 
 def check_order(context, report):
-    """B. 단계 순서가 이어지고 Beam 반복 번호가 뒤로 가지 않는다."""
+    """B. 단계 순서(seq)가 0부터 1씩 이어지고 run_start로 시작해 final로 끝난다."""
     for result in context.results:
         events = result["trace"]
         if not events:
@@ -163,18 +150,6 @@ def check_order(context, report):
             report.fail(f"{context.where(result)}: 첫 kind가 {events[0].get('kind')!r}입니다.")
         if events[-1].get("kind") != "final":
             report.fail(f"{context.where(result)}: 마지막 kind가 {events[-1].get('kind')!r}입니다.")
-        previous = None
-        for event in events:
-            iteration = (event.get("values") or {}).get("iteration")
-            if iteration is None:
-                continue
-            if previous is not None and iteration < previous:
-                report.fail(f"{context.where(result, event)}: 반복 번호가 {previous} → {iteration}로 줄었습니다.")
-            previous = iteration
-        expansions = [ (e.get("values") or {}).get("iteration") for e in events
-                       if e.get("kind") == "candidates" and (e.get("values") or {}).get("iteration") is not None ]
-        if expansions and expansions != sorted(set(expansions)):
-            report.fail(f"{context.where(result)}: 확장 장면의 반복 번호가 1씩 늘지 않습니다({expansions[:8]}…).")
 
 
 def check_candidate_links(context, report):
@@ -204,21 +179,30 @@ def check_candidate_links(context, report):
 
 
 def check_reject_and_keep(context, report):
-    """D. 같은 반복의 유지·탈락이 겹치지 않고 확장 후보를 정확히 나눈다."""
+    """D. 같은 후보가 같은 원본 단계에서 채택과 기각에 동시에 걸리지 않는다.
+
+    Beam은 후보 id가 반복마다 새로 생겨 겹칠 일이 없었지만, GRASP+ALNS는 `restart:N`
+    처럼 후보 id를 구축 단위로 재사용한다(예: `alns_result`가 같은 restart 안에서
+    여러 번 select/reject를 낼 수 있다 — 정상 동작). 그래서 id만으로는 겹침을 판단할
+    수 없고, "같은 id가 같은 source_phase에서" 나온 select/reject만 모순으로 본다 —
+    한 번의 판단은 하나의 kind만 가져야 하기 때문이다. 실제 GRASP+ALNS 실행(여러
+    refinement·seed 조합)에서 이 기준으로는 거짓 위반이 나오지 않음을 확인했다.
+    """
     for result in context.results:
         events = result["trace"]
-        generated = _by_iteration(events, "candidates")
-        kept = _by_iteration(events, "select")
-        dropped = _by_iteration(events, "reject")
-        for iteration, candidates in generated.items():
-            keeps, drops = set(kept.get(iteration, [])), set(dropped.get(iteration, []))
-            overlap = keeps & drops
-            if overlap:
-                report.fail(f"{context.where(result)} 반복 {iteration}: 유지와 탈락에 같은 후보가 "
-                            f"{len(overlap)}개 있습니다.")
-            if keeps | drops != set(candidates):
-                report.fail(f"{context.where(result)} 반복 {iteration}: 유지∪탈락이 확장 후보와 "
-                            f"다릅니다(확장 {len(set(candidates))}, 유지 {len(keeps)}, 탈락 {len(drops)}).")
+        outcomes = {}  # (candidate_id, source_phase) -> 나온 kind 집합
+        for event in events:
+            kind = event.get("kind")
+            if kind not in ("select", "reject"):
+                continue
+            source_phase = event.get("source_phase")
+            for identifier, _parent, _nodes in candidate_links(event):
+                key = (identifier, source_phase)
+                seen = outcomes.setdefault(key, set())
+                if seen and kind not in seen:
+                    report.fail(f"{context.where(result, event)}: 후보 {identifier!r}가 "
+                                f"{source_phase!r} 단계에서 select와 reject에 동시에 걸렸습니다.")
+                seen.add(kind)
         for event in events:
             # ALNS 내부 수락은 최종 채택이 아니다. 평가 장면 밖으로 올라가면 안 된다.
             if event.get("source_phase") == "alns_accept" and event.get("kind") != "evaluate":

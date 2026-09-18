@@ -5,18 +5,21 @@ import sys
 import networkx as nx
 import pytest
 
-from src.route_engine.engines import circular_beam, oneway_beam
+from src.route_engine.engines.circular_grasp_waypoint_alns import CircularGraspWaypointAlnsEngine
+from src.schema.route_schema import CircularRouteInput
 from visualizations.route_experiment import compare_recording, execute, graph_digest, validate_lengths
-from visualizations.route_trace import SearchTrace
 from visualizations.routes import validate_destination
+from visualizations.waypoint_trace import WaypointTrace
 
 
-@pytest.mark.parametrize("mode", ["shortest", "detour", "circular"])
-def test_real_engine_trace_preserves_paths_graph_and_score_functions(grid, mode):
+@pytest.mark.parametrize("mode", ["shortest", "detour"])
+def test_real_engine_trace_preserves_paths_and_graph(grid, mode):
+    """shortest/detour 둘 다 OnewayAstarEngine이라 같은 A* 어댑터 계측을 쓴다 —
+    detour(편도 우회)는 아직 실제 우회 로직이 없어 shortest와 동일하게 동작한다
+    (route_experiment.py::execute() 참고)."""
     before = graph_digest(grid)
-    original = (circular_beam.calculate_custom_score, oneway_beam.calculate_custom_score)
     start = {"node": 0, **grid.nodes[0]}
-    end = start if mode == "circular" else {"node": 24, **grid.nodes[24]}
+    end = {"node": 24, **grid.nodes[24]}
     target = None if mode == "shortest" else 1500
     recorded = execute(grid, mode, start, end, target)
     plain = execute(grid, mode, start, end, target, record=False)
@@ -25,32 +28,41 @@ def test_real_engine_trace_preserves_paths_graph_and_score_functions(grid, mode)
     assert plain["run_seconds"] > 0
     assert graph_digest(grid) == before
     assert sys.gettrace() is None
-    assert original == (circular_beam.calculate_custom_score, oneway_beam.calculate_custom_score)
     phases = {e["phase"] for e in recorded["trace"]}
-    if mode == "shortest":
-        # A*는 어댑터가 run_start·select·final을 한 기록으로 만든다(중복 삽입 없음).
-        assert {"start", "astar", "final"} <= phases
-        assert [e["seq"] for e in recorded["trace"]] == list(range(len(recorded["trace"])))
-        assert recorded["conditions"]["heuristic"]["name"] == "haversine"
-        assert recorded["trace_source_hashes"] == {}
-        assert recorded["metrics"][0]["distance_m"] == nx.dijkstra_path_length(grid, 0, 24, weight="length")
-        assert recorded["metrics"][0]["endpoints_match"]
-    else:
-        assert {"expand", "keep", "connect", "selection", "prune", "final"} <= phases
-        for event in recorded["trace"]:
-            if event["phase"] == "keep":
-                assert len(event["paths"]) == event["kept"] <= 8
-                assert event["generated"] >= event["kept"]
-                for path in event["paths"]:
-                    assert len(path) == len(set(path))
-                    assert all(grid.has_edge(u, v) for u, v in zip(path, path[1:]))
+    # A*는 어댑터가 run_start·select·final을 한 기록으로 만든다(중복 삽입 없음).
+    assert {"start", "astar", "final"} <= phases
+    assert [e["seq"] for e in recorded["trace"]] == list(range(len(recorded["trace"])))
+    assert recorded["conditions"]["heuristic"]["name"] == "haversine"
+    assert recorded["trace_source_hashes"] == {}
+    assert recorded["metrics"][0]["distance_m"] == nx.dijkstra_path_length(grid, 0, 24, weight="length")
+    assert recorded["metrics"][0]["endpoints_match"]
+
+
+def test_circular_uses_the_grasp_alns_waypoint_engine(grid):
+    """circular은 route_service.py와 같은 CircularGraspWaypointAlnsEngine을 쓴다 —
+    grasp_alns 조합과 같은 WaypointTrace 계측(grasp_choice/constructed/winner/final)이
+    나와야 한다."""
+    before = graph_digest(grid)
+    start = {"node": 0, **grid.nodes[0]}
+    recorded = execute(grid, "circular", start, start, 1500)
+    plain = execute(grid, "circular", start, start, 1500, record=False)
+    assert compare_recording(recorded, plain)
+    assert graph_digest(grid) == before
+    assert sys.gettrace() is None
+    phases = {e["phase"] for e in recorded["trace"]}
+    assert {"grasp_choice", "constructed", "winner", "final"} <= phases
+    assert recorded["refinement"] == "alns"
 
 
 def test_trace_restored_when_run_raises(grid):
-    from src.schema.route_schema import CircularRouteInput
-    engine = circular_beam.CircularBeamEngine(CircularRouteInput(start_lat=37, start_lon=127), grid)
+    """WaypointTrace(SearchTrace를 상속)도 예외 중 sys.settrace를 복원해야 한다 —
+    옛 CircularBeamEngine/SearchTrace 조합으로 검증하던 항목을 GRASP+ALNS 계열로 재현한다
+    (CircularBeamEngine은 삭제됨, WaypointTrace가 __enter__/__exit__을 그대로 물려받는다)."""
+    engine = CircularGraspWaypointAlnsEngine(
+        CircularRouteInput(start_lat=37, start_lon=127, target_km=1.5), grid,
+    )
     with pytest.raises(RuntimeError, match="test failure"):
-        with SearchTrace(engine):
+        with WaypointTrace(engine):
             raise RuntimeError("test failure")
     assert sys.gettrace() is None
 

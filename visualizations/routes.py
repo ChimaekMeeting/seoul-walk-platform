@@ -162,7 +162,11 @@ def main():
     parser.add_argument("--alt-k", type=int, default=DEFAULT_ALT_K,
                         help="ALT 랜드마크 개수(Planar는 섹터 수라 실제 개수가 더 적을 수 있음)")
     parser.add_argument("--alt-seed", type=int, default=DEFAULT_ALT_SEED, help="Random 선택법 seed")
-    parser.add_argument("--detour-extra-km", type=float, default=1.0, help="편도 목표 = 측정한 최단거리 + 이 거리")
+    parser.add_argument("--detour-extra-km", type=float, default=1.0,
+                        help="편도 목표 = 측정한 최단거리 + 이 거리. 현재 detour는 oneway_random이 "
+                             "임시로 oneway_shortest와 같은 OnewayAstarEngine을 쓰는 동안 target_km을 "
+                             "읽지 않아 사실상 죽은 옵션이다(결과 경로는 항상 최단경로와 같다) — "
+                             "detour가 실제 우회 로직을 갖추면 다시 쓰이도록 남겨 둔다.")
     parser.add_argument("--output-dir", default=str(REPOSITORY_ROOT / "outputs/algorithm_visualization/routes"))
     args = parser.parse_args()
     try:
