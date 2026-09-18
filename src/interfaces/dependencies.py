@@ -11,7 +11,8 @@ from src.service import (
     BannerService,
     MapService,
     GpsArtService,
-    SurveyService
+    SurveyService,
+    LongTermProfileService,
 )
 from src.agent.nodes import (
     WeatherChecker,
@@ -46,6 +47,7 @@ banner_service      = BannerService(MarathonClient(), weather_client)
 map_service         = MapService(kakao_client)
 survey_service      = SurveyService(auth_service)
 gps_art_service     = GpsArtService(auth_service)
+longterm_profile_service = LongTermProfileService(auth_service)
 
 G = None
 route_service: Optional[RouteService] = None
@@ -139,3 +141,7 @@ def get_survey_service() -> SurveyService:
 # GPS Art
 def get_gps_art_service() -> GpsArtService:
     return gps_art_service
+
+# 산책 후 피드백 / 장기 프로필
+def get_longterm_profile_service() -> LongTermProfileService:
+    return longterm_profile_service

@@ -10,7 +10,11 @@ from src.interfaces.schema.walk_schema import (
     WalkRouteResponse
 )
 from src.schema.route_schema import CircularRouteInput, Weights
-from src.route_engine.scoring.scoring_engine import calculate_custom_score, compute_score_vector
+from src.route_engine.scoring.scoring_engine import (
+    calculate_custom_score,
+    compute_score_vector,
+    path_feature_averages,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +37,9 @@ class CircularBeamEngine:
         self.weights       = merge_weights(profile_config.weights, custom_weights)
         self.blocked_tags  = profile_config.blocked_tags
         self.scoring_mode  = profile_config.scoring_mode
+        # 장기 프로필 SGD의 X_R 입력 — 후보별 {"safety": 0~1, "comfort": 0~1} 평균(반환 순서와 동일).
+        # route_service가 RouteHistory.candidate_features로 그대로 영속화한다.
+        self.candidate_feature_vectors: list[dict[str, float]] = []
 
     def run(self) -> List[WalkRouteResponse]:
         """
@@ -84,6 +91,7 @@ class CircularBeamEngine:
             coords   = self.utils.extract_coordinates(pruned)  # [lat, lon] 좌표 목록
             total_m  = self.utils.calc_distance(pruned)        # 총 이동 거리(미터)
             total_km = round(total_m / 1000, 2)
+            self.candidate_feature_vectors.append(path_feature_averages(self.G, pruned))
             responses.append(WalkRouteResponse(
                 status          = WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
                 mode            = self.mode,

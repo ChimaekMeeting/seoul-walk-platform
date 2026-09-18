@@ -58,12 +58,12 @@ def auth_service():
 class TestWalkRouteAPI:
     def test_순환_랜덤_경로_요청_성공(self, client):
         mock_service = MagicMock()
-        mock_service.get_route.return_value = WalkRouteResponse(
+        mock_service.get_route.return_value = [WalkRouteResponse(
             status=WalkRouteStatus.SUCCESS,
             mode=WalkMode.CIRCULAR_RANDOM,
             coordinates=[[37.5, 127.0], [37.51, 127.01], [37.5, 127.0]],
             total_km=3.1,
-        )
+        )]
         with patch("src.interfaces.dependencies.route_service", mock_service):
             response = client.post(
                 "/api/walk/route",
@@ -82,12 +82,12 @@ class TestWalkRouteAPI:
 
     def test_편도_최단_경로_요청_성공(self, client):
         mock_service = MagicMock()
-        mock_service.get_route.return_value = WalkRouteResponse(
+        mock_service.get_route.return_value = [WalkRouteResponse(
             status=WalkRouteStatus.SUCCESS,
             mode=WalkMode.ONEWAY_SHORTEST,
             coordinates=[[37.5, 127.0], [37.55, 127.05], [37.6, 127.1]],
             total_km=7.2,
-        )
+        )]
         with patch("src.interfaces.dependencies.route_service", mock_service):
             response = client.post(
                 "/api/walk/route",
@@ -103,12 +103,12 @@ class TestWalkRouteAPI:
 
     def test_경로_생성_실패_시_상태값을_반환한다(self, client):
         mock_service = MagicMock()
-        mock_service.get_route.return_value = WalkRouteResponse(
+        mock_service.get_route.return_value = [WalkRouteResponse(
             status=WalkRouteStatus.NO_NEAREST_START_NODE,
             mode=WalkMode.CIRCULAR_RANDOM,
             coordinates=[],
             total_km=0.0,
-        )
+        )]
         with patch("src.interfaces.dependencies.route_service", mock_service):
             response = client.post(
                 "/api/walk/route",
@@ -123,12 +123,12 @@ class TestWalkRouteAPI:
 
     def test_경로_생성_실패_시_no_path_상태값을_반환한다(self, client):
         mock_service = MagicMock()
-        mock_service.get_route.return_value = WalkRouteResponse(
+        mock_service.get_route.return_value = [WalkRouteResponse(
             status=WalkRouteStatus.NO_PATH,
             mode=WalkMode.CIRCULAR_RANDOM,
             coordinates=[],
             total_km=0.0,
-        )
+        )]
         with patch("src.interfaces.dependencies.route_service", mock_service):
             response = client.post(
                 "/api/walk/route",
@@ -142,12 +142,12 @@ class TestWalkRouteAPI:
 
     def test_편도_경로_요청_destination_없으면_invalid_destination_상태값을_반환한다(self, client):
         mock_service = MagicMock()
-        mock_service.get_route.return_value = WalkRouteResponse(
+        mock_service.get_route.return_value = [WalkRouteResponse(
             status=WalkRouteStatus.INVALID_DESTINATION,
             mode=WalkMode.ONEWAY_SHORTEST,
             coordinates=[],
             total_km=0.0,
-        )
+        )]
         with patch("src.interfaces.dependencies.route_service", mock_service):
             response = client.post(
                 "/api/walk/route",
@@ -163,12 +163,12 @@ class TestWalkRouteAPI:
 
     def test_알수없는_오류는_unknown_error_상태값을_반환한다(self, client):
         mock_service = MagicMock()
-        mock_service.get_route.return_value = WalkRouteResponse(
+        mock_service.get_route.return_value = [WalkRouteResponse(
             status=WalkRouteStatus.UNKNOWN_ERROR,
             mode=WalkMode.CIRCULAR_RANDOM,
             coordinates=[],
             total_km=0.0,
-        )
+        )]
         with patch("src.interfaces.dependencies.route_service", mock_service):
             response = client.post(
                 "/api/walk/route",
@@ -540,13 +540,13 @@ class TestSurveyAPI:
             status=SurveyStatus.SUCCESS,
             default_target_km=3.0,
             weights_safety=0.7,
-            weights_comfort=0.5,
+            weights_comfort=0.2667,
         )
         with patch("src.interfaces.dependencies.survey_service", mock_service):
             response = client.post(
                 "/api/user/survey",
                 json={
-                    "tags": ["안전", "편안"],
+                    "tags": ["안전"],
                     "distance": "normal",
                 },
             )
@@ -555,7 +555,7 @@ class TestSurveyAPI:
         assert body["status"] == "success"
         assert body["default_target_km"] == 3.0
         assert body["weights_safety"] == 0.7
-        assert body["weights_comfort"] == 0.5
+        assert body["weights_comfort"] == 0.2667
 
     def test_태그_없이_제출하면_성공(self, client):
         mock_service = MagicMock()

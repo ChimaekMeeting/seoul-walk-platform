@@ -7,3 +7,4 @@ from src.service.route.banner_service import BannerService
 from src.service.route.map_service import MapService
 from src.service.route.gps_art_service import GpsArtService
 from src.service.user.survey_service import SurveyService
+from src.service.user.longterm_profile_service import LongTermProfileService

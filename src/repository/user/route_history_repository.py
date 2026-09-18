@@ -17,6 +17,7 @@ class RouteHistoryRepository:
         total_km: float,
         destination_lat: Optional[float] = None,
         destination_lon: Optional[float] = None,
+        candidate_features: Optional[list] = None,
     ) -> RouteHistory:
         with get_postgresql_db() as db:
             history = RouteHistory(
@@ -28,6 +29,7 @@ class RouteHistoryRepository:
                 destination_lon=destination_lon,
                 coordinates=coordinates,
                 total_km=total_km,
+                candidate_features=candidate_features,
             )
             db.add(history)
             db.commit()

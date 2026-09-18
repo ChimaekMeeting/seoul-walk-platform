@@ -15,6 +15,15 @@ COMFORT_TAG_PENALTIES = {
 # 무관하게, 대표 후보(가중 스칼라 기준 1등)와 다른 두 후보를 고를 때만 쓴다.
 VECTOR_SCORE_DIMENSIONS = ("safety", "nature", "slope", "convenience", "accessibility")
 
+# 장기 프로필(UserPreference.weights_safety/weights_comfort)이 추적하는 축.
+# path_feature_averages()가 이 두 축만 0~1 평균으로 계산해 반환한다
+# (survey_service/longterm_profile_service의 SGD contrast 입력).
+LONGTERM_DIMENSIONS = ("safety", "comfort")
+
+# comfort_penalty(1.0~1.20, COMFORT_TAG_PENALTIES 최댓값)를 0~1 "편안함" 점수로 뒤집는 상수.
+# penalty=1.0(태그 없음) → comfort=1.0, penalty=1.20(터널 등 최대 페널티) → comfort=0.0.
+_MAX_COMFORT_PENALTY_SPAN = max(COMFORT_TAG_PENALTIES.values()) - 1.0
+
 _FEATURE_CACHE_KEY = "_scoring_feature_cache"
 
 
@@ -68,6 +77,7 @@ def _build_feature_cache(graph: nx.Graph) -> dict:
                 comfort_penalty[i] = max(comfort_penalty[i], penalty)
 
     convenience_poi = _bounded_count_score_arr(toilet_count + transit_count, saturation_count=3)
+    comfort_feature = 1.0 - _clamp_score_arr((comfort_penalty - 1.0) / _MAX_COMFORT_PENALTY_SPAN)
 
     return {
         "edge_keys": edge_keys,
@@ -79,6 +89,7 @@ def _build_feature_cache(graph: nx.Graph) -> dict:
         "running": _clamp_score_arr(running_raw),
         "convenience": np.maximum(_clamp_score_arr(convenience_raw), convenience_poi),
         "accessibility": _bounded_count_score_arr(accessibility_count, saturation_count=2),
+        "comfort": comfort_feature,
         "is_vehicle_caution": is_vehicle_caution,
         "comfort_penalty": comfort_penalty,
         "tags_list": tags_list,
@@ -242,3 +253,44 @@ def compute_score_vector(graph: nx.Graph) -> dict[tuple, dict[str, float]]:
         vectors[(v, u)] = edge_vector
 
     return vectors
+
+
+def path_feature_averages(
+    graph: nx.Graph,
+    path_nodes: list[int],
+    dims: tuple[str, ...] = LONGTERM_DIMENSIONS,
+) -> dict[str, float]:
+    """
+    경로(path_nodes)를 따라 dims의 각 raw 0~1 feature를 length-가중 평균으로 계산합니다.
+
+    compute_score_vector()의 "length * (1-feature)" 비용 합산과 달리, 여기서는
+    0~1 원점수 자체의 평균을 반환한다 — 장기 프로필 SGD의 X_R(후보 경로 특성값)로
+    쓰기 위함이며, 별점(정규화 시 0~1)과 같은 스케일이어야 대조값(contrast) 계산이
+    의미를 가진다(longterm_profile_service 참고).
+
+    path_nodes가 2개 미만(엣지가 없음)이면 모든 차원을 0.0으로 반환한다.
+    """
+    if len(path_nodes) < 2:
+        return {dim: 0.0 for dim in dims}
+
+    cache = _get_feature_cache(graph)
+    edge_index = {key: i for i, key in enumerate(cache["edge_keys"])}
+    # 무방향 그래프이므로 역방향도 같은 인덱스를 찾을 수 있게 보강한다.
+    for (u, v), i in list(edge_index.items()):
+        edge_index.setdefault((v, u), i)
+
+    totals = {dim: 0.0 for dim in dims}
+    total_length = 0.0
+    for a, b in zip(path_nodes, path_nodes[1:]):
+        i = edge_index.get((a, b))
+        if i is None:
+            continue
+        length = float(cache["length"][i])
+        total_length += length
+        for dim in dims:
+            totals[dim] += length * float(cache[dim][i])
+
+    if total_length <= 0.0:
+        return {dim: 0.0 for dim in dims}
+
+    return {dim: totals[dim] / total_length for dim in dims}

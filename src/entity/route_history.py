@@ -28,6 +28,11 @@ class RouteHistory(Base):
     is_favorite: Mapped[bool] = mapped_column(
         default=False, server_default="false", nullable=False
     )
+    # 장기 프로필 SGD의 X_contrast 계산용 스냅샷. index 0 = 대표 후보(사용자에게 보여준/저장된
+    # 경로), 나머지는 같은 요청에서 함께 생성됐지만 보여주지 않은 후보(최대 2개)다.
+    # 각 원소는 {"safety": 0~1, "comfort": 0~1} (scoring_engine.path_feature_averages).
+    # 후보가 1개뿐이었던 요청(oneway_shortest 등 다양화하지 않는 모드)은 None.
+    candidate_features: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         server_default=func.now(),

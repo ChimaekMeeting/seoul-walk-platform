@@ -11,14 +11,21 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import logging
 
-from src.interfaces.dependencies import get_survey_service, get_auth_service, get_user_service
+from src.interfaces.dependencies import (
+    get_survey_service,
+    get_auth_service,
+    get_user_service,
+    get_longterm_profile_service,
+)
 from src.interfaces.schema.survey_schema import SurveyRequest, SurveyResponse, SurveyStatusResponse
+from src.interfaces.schema.route_feedback_schema import RouteFeedbackRequest, RouteFeedbackResponse
 from src.interfaces.schema.user_schema import (
     UserMeResponse, UserUpdateRequest, UserUpdateResponse,
     RouteHistoryResponse, RouteHistoryItem,
 )
 from src.service.user.survey_service import SurveyService
 from src.service.user.user_service import UserService
+from src.service.user.longterm_profile_service import LongTermProfileService
 from src.repository.user.user_repository import UserRepository
 from src.repository.user.route_history_repository import RouteHistoryRepository
 from src.service.user.auth_service import AuthService
@@ -176,6 +183,24 @@ def get_route_history(
     except Exception as e:
         logger.exception("경로 기록 상세 조회 중 오류가 발생했습니다: history_id=%s", history_id)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/routes/{history_id}/feedback", response_model=RouteFeedbackResponse)
+def submit_route_feedback(
+    history_id: int,
+    request: RouteFeedbackRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
+    cookie_token: str = Cookie(None, alias="access_token"),
+    service: LongTermProfileService = Depends(get_longterm_profile_service),
+):
+    """
+    산책 후 피드백(안전/편안/전체 별점, 각 1~5)을 제출합니다.
+    같은 후보군(최소 3개)과 대조(contrast)할 수 있는 경로에 한해 장기 프로필
+    (weights_safety/weights_comfort)이 온라인 SGD로 갱신됩니다 — longterm_profile_service 참고.
+    """
+    return service.submit_feedback(
+        _resolve_token(credentials, cookie_token), history_id, request
+    )
 
 
 @router.get("/survey", response_model=SurveyStatusResponse)
