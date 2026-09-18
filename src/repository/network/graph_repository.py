@@ -6,7 +6,6 @@ from sqlalchemy import select
 from src.database.postgresql import get_postgresql_db
 from src.entity.network.walk_edge import WalkEdge
 from src.entity.network.walk_node import WalkNode
-from src.repository.layer.route_poi_repository import RoutePoiRepository
 
 import logging
 logger = logging.getLogger(__name__)
@@ -14,26 +13,20 @@ logger = logging.getLogger(__name__)
 
 class GraphRepository:
     @staticmethod
-    def _edge_attributes(row, poi_counts: dict[str, int] | None = None) -> dict:
+    def _edge_attributes(row) -> dict:
         """DB row를 NetworkX edge 속성으로 옮긴다. 값을 계산하지 않고 그대로 전달한다.
 
         점수 세 개는 NULL을 0.0으로 바꾸지 않고 None 그대로 넘긴다 — "미계산"과
         "계산했고 0"의 구분이 여기서 사라지면 복구할 수 없다. 결측 판단은 그래프
         단위로 WeightedEdgeCost.check_coverage()가 맡는다.
         """
-        attributes = {
+        return {
             "link_id": row.link_id,
             "length": row.length_m,
             "safety_score": row.safety_score,
             "accident_score": row.accident_score,
             "slope_score": row.slope_score,
-            "toilet_count": 0,
-            "transit_count": 0,
-            "accessibility_poi_count": 0,
         }
-        if poi_counts:
-            attributes.update(poi_counts)
-        return attributes
 
     @staticmethod
     def load_graph() -> nx.Graph:
@@ -47,7 +40,6 @@ class GraphRepository:
                 - edge 속성: link_id, length
         """
         G = nx.Graph()
-        poi_counts_by_edge = RoutePoiRepository.get_connected_counts_by_edge()
 
         with get_postgresql_db() as db:
             node_rows = db.execute(
@@ -74,9 +66,7 @@ class GraphRepository:
             ).fetchall()
 
             for row in edge_rows:
-                attributes = GraphRepository._edge_attributes(
-                    row, poi_counts_by_edge.get(row.link_id)
-                )
+                attributes = GraphRepository._edge_attributes(row)
                 G.add_edge(row.start_node, row.end_node, **attributes)
 
         logger.info(f"그래프 로드 완료: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")
@@ -95,7 +85,6 @@ class GraphRepository:
     @staticmethod
     def load_graph_near(lat: float, lon: float, radius_m: float = 3000) -> nx.Graph:
         G = nx.Graph()
-        poi_counts_by_edge = RoutePoiRepository.get_connected_counts_by_edge()
         origin_geog = ST_SetSRID(ST_MakePoint(lon, lat), 4326).cast(Geography)
 
         with get_postgresql_db() as db:
@@ -123,9 +112,7 @@ class GraphRepository:
             ).fetchall()
 
             for row in edge_rows:
-                attributes = GraphRepository._edge_attributes(
-                    row, poi_counts_by_edge.get(row.link_id)
-                )
+                attributes = GraphRepository._edge_attributes(row)
                 G.add_edge(row.start_node, row.end_node, **attributes)
 
         logger.info(f"반경 {radius_m}m 그래프 로드: 노드 {G.number_of_nodes()}개, 엣지 {G.number_of_edges()}개")

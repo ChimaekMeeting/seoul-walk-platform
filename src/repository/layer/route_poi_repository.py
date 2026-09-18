@@ -69,41 +69,6 @@ class RoutePoiRepository:
         ]
 
     @staticmethod
-    def get_connected_counts_by_edge() -> dict[int, dict[str, int]]:
-        """도보망에 연결된 POI 수를 Edge와 서비스 용도별로 반환합니다."""
-        statement = text(
-            """
-            SELECT
-                nearest_edge_id,
-                COUNT(*) FILTER (
-                    WHERE category = 'toilet'
-                ) AS toilet_count,
-                COUNT(*) FILTER (
-                    WHERE category = 'transit'
-                ) AS transit_count,
-                COUNT(*) FILTER (
-                    WHERE category = 'accessibility'
-                ) AS accessibility_poi_count
-            FROM route_pois
-            WHERE is_route_connected = true
-              AND nearest_edge_id IS NOT NULL
-            GROUP BY nearest_edge_id
-            """
-        )
-        with get_postgresql_db() as db:
-            rows = db.execute(statement).fetchall()
-        return {
-            int(row.nearest_edge_id): {
-                "toilet_count": int(row.toilet_count),
-                "transit_count": int(row.transit_count),
-                "accessibility_poi_count": int(
-                    row.accessibility_poi_count
-                ),
-            }
-            for row in rows
-        }
-
-    @staticmethod
     def replace_source(source_name: str, records: list[dict]) -> None:
         """한 원본의 POI를 최신 스냅샷으로 교체합니다."""
         if not records:

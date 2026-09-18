@@ -13,13 +13,11 @@ from src.interfaces.schema.auth_schema import Status
 from src.interfaces.schema.walk_schema import (
     Coordinate,
     WalkMode,
-    WalkRouteRequest,
     WalkRouteResponse,
     WalkRouteStatus,
 )
 from src.agent.nodes.route_executor import RouteExecutor
 from src.repository.layer.route_poi_repository import RoutePoiRepository
-from src.route_engine.profiles import ScoringProfile
 from src.schema.prewalk_schema import CircularPreference, Location, State
 from src.service.route.route_service import RouteService
 
@@ -335,7 +333,7 @@ class TestWaypointRouting:
         assert captured["inp"].leg_target_km == [None]
 
 
-def _chat_state(feature_labels=None, profile=None):
+def _chat_state(feature_labels=None):
     origin = Location(lat=37.5, lon=127.0)
     return State(
         user_id=1,
@@ -344,7 +342,6 @@ def _chat_state(feature_labels=None, profile=None):
         mode=WalkMode.CIRCULAR_RANDOM,
         user_context=CircularPreference(origin=origin, target_km=2.0),
         feature_labels=feature_labels or {},
-        profile=profile,
     )
 
 
@@ -364,9 +361,7 @@ class TestRouteWeightPersonalization:
             weights = RouteExecutor()._build_weights(_chat_state())
 
         assert weights.safety == pytest.approx(0.8)
-        assert weights.slope == pytest.approx(0.9)  # comfort -> route_schema.Weights.slope
-        assert weights.nature == pytest.approx(0.0)
-        assert weights.accessibility == pytest.approx(0.0)
+        assert weights.comfort == pytest.approx(0.9)
 
     def test_설문값이_없으면_스키마_기본값을_사용한다(self):
         with patch(
@@ -376,41 +371,7 @@ class TestRouteWeightPersonalization:
             weights = RouteExecutor()._build_weights(_chat_state())
 
         assert weights.safety == pytest.approx(0.5)
-        assert weights.slope == pytest.approx(0.5)
-
-    def test_명시한_profile이_있으면_그대로_사용된다(self):
-        executor = RouteExecutor.__new__(RouteExecutor)
-        route_call = AsyncMock(return_value=None)
-        executor.route_tool = MagicMock(
-            tool_map={"circular_random_route": MagicMock(ainvoke=route_call)}
-        )
-        state = _chat_state(profile=ScoringProfile.NATURE)
-
-        with patch(
-            "src.agent.nodes.route_executor.UserPreferenceRepository.get_by_user_id",
-            return_value=None,
-        ):
-            result = asyncio.run(executor.run(state))
-
-        assert result.profile == ScoringProfile.NATURE
-        assert route_call.await_args.args[0]["profile"] == ScoringProfile.NATURE
-
-    def test_profile이_없으면_DEFAULT를_사용한다(self):
-        executor = RouteExecutor.__new__(RouteExecutor)
-        route_call = AsyncMock(return_value=None)
-        executor.route_tool = MagicMock(
-            tool_map={"circular_random_route": MagicMock(ainvoke=route_call)}
-        )
-        state = _chat_state()
-
-        with patch(
-            "src.agent.nodes.route_executor.UserPreferenceRepository.get_by_user_id",
-            return_value=None,
-        ):
-            result = asyncio.run(executor.run(state))
-
-        assert result.profile == ScoringProfile.DEFAULT
-        assert route_call.await_args.args[0]["profile"] == ScoringProfile.DEFAULT
+        assert weights.comfort == pytest.approx(0.0)
 
 
 class TestRoutePoiLookup:
@@ -463,16 +424,3 @@ class TestRoutePoiLookup:
         assert result[0]["distance_to_route_m"] == 7.8
         params = db.execute.call_args.args[1]
         assert params["route_wkt"] == "LINESTRING(127.0 37.5, 127.01 37.51)"
-
-
-class TestWalkProfileSchema:
-    @pytest.mark.parametrize("profile", ["accessible", "convenient"])
-    def test_직접_API가_새_프로필을_허용한다(self, profile):
-        request = WalkRouteRequest.model_validate({
-            "origin": {"lat": 37.5, "lon": 127.0},
-            "target_km": 2.0,
-            "mode": "circular_random",
-            "profile": profile,
-        })
-
-        assert request.profile == ScoringProfile(profile)

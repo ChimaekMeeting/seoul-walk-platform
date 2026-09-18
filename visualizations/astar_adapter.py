@@ -241,7 +241,6 @@ def _engine_contract(engine):
     contract = {
         "heuristic": getattr(engine, "_active_heuristic", _MISSING),
         "heuristic_name": getattr(engine, "heuristic_name", _MISSING),
-        "blocked_tags": getattr(engine, "blocked_tags", _MISSING),
         "visited_nodes": getattr(engine, "visited_nodes", _MISSING),
     }
     missing = sorted(name for name, value in contract.items() if value is _MISSING)
@@ -278,11 +277,10 @@ def _heuristic_conditions(graph, name, table, alt_seed):
     )
 
 
-def _weight_policy(blocked_tags, visited_nodes):
+def _weight_policy(visited_nodes):
     visited = f"{len(visited_nodes)}개" if visited_nodes else "없음"
     return (
         "기본 엣지 비용 = length(compute_distance_only_lookup). "
-        f"blocked_tags({len(blocked_tags)}개) 엣지는 inf. "
         f"기방문 노드는 도착지를 빼고 {_RETURN_REVISIT_PENALTY}배 — "
         f"이번 실행의 visited_nodes는 {visited}."
     )
@@ -338,7 +336,7 @@ def record_astar_run(engine, graph, *, mode, target_m=None, seed=None, alt_seed=
 
     start, end = captured["start"], captured["end"]
     visited_nodes = contract["visited_nodes"]
-    base_weight = compute_distance_only_lookup(graph, contract["blocked_tags"])["weight"]
+    base_weight = compute_distance_only_lookup(graph)["weight"]
 
     def weight(u, v, data):
         # find_path의 _weight와 같은 규칙: 도착지 자신은 재방문 페널티에서 뺀다.
@@ -371,7 +369,7 @@ def record_astar_run(engine, graph, *, mode, target_m=None, seed=None, alt_seed=
         engine_class=type(engine).__name__,
         mode=mode,
         heuristic=_heuristic_conditions(graph, contract["heuristic_name"], table, alt_seed),
-        weight_policy=_weight_policy(contract["blocked_tags"], visited_nodes),
+        weight_policy=_weight_policy(visited_nodes),
         # OnewayAstarEngine은 RouteService.base_engines에 있는 서비스 엔진이다.
         service_use=service_use_for(type(engine)),
         code_commit=code_commit,

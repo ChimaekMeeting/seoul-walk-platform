@@ -38,7 +38,7 @@ ROUDI 백엔드는 다음 작업을 담당합니다.
 | 캐시 데이터 | refresh token, 직렬화된 챗봇 `State` | `src/infrastructure/cache/` |
 | 로컬 원본 | 도보 네트워크 CSV, 공원 Shapefile 등 | `src/data/sources/csv_source.py`, 각 Collector |
 | 외부 응답 | Kakao 장소·주소, 기상청 날씨, AirKorea 대기질, OpenAI 응답, 마라톤 일정 | `src/infrastructure/external/` |
-| 경로 요청 | 출발지, 목적지, 목표 거리, `WalkMode`, `ScoringProfile`, 가중치 | `src/service/route/route_service.py` |
+| 경로 요청 | 출발지, 목적지, 목표 거리, `WalkMode`, `Weights`(선호도, 2026-09-19 갱신 — `ScoringProfile`은 삭제됨) | `src/service/route/route_service.py` |
 | 대화 입력 | `thread_id`, 사용자 발화, 저장된 `State` | `src/service/chat/prewalk_service.py` |
 | 검증 입력 | pytest fixture, API 요청, fixture graph, solver와 benchmark parameter | `tests/`, `benchmarks/` |
 
@@ -187,17 +187,17 @@ WalkRouteRequest
 → WalkRouteResponse
 ```
 
-현재 API에 연결된 엔진은 다음 다섯 개입니다(2026-08-07 코드 대조로 표 갱신 — `oneway_shortest`는 `OnewayDijkstraEngine`에서 `OnewayAstarEngine`으로 교체됐고 GPS Art·Waypoint 모드가 추가됐다. 교체 배경은 [경로 생성 엔진](../route_engine/README.md) 문서의 "oneway_shortest 엔진: Dijkstra → A*(ALT) 교체" 절 참고).
+현재 API에 연결된 엔진은 다음 다섯 개입니다(2026-08-07 코드 대조로 표 갱신 — `oneway_shortest`는 `OnewayDijkstraEngine`에서 `OnewayAstarEngine`으로 교체됐고 GPS Art·Waypoint 모드가 추가됐다. 교체 배경은 [경로 생성 엔진](../route_engine/README.md) 문서의 "oneway_shortest 엔진: Dijkstra → A*(ALT) 교체" 절 참고. 2026-09-19 갱신 — 8축→2축(safety/comfort) 축소로 `CircularBeamEngine`·`OnewayBeamEngine`을 포함한 11개 엔진이 삭제되며 아래 표도 다시 바뀌었다).
 
 | `WalkMode` | 활성 엔진 |
 |---|---|
-| `circular_random` | `CircularBeamEngine` |
+| `circular_random` | `CircularGraspWaypointAlnsEngine`(`WaypointEngine`을 `construction="grasp", refinement="alns"`로 고정한 래퍼, `mode="distance"` — 안전·편안 가중 로직은 아직 없음) |
 | `oneway_shortest` | `OnewayAstarEngine` |
-| `oneway_random` | `OnewayBeamEngine` |
+| `oneway_random` | `OnewayAstarEngine`(임시 상태 — `oneway_shortest`와 동일 엔진, 우회 로직 미구현) |
 | `gps_art` | `GpsArtEngine`(내부적으로 `WaypointComposerEngine`·`OnewayAstarEngine` 사용) |
-| `waypoint` | `WaypointComposerEngine`(leg별로 `OnewayAstarEngine`/`OnewayBeamEngine` 조합) |
+| `waypoint` | `WaypointComposerEngine`(leg 3종 전부 `OnewayAstarEngine`) |
 
-RCSP·GRASP·ALNS 계열과 `OnewayDijkstraEngine`(dijkstra.py)·양방향 A*(`oneway_bi_astar.py`)는 코드와 benchmark에는 존재하지만 `RouteService.base_engines`에 연결되지 않은 대안 알고리즘입니다.
+RCSP·GRASP(순수 `WaypointEngine` 조합, `grasp+local`/`grasp+vnd`/`grasp+vns`)와 `OnewayDijkstraEngine`(dijkstra.py)는 코드와 benchmark에는 존재하지만 `RouteService.base_engines`에 연결되지 않은 대안 알고리즘입니다(2026-09-19 갱신 — ALNS 계열은 `CircularGraspWaypointAlnsEngine`을 통해 연결됐고, 양방향 A*(`oneway_bi_astar.py`)는 삭제됐습니다).
 
 ### 6.3 챗봇 경로 흐름
 
@@ -289,8 +289,8 @@ DB 적재 후 실행 중인 서버의 Graph는 자동으로 갱신되지 않습�
 | 설문·가중치 | `tests/unit/test_survey_service.py` | baseline, 태그 delta, 저장 계약 |
 | V1 적재 범위 | `tests/unit/test_data_collector_scope.py` | V1과 Legacy 실행 경계 |
 | 도보 원본 파싱 | `tests/unit/test_base_collector.py` | NODE·LINK와 원본 flag 변환 |
-| Graph | `tests/unit/test_graph_repository.py`, `test_graph_filter.py` | 표준 속성, 필터링, 연결 그래프 |
-| Scoring·Profile | `tests/unit/test_scoring_engine.py`, `tests/unit/test_scoring_engine_regression.py`, `tests/unit/test_profiles.py` | 점수 공식, 회귀, profile 병합 |
+| Graph | `tests/unit/test_graph_repository_scores.py` | 표준 속성(link_id/length/safety_score/accident_score/slope_score) 전달 (2026-09-19 갱신 — `test_graph_repository.py`는 옛 다축 계약을 검증하던 테스트로 삭제됨. `graph_filter.py`와 함께 필터링 계층 자체가 삭제돼 `test_graph_filter.py`도 삭제됨) |
+| Scoring | `tests/unit/test_weighted_edge_cost.py`, `tests/unit/test_oneway_astar_weighted.py`, `tests/unit/test_weighted_cost_runtime.py` | 안전·편안 가중 비용 공식(`WeightedEdgeCost`), α/β 정규화, 커버리지 게이트 (2026-09-19 갱신 — `test_scoring_engine.py`/`test_scoring_engine_regression.py`/`test_profiles.py`는 옛 다축·profile 시스템 테스트로 전부 삭제됨. `profile`이라는 개념 자체가 없어져 "Profile 병합"을 검증하는 테스트는 존재하지 않음) |
 | 경로 엔진·서비스 | `tests/unit/test_path_utils.py`, `test_oneway_random.py`, `test_routue_service.py` | 노드 탐색, 거리, 실패 상태, 엔진 연결 |
 | 배너 | `tests/unit/test_banner_service.py` | 우선순위와 외부 실패 fallback |
 | API | `tests/integration/test_api.py` | HTTP status와 response schema |

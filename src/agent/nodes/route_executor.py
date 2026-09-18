@@ -3,9 +3,8 @@ import logging
 from src.schema.prewalk_schema import State, FeatureTag
 from src.interfaces.schema.walk_schema import WalkMode, Coordinate
 from src.agent.tools.route_tools import RouteTool
-from src.schema.route_schema import SafetyComfortPreference, Weights
+from src.schema.route_schema import Weights
 from src.repository.user.user_preference_repository import UserPreferenceRepository
-from src.route_engine.profiles import ScoringProfile
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +35,6 @@ _FEATURE_TO_WEIGHTS_KEY: dict[FeatureTag, str] = {
     FeatureTag.SAFETY:  "safety",
     FeatureTag.COMFORT: "comfort",
 }
-
-# _build_weights(preference=...)의 "안 넘김" 표식. None은 "선호 행이 없음"이라는
-# 유효한 값이라 기본값으로 쓸 수 없다.
-_FETCH_PREFERENCE = object()
 
 class RouteExecutor:
     def __init__(self):
@@ -73,17 +68,15 @@ class RouteExecutor:
             args["leg_target_km"] = [leg.get("target_km") for leg in legs]
 
         args["access_token"]   = state.access_token or ""
-        profile = state.profile or ScoringProfile.DEFAULT
-        state.profile = profile
-        args["profile"] = profile
         # 설문을 사용자 기본값으로 삼고 이번 대화 선호와 섞는다. 조회·계산은 한 번만 한다.
         preference = UserPreferenceRepository.get_by_user_id(state.user_id)
         weights = self._build_weights(state, preference=preference)
         args["custom_weights"] = weights
         # waypoint 모드만 안전·편안 가중 연결을 쓴다(#445). 다른 모드의 도구는 이
-        # 인자를 받지 않으므로 넣지 않는다.
+        # 인자를 받지 않으므로 넣지 않는다. _build_weights가 이미 concrete한 safety/
+        # comfort 값을 만들어주므로(챗봇 경로엔 "선호 없음" 상태가 없음) 그대로 재사용한다.
         if tool_name == MODE_TOOL_MAP.get(WalkMode.WAYPOINT):
-            args["preference"] = self._build_preference_signal(weights)
+            args["preference"] = weights
 
         logger.info(f"mode: {state.mode}")
         logger.info(f"custom_weights: {args['custom_weights']}")
@@ -99,17 +92,19 @@ class RouteExecutor:
 
         return state
 
-    def _build_weights(self, state: State, preference=_FETCH_PREFERENCE) -> Weights:
+    def _build_weights(self, state: State, preference=None) -> Weights:
         """
         safety/comfort 두 feature에 대해 온보딩 설문 값과 state.feature_labels의
         EMA 블렌딩으로 가중치를 누적하여 반환합니다.
 
-        preference를 넘기면 다시 조회하지 않습니다. 넘기지 않으면 직접 조회합니다.
+        preference를 넘기지 않으면 직접 조회합니다.
         """
-        if preference is _FETCH_PREFERENCE:
+        # 온보딩[장기] 가중치가 없는 경우를 대비해, route_schema.Weights의 기본값(SSOT)으로 초기화
+        if preference is None:
             preference = UserPreferenceRepository.get_by_user_id(state.user_id)
-        base = {"safety": 0.5, "comfort": 0.5}  # route_schema.Weights의 safety/slope 기본값과 동일
+        base = Weights().model_dump()
 
+        # 온보딩[장기] 가중치 로드
         for key in _SURVEY_AXES:
             stored = getattr(preference, f"weights_{key}", None) if preference is not None else None
             if stored is not None:
@@ -124,13 +119,4 @@ class RouteExecutor:
             alpha  = _EXPLICITNESS_ALPHA_MAP[label.explicitness_label]  # 명시적 라벨 -> alpha값으로 사용
             base[key] = alpha * target + (1 - alpha) * base[key]
 
-        return Weights(safety=base["safety"], slope=base["comfort"])
-
-    @staticmethod
-    def _build_preference_signal(weights: Weights) -> SafetyComfortPreference:
-        """설문·프로필 기본값과 대화 선호를 섞은 결과를 가중 연결에 전달한다.
-
-        기본값도 서비스가 사용하는 선호다. 출처가 설문/이번 발화인지로 축을 끄거나
-        0으로 바꾸지 않는다. 기존 _build_weights의 혼합 계산 결과를 그대로 사용한다.
-        """
-        return SafetyComfortPreference(safety=weights.safety, comfort=weights.slope)
+        return Weights(safety=base["safety"], comfort=base["comfort"])

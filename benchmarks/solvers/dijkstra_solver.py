@@ -29,9 +29,8 @@ class OnewayDijkstraSolver(BasePathSolver):
             inp=inp,
             G=graph,
             custom_weights=params.get("custom_weights"),
-            profile=params.get("profile"),
         )
-        scored = compute_distance_only_lookup(engine.G, engine.blocked_tags)
+        scored = compute_distance_only_lookup(engine.G)
         engine._weight_fn    = scored["weight"]
         engine._score_lookup = scored["lookup"]
 

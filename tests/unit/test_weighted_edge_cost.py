@@ -17,7 +17,6 @@ ALT Planar 거리표를 가중 탐색에 재사용할 수 없게 되고, A*가 �
   - length 누락은 MissingEdgeAttributeError
   - 커버리지 미달이면 가중 모드를 끄고 거리 전용으로 동작하며 경고를 1회 남긴다
   - 커버리지 충족 시 남은 NULL은 중앙값으로 대체하고 횟수를 센다
-  - 차단 태그 엣지는 inf
   - weight()는 입력 edge_data를 변경하지 않는다
   - normalize_preference_weights는 선호도를 alpha+beta <= k로 변환한다
   - [통합] 합성 그래프에서 ALT식 휴리스틱 A*와 Dijkstra의 최소 비용이 같고,
@@ -30,7 +29,7 @@ import math
 import networkx as nx
 import pytest
 
-from src.route_engine.scoring.weighted_edge_cost import (
+from src.route_engine.scoring.scoring_engine import (
     ACCIDENT_ATTR,
     SAFETY_ATTR,
     SLOPE_ATTR,
@@ -205,23 +204,7 @@ def test_missing_score_without_median_raises():
         cost.weight(0, 1, edge)
 
 
-# ── 차단 태그 / 불변성 ──────────────────────────────────────────────────────
-
-
-def test_blocked_tag_edge_is_infinite():
-    cost = make_cost(0.5, 0.0, blocked_tags=["tunnel"])
-
-    assert cost.weight(0, 1, make_edge(tags=["tunnel", "bridge"])) == float("inf")
-    assert cost.weight(0, 1, make_edge(tags=["bridge"])) == 100.0
-
-
-def test_blocked_tag_still_blocks_when_weighted_mode_is_off():
-    """차단은 선호가 아니라 통행 가능 여부다 — 거리 전용 폴백에서도 유지돼야 한다.
-    enabled 검사를 태그 검사보다 앞으로 옮기면 폴백 중에 차단 도로가 열린다."""
-    cost = make_cost(0.5, 0.0, blocked_tags=["tunnel"], enabled=False)
-
-    assert cost.weight(0, 1, make_edge(tags=["tunnel"])) == float("inf")
-    assert cost.weight(0, 1, make_edge(tags=["bridge"])) == 100.0
+# ── 불변성 ──────────────────────────────────────────────────────────────────
 
 
 def test_weight_does_not_mutate_edge_data():

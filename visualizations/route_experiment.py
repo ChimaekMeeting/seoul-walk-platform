@@ -1,4 +1,4 @@
-"""기존 A*/Beam run()을 거리 기반 실험 조건으로 실행·검증한다."""
+"""기존 엔진의 run()을 거리 기반 실험 조건으로 실행·검증한다."""
 
 from __future__ import annotations
 
@@ -12,12 +12,10 @@ from unittest.mock import patch
 from time import perf_counter
 
 from src.route_engine.alt_runtime import attach_alt_heuristic, prepare_alt_heuristic
-from src.route_engine.engines import circular_beam, oneway_astar, oneway_beam
+from src.route_engine.engines import oneway_astar
 from src.route_engine.engines.path_utils import PathUtils, _TOLERANCE_RATIO
 from src.schema.route_schema import CircularRouteInput, OnewayRouteInput
 from visualizations.astar_adapter import record_astar_run
-from visualizations.beam_adapter import record_beam_trace
-from visualizations.route_trace import SearchTrace
 from visualizations.waypoint_adapter import record_waypoint_trace
 
 # A* 실행에 쓰는 ALT 기본값. 시각화는 src.config.settings를 import하지 않으므로
@@ -33,18 +31,6 @@ def graph_digest(graph):
     """Graph의 lazy 뷰 캐시는 제외하고 실제 메타데이터·노드·엣지 속성을 비교한다."""
     contents = (graph.graph, list(graph.nodes(data=True)), list(graph.edges(data=True)))
     return hashlib.sha256(pickle.dumps(contents)).hexdigest()
-
-
-def distance_score(graph, _profile):
-    for _, _, data in graph.edges(data=True):
-        data["custom_score"] = float(data["length"])
-    return graph
-
-
-def distance_vector(graph):
-    # 선호 속성으로 후보 2·3을 고르는 영향도 제거한다.
-    return {(u, v): {"distance": float(data["length"])}
-            for a, b, data in graph.edges(data=True) for u, v in ((a, b), (b, a))}
 
 
 def snap(graph, location):
@@ -82,24 +68,35 @@ def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterat
     local = copy.deepcopy(graph)
     fields = {"start_lat": start["lat"], "start_lon": start["lon"],
               "target_km": target_m / 1000 if target_m is not None else None}
-    waypoint = mode.startswith("grasp_")
-    shortest = mode in SHORTEST_MODES
+    # route_service.py와 같은 매핑을 쓴다: circular_random -> CircularGraspWaypointAlnsEngine,
+    # oneway_random("detour")는 아직 실제 우회 로직이 없어 oneway_shortest와 똑같이
+    # OnewayAstarEngine으로 돈다(OnewayBeamEngine을 걷어내며 생긴 임시 상태, route_service.py
+    # 참고). 두 엔진 다 custom_score/calculate_custom_score를 쓰지 않으므로 이 함수가 예전에
+    # 하던 distance_score/distance_vector 패치는 더 이상 필요 없다.
+    waypoint = mode.startswith("grasp_") or mode == "circular"
+    shortest = mode in SHORTEST_MODES or mode == "detour"
     tolerance = _TOLERANCE_RATIO
     alt_prepare_seconds = None
-    module = trace = None
+    trace = None
     if waypoint:
         from src.route_engine.engines.grasp_waypoint_common import DEFAULT_CONFIG
         from src.route_engine.engines.waypoint_engine_assembly import WaypointEngine
         from visualizations.waypoint_trace import WaypointTrace
-        config = replace(DEFAULT_CONFIG, grasp_iters=grasp_iterations)
+        if mode == "circular":
+            from src.route_engine.engines.circular_grasp_waypoint_alns import (
+                CircularGraspWaypointAlnsEngine,
+                GRASP_ALNS_CONFIG,
+            )
+            config = replace(GRASP_ALNS_CONFIG, grasp_iters=grasp_iterations)
+            engine = CircularGraspWaypointAlnsEngine(
+                CircularRouteInput(**fields), local, seed=seed, config=config,
+            )
+        else:
+            config = replace(DEFAULT_CONFIG, grasp_iters=grasp_iterations)
+            engine = WaypointEngine(CircularRouteInput(**fields), local, mode="distance", seed=seed,
+                                    config=config, construction="grasp", refinement=mode.split("_", 1)[1])
         tolerance = config.distance_tolerance_ratio
-        engine = WaypointEngine(CircularRouteInput(**fields), local, mode="distance", seed=seed,
-                                config=config, construction="grasp", refinement=mode.split("_", 1)[1])
         trace = WaypointTrace(engine)
-    elif mode == "circular":
-        engine = circular_beam.CircularBeamEngine(CircularRouteInput(**fields), local)
-        module = circular_beam
-        trace = SearchTrace(engine)
     elif shortest:
         # 엔진은 서비스와 똑같이 그래프에 붙은 휴리스틱을 집어 쓴다. 준비 시간은
         # run_seconds에 섞지 않으려고 실행 구간 밖에서 따로 잰다.
@@ -110,10 +107,7 @@ def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterat
         fields.update(end_lat=end["lat"], end_lon=end["lon"])
         engine = oneway_astar.OnewayAstarEngine(OnewayRouteInput(**fields), local)
     else:
-        fields.update(end_lat=end["lat"], end_lon=end["lon"])
-        engine = oneway_beam.OnewayBeamEngine(OnewayRouteInput(**fields), local)
-        module = oneway_beam
-        trace = SearchTrace(engine)
+        raise ValueError(f"알 수 없는 mode입니다: {mode!r}")
     paths = []
     original_prune = engine.utils.prune_dead_ends
 
@@ -124,10 +118,7 @@ def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterat
 
     recording = None
     with ExitStack() as stack:
-        if not shortest:
-            if not waypoint:
-                stack.enter_context(patch.object(module, "calculate_custom_score", distance_score))
-                stack.enter_context(patch.object(module, "compute_score_vector", distance_vector))
+        if waypoint:
             stack.enter_context(patch.object(engine.utils, "prune_dead_ends", capture_prune))
             if record:
                 stack.enter_context(trace)
@@ -148,22 +139,18 @@ def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterat
         elapsed = perf_counter() - started
     if shortest:
         paths = [list(engine.last_path_nodes)] if engine.last_path_nodes else []
-    if record and not shortest:
+    if record and waypoint:
         # settrace 산출물은 여기서 끝난다. 이 뒤의 파이프라인(route_story·route_view·화면)은
         # 어댑터가 낸 공통 이벤트만 본다.
         arguments = {"engine": engine, "mode": mode, "start_node": start["node"],
                      "end_node": end["node"], "paths": paths, "target_m": target_m,
                      "seed": seed, "code_commit": code_commit, "artifact": artifact}
-        if waypoint:
-            recording = record_waypoint_trace(
-                trace, config={"heuristic": "haversine", "grasp_iters": config.grasp_iters,
-                               "num_waypoints": config.num_waypoints,
-                               "construction": engine.construction,
-                               "refinement": engine.refinement},
-                **arguments)
-        else:
-            recording = record_beam_trace(
-                trace, config={"heuristic": "haversine"}, **arguments)
+        recording = record_waypoint_trace(
+            trace, config={"heuristic": "haversine", "grasp_iters": config.grasp_iters,
+                           "num_waypoints": config.num_waypoints,
+                           "construction": engine.construction,
+                           "refinement": engine.refinement},
+            **arguments)
     metrics = []
     for nodes in paths:
         edges = list(zip(nodes, nodes[1:]))

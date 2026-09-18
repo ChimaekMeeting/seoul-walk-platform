@@ -1,18 +1,22 @@
 # 경로 생성 엔진
 
 > 상태: Current
-> 기준일: 2026-08-23
+> 기준일: 2026-09-19
 > 관련 코드: `src/route_engine/`
 
 경로 생성 엔진은 외부 API나 챗봇 처리와 분리된 경로 계산 영역입니다.
+
+(2026-09-19 갱신) 안전·편안 축소(8축→safety/comfort 2축)와 함께 `src/route_engine/graph/`
+폴더(그래프 준비·필터·직렬화 계층)와 `src/route_engine/profiles.py`(`ScoringProfile`/
+`get_profile()`/`blocked_tags`)가 전부 삭제됐다. `GraphRepository`(`src/repository/network/`)가
+NetworkX Graph를 직접 만들고, 선호도는 route_engine이 아니라 챗봇/스키마 계층의
+`Weights`(`src/schema/route_schema.py`, `safety`/`comfort` 두 필드)로만 표현한다.
 
 ## 현재 구조
 
 | 구성요소 | 위치 | 역할 |
 |---|---|---|
-| Graph | `src/route_engine/graph/` | DB 도보망을 NetworkX Graph로 준비·필터·직렬화 |
-| Profile | `src/route_engine/profiles.py` | 사용자 선호 가중치와 차단 tags 정의 |
-| Scoring | `src/route_engine/scoring/` | WalkEdge 속성과 Profile을 경로 비용으로 계산 |
+| Scoring | `src/route_engine/scoring/` | WalkEdge 속성(safety/accident/slope score)을 경로 비용으로 계산 |
 | Engine | `src/route_engine/engines/` | 순환·편도 경로 탐색 알고리즘 |
 | Waypoint Search | `src/route_engine/waypoint_beam.py` | 외부 후보·거리 함수로 경유지 선택 및 순서 탐색(API 미연결) |
 | Waypoint Improvement | `src/route_engine/waypoint_alns.py` | 외부 초기 경유지 순서를 받아 선택·순서를 개선(API 미연결) |
@@ -376,10 +380,60 @@ Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
 
 ## Engine 반환 계약
 
-- `src/route_engine/engines/`의 모든 엔진(`CircularBeamEngine`·`OnewayBeamEngine`·`OnewayAstarEngine`·`OnewayBidirectionalAstarEngine`·`OnewayDijkstraEngine`·`OnewayBidirectionalDijkstraEngine`·`CircularGraspEngine`·`OnewayGraspEngine`·`CircularAlnsEngine`·`OnewayAlnsEngine`·`CircularRcspEngine`·`OnewayRcspEngine`·`OnewayPlateauEngine`·`GpsArtEngine`·`WaypointComposerEngine`)의 `run()`은 모두 `List[WalkRouteResponse]`를 반환한다(2026-08-23 통일 — 이전에는 GRASP/ALNS/RCSP/Plateau/Dijkstra 계열이 단일 `WalkRouteResponse`를 반환해 형제 엔진들과 반환 타입이 달랐다).
-- 이 중 `circular_beam`·`oneway_beam`·`oneway_astar`의 `find_path()`는 노드ID 경로 후보를 `list[list[int]]`로 감싸서 반환한다. `gps_art`·`waypoint`는 자체 `find_path()`가 없다 — 대신 다른 엔진들의 `run()` 결과를 조합(`WaypointComposerEngine`)하거나 그 조합에 위임(`GpsArtEngine`)해서 최종 경로를 만든다.
-- `circular_random`·`oneway_random`은 2026-08-07부터 최대 3개까지 벡터로 다양화한 후보를 반환한다(상세는 아래 "후보 다양화(벡터 score 기반)" 절 참고). `oneway_shortest`·GPS Art, 그리고 경유지 조합 중 다양화할 대안이 없는 경우(예: 모든 leg가 `oneway_shortest`)는 여전히 1개만 반환한다.
-- 경유지 선택 계열(`waypoint_engine_assembly.py::WaypointEngine`과 그 얇은 래퍼 5종)의 `run()`도 같은 계약(`list[WalkRouteResponse]`)이며, 2026-09-17부터 `MULTI_CANDIDATE_COMBOS`에 속한 조합에서만 **최종 경로 1개 + 후보 2개**, 합계 `CANDIDATE_COUNT`(=3)개를 반환한다. 현재 그 집합은 `grasp+local`·`grasp+alns` 둘이고, 나머지 조합(`grasp+vnd`·`grasp+vns`·`beam+*`)과 실패 상태(`NO_PATH`·`NO_NEAREST_START_NODE`)는 1개만 반환한다. 위 `circular_random` 계열의 벡터 다양화(`select_diverse_paths`)는 쓰지 않는다 — 이 계열은 `mode="distance"` 전용이다.
+(2026-09-19 갱신) 8축→2축 축소와 함께 `CircularBeamEngine`·`OnewayBeamEngine`·`CircularGraspEngine`·
+`OnewayGraspEngine`·`CircularAlnsEngine`·`OnewayAlnsEngine`·`CircularRcspEngine`·`OnewayRcspEngine`·
+`OnewayPlateauEngine`·`OnewayBidirectionalAstarEngine`·`OnewayBidirectionalDijkstraEngine` 11개
+엔진이 전부 삭제됐다. `src/route_engine/engines/__init__.py`가 내보내는 엔진은 이제
+`GpsArtEngine`·`OnewayAstarEngine`·`WaypointComposerEngine` 3개뿐이다. 4번째 서비스 엔진
+`CircularGraspWaypointAlnsEngine`(`circular_grasp_waypoint_alns.py`)은 순환 임포트를 피하려고
+`__init__.py`에는 두지 않고 `route_service.py`가 직접 import한다. `OnewayDijkstraEngine`
+(`dijkstra.py`)은 삭제되지 않았지만 이전과 마찬가지로 production 경로 어디서도 쓰이지
+않는 죽은 코드로 남아 있다(`benchmarks/solvers/dijkstra_solver.py` 전용).
+
+`route_service.py::RouteService.base_engines`는 현재 다음과 같다:
+
+```python
+self.base_engines: dict = {
+    WalkMode.CIRCULAR_RANDOM: CircularGraspWaypointAlnsEngine,
+    WalkMode.ONEWAY_SHORTEST: OnewayAstarEngine,
+    WalkMode.ONEWAY_RANDOM:   OnewayAstarEngine,
+    WalkMode.GPS_ART:         GpsArtEngine,
+    WalkMode.WAYPOINT:        WaypointComposerEngine,
+}
+```
+
+`CIRCULAR_RANDOM`은 `WaypointEngine`을 `construction="grasp", refinement="alns"`로 고정한
+`CircularGraspWaypointAlnsEngine`을 쓴다 — `mode="distance"` 전용이라 안전·편안 가중 로직은
+아직 없다(의도적으로 보류). `ONEWAY_RANDOM`은 지금은 `ONEWAY_SHORTEST`와 완전히 같은
+`OnewayAstarEngine`을 쓴다(우회 로직이 아직 없는 임시 상태) — 다만 나중에 갈라칠 수 있도록
+`_build_engine()`에서 `ONEWAY_SHORTEST`와 분기를 합치지 않고 별도 `if`로 남겨 뒀다.
+그래서 **`circular_random`·`oneway_random` 모두 지금은 안전·편안 가중치가 걸리지 않는
+거리 전용 비용으로 탐색한다** — 예전 Beam 계열이 하던, "안전·자연 등을 블렌딩한 스칼라
+비용으로 고른 대표 1개 + 벡터로 다양화한 나머지"라는 다양화 메커니즘(`select_diverse_paths`
+직접 호출)은 이 두 모드에서 더 이상 쓰이지 않는다(그 메커니즘 자체는 `WaypointComposerEngine`의
+leg 조합에만 남아 있다 — 아래 "후보 다양화" 절 참고). **반환 후보 개수는 별개다** —
+`oneway_random`(`OnewayAstarEngine`)은 항상 1개뿐이지만, `circular_random`
+(`CircularGraspWaypointAlnsEngine`)은 아래 `WaypointEngine`의 `grasp+alns` 다중 후보 규칙을
+그대로 물려받아 여전히 3개를 반환한다 — 자세한 내용은 바로 아래 문단 참고.
+
+- `src/route_engine/engines/`의 남은 엔진(`OnewayAstarEngine`·`GpsArtEngine`·
+  `WaypointComposerEngine`, 그리고 route_service가 직접 잡는 `CircularGraspWaypointAlnsEngine`)의
+  `run()`은 모두 `List[WalkRouteResponse]`를 반환한다(2026-08-23 통일된 계약, 삭제된 엔진들도
+  삭제 전까지는 이 계약을 따랐다).
+- `oneway_astar`의 `find_path()`는 노드ID 경로 후보를 `list[list[int]]`로 감싸서 반환한다.
+  `gps_art`·`waypoint`는 자체 `find_path()`가 없다 — 대신 다른 엔진들의 `run()` 결과를
+  조합(`WaypointComposerEngine`)하거나 그 조합에 위임(`GpsArtEngine`)해서 최종 경로를 만든다.
+- 경유지 선택 계열(`waypoint_engine_assembly.py::WaypointEngine`과 그 얇은 래퍼 5종 —
+  `circular_grasp_waypoint_{alns,local,vnd,vns}.py`·`circular_beam_waypoint_vns.py`)의 `run()`도
+  같은 계약(`list[WalkRouteResponse]`)이며, 2026-09-17부터 `MULTI_CANDIDATE_COMBOS`에 속한
+  조합에서만 **최종 경로 1개 + 후보 2개**, 합계 `CANDIDATE_COUNT`(=3)개를 반환한다. 현재 그
+  집합은 `grasp+local`·`grasp+alns` 둘이고, 나머지 조합(`grasp+vnd`·`grasp+vns`·`beam+*`)과
+  실패 상태(`NO_PATH`·`NO_NEAREST_START_NODE`)는 1개만 반환한다. `CircularGraspWaypointAlnsEngine`은
+  `(construction, refinement)`을 오버라이드하지 않는 `("grasp", "alns")` 고정 래퍼이므로 이
+  `grasp+alns` 규칙을 그대로 물려받는다 — `route_service.py`를 통한 `circular_random` 요청도
+  실제로 후보 3개를 반환한다(2026-09-19, 실제 엔진으로 재확인). 단 `select_diverse_paths`
+  기반 벡터 다양화는 쓰지 않는다(`mode="distance"` 전용) — 후보 3개는 순수하게 구축·정제
+  반복이 만들어낸 서로 다른 경로들이다.
 - 조합을 가른 근거는 실측이다(2026-09-17, seed 42, 벤치 fixture 160,328노드/223,927엣지, `target_km=3.0`·N=2에서 정제 후 서로 다른 경로 수): `grasp+alns` 18~21개, `grasp+local` 2~8개, `grasp+vnd` 1~2개, `grasp+vns` 2~7개, `beam+*` 1개. VND·VNS는 결정적 단조 하강이라 서로 다른 구축 결과 24개가 같은 지역 최적해로 수렴하고, `beam_construction()`은 애초에 `ConstructionResult`를 1개만 yield한다. 재현 기준은 구축×정제 루프를 그대로 돌면서 매 반복의 `Route`를 모아 `node_ids` 기준 중복을 제거하는 것이다.
 - `WaypointEngine.find_path()`는 위 조합에서도 **최종 경로 노드열 하나**(`list[int]`)만 반환한다 — `circular_beam`·`oneway_beam`·`oneway_astar`가 `list[list[int]]`를 반환하는 것과 다르다. 후보는 `last_alternative_routes` 속성으로만 나간다. 그래서 이 함수를 쓰는 벤치마크 어댑터(`benchmarks/solvers/_circular_engine_common.py::run_circular_engine_distance_only`)와 CSV 지표는 이 변경으로 바뀌지 않는다. `benchmarks/results.py`의 `route_distance_km()`이 `paths` 전체를 합산하므로, 후보를 `paths`에 넣었다면 거리·게이트 지표가 전부 어긋났을 것이다.
 - 후보 선별은 `evaluate_route`/`better`의 사전식 키(`RouteObjective.sort_key()`)로 **안정 정렬**한 뒤 `node_ids` 완전 일치 중복만 제거하고, 그래도 2개를 못 채우면 최종 경로를 복제해 채운다. 최선해 추적(`better` 순차 갱신)은 그대로 두고 후보 수집만 옆에 붙였으므로, 같은 seed에서 최종 경로는 이 변경 전과 동일하다(실측 9조건에서 `|cost - target_m|`이 소수점까지 일치, 2026-09-17).
@@ -392,27 +446,34 @@ Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
 
 **왜 필요한가**
 
-- beam search(`oneway_beam.py`/`circular_beam.py`)는 내부적으로 여러 후보(`_BEAM_WIDTH=8`)를 유지하다가도, 최종적으로는 안전·자연·평지 등을 전부 하나의 스칼라(`custom_score`)로 블렌딩한 기준 하나로만 후보를 좁혔다 — 그래서 여러 개를 뽑아도 사실상 비슷한 경로만 나오는 문제가 있었다.
+(2026-09-19 갱신) 원래 이 다양화는 beam search(`oneway_beam.py`/`circular_beam.py`, 둘 다
+삭제됨)를 위해 만들었다 — 내부적으로 여러 후보(`_BEAM_WIDTH=8`)를 유지하다가도 최종적으로는
+안전·자연·평지 등을 전부 하나의 스칼라(`custom_score`)로 블렌딩한 기준 하나로만 후보를
+좁혀서, 여러 개를 뽑아도 사실상 비슷한 경로만 나오는 문제가 있었다. 이 절의 "벡터 score"·
+"경로별 벡터 합산과 다양화 선택" 메커니즘 자체는 지금도 쓰인다 — 다만 소비처가 Beam
+엔진에서 `WaypointComposerEngine`의 leg 조합(아래 "`waypoint.py`" 절)으로 좁혀졌다.
+`circular_random`·`oneway_random`은 더 이상 이 메커니즘을 쓰지 않는다(위 "Engine 반환 계약"
+절 참고 — 지금은 각각 `CircularGraspWaypointAlnsEngine`/`OnewayAstarEngine`을 쓰고, 후보가
+여럿이어도 그 개수는 이 벡터 다양화가 아니라 `WaypointEngine`의 grasp+alns 다중 후보 규칙이
+정한다).
 - `target_km`(거리 허용오차) 자체는 이 다양화와 무관하게 여전히 1순위 조건이다 — 벡터 비교는 목표 거리를 만족(또는 가장 근접)하는 후보 풀 안에서만 적용한다.
 
 **벡터 score — `scoring_engine.py`**
 
-- `compute_score_vector(graph) -> {(u, v): {"safety": cost, "nature": cost, "slope": cost, "convenience": cost, "accessibility": cost}, ...}`를 추가했다. 기존 `calculate_custom_score`/`compute_custom_score_lookup`은 전혀 수정하지 않았다 — 그래서 A*(`oneway_astar.py`)·GRASP·ALNS·RCSP 등 이 스코어 함수를 공유하는 다른 엔진에는 영향이 없다(단, A*는 2026-08-23부터 weight/휴리스틱이 이 스코어 함수 자체를 안 쓰도록 바뀌었다 — 위 "oneway_shortest 엔진" 절 참고).
-- 각 차원 값은 `length * (1 - feature)`다. `feature`(0~1, 1이 가장 좋음)가 1이면 0, 0이면 그 edge의 `length` 전체가 비용이 된다 — `custom_score`처럼 경로를 따라 그대로 합산할 수 있고, 모든 차원이 이미 미터 단위라 추가 정규화 없이 비교 가능하다.
-- profile 가중치를 받지 않는다 — 대표 후보(아래 "후보 1")는 기존처럼 요청받은 profile의 가중 스칼라로 뽑고, 이 벡터는 나머지 후보를 가중치와 무관하게 다양화하는 용도로만 쓴다.
+- (2026-09-19 갱신) `compute_score_vector(graph) -> {(u, v): {"safety": cost, "comfort": cost}, ...}` —
+  8축→2축 축소로 이제 2차원이다(`nature`/`convenience`/`accessibility` 등은 삭제됐다).
+  `FEATURE_DIMENSIONS = ("safety", "comfort")`를 그대로 순회해 만든다. 이 값을 만들 때 쓰던
+  `calculate_custom_score`/`compute_custom_score_lookup`(안전·자연 등을 블렌딩한 할인 모델)은
+  이번 축소로 완전히 삭제됐다 — 지금은 이 함수를 부르는 유일한 소비처가
+  `WaypointComposerEngine`(아래 참고)이며, "profile의 가중 스칼라로 대표 후보를 뽑는다"는
+  개념 자체가 없다(profile이 삭제됐다).
+- 각 차원 값은 `length * (1 - feature)`다. `feature`(0~1, 1이 가장 좋음)가 1이면 0, 0이면 그 edge의 `length` 전체가 비용이 된다 — 경로를 따라 그대로 합산할 수 있고, 모든 차원이 이미 미터 단위라 추가 정규화 없이 비교 가능하다.
 
 **경로별 벡터 합산과 다양화 선택 — `path_utils.py`**
 
-- `PathUtils.path_score_vector(path, vector_lookup)`: `metrics()`가 `custom_score`를 합산하는 것과 같은 패턴으로, 경로를 따라 벡터를 성분별로 합산한다.
+- `PathUtils.path_score_vector(path, vector_lookup)`: 경로를 따라 벡터를 성분별로 합산한다.
 - `PathUtils.vector_distance(a, b)`: 두 벡터 사이 유클리드 거리.
-- `PathUtils.select_diverse_paths(candidates, k=3)`: **후보 1**(`candidates[0]`, 호출부가 기존 스칼라 키로 이미 정한 대표)을 고정하고, 나머지 중 이미 뽑힌 것들과의 최소거리가 가장 큰 것을 greedy farthest-point(k-center) 방식으로 최대 `k-1`개 더 뽑는다. 최댓값이 아니라 **최솟값의 최댓값**을 기준으로 삼는 이유는, "다른 후보와는 멀어도 기존에 뽑힌 것 중 하나와 거의 같은" 사실상의 중복을 배제하기 위해서다. 후보가 `k`개 미만이면 있는 만큼만 반환한다. `payload` 자리에는 노드 ID 리스트뿐 아니라 `WalkRouteResponse` 등 어떤 타입도 그대로 통과시킬 수 있다(`TypeVar` 기반 제네릭).
-
-**`oneway_beam.py`/`circular_beam.py`: 최종 3개 선택**
-
-- 도착(또는 복귀) 연결에 성공한 완성 후보 전체를 모아 기존 정렬 키(`oneway_beam`은 `(over, overlap, density)`, `circular_beam`은 `(over, density)`)로 정렬한다. `over`(거리 허용오차)와 `overlap`(우회도, `oneway_beam` 전용)은 벡터에 넣지 않는다 — 둘 다 "이 모드에서 유효한 후보인가"를 정하는 조건이라, 트레이드오프 대상인 품질 벡터와 성격이 다르기 때문이다.
-- **후보 1** = 이 정렬 키 기준 최상위(오늘까지의 단일 결과와 완전히 동일). **후보 2·3** = 후보 1과 같은 거리 등급(`over`가 같은 값)을 만족하는 후보들 안에서만, `compute_score_vector`로 계산한 5차원 벡터를 `select_diverse_paths`로 다양화해서 뽑는다.
-- `OnewayBeamEngine`에 `last_path_nodes_by_candidate: list[list[int]]`를 추가했다 — 반환하는 모든 후보의 노드열을 반환 순서대로 보관한다. 기존 `last_path_nodes`(단일 필드)는 후보 1의 단축값으로 그대로 남겨 하위 호환을 유지한다. `OnewayAstarEngine`에도 인터페이스를 맞추기 위해 `last_path_nodes_by_candidate = [last_path_nodes]`(항상 후보 1개뿐이라 트리비얼)를 추가했다.
-- `CircularBeamEngine`은 `last_path_nodes` 계열 자체가 없다 — `WaypointLegMode`가 `oneway_shortest`/`oneway_random`만 허용해서(`route_schema.py`) 순환 모드는 구조적으로 waypoint leg가 될 수 없고, 따라서 cross-leg 겹침 방지 대상이 아니기 때문이다.
+- `PathUtils.select_diverse_paths(candidates, k=3)`: **후보 1**(`candidates[0]`, 호출부가 기존 기준으로 이미 정한 대표)을 고정하고, 나머지 중 이미 뽑힌 것들과의 최소거리가 가장 큰 것을 greedy farthest-point(k-center) 방식으로 최대 `k-1`개 더 뽑는다. 최댓값이 아니라 **최솟값의 최댓값**을 기준으로 삼는 이유는, "다른 후보와는 멀어도 기존에 뽑힌 것 중 하나와 거의 같은" 사실상의 중복을 배제하기 위해서다. 후보가 `k`개 미만이면 있는 만큼만 반환한다. `payload` 자리에는 노드 ID 리스트뿐 아니라 `WalkRouteResponse` 등 어떤 타입도 그대로 통과시킬 수 있다(`TypeVar` 기반 제네릭).
 
 **`waypoint.py`: leg 조합에도 다양화 전파**
 
@@ -444,7 +505,7 @@ Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
 - `PathUtils.turn_metrics(path, *, closed=False) -> TurnMetrics`: `total_turn_deg`/`max_turn_deg`/`turn_deg_per_km`/`candidate_turn_count`/`defined_turn_count`/`undefined_turn_count`/`undefined_turn_reasons`를 담은 통계.
 - `count_turns_at_or_above(angles_deg, threshold_deg) -> int`: 특정 임계값 이상 회전 개수. 45°/60°/90° 등은 검증된 인간공학적 기준이 아니라 잠정 운영 임계값이므로 `TurnMetrics`에 필드로 고정하지 않고, 필요할 때 이 함수로 동적 계산한다.
 
-**실측 검증**: 서울 도보 그래프·현재 활성 순환 엔진 9종(`grasp-wp-*`, `beam-wp-*`)·시나리오 25개 전수(225회) 기준 정의 불가 회전 0건, 거리당 회전량 740.7~845.4°/km. 지표 간(누적 회전량 vs 급회전 패턴) 순위 불일치, 일부 엔진(`grasp-wp-alns`/`beam-wp-alns`/`beam-wp-vns`)의 seed 의존성, 임계값별 순위 민감도 등 세부 결과는 [analysis/turn_cost/](../../analysis/turn_cost/)(탐색적 분석, 확정 결론 아님) 참고.
+**실측 검증**: 서울 도보 그래프·당시 활성 순환 엔진 9종(`grasp-wp-*`, `beam-wp-*`)·시나리오 25개 전수(225회) 기준 정의 불가 회전 0건, 거리당 회전량 740.7~845.4°/km. 지표 간(누적 회전량 vs 급회전 패턴) 순위 불일치, 일부 엔진(`grasp-wp-alns`/`beam-wp-alns`/`beam-wp-vns`)의 seed 의존성, 임계값별 순위 민감도 등 세부 결과는 [analysis/turn_cost/](../../analysis/turn_cost/)(탐색적 분석, 확정 결론 아님) 참고. (2026-09-19 갱신) `beam-wp-*` 계열은 8축→2축 축소로 이후 전부 삭제됐다 — 이 실측은 그 이전 시점의 관측이며 현재 코드로는 재현할 수 없다. 현재 활성 순환 엔진은 서비스용 `CircularGraspWaypointAlnsEngine`(=`grasp-wp-alns`) 하나뿐이고, 나머지 `grasp-wp-*`(local/vnd/vns)는 여전히 벤치마크·시각화 전용으로 존재한다.
 
 **아직 확인 안 된 것**: 45°/60°/90° 등 후보 임계값이 실제 보행 속도·주관적 불편도와 상관관계가 있는지는 사용자 행동 데이터가 없어 검증하지 못했다. 순환 엔진이 최종 확정된 뒤 이 지표를 목적함수에 연결할지도 아직 판단하지 않았다.
 
@@ -452,19 +513,19 @@ Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
 
 **무엇이 바뀌었나(2026-08-23)**
 
-- `OnewayDijkstraEngine`(`dijkstra.py`)·`OnewayAstarEngine`(`oneway_astar.py`)·`OnewayBidirectionalAstarEngine`(`oneway_bi_astar.py`)·`OnewayBidirectionalDijkstraEngine`(`oneway_bi_dijkstra.py`) 네 엔진 모두 weight 계산이 `scoring_engine.py`의 `compute_distance_only_lookup(graph, blocked_tags)`로 바뀌었다(또는 처음부터 이걸로 신설됐다). 기존 `compute_custom_score_lookup`(안전·자연·평지 등을 블렌딩한 `custom_score`) 대신 **거리(length)만** weight로 쓰고, `blocked_tags`에 해당하는 edge만 `inf`로 차단한다. `bonus`/`slope_penalty`/`caution_penalty`/`comfort_penalty`는 전혀 반영하지 않는다.
+- `OnewayDijkstraEngine`(`dijkstra.py`)·`OnewayAstarEngine`(`oneway_astar.py`) 두 엔진 모두 weight 계산이 `scoring_engine.py`의 `compute_distance_only_lookup(graph)`로 바뀌었다(또는 처음부터 이걸로 신설됐다). 기존 `compute_custom_score_lookup`(안전·자연·평지 등을 블렌딩한 `custom_score`) 대신 **거리(length)만** weight로 쓴다. `bonus`/`slope_penalty`/`caution_penalty`/`comfort_penalty`는 전혀 반영하지 않는다. (2026-09-19 갱신) `blocked_tags`에 의한 edge 차단은 `profiles.py` 삭제와 함께 이제 코드 자체에 없다 — `compute_distance_only_lookup`/`_make_distance_weight` 모두 `blocked_tags` 인자를 받지 않는다.
 - `OnewayAstarEngine._heuristic`은 랜드마크 기반 ALT 방식 대신 **Haversine 직선거리**(`PathUtils._haversine_m`)를 쓴다. weight가 거리(length) 그대로이므로 직선거리 ≤ 실제 도로망 거리(삼각부등식)가 항상 성립해 별도 보정(`min_ratio`) 없이 admissible하다.
 - **(2026-09-12 갱신) 휴리스틱이 다시 선택 가능해졌다.** `OnewayAstarEngine`은 이제 다음 순서로 쓸 휴리스틱을 고른다 — ① 생성자에 명시해서 넘긴 `heuristic` 인자 → ② 그래프에 부착된 ALT(`G.graph["alt_heuristic"]`, 기동 때 `alt_runtime.prepare_alt_heuristic()`이 만든다) → ③ 위의 Haversine(`self._heuristic`). 셋 다 admissible해서 최적 비용은 같고 탐색 속도만 달라진다. 설정 키는 `WALK_ALT_ENABLED`(기본 `true`) · `WALK_ALT_METHOD`(기본 `planar`) · `WALK_ALT_K`(기본 `8`) · `WALK_ALT_SEED`(기본 `0`)이며, 준비에 실패하면 자동으로 ③으로 폴백한다. 되돌리려면 `WALK_ALT_ENABLED=false`로 재기동한다. 자세한 계약은 아래 "ALT 서비스 연결 (2026-09-12)" 절 참고.
-- `OnewayBidirectionalAstarEngine`은 `OnewayAstarEngine`을, `OnewayBidirectionalDijkstraEngine`(신설, 2026-08-23)은 `OnewayDijkstraEngine`을 상속하고 `find_path()`만 각각 양방향 탐색(`_bidirectional_astar_path` / `nx.bidirectional_dijkstra`)으로 교체하는 구조라, 둘 다 `run()`을 오버라이드하지 않는다 — weight/휴리스틱 변경이 별도 수정 없이 그대로 상속·적용된다.
+- (2026-09-19 갱신) `OnewayBidirectionalAstarEngine`(`oneway_bi_astar.py`)·`OnewayBidirectionalDijkstraEngine`(`oneway_bi_dijkstra.py`)는 8축→2축 축소에서 함께 삭제됐다 — 아래 두 문단이 설명하던 "`find_path()`만 양방향 탐색으로 교체" 구조는 더 이상 존재하지 않는다.
 - `precompute_landmarks()`/`_select_landmarks()`/`landmark_dist` 노드 속성은 코드에서 전부 제거됐다(`oneway_astar.py`, `dependencies.py`의 `init_route_service()`, `benchmarks/benchmark.py`, `benchmarks/run_all_scenarios.py`).
-- 설계 배경·검토한 대안(전부 weight 0 vs weight를 length로 완전 대체 vs 채택된 절충안), 양방향 Dijkstra 신설 경위는 [route_engine 최단 경로 가중치 거리 전용 전환 제안](../proposals/route_engine_shortest_weight_distance_only_proposal.md) 참고.
+- 설계 배경·검토한 대안(전부 weight 0 vs weight를 length로 완전 대체 vs 채택된 절충안), 양방향 Dijkstra 신설 경위는 [route_engine 최단 경로 가중치 거리 전용 전환 제안](../proposals/route_engine_shortest_weight_distance_only_proposal.md) 참고 — 신설됐던 `OnewayBidirectionalDijkstraEngine` 자체는 이후 삭제됐다.
 
 **(2026-09-17 갱신) `OnewayAstarEngine`은 더 이상 `compute_distance_only_lookup`을 호출하지 않는다**
 
-- `run()`마다 2*E 크기 lookup dict를 새로 만들던 것을 `_make_distance_weight(blocked_tags)`가 만드는 콜러블로 바꿨다. A*가 실제로 확인한 edge에서 바로 읽으며, 누락 `length`는 1.0, 1m 미만은 1.0으로 올림, 차단 태그는 `inf`로 **기존 lookup과 값이 같다**(실측 2026-09-17, artifact 엣지 223,693개 전부 일치, 차이 0건).
+- `run()`마다 2*E 크기 lookup dict를 새로 만들던 것을 `_make_distance_weight()`가 만드는 콜러블로 바꿨다. A*가 실제로 확인한 edge에서 바로 읽으며, 누락 `length`는 1.0, 1m 미만은 1.0으로 올림, **기존 lookup과 값이 같다**(실측 2026-09-17, artifact 엣지 223,693개 전부 일치, 차이 0건).
 - 같은 실측에서 재생성 비용은 feature cache가 준비된 상태에서도 0.68~0.77초였고 변경 후 약 10μs다. `WaypointComposerEngine`은 leg마다 엔진을 새로 만들므로 leg 수만큼 반복되던 비용이다.
 - `path_cost()`는 **항상 거리**를 돌려준다(벤치마크가 엔진끼리 비교하는 기준). 탐색에 쓴 비용 합이 필요하면 `weighted_path_cost()`를 쓴다.
-- 나머지 세 엔진(`dijkstra.py`, `oneway_bi_astar.py`, `oneway_bi_dijkstra.py`)은 아직 `compute_distance_only_lookup`을 쓴다.
+- (2026-09-19 갱신) 나머지 한 엔진(`dijkstra.py`)은 아직 `compute_distance_only_lookup`을 쓴다 — `oneway_bi_astar.py`/`oneway_bi_dijkstra.py`는 삭제됐다.
 
 ## 안전·편안 가중 비용 (#445, 2026-09-17)
 
@@ -476,13 +537,13 @@ unsafe     = λ × (1 - safety_score) + (1 - λ) × accident_score
 discomfort = 1 - slope_score
 ```
 
-- `scoring/weighted_edge_cost.py::WeightedEdgeCost`. `custom_score`가 비용을 `length` 아래로 내릴 수 있는 **할인 모델**인 것과 달리 **페널티 전용 모델**이라 항상 `cost >= length`가 성립한다.
+- `scoring/scoring_engine.py::WeightedEdgeCost`(2026-09-19 갱신 — `scoring/weighted_edge_cost.py`는 삭제되고 `scoring_engine.py`에 합쳐졌다. `SCORE_ATTRS`·`SAFETY_ATTR`/`ACCIDENT_ATTR`/`SLOPE_ATTR`·`CoverageReport`·`normalize_preference_weights`도 전부 같은 파일에 있다). `custom_score`가 비용을 `length` 아래로 내릴 수 있는 **할인 모델**인 것과 달리 **페널티 전용 모델**이라 항상 `cost >= length`가 성립한다.
 - 그래서 기동 때 `length`로 준비한 ALT Planar 거리표를 **사용자 가중치가 바뀌어도 다시 만들지 않고** admissible heuristic으로 그대로 쓴다. 이 불변식이 이 모듈의 존재 이유이므로 수식을 바꿀 때 가장 먼저 확인한다(`tests/unit/test_weighted_edge_cost.py::test_weight_is_never_below_length`).
 - `visited_nodes` 재방문 페널티(배수 >= 1)는 가중 비용 **위에** 곱해지므로 admissibility가 유지된다.
 
 **선호도와 비용 계수의 분리**
 
-- `Weights.safety` / `Weights.slope`(0~1 선호 강도)를 그대로 α·β로 쓰지 않는다. 선호도는 "얼마나 원하는가", α·β는 "탐색 비용을 몇 배까지 올릴 것인가"로 의미가 다르다.
+- `Weights.safety` / `Weights.comfort`(0~1 선호 강도, 2026-09-19 갱신 — 필드명이 `slope`가 아니라 `comfort`다)를 그대로 α·β로 쓰지 않는다. 선호도는 "얼마나 원하는가", α·β는 "탐색 비용을 몇 배까지 올릴 것인가"로 의미가 다르다.
 - `normalize_preference_weights(safety, slope, weight_limit)`가 상대 비율을 지키며 `α+β <= k`로 비례 축소한다. 가중치 산출 로직(#444/#448)이 바뀌어도 비용 수식이 흔들리지 않게 하기 위한 분리다.
 
 **적용 범위 (설계 결정 A)**
@@ -493,13 +554,16 @@ discomfort = 1 - slope_score
 | `waypoint`의 `oneway_shortest` leg | 새 선호 가중치 미적용. 기존 재방문 페널티는 유지 |
 | `oneway_shortest` | 거리 기준 최단 유지 |
 | `gps_art` | 새 선호 가중치 미적용. 기존 경유지 연결 방식 유지 |
-| `oneway_random`, `circular_random` | 아직 `custom_score`(할인 모델). Beam 계열 전환은 전후 벤치마크와 함께 별도 진행 |
+| `oneway_random`, `circular_random` | (2026-09-19 갱신) `custom_score`가 아니라 **거리 전용**. `oneway_random`은 `OnewayAstarEngine`(=`oneway_shortest`와 동일, 임시 상태)을, `circular_random`은 `CircularGraspWaypointAlnsEngine`(`mode="distance"`)을 쓴다 — 둘 다 안전·편안 가중 로직이 아직 없다 |
 
-Beam이 섞인 요청은 이번 새 가중 연결 대상에서 제외한다. 자동으로 채운 구간과
-명시된 `oneway_preferred` 모두 같은 규칙을 따른다. Beam의 목표 거리와 기존
-`custom_weights`는 유지한다. 두 비용 모델의 통합은 별도 작업이다.
+`waypoint`의 `oneway_random` leg가 섞인 요청은 이번 새 가중 연결 대상에서 제외한다. 자동으로
+채운 구간과 명시된 `oneway_preferred` 모두 같은 규칙을 따른다. (2026-09-19 갱신) 아래 "leg
+방식 결정" 표의 사유 문자열 `beam_leg_present`는 이 규칙이 처음 생겼을 때 그 leg가 실제로
+`OnewayBeamEngine`이었던 이름을 그대로 쓴다 — Beam 엔진은 이후 삭제됐지만 API 응답 계약
+(`preference_skipped_reason`)을 깨지 않으려고 문자열 이름은 바꾸지 않았다. `oneway_random`의
+목표 거리와 기존 `custom_weights`는 유지한다.
 
-**설문 기본값과 대화 선호 전달 (`SafetyComfortPreference`)**
+**설문 기본값과 대화 선호 전달 (`Weights`)**
 
 설문은 사용자 기본 선호이며, 이번 대화에서 나온 요구를 기존 `_build_weights`의
 혼합 로직으로 반영한다. 기본 안전·편안 값 `0.5`도 유효한 선호다. 사용자가 이번에
@@ -509,9 +573,12 @@ Beam이 섞인 요청은 이번 새 가중 연결 대상에서 제외한다. 자
 RouteExecutor -> RouteTool -> RouteService -> WaypointComposerEngine
 ```
 
-`RouteExecutor._build_preference_signal(weights)`는 최종 `Weights.safety`와
-`Weights.slope`를 그대로 전달한다. 설문 기록이 없으면 기존 프로필 기본값을 사용한다.
-설문 조회는 요청당 한 번이며 기본값·혼합 계산식은 변경하지 않았다.
+(2026-09-19 갱신) 별도 `SafetyComfortPreference` 타입이나 `_build_preference_signal()`
+변환 단계는 없다 — 둘 다 삭제됐다. `RouteExecutor._build_weights()`가 만든 `Weights`
+객체를 `waypoint_route` tool 호출 시 `args["preference"]`로 **그대로 재사용**한다(다른
+tool에는 `preference`를 전달하지 않는다 — 위 적용 범위 표 참고). 설문 기록이 없으면
+`Weights()`의 기본값(`safety=0.5, comfort=0.0`)을 쓴다. 설문 조회는 요청당 한 번이며
+기본값·혼합 계산식은 변경하지 않았다.
 직접 서비스 호출에서 `preference`를 생략한 경우는 거리 기준이다. 직접 전달한
 신호에서 생략한 축은 계수 0이며, 챗봇은 혼합 결과의 두 축을 모두 전달한다.
 
@@ -577,13 +644,13 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
 
 | 키 | 기본값 | 의미 |
 |---|---|---|
-| `WALK_WEIGHTED_COST_ENABLED` | `true` | `false`면 새 가중 연결 비활성. Beam의 기존 비용은 유지 |
+| `WALK_WEIGHTED_COST_ENABLED` | `true` | (2026-09-19 갱신) `false`면 새 가중 연결을 끈다(`oneway_preferred` leg도 순수 거리로 처리) |
 | `WALK_WEIGHT_LIMIT` | `0.5` | `α+β` 상한(k) |
 | `WALK_UNSAFE_ACCIDENT_RATIO` | `0.5` | `unsafe` 결합 비율(λ) |
 | `WALK_SCORE_COVERAGE_MIN` | `0.95` | 게이트 통과 기준 |
 
 준비 실패·커버리지 미달·설정 비활성 시 새 가중 연결은 거리 기준으로 처리하고 기동을
-막지 않는다. 기존 Beam 비용과 재방문 페널티는 이 설정으로 비활성화되지 않는다.
+막지 않는다. 재방문 페널티는 이 설정으로 비활성화되지 않는다.
 
 **현재 상태 (2026-09-17 실측)**
 
@@ -600,18 +667,20 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
 
 - 이전에는 A*가 `custom_score`(profile 가중치가 걸린 비용)를 최소화했고, 휴리스틱도 그에 맞춰 랜드마크 기반 실거리 추정(`landmark_dist`)에 `min_ratio`(그래프 전체 최소 cost/length 비율) 보정을 곱해 admissible을 유지했다.
 - 최단 경로류 엔진(Dijkstra/A*/양방향 A*)의 목적을 "profile 가중치와 무관하게 순수 거리 기준 최단 경로"로 좁히면서, `custom_score` 계산 자체가 필요 없어졌고 — 그에 따라 랜드마크 기반 보정도 함께 불필요해졌다. 거리(길이)와 weight가 같은 값이므로 Haversine 직선거리가 그대로 admissible 하한이 된다.
-- 다른 엔진(`beam`/`grasp`/`alns`/`rcsp`/`plateau`, `circular_*` 계열)은 이번 변경 대상이 아니며 여전히 `calculate_custom_score` 기반 블렌딩 비용을 쓴다.
+- (2026-09-19 갱신) `beam`/`grasp`/`alns`/`rcsp`/`plateau` 계열과 `circular_beam`/`circular_grasp`/`circular_alns`/`circular_rcsp`는 8축→2축 축소에서 전부 삭제됐다. `circular_random`은 지금 `CircularGraspWaypointAlnsEngine`(`mode="distance"`, 안전·편안 가중 없음)을 쓴다 — `calculate_custom_score` 자체도 이 축소로 삭제됐다.
 
-**`OnewayDijkstraEngine`·`OnewayBidirectionalDijkstraEngine`의 현재 상태 — production에서는 죽은 코드**
+**`OnewayDijkstraEngine`의 현재 상태 — production에서는 죽은 코드**
 
-- `route_service.py`·`waypoint.py`(`_LEG_ENGINES`)·`gps_art.py` 등 실제 요청을 처리하는 코드 경로 어디에서도 `OnewayDijkstraEngine`·`OnewayBidirectionalDijkstraEngine`을 참조하지 않는다. `OnewayBidirectionalDijkstraEngine`(2026-08-23 신설)도 처음부터 이 상태로 추가됐다 — `route_service.py`/`src/route_engine/engines/__init__.py`에 연결하지 않았다.
-- `benchmarks/solvers/{dijkstra,bi_dijkstra}_solver.py`(A*와 나란히 비교하기 위한 baseline)·`benchmarks/benchmark.py`의 `SOLVER_REGISTRY`·`benchmarks/run_all_scenarios.py`의 `ONEWAY_ALGOS` 목록에서만 쓰인다.
-- `tests/`에는 이 둘을 다루는 테스트가 하나도 없다 — 회귀 검증 없이 benchmark 용도로만 유지되는 상태다.
-- **해결된 불일치(2026-08-23)**: `OnewayDijkstraEngine.run()`은 2026-08-06 리팩터 때 형제 엔진(`CircularBeamEngine`/`OnewayBeamEngine`/`OnewayAstarEngine`)이 전부 `List[WalkRouteResponse]`로 맞출 때 함께 수정되지 않아 단일 `WalkRouteResponse`를 반환했었다. GRASP/ALNS/RCSP/Plateau 계열(`circular_alns.py`/`circular_grasp.py`/`circular_rcsp.py`/`oneway_alns.py`/`oneway_grasp.py`/`oneway_plateau.py`/`oneway_rcsp.py`)도 같은 이유로 단일 반환이었다. 2026-08-23에 이 8개 파일 전부를 `List[WalkRouteResponse]`로 통일했다 — 이제 `route_engine/engines/`의 모든 엔진이 같은 반환 계약을 따른다. `OnewayBidirectionalDijkstraEngine`은 `run()`을 상속만 하므로 자동으로 함께 통일됐다.
+- (2026-09-19 갱신) `OnewayBidirectionalDijkstraEngine`은 8축→2축 축소에서 삭제됐다 — 아래는 지금 남아 있는 `OnewayDijkstraEngine`(`dijkstra.py`)만의 상태다.
+- `route_service.py`·`waypoint.py`(`_LEG_ENGINES`)·`gps_art.py` 등 실제 요청을 처리하는 코드 경로 어디에서도 `OnewayDijkstraEngine`을 참조하지 않는다.
+- `benchmarks/solvers/dijkstra_solver.py`(A*와 나란히 비교하기 위한 baseline)·`benchmarks/benchmark.py`의 `SOLVER_REGISTRY`·`benchmarks/run_all_scenarios.py`의 `ONEWAY_ALGOS` 목록에서만 쓰인다.
+- `tests/`에는 이를 다루는 테스트가 하나도 없다 — 회귀 검증 없이 benchmark 용도로만 유지되는 상태다.
+- **해결된 불일치(2026-08-23, 역사적 기록)**: `OnewayDijkstraEngine.run()`은 2026-08-06 리팩터 때 형제 엔진들이 전부 `List[WalkRouteResponse]`로 맞출 때 함께 수정되지 않아 단일 `WalkRouteResponse`를 반환했었다. 2026-08-23에 당시 GRASP/ALNS/RCSP/Plateau 계열을 포함한 8개 파일 전부를 `List[WalkRouteResponse]`로 통일했다 — 그 8개 파일은 이후(8축→2축 축소) 전부 삭제됐지만, 살아남은 `OnewayDijkstraEngine`은 지금도 이 계약을 따른다.
 
 **벤치마크 solver도 동일하게 갱신됨(2026-08-23)**
 
-- `benchmarks/solvers/{dijkstra,astar,bi_astar,bi_dijkstra}_solver.py`는 `engine.run()`을 호출하지 않고 weight 계산 로직을 자체적으로 복제해서 쓴다(단계별 시간 측정 목적). 네 solver 모두 `compute_distance_only_lookup(engine.G, engine.blocked_tags)`를 쓰고(`bi_dijkstra_solver.py`는 처음부터 이걸로 작성됨), `astar_solver.py`/`bi_astar_solver.py`의 `engine._min_ratio = ...` 대입(더 이상 존재하지 않는 필드)도 제거해 weight와 `_heuristic`(Haversine)의 전제가 다시 일치한다.
+- (2026-09-19 갱신) `bi_astar_solver.py`/`bi_dijkstra_solver.py`는 대상 엔진이 삭제되며 함께 삭제됐다 — 지금 남은 것은 `benchmarks/solvers/{dijkstra,astar}_solver.py` 둘이다.
+- 두 solver는 `engine.run()`을 호출하지 않고 weight 계산 로직을 자체적으로 복제해서 쓴다(단계별 시간 측정 목적). 둘 다 `compute_distance_only_lookup(engine.G)`를 쓰고(2026-09-19 갱신 — `blocked_tags` 인자는 `profiles.py` 삭제로 더는 없다), `astar_solver.py`의 `engine._min_ratio = ...` 대입(더 이상 존재하지 않는 필드)도 제거해 weight와 `_heuristic`(Haversine)의 전제가 다시 일치한다.
 - `benchmarks/runner/test_oneway_shortest_path.py`도 같은 기준으로 갱신했다 — `scoring_engine.py`나 실제 엔진 클래스를 참조하지 않고 자체 재구현하는 구조는 유지하되, weight/heuristic 계산을 production과 동일하게(weight=length(m), heuristic=Haversine 직선거리(m)) 맞췄다. `PROFILE_WEIGHTS`/`compute_custom_score`/`compute_min_ratio`는 삭제했고(profile 블렌딩이 사라졌으므로), `haversine_km`(km)를 `haversine_m`(m)으로 바꿔 `length`(m)와 단위를 맞췄다.
 
 **벤치마크 — 저장소에 커밋된 비교 수치는 없음**
@@ -620,34 +689,20 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
 - `benchmarks/run_all_scenarios.py`도 `dijkstra-oneway`를 시나리오 비교 대상에 포함하지만, `oneway_shortest`/`oneway_astar`/`dijkstra-oneway`는 모두 `target_km`을 무시하는 순수 최단경로 알고리즘이라 이 스크립트가 계산하는 거리 이탈(`distance_deviation_km`) 지표는 편도 우회(`oneway_random`) 계열 solver와 직접 비교할 수 없다(스크립트 자체 주석에 명시).
 - **아직 확인 안 된 것**: 실제 그래프 규모에서 Dijkstra 대비 A*(Haversine 휴리스틱)의 속도·품질 개선폭. 위 benchmark 스크립트를 로컬에서 실행해 수치를 남기기 전까지는 "왜 이 교체가 유의미한가"를 정량적으로 뒷받침하는 근거가 없다.
 
-## 편도 우회·순환 엔진의 내부 재연결 — Dijkstra → A* 전환(2026-08-23)
+## 편도 우회·순환 엔진의 내부 재연결 — Dijkstra → A* 전환(2026-08-23, 역사적 기록)
 
-**무엇이 바뀌었나**
-
-- beam/grasp/alns/rcsp(편도·순환 8개 엔진 전부)가 내부적으로 쓰던 `nx.shortest_path`(Dijkstra 기반) 호출을 A*로 교체했다. `OnewayDijkstraEngine`/`OnewayBidirectionalDijkstraEngine`(엔진 자체)은 그대로 유지 — 이번 전환은 "다른 엔진 내부에서 보조적으로 쓰던 Dijkstra 호출"만 대상이다.
-- `path_utils.py`에 공용 유틸 2개 추가:
-  - `PathUtils.min_cost_length_ratio(G, cost_attr="custom_score")`: `cost_attr/length`의 그래프 전체 최솟값
-  - `PathUtils.astar_path(source, target, weight, min_ratio=1.0)`: Haversine 직선거리(× `min_ratio`)를 admissible 휴리스틱으로 쓰는 `nx.astar_path` 래퍼
-- `PathUtils.connect_to()`(순환의 복귀 연결·편도의 도착 연결에 공통 사용) 안의 `nx.shortest_path`를 `self.astar_path(...)`로 교체 — weight가 이미 `length` 기반(revisit penalty만 곱함)이라 `min_ratio=1.0`(기본값)으로 충분하다. **이 한 곳을 바꾼 것만으로** `connect_to()`를 호출하는 8개 엔진(`circular_beam`/`circular_grasp`/`circular_alns`/`circular_rcsp`/`oneway_beam`/`oneway_grasp`/`oneway_alns`/`oneway_rcsp`) 전부에 적용된다.
-- `weight="custom_score"` 기준으로 직접 `nx.shortest_path`를 부르던 나머지 지점도 개별 교체:
-  - `oneway_beam.py`·`oneway_grasp.py`·`oneway_rcsp.py`의 "base_shortest"(목표 거리 미달성 시 최종 대체 경로) 계산
-  - `oneway_alns.py`·`circular_alns.py`의 `_repair_shortest`/`_repair_detour`(destroy/repair 재연결) — `min_ratio`를 `find_path()` 시작 시 한 번만 계산해 `self._min_ratio`로 캐싱(반복 호출마다 재계산 방지)
-  - `oneway_rcsp.py`의 기존 `_min_cost_per_m()`은 `PathUtils.min_cost_length_ratio()`를 호출하는 래퍼로 정리(중복 로직 제거, 계산 결과는 동일)
-
-**`min_ratio`가 왜 여전히 필요한가**
-
-- 이 엔진들은 Dijkstra/A*(`oneway_shortest`)와 달리 **`custom_score`(안전·자연 등 블렌딩된 비용)를 weight로 그대로 쓴다** — distance-only로 바뀌지 않았다. `custom_score`는 `bonus`(안전·자연 가점)로 `length`보다 작아질 수 있어서, Haversine 직선거리를 보정 없이 그대로 휴리스틱으로 쓰면 admissible이 깨진다(실제로 `tests/unit/test_visited_nodes_penalty.py`에서 같은 유형의 회귀가 발견된 바 있다 — 위 "Haversine 휴리스틱의 admissibility 전제" 절 참고).
-- 실측(2026-08-23, 기준 그래프 노드 160,328개·엣지 223,927개): default 프로필 `min_ratio≈0.80`, safe+landmark 프로필 `min_ratio≈0.43` — 휴리스틱이 쓸모없어질 정도로 과도하게 깎이지는 않는다.
-
-**`oneway_plateau.py`는 대상에서 제외**
-
-- `nx.single_source_dijkstra`(정방향/역방향 트리 계산) 2곳은 그대로 유지했다 — A*는 "고정된 목적지 하나"를 향한 탐색 구조인데, Plateau 알고리즘은 출발지/도착지 각각에서 **전체 노드까지의 트리**를 구해 겹치는 지점을 찾는 방식이라 구조적으로 A*로 대체할 수 없다.
-
-**검증**
-
-- 코드를 직접 수정한 6개 모듈(`path_utils.py`, `oneway_beam.py`, `oneway_grasp.py`, `oneway_rcsp.py`, `oneway_alns.py`, `circular_alns.py`) + `connect_to()` 공유로 동작만 바뀐 3개(`circular_beam.py`, `circular_grasp.py`, `circular_rcsp.py`) + 변경 없음을 확인한 `oneway_plateau.py`까지 총 10개 모듈 전부 import 정상, 전체 `pytest tests/` 253 passed(기존 무관 실패 37건 외 회귀 없음)
-- 실제 프로덕션 규모 그래프(노드 160,328·엣지 223,927)에서 beam/grasp/rcsp/alns/plateau/circular_alns를 직접 실행 — 전부 `SUCCESS`, 서로 다른 알고리즘 간 거리 결과가 근접하게 일치함을 확인. 목표 거리가 실제로 달성 가능한 케이스에서도 정상 동작 확인.
-- **아직 확인 안 된 것**: 이 전환으로 beam/grasp/alns/rcsp의 실제 탐색 속도가 개선됐는지는 별도로 벤치마크하지 않았다(A*가 Dijkstra보다 느려지는 경우는 없지만, 휴리스틱이 `min_ratio`로 깎여 있어 개선폭은 `oneway_shortest`만큼 크지 않을 수 있다).
+2026-08-23에 `beam`/`grasp`/`alns`/`rcsp`(편도·순환 8개 엔진 전부: `circular_beam`/
+`circular_grasp`/`circular_alns`/`circular_rcsp`/`oneway_beam`/`oneway_grasp`/`oneway_alns`/
+`oneway_rcsp`)가 내부적으로 쓰던 `nx.shortest_path`(Dijkstra 기반) 호출을 `PathUtils.astar_path`로
+교체해 탐색을 조금 더 빠르게 했다(`custom_score`가 `length`보다 작아질 수 있어 admissible을
+지키려고 `min_ratio` 보정을 썼다). (2026-09-19 갱신) 이 8개 엔진은 모두 8축→2축 축소로
+삭제됐으므로 이 절이 설명하던 구현(공용 유틸 `PathUtils.min_cost_length_ratio`, 각 엔진의
+`_repair_shortest`/`base_shortest` 개별 교체 지점 등)은 더 이상 어떤 코드에도 해당하지
+않는다 — 자세한 옛 구현은 git 이력에서 확인한다. 이 절이 도입한 `PathUtils.connect_to()`는
+호출부가 하나도 남지 않아(죽은 코드) 2026-09-19에 삭제했다 — 현재 엔진들은 각자 직접
+`PathUtils.astar_path()`를 부르거나(`CircularGraspWaypointAlnsEngine`이 쓰는
+`grasp_waypoint_common.py`) `nx.astar_path`를 직접 부른다(`OnewayAstarEngine`). `astar_path()`
+자체(공용 admissible A* 래퍼)는 여전히 살아 있다.
 
 ## 경유지 후보 풀: 단일 풀, cutoff SSSP + lazy 거리표 (2026-08-30)
 
@@ -1253,7 +1308,7 @@ popped 중앙값 (tier × method):
 
 ### 변경 영향
 
-- **순환 경로 엔진(`CircularBeamEngine` 등)과 경유지 엔진: 영향 없다.** 부착된 휴리스틱을
+- **순환 경로 엔진(`CircularGraspWaypointAlnsEngine`)과 경유지 엔진: 영향 없다.**(2026-09-19 갱신 — 이전에는 `CircularBeamEngine` 등이었으나 삭제됐다) 부착된 휴리스틱을
   읽는 코드는 `OnewayAstarEngine.__init__` 한 곳뿐이고, 다른 엔진은 `get_alt_heuristic`을
   호출하지 않는다. `PathUtils.astar_path`도 바꾸지 않았다.
 - `WaypointComposerEngine`은 leg를 `OnewayAstarEngine`으로 채우므로 그 leg는 ALT를 쓴다.
@@ -1358,10 +1413,10 @@ popped 중앙값 (tier × method):
 
 ## Waypoint(경유지) 조합 엔진
 
-- `waypoint.py`(`WaypointComposerEngine`)는 출발지 → 경유지들 → 목적지를 구간(leg)별로 나눠, 각 leg에 지정된 모드의 기존 편도 엔진(`OnewayAstarEngine`/`OnewayBeamEngine`)을 순차 호출해 하나의 경로로 이어 붙인다. 새 탐색 알고리즘은 추가하지 않고 기존 엔진을 조합만 한다.
+- `waypoint.py`(`WaypointComposerEngine`)는 출발지 → 경유지들 → 목적지를 구간(leg)별로 나눠, 각 leg에 지정된 모드의 편도 엔진을 순차 호출해 하나의 경로로 이어 붙인다. 새 탐색 알고리즘은 추가하지 않고 기존 엔진을 조합만 한다. (2026-09-19 갱신) `_LEG_ENGINES`의 세 키(`oneway_shortest`/`oneway_random`/`oneway_preferred`)가 지금은 전부 `OnewayAstarEngine`이다 — `OnewayBeamEngine`은 삭제됐고, `oneway_random`이 임시로 `oneway_shortest`와 같은 엔진을 쓰는 동안은 셋 다 사실상 같은 동작이다(다만 나중에 갈라칠 수 있도록 분기는 합치지 않고 남겨 뒀다).
 - 입력은 `WaypointRouteInput`(`src/schema/route_schema.py`)이며 `waypoints`(경유지 좌표 리스트), `leg_modes`(leg별 모드), `leg_target_km`(leg별 목표 거리, `oneway_random` leg만 필수)로 구성된다. `len(leg_modes) == len(waypoints) + 1`이어야 한다.
-- `leg_modes`/`leg_target_km`은 `WalkMode`/`Coordinate`를 그대로 쓰지 않고 `route_schema.py` 안에 로컬로 정의한 `WaypointLegMode`(`Literal["oneway_shortest", "oneway_random"]`)와 `WaypointCoordinate`를 쓴다. `route_schema.py -> walk_schema.py -> route_engine.profiles -> route_schema.py(Weights)`로 이어지는 기존 순환 임포트 때문에 `walk_schema.py`의 타입을 직접 가져올 수 없어서다.
-- `WaypointComposerEngine`은 그래프를 직접 mutate하지 않고 leg 엔진에 그대로 넘기기만 하므로 `G.copy()`를 하지 않는다(`self.G = G`). 실제 mutation(예: `OnewayBeamEngine`의 `custom_score` 계산)은 그걸 하는 leg 엔진이 자체적으로 격리한다. 인접 leg의 경계 좌표는 동일한 `(lat, lon)` 값을 그대로 재사용해 노드 스냅 불일치를 방지한다.
+- `leg_modes`/`leg_target_km`은 `WalkMode`/`Coordinate`를 그대로 쓰지 않고 `route_schema.py` 안에 로컬로 정의한 `WaypointLegMode`와 `WaypointCoordinate`를 쓴다. (2026-09-19 갱신) `WaypointLegMode`는 지금 `Literal["oneway_shortest", "oneway_random", "oneway_preferred"]`(3개 값, #445에서 `oneway_preferred` 추가)다. 로컬 재정의 이유로 적혀 있던 `route_schema.py -> walk_schema.py -> route_engine.profiles -> route_schema.py` 순환 임포트는 더 이상 사실이 아니다 — `profiles.py`가 삭제되면서 그 순환 고리 자체가 없어졌고, 실제로 지금 `route_schema.py`는 `src.*` 모듈을 전혀 import하지 않는다(`typing`/`pydantic`만 사용). 그래도 `walk_schema.py`는 여전히 import하지 않는데, 이는 `route_schema.py`가 route_engine 계층 스키마로서 API/챗봇 계층 스키마(`walk_schema.py`)에 의존하지 않는 편이 계층 경계상 낫다는 판단으로 남아 있는 것으로 보인다(재검증 필요 — 원래의 순환 임포트 근거는 더 이상 유효하지 않다).
+- `WaypointComposerEngine`은 그래프를 직접 mutate하지 않고 leg 엔진에 그대로 넘기기만 하므로 `G.copy()`를 하지 않는다(`self.G = G`). 실제 mutation은 그걸 하는 leg 엔진이 자체적으로 격리한다. 인접 leg의 경계 좌표는 동일한 `(lat, lon)` 값을 그대로 재사용해 노드 스냅 불일치를 방지한다.
 - leg가 실패하면(그리고 아직 `oneway_shortest`로 시도하지 않았다면) `OnewayAstarEngine`으로 그 leg만 재시도한다(다른 엔진들의 `base_shortest` 대체와 같은 패턴). 그 재시도까지 실패해야 해당 leg에서 중단한다.
 - 결과 상태(`_stitch`)는 모든 leg 성공 시 `SUCCESS`, 일부만 성공 시 `PARTIAL_ROUTE`(성공한 구간까지만 좌표·거리 반환), 첫 leg부터(재시도 포함) 실패하면 그 leg의 실패 status를 그대로 사용한다. `mode`는 이 조합 전용으로 추가한 `WalkMode.WAYPOINT`를 쓴다.
 - `route_service.py`와 연동됐다(2026-08-07): `RouteService.base_engines[WalkMode.WAYPOINT] = WaypointComposerEngine`, `_build_engine()`이 `waypoints`/`leg_modes`/`leg_target_km`를 받아 `WaypointRouteInput`을 구성한다. LLM이나 API 호출자가 일부 leg만 지정해도 나머지는 `oneway_shortest`로 자동 패딩해 `len(leg_modes) == len(waypoints)+1` 불변식을 채운다. 각 waypoint 좌표도 origin/destination과 동일하게 `find_nearest_node_with_expansion` 사전 검증을 거친다.
@@ -1373,12 +1428,14 @@ popped 중앙값 (tier × method):
 
 **leg 간 경로 겹침 방지(visited_nodes 페널티)**
 
-- `OnewayAstarEngine`/`OnewayBeamEngine`은 이제 선택적 생성자 파라미터 `visited_nodes: Optional[set] = None`을 받는다. 기본값(미지정, 빈 set)이면 기존 동작과 완전히 동일하다 — `route_service.py`가 단독으로 쓰는 일반 편도 요청에는 영향이 없다.
-- `WaypointComposerEngine.run()`은 leg마다 성공한 경로의 노드열을 `visited_nodes` 집합에 누적하고, 다음 leg의 엔진(재시도 포함)에 그 집합을 전달한다. 각 엔진은 `PathUtils.connect_to`의 `revisit_penalty`와 동일한 패턴(`_RETURN_REVISIT_PENALTY`, 5배)으로, 도착지 자신을 제외한 기방문 노드로 가는 엣지 가중치에 페널티를 곱해 우회를 유도한다.
+(2026-09-19 갱신) `OnewayBeamEngine`은 삭제됐다 — 아래는 지금 leg 엔진으로 남은
+`OnewayAstarEngine`의 동작만 설명한다.
+
+- `OnewayAstarEngine`은 선택적 생성자 파라미터 `visited_nodes: Optional[set] = None`을 받는다. 기본값(미지정, 빈 set)이면 기존 동작과 완전히 동일하다 — `route_service.py`가 단독으로 쓰는 일반 편도 요청에는 영향이 없다.
+- `WaypointComposerEngine.run()`은 leg마다 성공한 경로의 노드열을 `visited_nodes` 집합에 누적하고, 다음 leg의 엔진(재시도 포함)에 그 집합을 전달한다. `_RETURN_REVISIT_PENALTY`(5배)로, 도착지 자신을 제외한 기방문 노드로 가는 엣지 가중치에 페널티를 곱해 우회를 유도한다.
 - `OnewayAstarEngine`은 `find_path()`가 최적화하는 가중치 함수 자체에 페널티가 들어가므로, 페널티가 있으면 순수 최단경로가 아니라 "기방문 노드를 피하는 최단경로"를 반환한다 — leg 라벨이 `oneway_shortest`여도 마찬가지다.
-- `OnewayBeamEngine`은 최종 경로 선택이 `target_km` 일치도를 최우선 기준(`_rank_key`의 첫 정렬 키)으로 삼기 때문에, 페널티가 최종 경로 선택에 항상 우선하지는 않는다 — 목표 거리에 더 가까운 경로가 있으면 페널티를 감수하고도 그 경로를 선택할 수 있다. 페널티는 후보 확장 단계(`_find_start_to_waypoint`의 cost 누적)와 도착 연결 단계(`_find_waypoint_to_end` → `connect_to`)에는 항상 반영되지만, 최종 승자가 반드시 우회로가 되는 것은 보장하지 않는다.
-- 각 엔진에는 `last_path_nodes` 속성이 추가됐다 — 가장 최근 `run()`이 실제로 사용한 노드열(`OnewayBeamEngine`은 왕복 가지 제거 후)이며, `WaypointComposerEngine`이 다음 leg의 `visited_nodes`를 누적할 때 이 값을 읽는다.
-- `GpsArtEngine`은 내부적으로 `WaypointComposerEngine`을 그대로 쓰므로 별도 수정 없이 이 겹침 방지 로직을 그대로 물려받는다 — 도형이 스스로 교차하는 경우 겹치는 구간을 우회하려고 시도한다(단, 위 `OnewayBeamEngine`의 한계와 동일하게 항상 보장되지는 않는다).
+- `last_path_nodes` 속성이 있다 — 가장 최근 `run()`이 실제로 사용한 노드열이며, `WaypointComposerEngine`이 다음 leg의 `visited_nodes`를 누적할 때 이 값을 읽는다.
+- `GpsArtEngine`은 내부적으로 `WaypointComposerEngine`을 그대로 쓰므로 별도 수정 없이 이 겹침 방지 로직을 그대로 물려받는다 — 도형이 스스로 교차하는 경우 겹치는 구간을 우회하려고 시도한다(단, 가중치 함수에 반영될 뿐 최종 결과가 반드시 우회로가 되는 것은 보장하지 않는다).
 
 ## GPS Art
 
@@ -1389,7 +1446,7 @@ popped 중앙값 (tier × method):
 - 입력은 `GpsArtRouteInput`(`src/schema/route_schema.py`): `shape_points`(정규화된 도형 좌표, 로컬 단위·단위 없음), `origin_lat`/`origin_lon`(배치할 중심 위경도), `target_km`(목표 총 이동 거리). `shape_points`는 검증 시점에 첫 점=마지막 점이 되도록 자동으로 닫힌다.
 - `_map_to_geo`: `shape_points`를 실제 위경도로 변환한다. 도형의 로컬 단위 둘레와 `target_km`(도로망 계수 1.4로 나눠 직선 기준으로 역산)의 비율로 scale을 구하므로, 입력 좌표가 어떤 절대 크기·단위든 상관없이 항상 `target_km`에 맞게 배치된다(스케일 불변).
 - `_snap_to_nodes`: 변환된 위경도를 그래프 최근접 노드로 스냅한다. 연속으로 같은 노드에 스냅되면(도로망이 성긴 구간) 하나로 합친다.
-- 스냅된 노드열을 `WaypointRouteInput`으로 변환해 `WaypointComposerEngine`에 위임한다. 도형 왜곡을 막기 위해 모든 leg를 `oneway_shortest`로 고정하고, `custom_weights`로 모든 가중치를 0으로 채운 `_DISTANCE_ONLY_WEIGHTS`를 명시적으로 넘긴다(2026-08-07 수정). `WaypointComposerEngine(waypoint_inp, self.G)`처럼 `custom_weights`를 아예 안 넘기면 `get_profile(None)`이 DEFAULT 프로필(safety=0.5·nature=0.5·slope=0.5·convenience=0.2, 전혀 중립이 아님)로 떨어져서, `scoring_engine.py`의 `bonus`(분모)가 안전·자연·편의 점수 좋은 엣지를 실제보다 "더 짧게" 취급해 도형이 그쪽으로 휘어지는 문제가 있었다 — GPS Art 실행 검증 중 실제로 관측됨. 모든 가중치를 0으로 두면 `custom_score`가 사실상 `length × comfort_penalty`(터널·지하철망 등 최소 페널티만 남음)가 되어 실제 거리에 훨씬 가까운 경로를 따른다.
+- 스냅된 노드열을 `WaypointRouteInput`으로 변환해 `WaypointComposerEngine`에 위임한다. 도형 왜곡을 막기 위해 모든 leg를 `oneway_shortest`로 고정하고, `custom_weights`로 모든 가중치를 0으로 채운 `_DISTANCE_ONLY_WEIGHTS`를 명시적으로 넘긴다(2026-08-07 수정). (2026-09-19 갱신) `_DISTANCE_ONLY_WEIGHTS = Weights(safety=0.0, comfort=0.0)`다 — `get_profile()`/`ScoringProfile`(옛 profile 시스템)은 삭제됐다. `WaypointComposerEngine(waypoint_inp, self.G)`처럼 `custom_weights`를 아예 안 넘기면 `Weights()`의 기본값(`safety=0.5`, 전혀 중립이 아니다)이 쓰여 안전 점수 좋은 엣지를 실제보다 "더 짧게" 취급해 도형이 그쪽으로 휘어질 수 있다 — 그래서 명시적으로 둘 다 0으로 채운다.
 - `WaypointComposerEngine`과 마찬가지로 그래프를 mutate하지 않아 `G.copy()`를 하지 않는다.
 - 최종 응답의 `mode`는 `WaypointComposerEngine`이 채우는 `WAYPOINT`를 `GPS_ART`로 덮어써서 반환한다.
 
@@ -1419,18 +1476,13 @@ popped 중앙값 (tier × method):
 - 외부 API와 LLM을 직접 호출하지 않습니다.
 - HTTP 요청·응답을 처리하지 않습니다.
 - 데이터 원본을 직접 적재하지 않습니다.
-- 입력 Graph와 Profile을 받아 경로 계산 결과를 반환합니다.
+- 입력 Graph와 Weights(선호도)를 받아 경로 계산 결과를 반환합니다.
 
 ## V1 점수 방향
 
-- 안전·자연·공원·랜드마크·러닝·편의·접근성 값은 확인된 Edge에만 제한 가점한다.
-- 데이터가 없는 지역의 `0`은 감점이 아니라 중립이다.
-- `slope_score`는 평탄도이며 `1.0`에 가까울수록 평지다.
-- `is_vehicle_caution`은 `child` 가중치에 따른 회피 페널티다. `child_score` 자체는 안전 가점으로 사용하지 않는다.
-- 터널·육교·지하철망·건물 내부는 완전 차단하지 않고 보수적인 쾌적도 페널티를 적용한다.
-- `blocked_tags`에 명시된 검증된 WalkEdge Tag만 탐색 비용을 무한대로 만들어 제외한다.
-- 기본 프로필은 실재하지 않는 `underground` Tag를 자동 차단하지 않는다.
-
-프로필에는 기존 유형 외에 `convenient`, `accessible`이 있다.
-내부 `accessible`은 사용자에게 `이동이 편한 길`로 표시한다. 리프트·엘리베이터
-인접 Edge와 평탄한 길을 제한적으로 선호할 뿐, 완전한 무장애 경로를 보장하지 않는다.
+(2026-09-19 갱신) 8축→2축(safety/comfort) 축소로 이 절이 설명하던 다축 프로필 모델
+(`convenient`/`accessible` 프로필, `blocked_tags`, `child_score`/`is_vehicle_caution` 등)은
+전부 삭제됐다 — 지금 실제로 쓰이는 점수 방향·결측 처리는 [graph_contract.md](graph_contract.md)의
+"안전·편안 Score의 방향과 결측" 절이 단일 기준이다(`safety_score`↑=안전, `accident_score`↑=위험,
+`slope_score`↑=평탄, NULL과 `0.0`을 구분). 같은 계약을 여기 다시 적지 않는다. 옛 다축 모델의
+전체 내용은 git 이력에서 확인한다.

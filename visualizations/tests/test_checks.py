@@ -146,13 +146,15 @@ def test_kept_candidate_also_marked_rejected_is_caught(run_folder, tmp_path):
     def mutate(folder):
         def change(report):
             events = _first(report, "circular")["trace"]
-            # 탈락 장면이 있는 반복을 먼저 찾고, 같은 반복의 유지 후보 하나를 거기에 끼워 넣는다.
-            drop = next(e for e in events if e["kind"] == "reject"
-                        and (e.get("values") or {}).get("iteration") is not None)
-            iteration = drop["values"]["iteration"]
-            keep = next(e for e in events if e["kind"] == "select"
-                        and (e.get("values") or {}).get("iteration") == iteration)
-            drop["paths"].append(copy.deepcopy(keep["paths"][0]))
+            # 같은 (candidate_id, source_phase)가 select와 reject에 동시에 걸리도록
+            # 실제 select 장면을 복제해 kind만 reject로 바꿔 끼워 넣는다(D의 새 기준).
+            select = next(e for e in events if e["kind"] == "select" and e.get("candidate_id"))
+            conflict = copy.deepcopy(select)
+            conflict["kind"] = "reject"
+            conflict["decision"] = {"accepted": False, "reason": "테스트로 주입한 모순"}
+            events.insert(len(events) - 1, conflict)
+            for i, event in enumerate(events):
+                event["seq"] = i
         _edit_trace(folder, change)
     failed = _failed(_broken(run_folder, tmp_path, mutate))
     assert failed == {"D"}, failed
@@ -170,7 +172,7 @@ def test_internal_alns_acceptance_promoted_to_select_is_caught(run_folder, tmp_p
     assert failed == {"D"}, failed
 
 
-def test_candidate_node_mixed_into_the_final_route_is_caught(run_folder, tmp_path):
+def test_candidate_node_mixed_into_the_final_route_is_caught(run_folder, tmp_path, grid_graph):
     def mutate(folder):
         def change(report):
             result = _first(report, "circular")
@@ -179,13 +181,12 @@ def test_candidate_node_mixed_into_the_final_route_is_caught(run_folder, tmp_pat
                 if event["kind"] in ("select", "route_changed", "cleanup", "final"):
                     for path in event["paths"]:
                         chosen.update(path)
-            explored = set()
-            for event in result["trace"]:
-                if event["kind"] in ("candidates", "reject"):
-                    for path in event["paths"]:
-                        explored.update(path)
-            stray = sorted(explored - chosen - {result["start"]["node"], result["end"]["node"]})
-            assert stray, "격자에서 탐색만 하고 고르지 않은 노드가 있어야 이 검사가 의미 있다."
+            # GRASP+ALNS는 RCL 비선택 후보를 reject로 남기지 않으므로, "탐색만 하고 고르지
+            # 않은" 노드 대신 격자 전체에서 최종 경로가 고른 적 없는 아무 노드나 쓴다 — F가
+            # 보는 것은 "final에 없던 노드가 섞였는가"이지 그 노드의 탐색 이력이 아니다.
+            stray = sorted(set(grid_graph.nodes) - chosen
+                           - {result["start"]["node"], result["end"]["node"]})
+            assert stray, "격자에 최종 경로가 고르지 않은 노드가 있어야 이 검사가 의미 있다."
             result["trace"][-1]["paths"][0].append(stray[0])
         _edit_trace(folder, change)
     failed = _failed(_broken(run_folder, tmp_path, mutate))

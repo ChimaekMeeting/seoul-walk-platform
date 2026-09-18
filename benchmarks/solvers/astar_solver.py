@@ -23,10 +23,9 @@ class OnewayAstarSolver(BasePathSolver):
             inp=inp,
             G=graph,
             custom_weights=params.get("custom_weights"),
-            profile=params.get("profile"),
         )
         t1 = time.perf_counter()
-        scored = compute_distance_only_lookup(engine.G, engine.blocked_tags)
+        scored = compute_distance_only_lookup(engine.G)
         engine._weight_fn    = scored["weight"]
         engine._score_lookup = scored["lookup"]
         t2 = time.perf_counter()

@@ -11,7 +11,7 @@ assert하고 있어 그 커밋 이후 계속 실패 상태다. 그 계약을 되
 검증 항목:
   - safety_score / accident_score / slope_score가 edge 속성으로 전달된다
   - NULL은 0.0으로 바뀌지 않고 None 그대로 전달된다(미계산과 0의 구분 보존)
-  - 기존 속성(link_id, length, POI 집계)의 계약이 유지된다
+  - 기존 속성(link_id, length)의 계약이 유지된다
   - 전달된 속성을 WeightedEdgeCost의 커버리지 게이트가 그대로 읽을 수 있다
 """
 
@@ -30,7 +30,7 @@ GraphRepository = importlib.import_module(
     "src.repository.network.graph_repository"
 ).GraphRepository
 
-from src.route_engine.scoring.weighted_edge_cost import (
+from src.route_engine.scoring.scoring_engine import (
     ACCIDENT_ATTR,
     SAFETY_ATTR,
     SLOPE_ATTR,
@@ -79,21 +79,6 @@ def test_existing_edge_contract_is_unchanged():
 
     assert attributes["link_id"] == 100
     assert attributes["length"] == 25.5
-    assert attributes["toilet_count"] == 0
-    assert attributes["transit_count"] == 0
-    assert attributes["accessibility_poi_count"] == 0
-
-
-def test_poi_counts_still_override_defaults():
-    attributes = GraphRepository._edge_attributes(
-        make_row(),
-        {"toilet_count": 2, "transit_count": 3, "accessibility_poi_count": 1},
-    )
-
-    assert attributes["toilet_count"] == 2
-    assert attributes["transit_count"] == 3
-    assert attributes["accessibility_poi_count"] == 1
-    assert attributes[SAFETY_ATTR] == 0.7  # POI 병합이 점수를 덮지 않는다
 
 
 # ── 커버리지 게이트와의 연결 ────────────────────────────────────────────────

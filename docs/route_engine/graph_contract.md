@@ -1,8 +1,8 @@
 # 경로 그래프 계약
 
 > 상태: Current
-> 기준일: 2026-09-17
-> 관련 코드: `src/route_engine/graph/`, `src/repository/network/graph_repository.py`
+> 기준일: 2026-09-19
+> 관련 코드: `src/repository/network/graph_repository.py`
 
 ## 목적
 
@@ -24,7 +24,13 @@ Edge에 전달한다. 이 표는 2026-09-17에 코드와 실제 artifact로 대�
 |---|---|---|
 | 기본 | `link_id`, `length` | 전달됨 |
 | 안전·편안 Score | `safety_score`, `accident_score`, `slope_score` | 전달됨(값은 아래 참고) |
-| 연결 POI 집계 | `toilet_count`, `transit_count`, `accessibility_poi_count` | 전달됨 |
+
+(2026-09-19 갱신) 연결 POI 집계(`toilet_count`·`transit_count`·`accessibility_poi_count`)는 더
+이상 Edge에 전달되지 않는다. `RoutePoiRepository.get_connected_counts_by_edge()`가 삭제됐고
+`GraphRepository._edge_attributes(row)`도 이제 `poi_counts` 인자를 받지 않는 단일 인자
+함수다 — 위 표의 `link_id`/`length`/`safety_score`/`accident_score`/`slope_score` 5개가
+현재 전달되는 속성 전부다. `GraphArtifactRepository.REQUIRED_EDGE_ATTRIBUTES`도
+`frozenset({"link_id", "length"})`로 줄었다.
 
 Node에는 `lon`, `lat`만 전달한다.
 
@@ -43,8 +49,8 @@ POI 집계는 `route_pois.is_route_connected=true`이고 `nearest_edge_id`가 �
 계산하지 않음"이고 `0.0`은 "계산했고 값이 0"이다 — 이 구분을 잃으면 미계산
 엣지가 가장 좋은 도로로 읽힌다. `GraphRepository`는 NULL을 `0.0`으로 바꾸지 않고
 `None` 그대로 전달하며, 결측 판단은 엣지 단위가 아니라 그래프 단위
-커버리지 게이트(`scoring/weighted_edge_cost.py::WeightedEdgeCost.check_coverage`)가
-맡는다.
+커버리지 게이트(`scoring/scoring_engine.py::WeightedEdgeCost.check_coverage`, 2026-09-19 갱신
+— `weighted_edge_cost.py`는 삭제되고 `scoring_engine.py`에 합쳐졌다)가 맡는다.
 
 ### 현재 적재 상태 (2026-09-17 실측)
 
@@ -66,17 +72,15 @@ POI 집계는 `route_pois.is_route_connected=true`이고 `nearest_edge_id`가 �
 파이프라인에서 함께 제거됐다. 되살릴지 여부는 미결이며 이 문서는 현재 코드
 기준만 기술한다.
 
-이 제거 이후 갱신되지 않은 참조가 남아 있다(2026-09-17 확인).
-
-- `src/repository/layer/child_repository.py`의 raw SQL이 `edge.is_walkable`을 참조
-- `src/route_engine/graph/graph_filter.py`가 Node의 `is_underground`·`is_overpass`·
-  `node_type`으로 필터링 — 현재 그래프에는 해당 속성이 없어 동작하지 않는다
-- `tests/unit/test_graph_repository.py`의 3개 테스트가 제거 이전 계약을 검증
+(2026-09-19 갱신) 2026-09-17 시점에 여기 남아 있던 갱신되지 않은 참조 3건은 모두 해소됐다 —
+`child_repository.py`(raw SQL이 `edge.is_walkable` 참조)는 파일째 삭제됐고, `graph_filter.py`를
+포함한 `src/route_engine/graph/` 폴더 전체가 삭제됐고, `tests/unit/test_graph_repository.py`
+(제거 이전 계약을 검증하던 3개 테스트)도 삭제됐다.
 
 ## 금지사항
 
 - Layer 또는 Score 계산
-- Profile 가중치 결정
+- Weights(선호도) 가중치 결정
 - 순환·편도 경로 탐색 실행
 - FastAPI 또는 챗봇 코드 직접 의존
 - 데이터 원본 직접 적재

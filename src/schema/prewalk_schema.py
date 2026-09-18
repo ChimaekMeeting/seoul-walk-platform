@@ -3,7 +3,6 @@ from pydantic import BaseModel, Field, RootModel, field_validator, model_validat
 from typing import Literal, Optional, Union, List
 from src.interfaces.schema.walk_schema import WalkMode, WalkRouteResponse
 from src.interfaces.validators.dist_validator import validate_target_km_positive
-from src.route_engine.profiles import ScoringProfile
 
 
 class TargetKmPositiveMixin(BaseModel):
@@ -77,8 +76,6 @@ class GPSArtPreference(BasePreference, TargetKmPositiveMixin):
     target_km: Optional[float] = None
 
 
-# route_schema.WaypointLegMode와 동일한 값이지만, route_schema -> walk_schema -> route_engine.profiles
-# -> route_schema로 이어지는 기존 순환 임포트를 피하기 위해 여기서도 로컬로 재정의한다.
 WaypointLegMode = Literal["oneway_shortest", "oneway_random"]
 
 
@@ -167,4 +164,3 @@ class State(BaseModel):
     user_prompt: str  = ""
     response:    str  = ""
     feature_labels: dict[FeatureTag, FeatureLabel] = Field(default_factory=dict)  # feature별 명시적 라벨, 선호도 라벨
-    profile: Optional[ScoringProfile] = None

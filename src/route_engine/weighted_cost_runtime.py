@@ -22,20 +22,20 @@ prepare -> attach -> get 구조다.
 
 복구
 ----
-WALK_WEIGHTED_COST_ENABLED=false로 재기동하면 준비를 건너뛰고 새 가중 연결을
-거리 기준으로 처리한다. Beam의 기존 custom_score는 유지한다. 준비 실패나
-커버리지 미달도 새 가중 연결을 비활성화한다.
+WALK_WEIGHTED_COST_ENABLED=false로 재기동하면 준비를 건너뛰고 oneway_preferred leg도
+순수 거리 기준으로 처리한다(cost_context가 None이 되어 oneway_shortest와 동일하게
+동작). 준비 실패나 커버리지 미달도 마찬가지로 가중 연결을 비활성화한다.
 """
 
 from __future__ import annotations
 
 import logging
 from time import perf_counter
-from typing import Optional, Sequence
+from typing import Optional
 
 import networkx as nx
 
-from src.route_engine.scoring.weighted_edge_cost import (
+from src.route_engine.scoring.scoring_engine import (
     SCORE_ATTRS,
     CoverageReport,
     WeightedEdgeCost,
@@ -117,7 +117,6 @@ def build_request_cost_context(
     slope_preference: float,
     weight_limit: float,
     accident_ratio: float,
-    blocked_tags: Sequence[str] = (),
 ) -> Optional[WeightedEdgeCost]:
     """요청 하나가 쓸 WeightedEdgeCost를 만든다. 가중 모드가 불가하면 None.
 
@@ -143,7 +142,6 @@ def build_request_cost_context(
         alpha, beta,
         accident_ratio=accident_ratio,
         weight_limit=weight_limit,
-        blocked_tags=blocked_tags,
         medians=report.medians,
         enabled=True,
     )

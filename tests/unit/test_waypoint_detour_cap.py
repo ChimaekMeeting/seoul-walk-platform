@@ -28,9 +28,9 @@ from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.oneway_astar import OnewayAstarEngine
 from src.route_engine.engines.waypoint import WaypointComposerEngine
 from src.route_engine.scoring.detour_cap import apply_detour_cap, path_distance_m
-from src.route_engine.scoring.weighted_edge_cost import WeightedEdgeCost
+from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
 from src.schema.route_schema import (
-    SafetyComfortPreference,
+    Weights,
     WaypointCoordinate,
     WaypointRouteInput,
 )
@@ -250,12 +250,10 @@ def test_different_preferences_do_not_leak_between_requests(graph):
 
 
 def test_preference_signal_axes_are_independent():
-    """안전만 지정했다면 편안함은 비활성으로 남는다."""
-    only_safety = SafetyComfortPreference(safety=0.8)
+    """안전만 지정했다면 편안함은 Weights.comfort 기본값(0.0)으로 남는다."""
+    only_safety = Weights(safety=0.8)
 
-    assert only_safety.is_active is True
-    assert only_safety.as_coefficients() == (0.8, 0.0)
-    assert SafetyComfortPreference().is_active is False
+    assert (only_safety.safety, only_safety.comfort) == (0.8, 0.0)
 
 
 # ── 부분 경로 ───────────────────────────────────────────────────────────────
@@ -309,7 +307,7 @@ def _get_route(service, preference):
 
 def test_route_service_applies_an_active_preference_end_to_end(graph):
     """RouteService -> WaypointComposerEngine -> A* 전 구간에서 안전 선호가 반영된다."""
-    response = _get_route(_route_service(graph), SafetyComfortPreference(safety=0.9))
+    response = _get_route(_route_service(graph), Weights(safety=0.9))
 
     assert response.status == WalkRouteStatus.SUCCESS
     assert response.preference_applied is True
@@ -337,7 +335,7 @@ def test_service_keeps_preferred_detour_over_thirty_percent_without_baseline(gra
 
     monkeypatch.setattr(WaypointComposerEngine, "_build_distance_baseline", forbidden)
     monkeypatch.setattr(WaypointComposerEngine, "_apply_detour_cap", forbidden)
-    response = _get_route(_route_service(graph), SafetyComfortPreference(safety=0.9))
+    response = _get_route(_route_service(graph), Weights(safety=0.9))
 
     assert response.status == WalkRouteStatus.SUCCESS
     assert response.preference_applied is True
@@ -360,7 +358,7 @@ def test_failed_preferred_search_reports_distance_fallback(graph, monkeypatch):
         return original_run(engine)
 
     monkeypatch.setattr(OnewayAstarEngine, "run", run)
-    response = _get_route(_route_service(graph), SafetyComfortPreference(safety=0.9))
+    response = _get_route(_route_service(graph), Weights(safety=0.9))
 
     assert response.status == WalkRouteStatus.SUCCESS
     assert response.preference_applied is False

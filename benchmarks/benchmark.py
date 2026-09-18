@@ -61,18 +61,15 @@ solver 자기 신고이며 알고리즘 간 비교에 쓰면 안 되는 컬럼:
       engine을 새로 등록하면서 자체 G.copy() 없이 넘기면, 그 변형이 같은 워커의
       이후 호출(전혀 다른 solver·조건)에 그대로 새어나가는 버그가 된다.
 
-    현재 SOLVER_REGISTRY 기준: circular_grasp.py/grasp_solver.py 계열(run_circular_engine()
-    경유, calculate_custom_score()로 그래프에 custom_score를 실제로 써넣음)은 자기
-    __init__에서 G.copy()를 한다 — 필요해서 하는 것이므로 지우면 안 된다. 반면
-    grasp_waypoint_common.py 기반 4종(Local/VND/VNS/ALNS, circular_grasp_waypoint_*.py)은
-    mode="distance" 전용이라 run_circular_engine_distance_only()를 쓰고
-    calculate_custom_score()를 아예 안 부르며, 이 파이프라인이 실제로 쓰는 것
-    (grasp_waypoint_common.py/waypoint_pool.py/PathUtils)은 전부 읽기 전용이라 __init__에서
-    G.copy()를 하지 않는다(16만 노드 기준 1회 약 1.7초 절약 — VNS는 예전에 내부적으로
-    VndEngine을 또 만들며 이 복사를 두 번 해서 그중 한 번은 즉시 버려졌었다). 새 engine을
-    추가할 때 그래프를 변형하는 코드가 하나라도 있으면, 어느 실행 경로를 타든 안전하도록
-    반드시 자체적으로 G.copy()를 넣어야 한다 — 위 풀 재사용 경로에서는 하네스가 그 실수를
-    막아주지 않는다.
+    현재 SOLVER_REGISTRY는 grasp_waypoint_common.py 기반 9종(Local/VND/VNS/ALNS ×
+    Grasp/Beam, circular_grasp_waypoint_*.py/circular_beam_waypoint_*.py)뿐이다. 전부
+    mode="distance" 전용이라 run_circular_engine_distance_only()를 쓰고, 이 파이프라인이
+    실제로 쓰는 것(grasp_waypoint_common.py/waypoint_pool.py/PathUtils)은 전부 읽기
+    전용이라 __init__에서 G.copy()를 하지 않는다(16만 노드 기준 1회 약 1.7초 절약 — VNS는
+    예전에 내부적으로 VndEngine을 또 만들며 이 복사를 두 번 해서 그중 한 번은 즉시
+    버려졌었다). 새 engine을 추가할 때 그래프를 변형하는 코드가 하나라도 있으면, 어느
+    실행 경로를 타든 안전하도록 반드시 자체적으로 G.copy()를 넣어야 한다 — 위 풀 재사용
+    경로에서는 하네스가 그 실수를 막아주지 않는다.
 
 실행:
     python -m benchmarks.benchmark --list                  # 등록된 알고리즘 목록만 확인

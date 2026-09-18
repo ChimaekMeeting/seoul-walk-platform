@@ -1111,8 +1111,8 @@ def test_engines_complete_for_two_three_and_four_waypoints(grid_graph, engine_cl
 # ── 프로덕션 배선 보호 ────────────────────────────────────────────────────
 
 def test_production_dispatch_table_is_untouched():
-    from src.route_engine.engines.circular_beam import CircularBeamEngine
+    from src.route_engine.engines.circular_grasp_waypoint_alns import CircularGraspWaypointAlnsEngine
     from src.service.route.route_service import RouteService
 
     service = RouteService(G=nx.Graph(), auth_service=None)
-    assert service.base_engines[WalkMode.CIRCULAR_RANDOM] is CircularBeamEngine
+    assert service.base_engines[WalkMode.CIRCULAR_RANDOM] is CircularGraspWaypointAlnsEngine

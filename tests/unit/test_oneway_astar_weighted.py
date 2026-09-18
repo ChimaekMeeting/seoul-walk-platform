@@ -25,7 +25,7 @@ from src.route_engine.alt_runtime import attach_alt_heuristic, prepare_alt_heuri
 from src.route_engine.engines.oneway_astar import OnewayAstarEngine
 from src.route_engine.engines.path_utils import _RETURN_REVISIT_PENALTY
 from src.route_engine.scoring.detour_cap import apply_detour_cap, path_distance_m
-from src.route_engine.scoring.weighted_edge_cost import WeightedEdgeCost
+from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
 from src.schema.route_schema import OnewayRouteInput
 
 K = 1.0
@@ -214,26 +214,14 @@ def test_path_cost_is_distance_even_in_weighted_mode():
 
 
 def test_distance_weight_matches_the_previous_lookup_contract():
-    """_make_distance_weight가 compute_distance_only_lookup과 같은 값을 내는지 고정한다.
-
-    현재 어떤 프로필도 blocked_tags를 정의하지 않아 엔진 생성만으로는 차단 경로를
-    만들 수 없다. 그래서 weight 콜러블 자체를 직접 검증한다.
-    """
-    weight = OnewayAstarEngine._make_distance_weight(["tunnel"])
+    """_make_distance_weight가 compute_distance_only_lookup과 같은 값을 내는지 고정한다."""
+    weight = OnewayAstarEngine._make_distance_weight()
 
     assert weight(0, 1, {"length": 120.0}) == 120.0
-    assert weight(0, 1, {"length": 120.0, "tags": ["bridge"]}) == 120.0
-    assert weight(0, 1, {"length": 120.0, "tags": ["tunnel"]}) == float("inf")
     # scoring_engine._build_feature_cache의 max(1.0, length)·기본값 1.0과 동일해야 한다
     assert weight(0, 1, {"length": 0.098}) == 1.0
     assert weight(0, 1, {}) == 1.0
     assert weight(0, 1, {"length": None}) == 1.0
-
-
-def test_distance_weight_without_blocked_tags_ignores_tags():
-    weight = OnewayAstarEngine._make_distance_weight([])
-
-    assert weight(0, 1, {"length": 50.0, "tags": ["tunnel"]}) == 50.0
 
 
 def test_engine_never_calls_the_full_edge_lookup(monkeypatch):

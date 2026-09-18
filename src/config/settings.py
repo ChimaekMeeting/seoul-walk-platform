@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     # 안전·편안 가중 탐색 비용(#445)
     # cost = length * (1 + alpha * unsafe + beta * discomfort)
-    # false로 재기동하면 새 가중 연결을 끈다. Beam의 기존 custom_score는 유지한다.
+    # false로 재기동하면 새 가중 연결을 끈다(oneway_preferred leg도 순수 거리로 처리).
     WALK_WEIGHTED_COST_ENABLED: bool = True
     # alpha + beta의 상한(k). 엣지 비용이 최대 몇 배까지 늘어날 수 있는지를 정한다.
     # 경로의 실제 우회 거리 제한과는 다른 값이다.

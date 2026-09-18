@@ -35,7 +35,7 @@ class WalkEdge(Base):
     # "계산했고 값이 0(예: 사고 지역과 겹치지 않음)"을 구분해야 하기 때문이다. 기본값
     # 0.0을 주면 미계산 엣지가 "가장 안전한 도로"로 읽혀 안전 가중치를 올릴수록 데이터가
     # 없는 길로 몰린다. 결측 처리는 엣지 단위가 아니라 그래프 단위 커버리지 게이트가
-    # 맡는다(scoring/weighted_edge_cost.py::WeightedEdgeCost.check_coverage).
+    # 맡는다(scoring/scoring_engine.py::WeightedEdgeCost.check_coverage).
     #
     # 주의: entity/base.py::init_table()(base.py:58-68)은 DB_AUTO_MIGRATE가 off가
     # 아니면 여기 선언된 컬럼을 기동 시 ADD COLUMN으로 만들고, full 모드에서는 선언이

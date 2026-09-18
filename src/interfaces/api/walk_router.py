@@ -57,7 +57,6 @@ async def walk_route(
 
         results = service.get_route(
             access_token, origin, destination, request.target_km, request.mode,
-            profile=request.profile,
         )
         # RouteService.get_route()는 06fc3b1(경로 N개 생성 리팩토링) 이후 List[WalkRouteResponse]를
         # 반환하도록 바뀌었지만 이 라우터는 아직 단일 응답 계약(response_model=WalkRouteResponse)에

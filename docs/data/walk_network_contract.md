@@ -1,8 +1,8 @@
 # 도보 네트워크 계약
 
 > 상태: Current
-> 기준일: 2026-08-20
-> 관련 코드: `src/entity/network/`, `src/repository/network/`, `src/route_engine/graph/`
+> 기준일: 2026-09-19
+> 관련 코드: `src/entity/network/`, `src/repository/network/`
 
 ## 1. 책임
 
