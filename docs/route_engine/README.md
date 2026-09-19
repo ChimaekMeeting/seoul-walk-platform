@@ -403,16 +403,20 @@ self.base_engines: dict = {
 ```
 
 `CIRCULAR_RANDOM`은 `WaypointEngine`을 `construction="grasp", refinement="alns"`로 고정한
-`CircularGraspWaypointAlnsEngine`을 쓴다 — `mode="distance"` 전용이라 안전·편안 가중 로직은
-아직 없다(의도적으로 보류). `ONEWAY_RANDOM`은 지금은 `ONEWAY_SHORTEST`와 완전히 같은
-`OnewayAstarEngine`을 쓴다(우회 로직이 아직 없는 임시 상태) — 다만 나중에 갈라칠 수 있도록
-`_build_engine()`에서 `ONEWAY_SHORTEST`와 분기를 합치지 않고 별도 `if`로 남겨 뒀다.
-그래서 **`circular_random`·`oneway_random` 모두 지금은 안전·편안 가중치가 걸리지 않는
-거리 전용 비용으로 탐색한다** — 예전 Beam 계열이 하던, "안전·자연 등을 블렌딩한 스칼라
-비용으로 고른 대표 1개 + 벡터로 다양화한 나머지"라는 다양화 메커니즘(`select_diverse_paths`
-직접 호출)은 이 두 모드에서 더 이상 쓰이지 않는다(그 메커니즘 자체는 `WaypointComposerEngine`의
-leg 조합에만 남아 있다 — 아래 "후보 다양화" 절 참고). **반환 후보 개수는 별개다** —
-`oneway_random`(`OnewayAstarEngine`)은 항상 1개뿐이지만, `circular_random`
+`CircularGraspWaypointAlnsEngine`을 쓴다. `mode`는 여전히 `"distance"` 고정이지만(2026-09-19,
+#462에서 `_CostCache.cost_context`로 배선) `route_service.py`가 `_build_cost_context(preference)`로
+만든 `WeightedEdgeCost`를 엔진 생성자에 넘기면 GRASP 구축 반복과 ALNS 최종 재연결의
+A*(`BuildCycleRoute`)가 그 가중 비용으로 구간을 잇는다 — 단, ALNS 자체의 경유지 선택
+(`alns_search`, destroy-repair)은 `WaypointPoolResult.distance()`(순수 거리)만 보므로 어떤 노드를
+경유지로 쓸지·몇 번째로 방문할지는 여전히 거리 기준이다. `ONEWAY_RANDOM`은 지금은
+`ONEWAY_SHORTEST`와 완전히 같은 `OnewayAstarEngine`을 쓴다(우회 로직이 아직 없는 임시 상태) —
+다만 나중에 갈라칠 수 있도록 `_build_engine()`에서 `ONEWAY_SHORTEST`와 분기를 합치지 않고
+별도 `if`로 남겨 뒀다. `oneway_random`은 여전히 안전·편안 가중치가 걸리지 않는 거리 전용
+비용으로 탐색한다 — 예전 Beam 계열이 하던, "안전·자연 등을 블렌딩한 스칼라 비용으로 고른
+대표 1개 + 벡터로 다양화한 나머지"라는 다양화 메커니즘(`select_diverse_paths` 직접 호출)은
+`circular_random`·`oneway_random` 어느 쪽에서도 더 이상 쓰이지 않는다(그 메커니즘 자체는
+`WaypointComposerEngine`의 leg 조합에만 남아 있다 — 아래 "후보 다양화" 절 참고). **반환 후보
+개수는 별개다** — `oneway_random`(`OnewayAstarEngine`)은 항상 1개뿐이지만, `circular_random`
 (`CircularGraspWaypointAlnsEngine`)은 아래 `WaypointEngine`의 `grasp+alns` 다중 후보 규칙을
 그대로 물려받아 여전히 3개를 반환한다 — 자세한 내용은 바로 아래 문단 참고.
 
@@ -554,7 +558,8 @@ discomfort = 1 - slope_score
 | `waypoint`의 `oneway_shortest` leg | 새 선호 가중치 미적용. 기존 재방문 페널티는 유지 |
 | `oneway_shortest` | 거리 기준 최단 유지 |
 | `gps_art` | 새 선호 가중치 미적용. 기존 경유지 연결 방식 유지 |
-| `oneway_random`, `circular_random` | (2026-09-19 갱신) `custom_score`가 아니라 **거리 전용**. `oneway_random`은 `OnewayAstarEngine`(=`oneway_shortest`와 동일, 임시 상태)을, `circular_random`은 `CircularGraspWaypointAlnsEngine`(`mode="distance"`)을 쓴다 — 둘 다 안전·편안 가중 로직이 아직 없다 |
+| `oneway_random` | `custom_score`가 아니라 **거리 전용**. `OnewayAstarEngine`(=`oneway_shortest`와 동일, 임시 상태)을 쓰고, 안전·편안 가중 로직이 아직 없다 |
+| `circular_random` | (2026-09-19 갱신, #462) **가중** — `CircularGraspWaypointAlnsEngine`(`mode="distance"` 고정)이 `cost_context`를 받아 GRASP 구축·ALNS 최종 재연결의 A*(`BuildCycleRoute`)에 쓴다. ALNS의 경유지 선택 자체(`alns_search`)는 거리 기준 그대로다 |
 
 `waypoint`의 `oneway_random` leg가 섞인 요청은 이번 새 가중 연결 대상에서 제외한다. 자동으로
 채운 구간과 명시된 `oneway_preferred` 모두 같은 규칙을 따른다. (2026-09-19 갱신) 아래 "leg
@@ -667,7 +672,7 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
 
 - 이전에는 A*가 `custom_score`(profile 가중치가 걸린 비용)를 최소화했고, 휴리스틱도 그에 맞춰 랜드마크 기반 실거리 추정(`landmark_dist`)에 `min_ratio`(그래프 전체 최소 cost/length 비율) 보정을 곱해 admissible을 유지했다.
 - 최단 경로류 엔진(Dijkstra/A*/양방향 A*)의 목적을 "profile 가중치와 무관하게 순수 거리 기준 최단 경로"로 좁히면서, `custom_score` 계산 자체가 필요 없어졌고 — 그에 따라 랜드마크 기반 보정도 함께 불필요해졌다. 거리(길이)와 weight가 같은 값이므로 Haversine 직선거리가 그대로 admissible 하한이 된다.
-- (2026-09-19 갱신) `beam`/`grasp`/`alns`/`rcsp`/`plateau` 계열과 `circular_beam`/`circular_grasp`/`circular_alns`/`circular_rcsp`는 8축→2축 축소에서 전부 삭제됐다. `circular_random`은 지금 `CircularGraspWaypointAlnsEngine`(`mode="distance"`, 안전·편안 가중 없음)을 쓴다 — `calculate_custom_score` 자체도 이 축소로 삭제됐다.
+- (2026-09-19 갱신) `beam`/`grasp`/`alns`/`rcsp`/`plateau` 계열과 `circular_beam`/`circular_grasp`/`circular_alns`/`circular_rcsp`는 8축→2축 축소에서 전부 삭제됐다. `circular_random`은 지금 `CircularGraspWaypointAlnsEngine`(`mode="distance"`)을 쓴다 — `calculate_custom_score` 자체도 이 축소로 삭제됐고, 그 자리는 부활하지 않았다. 안전·편안 가중은 그 대신 `_CostCache.cost_context`(`WeightedEdgeCost`, #462)로 별도 배선됐다 — 위 "적용 범위" 표 참고.
 
 **`OnewayDijkstraEngine`의 현재 상태 — production에서는 죽은 코드**
 
