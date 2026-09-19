@@ -684,7 +684,7 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
 | 키 | 기본값 | 의미 |
 |---|---|---|
 | `WALK_WEIGHTED_COST_ENABLED` | `true` | (2026-09-19 갱신) `false`면 새 가중 연결을 끈다(`oneway_preferred` leg도 순수 거리로 처리) |
-| `WALK_WEIGHT_LIMIT` | `0.5` | `α+β` 상한(k) |
+| `WALK_WEIGHT_LIMIT` | `0.7` | (2026-09-20 갱신) `α+β` 상한(k) |
 | `WALK_UNSAFE_ACCIDENT_RATIO` | `0.5` | `unsafe` 결합 비율(λ) |
 | `WALK_SCORE_COVERAGE_MIN` | `0.95` | 게이트 통과 기준 |
 
