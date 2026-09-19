@@ -19,9 +19,9 @@ benchmarks/run_alt_circular_validation.py
 넘기므로, 두 모드 사이의 유일한 차이는 ALT 부착 여부다.
 
 ⚠ 이 러너는 `cost_context`를 주입하지 않으므로 지나가는 것은 **거리 전용 경로**뿐이다.
-점수(safety/accident/slope)는 #474부터 artifact에 실려 있으므로 데이터가 없어서가
-아니라, ALT 부착 여부만을 유일한 차이로 두기 위한 의도적 선택이다. 가중 비용 분기는
-합성 그래프 단위 테스트(tests/unit/test_grasp_waypoint_common.py)가 덮는다.
+점수(safety/accident/slope)는 #474부터 이 러너가 읽는 그래프(artifact)에도 실려 있으므로
+데이터가 없어서가 아니라, ALT 부착 여부만을 유일한 차이로 두기 위한 의도적 선택이다.
+가중 비용 분기는 합성 그래프 단위 테스트(tests/unit/test_grasp_waypoint_common.py)가 덮는다.
 
 실행:
     python -m benchmarks.run_alt_circular_validation

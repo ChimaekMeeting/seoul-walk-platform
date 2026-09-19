@@ -14,12 +14,6 @@ from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
 
 logger = logging.getLogger(__name__)
 
-# 세 점수 각각이 이 비율 이상 적재돼 있어야 artifact를 저장한다. src/config/settings.py의
-# WALK_SCORE_COVERAGE_MIN(런타임 게이트 기준)과 같은 값을 쓴다 — 이 스크립트가 만든
-# artifact가 그 게이트를 넘지 못하면 서비스·벤치마크 양쪽에서 조용히 거리 전용으로
-# 폴백하므로, 만드는 시점에 같은 기준으로 미리 막는다.
-_MIN_SCORE_COVERAGE = 0.95
-
 
 def _git_state() -> tuple[str, bool]:
     try:
@@ -87,18 +81,21 @@ def main() -> None:
 
     # 점수가 비어있는 DB(예: 로컬 seoul_walk)로 빌드하면 이 확인 없이는 artifact가
     # 그대로 저장되고, 그 문제가 fixture·서비스 전체로 조용히 퍼진다(#474). 여기서 막아
-    # "artifact가 존재한다 = 점수가 실려 있다"를 보장한다.
-    coverage = WeightedEdgeCost.check_coverage(graph, _MIN_SCORE_COVERAGE)
+    # "artifact가 존재한다 = 점수가 실려 있다"를 보장한다. 런타임 게이트(WeightedEdgeCost.
+    # from_graph -> 서비스가 실제로 가중 비용을 켜는 기준)와 같은 settings.
+    # WALK_SCORE_COVERAGE_MIN을 그대로 쓴다 — 값이 둘로 갈리면 "artifact는 통과했는데
+    # 서비스 게이트는 꺼진다"는 재발이 가능해진다.
+    coverage = WeightedEdgeCost.check_coverage(graph, settings.WALK_SCORE_COVERAGE_MIN)
     if not coverage.ok:
         raise SystemExit(
             "점수 커버리지가 기준에 못 미쳐 artifact를 저장하지 않습니다: "
-            f"기준={_MIN_SCORE_COVERAGE:.2f}, 미달 속성={coverage.missing_attrs()}, "
+            f"기준={settings.WALK_SCORE_COVERAGE_MIN:.2f}, 미달 속성={coverage.missing_attrs()}, "
             f"적재율={ {attr: round(ratio, 4) for attr, ratio in coverage.ratios.items()} }. "
             "점수가 적재된 DB로 다시 실행하세요."
         )
     logger.info(
         "점수 커버리지 확인 완료: 기준=%.2f, 적재율=%s",
-        _MIN_SCORE_COVERAGE,
+        settings.WALK_SCORE_COVERAGE_MIN,
         {attr: round(ratio, 4) for attr, ratio in coverage.ratios.items()},
     )
 
