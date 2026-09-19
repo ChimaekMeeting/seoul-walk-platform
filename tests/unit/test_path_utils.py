@@ -13,11 +13,18 @@ PathUtils 단위 테스트
                        : 방향 전환(회전각) 계산 — 열린/닫힌 경로, 정의 불가 케이스
   - path_distance_m    : 닫힌 경로 포함 총 이동 거리 계산
   - count_turns_at_or_above: 임계값 이상 회전 개수(분석용 헬퍼)
+  - astar_path / _search_heuristic: 부착된 ALT 우선 사용, Haversine 폴백,
+                       min_ratio < 1.0에서 ALT 제외(#465)
 """
 
 import pytest
 import networkx as nx
 
+from src.route_engine.alt_runtime import (
+    attach_alt_heuristic,
+    get_alt_heuristic,
+    prepare_alt_heuristic,
+)
 from src.route_engine.engines.path_utils import (
     PathUtils,
     latlon_to_local_xy,
@@ -478,3 +485,77 @@ class TestPruneDeadEndsSink:
         utils = PathUtils(_block_graph())
         # sink 기본값 None에서 예외 없이 기존 경로로 동작하는지만 확인한다.
         assert utils.prune_dead_ends([0, 1, 9, 1, 2]) == [0, 1, 2]
+
+
+# ── astar_path 휴리스틱 선택(#465) ───────────────────────────────────────────
+#
+#   0 ── 1 ── 2 ── 3      직선
+#   └──── 4 ── 5 ─┘       우회
+#
+# alt_runtime이 노드 ID를 int로 변환하므로 정수 ID를 쓴다.
+
+_ALT_POS = {
+    0: (37.5000, 127.0000),
+    1: (37.5000, 127.0020),
+    2: (37.5000, 127.0040),
+    3: (37.5000, 127.0060),
+    4: (37.5020, 127.0020),
+    5: (37.5020, 127.0040),
+}
+
+
+def _alt_graph() -> nx.Graph:
+    """length가 실제 Haversine 거리인 그래프 — Haversine과 ALT 둘 다 admissible한 조건."""
+    G = nx.Graph()
+    for node, (lat, lon) in _ALT_POS.items():
+        G.add_node(node, lat=lat, lon=lon)
+    for path in ([0, 1, 2, 3], [0, 4, 5, 3]):
+        for u, v in zip(path, path[1:]):
+            (lat1, lon1), (lat2, lon2) = _ALT_POS[u], _ALT_POS[v]
+            G.add_edge(u, v, length=PathUtils._haversine_m(lat1, lon1, lat2, lon2))
+    return G
+
+
+def _attach_alt(G: nx.Graph):
+    heuristic, info = prepare_alt_heuristic(G, enabled=True, method="planar", k=4, seed=0)
+    attach_alt_heuristic(G, heuristic, info)
+    return heuristic
+
+
+class TestAstarHeuristicSelection:
+    def test_ALT가_부착돼_있으면_그것을_쓴다(self):
+        G = _alt_graph()
+        attached = _attach_alt(G)
+        assert attached is not None  # 부착 자체가 실패하면 이 테스트는 의미가 없다
+
+        assert PathUtils(G)._search_heuristic(1.0) is attached
+
+    def test_ALT가_없으면_Haversine으로_폴백한다(self):
+        G = _alt_graph()
+        assert get_alt_heuristic(G) is None  # 부착하지 않은 그래프
+
+        heuristic = PathUtils(G)._search_heuristic(1.0)
+
+        assert heuristic(0, 3) == pytest.approx(
+            PathUtils._haversine_m(*_ALT_POS[0], *_ALT_POS[3])
+        )
+
+    def test_min_ratio가_1_미만이면_ALT를_쓰지_않는다(self):
+        """ALT 거리표는 length 기준이라, length보다 작아질 수 있는 weight
+        (min_ratio < 1.0)에서는 하한이 실제 비용을 넘어설 수 있다."""
+        G = _alt_graph()
+        attached = _attach_alt(G)
+
+        heuristic = PathUtils(G)._search_heuristic(0.5)
+
+        assert heuristic is not attached
+        assert heuristic(0, 3) == pytest.approx(
+            PathUtils._haversine_m(*_ALT_POS[0], *_ALT_POS[3]) * 0.5
+        )
+
+    def test_ALT를_써도_거리_최단경로는_그대로다(self):
+        G = _alt_graph()
+        expected = nx.shortest_path(G, 0, 3, weight="length")
+        _attach_alt(G)
+
+        assert PathUtils(G).astar_path(0, 3, weight="length") == expected
