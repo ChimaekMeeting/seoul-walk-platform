@@ -170,28 +170,23 @@ def test_default_mode_is_distance(grid_graph):
     assert engine.mode == "distance"
 
 
-def test_natural_mode_raises_not_implemented():
-    with pytest.raises(NotImplementedError):
+def test_natural_mode_raises_value_error():
+    """mode="natural"/"distance_natural" 스텁은 #462에서 제거됐다 — 안전/편안 가중
+    탐색은 이제 EdgeCost(mode)가 아니라 _CostCache.cost_context(WeightedEdgeCost)가
+    맡는다(test_grasp_cost_cache_weighted.py 참고). 남은 mode는 "distance"뿐이라
+    나머지는 전부 알 수 없는 mode와 동일하게 취급된다."""
+    with pytest.raises(ValueError):
         EdgeCost("natural", {"nature_score": 0.8})
 
 
-def test_distance_natural_mode_raises_not_implemented():
-    with pytest.raises(NotImplementedError):
+def test_distance_natural_mode_raises_value_error():
+    with pytest.raises(ValueError):
         EdgeCost("distance_natural", {"length": 10.0, "nature_score": 0.8})
 
 
 def test_unknown_mode_raises_value_error():
     with pytest.raises(ValueError):
         EdgeCost("not-a-real-mode", {"length": 10.0})
-
-
-def test_mode_propagates_from_engine_to_edge_cost(grid_graph):
-    """엔진에 mode="natural"을 넣으면, BuildCycleRoute의 최종 A* 연결 단계(cost_cache ->
-    A* weight -> EdgeCost)까지 그 mode가 실제로 전달된다는 것을 NotImplementedError
-    전파로 확인한다."""
-    cost_cache = _CostCache(grid_graph, mode="natural")
-    with pytest.raises(NotImplementedError):
-        cost_cache.astar_path(_node_id(0, 0), _node_id(4, 4))
 
 
 # ── 경유지 후보 풀(WaypointPoolGenerator) 소비 확인 ──────────────────────

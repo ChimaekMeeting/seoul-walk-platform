@@ -68,7 +68,7 @@ from src.route_engine.engines.waypoint_refinement import (
     OPTIONS_AWARE_REFINEMENTS,
     REFINEMENT_REGISTRY,
 )
-from src.route_engine.scoring.scoring_engine import path_feature_averages
+from src.route_engine.scoring.scoring_engine import WeightedEdgeCost, path_feature_averages
 from src.schema.route_schema import CircularRouteInput
 
 logger = logging.getLogger(__name__)
@@ -122,6 +122,7 @@ class WaypointEngine:
         construction: str = "grasp",
         refinement: str = "local",
         refinement_options: Optional[Mapping[str, Any]] = None,
+        cost_context: Optional[WeightedEdgeCost] = None,
     ):
         if construction not in CONSTRUCTION_REGISTRY:
             raise ValueError(f"알 수 없는 construction: {construction!r}")
@@ -139,9 +140,9 @@ class WaypointEngine:
 
         self.inp = inp
         # G.copy() 안 함 — 이 클래스가 부르는 것(grasp_waypoint_common.py/waypoint_pool.py/
-        # PathUtils/waypoint_beam.py)은 전부 읽기 전용이고 calculate_custom_score()도 안
-        # 부른다(mode="distance" 전용). 근거는 circular_grasp_waypoint_local.py::__init__
-        # 주석과 동일(benchmarks/benchmark.py 모듈 docstring의 "그래프 공유·변형 규칙" 참고).
+        # PathUtils/waypoint_beam.py)은 전부 읽기 전용이다. cost_context(WeightedEdgeCost)도
+        # 엣지 속성을 읽기만 하고 그래프에 쓰지 않으므로(#462) 이 전제는 그대로 유지된다.
+        # 근거는 benchmarks/benchmark.py 모듈 docstring의 "그래프 공유·변형 규칙" 참고.
         self.G = G
         self.mode = mode
         self.seed = seed
@@ -153,7 +154,11 @@ class WaypointEngine:
         # override 매핑이다 — 나머지 정제는 받되 무시한다.
         self.refinement_options = refinement_options
         self.utils = PathUtils(self.G)
-        self.cost_cache = _CostCache(self.G, mode=mode)
+        # cost_context가 있으면 구축·정제 전체의 구간 연결(A*)이 가중 비용을 쓴다(#462).
+        # ALNS의 destroy-repair 자체는 pool_result.distance()만 보고 경유지를 고르므로
+        # 영향받지 않는다 — 바뀌는 건 확정된 경유지를 실제 도로로 잇는 A*뿐이다.
+        self.cost_context = cost_context
+        self.cost_cache = _CostCache(self.G, mode=mode, cost_context=cost_context)
         self.pool_generator = WaypointPoolGenerator(self.G)
         self.last_selection_status: Optional[str] = None
         self.last_route: Optional[Route] = None

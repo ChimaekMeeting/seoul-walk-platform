@@ -610,9 +610,12 @@ class TestRouteExecutorReachesCandidateFeaturesContract:
         위 클래스(가중치 조립을 건너뜀)와 이 클래스를 가르는 지점이다.
 
         get_route() 호출 인자를 잡아낸다(엔진 생성자가 아니라) — CircularGraspWaypointAlnsEngine은
-        mode="distance" 전용이라 custom_weights를 안 받으므로, 엔진에서 잡으면 항상 None이 된다."""
+        custom_weights 인자를 받지 않으므로(선호는 #462에서 cost_context로 따로 전달하게 됐다)
+        엔진 생성자에서 잡으면 항상 None이 된다."""
         class _StubEngine:
-            def __init__(self, inp, G):
+            # route_service가 CIRCULAR_RANDOM 분기에서 cost_context를 넘기므로(#462) 실제
+            # 엔진과 같은 시그니처를 유지한다 — 안 받으면 TypeError로 조용히 실패한다.
+            def __init__(self, inp, G, cost_context=None):
                 self.candidate_feature_vectors = _SUCCESS_CANDIDATE_FEATURES
 
             def run(self):

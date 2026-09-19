@@ -36,20 +36,11 @@ waypoint_pool.py 모듈 docstring 참고, r_max 부등식 자체가 경유지 �
     기존 PathUtils도 전부 data.get("length", ...)를 쓴다.) 모든 거리 비용과 경로 길이
     계산은 이 속성을 기준으로 한다.
 
-향후 자연/안전 점수 모드(mode="natural" / "distance_natural") 활성화 순서
-(현재는 전부 비활성 — 아래 EdgeCost() 참고, 임의로 앞당기지 말 것):
-    1. 도보 데이터의 nature_score 정의(방향·정규화) 확인
-    2. walk_edge.py의 nature_score 엔티티 매핑 복구
-    3. graph_repository.py에서 엣지 속성으로 로드
-    4. 그래프의 각 엣지에 nature_score가 실제로 존재하는지 검증
-    5. EdgeCost("natural")의 점수→비용 변환 정책 구현
-       (점수가 높을수록 좋은지 낮을수록 좋은지에 따라 변환 방향이 달라지므로 임의 결정 금지)
-    6. A*의 weight 함수(_CostCache._weight)에 동일한 mode 전달 확인
-    7. GRASP·VND·VNS·최종 평가 전체에서 동일한 비용 정책 사용 확인
-       (단, waypoint_pool.py의 풀 생성 자체는 compute_distance_only_lookup에 고정돼 있어
-       mode="natural"을 켜더라도 풀 생성까지 자동으로 따라가지 않는다 — 그 경우 풀 생성
-       쪽도 별도로 확장해야 한다는 점을 활성화 시점에 재확인할 것)
-    8. 자연 모드 전용 테스트와 벤치마크 실행
+안전/편안 가중 탐색(2026-09-19, #462): mode="natural"/"distance_natural"로 계획했던
+자연/안전 점수 기반 비용 모드는 구현 전에 WeightedEdgeCost(cost_context, alpha/beta로
+안전·경사 가중치를 length에 곱하는 방식, scoring_engine.py 참고)로 대체됐다. _CostCache가
+cost_context를 받으면 _weight()가 EdgeCost(mode=...) 대신 그쪽을 쓴다 — mode="natural"
+계열 브랜치와 스텁은 이제 죽은 코드라 제거했다.
 
     Route/BuildCycleRoute 등 조립 계층의 이동(2026-09-03, "Beam/GRASP 공용 조립 계층과 어댑터"
     이슈): 노드열 stitching → PathUtils.prune_dead_ends → 거리·재통행비율 재계산 로직은
@@ -72,6 +63,7 @@ import networkx as nx
 
 from src.route_engine.engines.path_utils import PathUtils, PrunedBranch
 from src.route_engine.engines.waypoint_pool import WaypointPoolResult
+from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
 from src.route_engine.waypoint_route_builder import (
     MissingEdgeAttributeError,
     PathFinder,
@@ -244,31 +236,16 @@ class GraspConfig:
 DEFAULT_CONFIG = GraspConfig()
 
 
-# ── EdgeCost: mode 확장 지점 ─────────────────────────────────────────────
-
-def ConvertNaturalScoreToSearchCost(nature_score, config=None) -> float:
-    """TODO(자연 모드, 1차 구현 비활성): nature_score를 탐색 비용으로 변환한다.
-    점수 방향(높을수록 좋은지)과 정규화 방식이 아직 데이터 정의서로 확정되지 않았고,
-    현재 그래프에는 nature_score 자체가 로드되지 않는다(모듈 docstring 참고).
-    """
-    raise NotImplementedError(
-        "nature_score 변환 정책이 아직 정의되지 않았습니다. 활성화 순서는 이 모듈의 "
-        "docstring을 참고하세요."
-    )
-
-
-def CombineDistanceAndNaturalCost(length_m, nature_score, config=None) -> float:
-    """TODO(distance_natural 혼합 모드, 1차 구현 비활성)."""
-    raise NotImplementedError(
-        "distance_natural 결합 정책이 아직 정의되지 않았습니다. 활성화 순서는 이 모듈의 "
-        "docstring을 참고하세요."
-    )
-
+# ── EdgeCost: 거리 기준 비용 ─────────────────────────────────────────────
+# mode는 "distance" 하나만 남았다(#462에서 natural/distance_natural 스텁 제거).
+# 비용 기준을 바꾸는 확장 지점은 이제 이 함수가 아니라 _CostCache.cost_context다.
 
 def EdgeCost(mode: str, edge_data: dict, config=None) -> float:
     """
-    엣지 하나의 탐색 비용. GRASP·A*·VND·VNS·최종평가 전체가 동일한 mode를 이 함수
-    하나로 전달받아야 한다(한 알고리즘만 다른 비용 기준을 쓰면 비교가 불공정해진다).
+    엣지 하나의 탐색 비용(거리 전용). GRASP·A*·VND·VNS·최종평가 전체가 동일한 mode를
+    이 함수 하나로 전달받아야 한다(한 알고리즘만 다른 비용 기준을 쓰면 비교가
+    불공정해진다). 안전/편안 가중 비용은 이 함수가 아니라 _CostCache.cost_context
+    (WeightedEdgeCost)가 맡는다 — 모듈 docstring 참고.
     """
     if mode == "distance":
         if _LENGTH_ATTR not in edge_data:
@@ -276,10 +253,6 @@ def EdgeCost(mode: str, edge_data: dict, config=None) -> float:
                 f"엣지에 '{_LENGTH_ATTR}' 속성이 없습니다: {edge_data!r}"
             )
         return edge_data[_LENGTH_ATTR]
-    if mode == "natural":
-        return ConvertNaturalScoreToSearchCost(edge_data.get("nature_score"), config)
-    if mode == "distance_natural":
-        return CombineDistanceAndNaturalCost(edge_data.get(_LENGTH_ATTR, 0.0), edge_data.get("nature_score"), config)
     raise ValueError(f"Unknown mode: {mode!r}")
 
 
@@ -299,14 +272,20 @@ class _CostCache:
     """AStarPath()의 실제 구현 + 캐시. **엔진 인스턴스마다 하나씩** 새로 만든다(모듈
     전역 캐시 아님). 후보 랭킹(어떤 경유지가 좋은가)은 이제 WaypointPoolResult.distance()가
     맡으므로(풀 생성 시점에 cutoff SSSP로 이미 계산됨), 이 캐시는 **BuildCycleRoute가
-    최종 구간을 실제로 연결할 때만** 쓰인다 — 실제 노드열이 필요한 지점은 거기뿐이다.
+    구간을 실제로 연결할 때만** 쓰인다 — 실제 노드열이 필요한 지점은 거기뿐이다.
     astar_calls/cache_hits를 누적해 벤치마크 로그에 노출한다.
+
+    cost_context(WeightedEdgeCost)가 주어지고 활성 상태면 _weight()가 거리 대신 그
+    가중 비용을 쓴다(#462). 인스턴스 생성 후 바꾸지 않는다 — 요청 하나·엔진 인스턴스
+    하나 동안 고정이므로 캐시 키에 넣을 필요가 없다(oneway_astar.py와 동일한 전제).
     """
 
-    def __init__(self, G: nx.Graph, mode: str = "distance", config=None):
+    def __init__(self, G: nx.Graph, mode: str = "distance", config=None,
+                 cost_context: Optional[WeightedEdgeCost] = None):
         self.G = G
         self.mode = mode
         self.config = config
+        self.cost_context = cost_context if (cost_context and cost_context.enabled) else None
         self._path_utils = PathUtils(G)
         self._cost_cache: dict[tuple[int, int], float] = {}
         self._path_cache: dict[tuple[int, int], Optional[list[int]]] = {}
@@ -314,6 +293,8 @@ class _CostCache:
         self.cache_hits = 0
 
     def _weight(self, u, v, edge_data) -> float:
+        if self.cost_context is not None:
+            return self.cost_context.weight(u, v, edge_data)
         return EdgeCost(self.mode, edge_data, self.config)
 
     @staticmethod
