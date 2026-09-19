@@ -42,6 +42,7 @@ class UserPreference(Base):
         index=True
     )
 
+    survey_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     default_target_km: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # 2026-09-17: 챗봇 가중치 개인화를 안전/편안 두 축으로 좁히며 나머지 6개 컬럼
