@@ -31,6 +31,7 @@ from benchmarks.config import BENCHMARK_SEEDS, DEFAULT_TIME_BUDGET_SEC
 from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
 from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
+from src.route_engine.weighted_cost_runtime import attach_weighted_cost, prepare_weighted_cost
 
 ALGO = "grasp-wp-alns"
 TARGET_KMS = [3.0, 5.0]
@@ -56,6 +57,11 @@ def _pool_worker_init():
     global _POOL_GRAPH
     _POOL_GRAPH = _load_default_graph()
     precompute_scoring_features(_POOL_GRAPH)
+    # 프로덕션 dependencies.py::init_route_service()와 동일한 1회성 준비(#462) —
+    # 워커가 곧바로 cost_context(WeightedEdgeCost)를 만들 수 있도록 적재율을 붙여 둔다.
+    attach_weighted_cost(_POOL_GRAPH, prepare_weighted_cost(
+        _POOL_GRAPH, enabled=True, coverage_min_ratio=0.95,
+    ))
 
 
 def _pool_worker_task(start_node: int, target_km: float, seed: int, knobs: dict) -> dict:

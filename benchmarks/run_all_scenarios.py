@@ -17,6 +17,7 @@ from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
 from benchmarks.run_metadata import save_run_metadata
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
+from src.route_engine.weighted_cost_runtime import attach_weighted_cost, prepare_weighted_cost
 
 # 편도(최단거리) 계열 9종은 2026-09-11 커밋 4c7c924에서 SOLVER_REGISTRY에서 제외했다.
 # 순환 경로 검증이 끝난 뒤 리팩토링에서 되살린다 — 복구는
@@ -46,6 +47,11 @@ def _pool_worker_init():
     global _POOL_GRAPH
     _POOL_GRAPH = _load_default_graph()
     precompute_scoring_features(_POOL_GRAPH)
+    # 프로덕션 dependencies.py::init_route_service()와 동일한 1회성 준비(#462) —
+    # 워커가 곧바로 cost_context(WeightedEdgeCost)를 만들 수 있도록 적재율을 붙여 둔다.
+    attach_weighted_cost(_POOL_GRAPH, prepare_weighted_cost(
+        _POOL_GRAPH, enabled=True, coverage_min_ratio=0.95,
+    ))
 
 
 def _pool_worker_task(solver_key: str, start_node, target_node, params: dict) -> dict:

@@ -289,9 +289,9 @@ class RouteService:
                 start_lon=origin.lon,
                 target_km=target_km,
             )
-            # CircularGraspWaypointAlnsEngine은 mode="distance" 전용이라 custom_weights를
-            # 받지 않는다(가중치 반영 로직이 아직 없음).
-            return self.base_engines[mode](inp, self.G)
+            # cost_context가 있으면 경유지 확정 후 A* 연결(BuildCycleRoute)이 가중 비용을
+            # 쓴다(#462). ALNS의 경유지 선택 자체(alns_search)는 거리 기준 그대로다.
+            return self.base_engines[mode](inp, self.G, cost_context=cost_context)
 
         if mode == WalkMode.GPS_ART:
             if not shape_points:
