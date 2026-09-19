@@ -52,7 +52,19 @@ POI 집계는 `route_pois.is_route_connected=true`이고 `nearest_edge_id`가 �
 커버리지 게이트(`scoring/scoring_engine.py::WeightedEdgeCost.check_coverage`, 2026-09-19 갱신
 — `weighted_edge_cost.py`는 삭제되고 `scoring_engine.py`에 합쳐졌다)가 맡는다.
 
-### 현재 적재 상태 (2026-09-17 실측)
+### 현재 확인 상태 (2026-09-19, 로컬 v3 artifact)
+
+- `v3-2026-09-19`의 파일 3개를 `artifacts/`에 적용한 Windows 로컬에서 실제 앱 lifespan으로
+  로드했다(Python 3.12.14 / NetworkX 3.6, #471).
+- 노드 160,197개 / 간선 223,693개, `source_dirty=false`.
+- SHA-256: `6b1270c5618421a161ae1ab2cbc55746bae0e93ac19f721e073ca5e9a789ae8f`.
+- `safety_score`, `accident_score`, `slope_score` 커버리지는 각각 1.0이며, 기준 0.95의 게이트를
+  통과했다. ALT도 같은 그래프에 기동 시 부착됐다.
+- 재현: `python -m tests.integration.check_circular_preference_artifact`.
+  실행 설정·외부 의존성 대체 범위·경로 관측은 [경로 엔진의 #471 검증](README.md)에 있다.
+  이 결과는 해당 로컬 파일의 관측이며, 운영 서버의 반영 여부를 보장하지 않는다.
+
+### 이전 적재 상태 (2026-09-17 실측)
 
 운영이 로드하는 `artifacts/walk_graph_v1.pkl`(노드 160,197 / 엣지 223,693) 기준:
 

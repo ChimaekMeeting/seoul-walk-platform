@@ -577,17 +577,49 @@ discomfort = 1 - slope_score
 언급하지 않았다는 이유로 해당 축을 0으로 바꾸지 않는다.
 
 ```
-RouteExecutor -> RouteTool -> RouteService -> WaypointComposerEngine
+RouteExecutor -> RouteTool -> RouteService -> WaypointComposerEngine / CircularGraspWaypointAlnsEngine
 ```
 
 (2026-09-19 갱신) 별도 `SafetyComfortPreference` 타입이나 `_build_preference_signal()`
 변환 단계는 없다 — 둘 다 삭제됐다. `RouteExecutor._build_weights()`가 만든 `Weights`
-객체를 `waypoint_route` tool 호출 시 `args["preference"]`로 **그대로 재사용**한다(다른
-tool에는 `preference`를 전달하지 않는다 — 위 적용 범위 표 참고). 설문 기록이 없으면
+객체를 `waypoint_route` tool 호출 시 `args["preference"]`로 **그대로 재사용**한다.
+순환 요청은 `RouteExecutor`가 전달한 `custom_weights`를 `circular_random_route`가
+`RouteService.get_route(preference=custom_weights)`로도 전달한다(#471). 서비스가 이 값으로
+만든 요청 비용 객체를 순환 엔진의 구간 연결과 후보 평가가 함께 사용한다. 최단 경로·
+편도 우회·GPS Art tool은 서비스에 `preference`를 전달하지 않는다. 설문 기록이 없으면
 `Weights()`의 기본값(`safety=0.5, comfort=0.0`)을 쓴다. 설문 조회는 요청당 한 번이며
 기본값·혼합 계산식은 변경하지 않았다.
 직접 서비스 호출에서 `preference`를 생략한 경우는 거리 기준이다. 직접 전달한
 신호에서 생략한 축은 계수 0이며, 챗봇은 혼합 결과의 두 축을 모두 전달한다.
+
+**순환 선호 전달 검증 (#471, 2026-09-19)**
+
+- `tests/integration/test_circular_preference_flow.py`: 실제 `RouteExecutor`·`RouteTool`·
+  `RouteService`·GRASP+ALNS를 이어 설문/대화 혼합값, 엔진 비용 객체, 완성 후보의 가중 비용을
+  확인한다. 가중치 0·점수 부족·설정 비활성 시 거리 기준 처리와 최단/GPS Art의 적용 범위도
+  검증한다. DB·인증과 `StructuredTool.ainvoke` 바인딩만 테스트 대역이다.
+- 수정 전 같은 테스트는 엔진의 `cost_context is not None` 검증에서 실패했다.
+- 실그래프 재현: 저장소 루트에서 `python -m tests.integration.check_circular_preference_artifact`.
+  `.env`의 `WALK_GRAPH_SOURCE=artifact`, `WALK_GRAPH_ARTIFACT_PATH=artifacts/walk_graph_v1.pkl`,
+  `WALK_GRAPH_DATA_VERSION=v3-2026-09-19`가 필요하다. 테스트 프로세스 안에서 실제 앱 lifespan을
+  실행하고 `POST /api/prewalk/intent`를 호출한다. LangGraph·StructuredTool·ALT·순환 엔진은 실제
+  구현이며, DB 초기화·인증·저장소·확인 발화 판정은 대체한다. 외부 LLM·DB·Valkey 연동 검증은 아니다.
+- 2026-09-19 Windows 로컬, Python 3.12.14 / NetworkX 3.6, [v3 그래프](graph_contract.md)의
+  노드 160,197개·간선 223,693개로 실행했다. 출발 좌표 `(37.5759, 126.9768)`, 목표 3km,
+  엔진 기본 시드 42에서 아래 세 요청 모두 성공했고 각각 후보 3개와 비용 합계를 확인했다.
+  최종 후보의 관측값이며 고정 기대값이나 전체 품질·성능 평가가 아니다.
+
+| 요청 | 비용 계수 α / β | 실제 거리(m) | 위험 페널티 평균 | 불편 페널티 평균 | 재통행 비율 | 요청 시간(s) |
+|---|---|---|---|---|---|---|
+| 거리 기준(선호 0 / 0) | 0 / 0 | 2992.534 | 0.305508 | 0.098065 | 0.013186 | 9.81 |
+| 안전 요구 추가 | 0.296954 / 0.203046 | 2925.390 | 0.346635 | 0.001148 | 0 | 9.93 |
+| 편안 요구 추가 | 0.118343 / 0.381657 | 2981.180 | 0.294899 | 0.009204 | 0.013237 | 8.95 |
+
+안전/편안 요청은 기본 선호 `(0.2, 0.4)`에 해당 축의 `high`·`explicit_soft` 라벨을
+반영했다. 각각 최종 선호는 `(0.585, 0.4)`, `(0.2, 0.645)`다. 위험·불편은 거리로 가중한
+평균이며 낮을수록 좋다. 안전 요구 사례도 편안 기본값과 재통행 우선순위가 함께 작동하므로
+개별 위험 지표가 거리 기준보다 반드시 낮아지지는 않았다. 이번 검증은 선호 전달과 비용 적용의
+근거이며, 개별 지표의 단조 개선이나 품질 수용 여부를 확정하지 않는다.
 
 **leg 방식 결정 (패딩 전)**
 
@@ -659,9 +691,12 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
 준비 실패·커버리지 미달·설정 비활성 시 새 가중 연결은 거리 기준으로 처리하고 기동을
 막지 않는다. 재방문 페널티는 이 설정으로 비활성화되지 않는다.
 
-**현재 상태 (2026-09-17 실측)**
+**현재 확인 상태 (2026-09-19, 로컬 v3 artifact)**
 
-운영 artifact에는 세 점수가 아직 없어 적재율이 모두 `0.0`이다. 게이트가 가중 모드를 끄므로 **데이터 적재와 artifact 재빌드 전까지 경로 결과는 변하지 않는다.** 데이터 계약과 실측 수치는 [graph_contract.md](graph_contract.md) 참고.
+2026-09-17의 이전 artifact는 세 점수 적재율이 `0.0`이어서 게이트가 가중 모드를 껐다.
+2026-09-19 로컬에서 `v3-2026-09-19`를 실제 앱 기동 경로로 로드했을 때는 세 점수가 모두
+100%였고 게이트를 통과했다. 파일·환경별 관측이므로 운영 배포 상태를 뜻하지 않는다.
+데이터 버전·재현 위치는 [graph_contract.md](graph_contract.md) 참고.
 
 `λ`(`WALK_UNSAFE_ACCIDENT_RATIO`)는 안전시설 부족과 사고위험의 결합 비율로 서비스 의미에 해당한다. 데이터팀이 결합된 단일 점수를 제공하기로 하면 이 설정은 사라진다. 알고리즘 코드에는 기본값을 두지 않고 설정으로만 주입한다.
 
