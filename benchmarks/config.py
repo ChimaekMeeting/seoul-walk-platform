@@ -1,14 +1,22 @@
 from pathlib import Path
 
+from src.config.settings import settings
+
 # 경로
 BENCH_DIR = Path(__file__).resolve().parent
+REPO_ROOT = BENCH_DIR.parent
 DATASETS_DIR = BENCH_DIR / "datasets"
-FIXTURES_DIR = BENCH_DIR / "fixtures"
 RESULTS_DIR  = BENCH_DIR / "results"
 
 # 기본 입력 파일
-ROUTE_NODES_PARQUET  = FIXTURES_DIR / "route_nodes.parquet"  # 도보 그래프 노드
-ROUTE_EDGES_PARQUET  = FIXTURES_DIR / "route_edges.parquet"  # 도보 그래프 엣지
+# 벤치 그래프는 서비스가 로드하는 것과 같은 artifact를 쓴다(#474). 2026-09-20까지는
+# benchmarks/fixtures/*.parquet을 build_fixtures.py로 따로 빌드했는데, 원본이 둘로 갈려
+# 조용히 드리프트했다(#473 실측: fixture 160,328노드/223,927엣지 vs artifact 160,197/223,693).
+# 경로를 settings에 위임해 "벤치가 보는 그래프"와 "서비스가 보는 그래프"를 한 값으로 묶는다.
+_ARTIFACT_PATH = Path(settings.WALK_GRAPH_ARTIFACT_PATH)
+WALK_GRAPH_ARTIFACT = (
+    _ARTIFACT_PATH if _ARTIFACT_PATH.is_absolute() else REPO_ROOT / _ARTIFACT_PATH
+)
 ROUTE_ENGINE_DATASET = DATASETS_DIR / "route_engine.json"    # 테스트 데이터셋
 
 # 경로 엔진 알고리즘 성능 테스트 시 필요한 상수

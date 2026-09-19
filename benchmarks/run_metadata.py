@@ -26,7 +26,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from benchmarks.config import ROUTE_EDGES_PARQUET, ROUTE_NODES_PARQUET
+from benchmarks.config import WALK_GRAPH_ARTIFACT
+from src.repository.network.graph_artifact_repository import GraphArtifactRepository
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -79,6 +80,29 @@ def _git_state() -> dict:
     }
 
 
+def _graph_artifact() -> dict:
+    """벤치가 실제로 읽은 그래프의 신원(#474).
+
+    2026-09-20까지는 fixture parquet 2개의 SHA256을 적었다. 원본을 artifact로 통일하면서
+    manifest가 이미 들고 있는 신원(데이터 버전·체크섬·생성 커밋·규모·점수 커버리지)을
+    그대로 옮긴다 — 어떤 그래프 위에서 잰 수치인지 CSV 옆에서 바로 확인할 수 있어야 한다.
+    """
+    _, manifest_path, _ = GraphArtifactRepository.companion_paths(WALK_GRAPH_ARTIFACT)
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"path": str(WALK_GRAPH_ARTIFACT), "manifest": None}
+    return {
+        "path": str(WALK_GRAPH_ARTIFACT),
+        "data_version": manifest.get("data_version"),
+        "artifact_sha256": manifest.get("artifact_sha256"),
+        "source_commit": manifest.get("source_commit"),
+        "node_count": manifest.get("node_count"),
+        "edge_count": manifest.get("edge_count"),
+        "score_coverage": manifest.get("score_coverage"),
+    }
+
+
 def _package_versions() -> dict:
     versions = {"python": platform.python_version(), "platform": platform.platform()}
     for name in ("pandas", "networkx", "numpy"):
@@ -101,10 +125,7 @@ def collect_metadata(runner: str, **extra) -> dict:
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "git": _git_state(),
         "environment": _package_versions(),
-        "graph_fixture": {
-            "nodes_parquet_sha256": _digest(ROUTE_NODES_PARQUET),
-            "edges_parquet_sha256": _digest(ROUTE_EDGES_PARQUET),
-        },
+        "graph_artifact": _graph_artifact(),
         "code_sha256": {path: _digest(_ROOT / path) for path in _TRACKED_SOURCES},
         "run": extra,
     }

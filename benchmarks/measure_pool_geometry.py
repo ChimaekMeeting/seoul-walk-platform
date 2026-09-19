@@ -192,7 +192,10 @@ def main() -> None:
     t0 = time.perf_counter()
     G = _load_default_graph()
     if G is None:
-        raise SystemExit("[오류] fixture 그래프가 없습니다. benchmarks/build_fixtures.py를 먼저 실행하세요.")
+        raise SystemExit(
+            "[오류] Graph artifact가 없습니다. artifacts/walk_graph_v1.pkl과 "
+            "manifest·sha256 파일이 있는지 확인하세요."
+        )
     precompute_scoring_features(G)
     print(f"그래프 로드 완료: {time.perf_counter() - t0:.1f}초", flush=True)
 

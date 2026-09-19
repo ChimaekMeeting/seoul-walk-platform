@@ -6,8 +6,10 @@ import subprocess
 import time
 from pathlib import Path
 
+from src.config.settings import settings
 from src.repository.network.graph_artifact_repository import GraphArtifactRepository
 from src.repository.network.graph_repository import GraphRepository
+from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
 
 
 logger = logging.getLogger(__name__)
@@ -46,8 +48,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--data-version",
-        default="v1-2026-07-30",
-        help="manifest에 기록할 데이터 기준 버전",
+        default=settings.WALK_GRAPH_DATA_VERSION,
+        help="manifest에 기록할 데이터 기준 버전. 기본값은 settings.WALK_GRAPH_DATA_VERSION"
+             "(서비스가 검증에 쓰는 값과 항상 같다) — 새 버전을 배포하려면 여기서 값을 "
+             "명시하고, 서비스에 반영할 때 settings 쪽 기본값도 같이 올릴 것.",
     )
     parser.add_argument(
         "--allow-dirty",
@@ -74,12 +78,34 @@ def main() -> None:
     started_at = time.perf_counter()
     logger.info("PostgreSQL에서 최종 서비스 Graph를 생성합니다.")
     graph = GraphRepository.load_graph()
+
+    # 점수가 비어있는 DB(예: 로컬 seoul_walk)로 빌드하면 이 확인 없이는 artifact가
+    # 그대로 저장되고, 그 문제가 fixture·서비스 전체로 조용히 퍼진다(#474). 여기서 막아
+    # "artifact가 존재한다 = 점수가 실려 있다"를 보장한다. 런타임 게이트(WeightedEdgeCost.
+    # from_graph -> 서비스가 실제로 가중 비용을 켜는 기준)와 같은 settings.
+    # WALK_SCORE_COVERAGE_MIN을 그대로 쓴다 — 값이 둘로 갈리면 "artifact는 통과했는데
+    # 서비스 게이트는 꺼진다"는 재발이 가능해진다.
+    coverage = WeightedEdgeCost.check_coverage(graph, settings.WALK_SCORE_COVERAGE_MIN)
+    if not coverage.ok:
+        raise SystemExit(
+            "점수 커버리지가 기준에 못 미쳐 artifact를 저장하지 않습니다: "
+            f"기준={settings.WALK_SCORE_COVERAGE_MIN:.2f}, 미달 속성={coverage.missing_attrs()}, "
+            f"적재율={ {attr: round(ratio, 4) for attr, ratio in coverage.ratios.items()} }. "
+            "점수가 적재된 DB로 다시 실행하세요."
+        )
+    logger.info(
+        "점수 커버리지 확인 완료: 기준=%.2f, 적재율=%s",
+        settings.WALK_SCORE_COVERAGE_MIN,
+        {attr: round(ratio, 4) for attr, ratio in coverage.ratios.items()},
+    )
+
     manifest = GraphArtifactRepository.save(
         graph,
         args.output,
         data_version=args.data_version,
         source_commit=source_commit,
         source_dirty=source_dirty,
+        score_coverage={attr: round(ratio, 4) for attr, ratio in coverage.ratios.items()},
     )
     loaded_graph = GraphArtifactRepository.load(
         args.output,

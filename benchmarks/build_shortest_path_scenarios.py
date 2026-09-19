@@ -28,6 +28,7 @@ import numpy as np
 
 from benchmarks.config import DATASETS_DIR
 from benchmarks.runner.test_oneway_shortest_path import distance_weight
+from src.config.settings import settings
 from src.repository.network.graph_artifact_repository import GraphArtifactRepository
 from src.route_engine.landmark_shared import _largest_component_nodes
 
@@ -235,8 +236,8 @@ def build_scenarios(graph: nx.Graph, seed: int, max_starts: int) -> tuple[list[d
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--artifact", default="artifacts/walk_graph_v1.pkl")
-    parser.add_argument("--data-version", default="v2-2026-08-25")
+    parser.add_argument("--artifact", default=settings.WALK_GRAPH_ARTIFACT_PATH)
+    parser.add_argument("--data-version", default=settings.WALK_GRAPH_DATA_VERSION)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--max-starts",

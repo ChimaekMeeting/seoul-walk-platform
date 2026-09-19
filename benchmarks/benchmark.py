@@ -80,6 +80,7 @@ solver 자기 신고이며 알고리즘 간 비교에 쓰면 안 되는 컬럼:
 """
 
 import argparse
+import json
 import logging
 import multiprocessing
 import queue
@@ -88,7 +89,7 @@ import time
 import networkx as nx
 import pandas as pd
 
-from benchmarks.config import BENCH_DIR, ROUTE_EDGES_PARQUET, ROUTE_NODES_PARQUET
+from benchmarks.config import BENCH_DIR, WALK_GRAPH_ARTIFACT
 from benchmarks.results import (
     RESULT_COLUMNS,
     build_result_row,
@@ -109,6 +110,8 @@ from benchmarks.solvers.beam_waypoint_refinement_solver import (
     CircularBeamWaypointVndSolver,
     CircularBeamWaypointVnsSolver,
 )
+from src.config.settings import settings
+from src.repository.network.graph_artifact_repository import GraphArtifactRepository
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
 logger = logging.getLogger(__name__)
@@ -358,12 +361,6 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="도착 노드 ID. 미지정 시 start-node와 동일(순환 경로 기본값)",
     )
     parser.add_argument(
-        "--profile",
-        type=str,
-        default=None,
-        help="스코어링 프로필 (default/nature/safe/flat/running/landmark/child/convenient/accessible). 미지정 시 default",
-    )
-    parser.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -382,33 +379,42 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 
 def _load_default_graph() -> nx.Graph | None:
-    """benchmarks/fixtures의 실제 서울 도보 그래프를 로드한다.
+    """프로덕션이 로드하는 것과 같은 Graph artifact를 읽는다(#474).
 
-    fixture가 아직 빌드되지 않았으면(benchmarks/build_fixtures.py 미실행) None을 반환해
-    dummy 알고리즘만으로도 하네스를 계속 사용할 수 있게 한다.
+    2026-09-20까지는 benchmarks/fixtures/*.parquet을 별도로 빌드해 읽었다. 원본이 둘로
+    갈려 있어 조용히 드리프트했고(#473 실측: fixture 160,328노드/223,927엣지 vs
+    artifact 160,197/223,693), parquet 변환 과정에서 accident_score가 통째로 빠져
+    WeightedEdgeCost의 커버리지 게이트가 계속 꺼져 있었다. 원본을 artifact 하나로 합쳐
+    그 종류의 드리프트를 구조적으로 없앤다.
+
+    artifact가 없으면 None을 반환해 dummy 알고리즘만으로도 하네스를 계속 쓸 수 있게
+    한다. 계약 위반(SHA-256·노드 수 불일치, Python/NetworkX major.minor 불일치,
+    데이터 버전 불일치 등)은 조용히 넘기지 않고 그대로 올린다 — 어떤 그래프로 잰
+    값인지 모르는 벤치 수치는 근거가 되지 못하기 때문이다.
+
+    점수 적재율은 여기서 막지 않는다. 기본 실행은 거리 전용이라 점수가 없어도
+    유효하고, artifact를 만드는 시점(scripts/build_walk_graph.py)에서 이미 막는다.
     """
-    if not ROUTE_NODES_PARQUET.exists() or not ROUTE_EDGES_PARQUET.exists():
+    artifact, manifest_path, _ = GraphArtifactRepository.companion_paths(WALK_GRAPH_ARTIFACT)
+    if not artifact.is_file():
         logger.warning(
-            "그래프 fixture(%s, %s)가 없습니다. 'python -m benchmarks.build_fixtures'로 먼저 생성하세요. "
-            "그래프 없이 진행합니다(dummy 알고리즘만 유효).",
-            ROUTE_NODES_PARQUET, ROUTE_EDGES_PARQUET,
+            "Graph artifact(%s)가 없습니다. 그래프 없이 진행합니다(dummy 알고리즘만 유효).",
+            artifact,
         )
         return None
 
-    nodes_df = pd.read_parquet(ROUTE_NODES_PARQUET)
-    edges_df = pd.read_parquet(ROUTE_EDGES_PARQUET)
-
-    graph = nx.Graph()
-    for row in nodes_df.itertuples():
-        graph.add_node(row.node_id, lat=row.lat, lon=row.lon)
-    for row in edges_df.itertuples():
-        graph.add_edge(
-            row.u, row.v,
-            length=row.length,
-            safety_score=getattr(row, "safety_score", None),
-            accident_score=getattr(row, "accident_score", None),
-            slope_score=getattr(row, "slope_score", None),
-        )
+    graph = GraphArtifactRepository.load(
+        WALK_GRAPH_ARTIFACT,
+        expected_data_version=settings.WALK_GRAPH_DATA_VERSION,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    logger.info(
+        "Graph artifact 로드: data_version=%s, sha256=%s, 노드 %d, 엣지 %d",
+        manifest.get("data_version"),
+        str(manifest.get("artifact_sha256"))[:12],
+        graph.number_of_nodes(),
+        graph.number_of_edges(),
+    )
     return graph
 
 
@@ -433,8 +439,6 @@ def main():
 
     target_node = args.end_node if args.end_node is not None else start_node  # 편도는 --end-node로 별도 지정
     params = {"target_km": args.target_km}
-    if args.profile is not None:
-        params["profile"] = args.profile
     if args.time_budget is not None:
         params["time_budget_sec"] = args.time_budget
     if args.seed is not None:

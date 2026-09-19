@@ -18,11 +18,11 @@ import pandas as pd
 import networkx as nx
 
 from benchmarks.config import (
-    ROUTE_NODES_PARQUET,
-    ROUTE_EDGES_PARQUET,
+    WALK_GRAPH_ARTIFACT,
     ROUTE_ENGINE_DATASET,
     RESULTS_DIR,
 )
+from src.repository.network.graph_artifact_repository import GraphArtifactRepository
 from src.route_engine.engines.waypoint_pool import WaypointPoolGenerator
 
 _TARGET_KM_CASES = [1.0, 3.0, 5.0, 8.0]
@@ -30,14 +30,8 @@ _DISTANCE_QUERY_SAMPLE = 500  # 조합 단계 흉내 — 풀에서 무작위로 
 
 
 def load_graph() -> nx.Graph:
-    nodes_df = pd.read_parquet(ROUTE_NODES_PARQUET)
-    edges_df = pd.read_parquet(ROUTE_EDGES_PARQUET)
-    G = nx.Graph()
-    for row in nodes_df.itertuples():
-        G.add_node(row.node_id, lat=row.lat, lon=row.lon)
-    for row in edges_df.itertuples():
-        G.add_edge(row.u, row.v, length=row.length)
-    return G
+    """benchmark.py::_load_default_graph()와 같은 원본을 읽는다(원본 통일, #474)."""
+    return GraphArtifactRepository.load(WALK_GRAPH_ARTIFACT)
 
 
 def time_ms(fn):

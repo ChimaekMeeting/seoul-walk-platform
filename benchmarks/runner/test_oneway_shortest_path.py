@@ -19,12 +19,12 @@ import pandas as pd
 import networkx as nx
 
 from benchmarks.config import (
-    ROUTE_NODES_PARQUET,
-    ROUTE_EDGES_PARQUET,
+    WALK_GRAPH_ARTIFACT,
     ROUTE_ENGINE_DATASET,
     RESULTS_DIR,
     LATENCY_REPEAT,
 )
+from src.repository.network.graph_artifact_repository import GraphArtifactRepository
 from src.route_engine.engines.path_utils import PathUtils
 
 # ────────────────────────────────────────────────
@@ -48,18 +48,16 @@ def haversine_m(lat1, lon1, lat2, lon2) -> float:
 
 
 # ────────────────────────────────────────────────
-# 2. 그래프 로드 (parquet fixture 사용)
+# 2. 그래프 로드 (벤치 전체와 같은 Graph artifact, #474)
 # ────────────────────────────────────────────────
 def load_graph() -> nx.Graph:
-    nodes_df = pd.read_parquet(ROUTE_NODES_PARQUET)
-    edges_df = pd.read_parquet(ROUTE_EDGES_PARQUET)
+    """benchmark.py::_load_default_graph()와 같은 원본을 읽는다(원본 통일, #474).
 
-    G = nx.Graph()
-    for row in nodes_df.itertuples():
-        G.add_node(row.node_id, lat=row.lat, lon=row.lon)
-    for row in edges_df.itertuples():
-        G.add_edge(row.u, row.v, length=row.length)
-    return G
+    이 러너의 시나리오(datasets/shortest_path.json)는 build_shortest_path_scenarios.py가
+    artifact에서 만드는데, 이 함수는 별도로 fixture parquet을 읽고 있었다 — 시나리오와
+    측정 그래프가 서로 다른 그래프였다(#473에서 발견).
+    """
+    return GraphArtifactRepository.load(WALK_GRAPH_ARTIFACT)
 
 
 def astar_heuristic_fn(G: nx.Graph):

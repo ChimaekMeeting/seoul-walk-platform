@@ -75,6 +75,7 @@ class GraphArtifactRepository:
         data_version: str,
         source_commit: str,
         source_dirty: bool,
+        score_coverage: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         cls._validate_graph(graph)
         artifact, manifest_path, checksum_path = cls.companion_paths(artifact_path)
@@ -104,6 +105,10 @@ class GraphArtifactRepository:
                 "graph_type": type(graph).__name__,
                 "node_count": graph.number_of_nodes(),
                 "edge_count": graph.number_of_edges(),
+                # 이 artifact를 빌드할 때 점수 3종이 얼마나 실려 있었는지(#474). 이 값이
+                # 낮으면 이 artifact를 쓰는 쪽(벤치·서비스)의 가중 비용 게이트가 거리
+                # 전용으로 폴백한다 — 원인을 artifact 밖에서 다시 찾지 않아도 되게 한다.
+                "score_coverage": score_coverage,
             }
 
             manifest_tmp.write_text(
