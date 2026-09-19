@@ -95,3 +95,5 @@ restore_log.txt
 # test
 !tests/unit/test_waypoint_pool.py
 !src/infrastructure/cache/repository/weather_cache_repository.py
+docs/algorithm/safety-comfort-current-state.png
+docs/algorithm/safety-comfort-current-state.svg
