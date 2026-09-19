@@ -25,7 +25,7 @@ def build_route_fixture():
     )
 
     # 엣지 → DataFrame (필요한 속성만 유지)
-    edge_keep = ["link_id", "length", "safety_score", "nature_score", "landmark_score", "child_score"]
+    edge_keep = ["link_id", "length", "safety_score", "accident_score", "slope_score"]
     edges_df = (
         pd.DataFrame(
             [{"u": u, "v": v, **{k: d.get(k) for k in edge_keep}} for u, v, d in G.edges(data=True)]
