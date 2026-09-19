@@ -151,6 +151,62 @@ def test_route_objective_reproduces_spec_example_route_b_wins():
     assert not better(route_a, route_b)
 
 
+# ── preference_penalty_ratio(#467, 선호 페널티 비율) ───────────────────────
+#
+# RouteObjective.sort_key()에 4번째 항목으로 추가됐다. 기본값 0.0(가중 비용 미사용)이면
+# 기존 3필드 비교 결과와 완전히 같아야 하고(회귀 기준), 값이 있으면 repeated_edge_ratio
+# 다음(feasible=True) 또는 맨 마지막(feasible=False, A안 — repeated_edge_ratio를
+# 선호 페널티보다 앞세운다)에서 tie-break로 작동해야 한다.
+
+def test_preference_penalty_ratio_defaults_to_zero_and_keeps_existing_order():
+    """preference_penalty_ratio를 생략하면 0.0이 되어, 이전 3필드만으로 비교했을 때와
+    정렬 결과가 완전히 같아야 한다(#467 회귀 기준)."""
+    low_overlap_bigger_error = RouteObjective(feasible=True, distance_error_m=100.0, repeated_edge_ratio=0.1)
+    high_overlap_smaller_error = RouteObjective(feasible=True, distance_error_m=10.0, repeated_edge_ratio=0.9)
+    assert low_overlap_bigger_error.preference_penalty_ratio == 0.0
+    assert high_overlap_smaller_error.preference_penalty_ratio == 0.0
+    assert better(low_overlap_bigger_error, high_overlap_smaller_error)  # repeated_edge_ratio 우선, 기존과 동일
+
+
+def test_preference_penalty_ratio_breaks_ties_when_feasible_and_repeated_edge_ratio_equal():
+    """feasible이고 repeated_edge_ratio가 같으면 preference_penalty_ratio가 다음
+    tie-break다(distance_error_m보다 앞)."""
+    safer_but_farther = RouteObjective(
+        feasible=True, distance_error_m=100.0, repeated_edge_ratio=0.2, preference_penalty_ratio=0.01,
+    )
+    riskier_but_closer = RouteObjective(
+        feasible=True, distance_error_m=1.0, repeated_edge_ratio=0.2, preference_penalty_ratio=0.05,
+    )
+    assert better(safer_but_farther, riskier_but_closer)
+
+
+def test_preference_penalty_ratio_is_last_tie_break_when_infeasible():
+    """infeasible(A안)에서는 distance_error_m·repeated_edge_ratio가 먼저이고,
+    preference_penalty_ratio는 그 둘이 완전히 같을 때만 작동하는 마지막 tie-break다."""
+    safer = RouteObjective(
+        feasible=False, distance_error_m=200.0, repeated_edge_ratio=0.5, preference_penalty_ratio=0.01,
+    )
+    riskier = RouteObjective(
+        feasible=False, distance_error_m=200.0, repeated_edge_ratio=0.5, preference_penalty_ratio=0.05,
+    )
+    assert better(safer, riskier)
+
+
+def test_evaluate_route_computes_preference_penalty_ratio_from_weighted_cost():
+    """preference_penalty_ratio = weighted_cost_m/distance_m - 1 (#467)."""
+    route = Route(node_ids=[1, 2, 1], waypoints=[2], distance_m=1000.0,
+                  repeated_edge_ratio=0.5, weighted_cost_m=1200.0)
+    obj = evaluate_route(route, target_distance_m=1000.0, distance_tolerance_m=50.0)
+    assert obj.preference_penalty_ratio == pytest.approx(0.2)
+
+
+def test_evaluate_route_preference_penalty_ratio_is_zero_without_weighted_cost():
+    """weighted_cost_m을 안 주면(가중 비용 미사용) distance_m과 같아져 페널티가 0이다."""
+    route = Route(node_ids=[1, 2, 1], waypoints=[2], distance_m=1000.0, repeated_edge_ratio=0.5)
+    obj = evaluate_route(route, target_distance_m=1000.0, distance_tolerance_m=50.0)
+    assert obj.preference_penalty_ratio == 0.0
+
+
 # ── 거리 속성 키 검증 ────────────────────────────────────────────────────
 
 def test_missing_length_attribute_fails_explicitly_not_silently_zero():
@@ -462,7 +518,7 @@ def test_construct_initial_route_passes_decreasing_remaining_legs(monkeypatch):
         dist_from_p1={11: 500.0, 12: 500.0, 13: 500.0},
         pairwise={(11, 12): 500.0, (12, 13): 500.0},
     )
-    stub_cost_cache = SimpleNamespace(astar_path=lambda a, b: None)
+    stub_cost_cache = SimpleNamespace(astar_path=lambda a, b: None, cost_context=None)
     _gwc.construct_initial_route(
         nx.Graph(), stub_cost_cache, pool, 1, 3000.0, random.Random(0),
         GraspConfig(num_waypoints=3),

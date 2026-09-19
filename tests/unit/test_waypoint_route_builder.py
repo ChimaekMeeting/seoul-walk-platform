@@ -129,6 +129,40 @@ def test_distance_path_finder_works_as_build_cycle_route_path_finder(grid_graph)
     assert route.node_ids[-1] == start
 
 
+class _StubCostContext:
+    """WeightedEdgeCost 규격(weight(u, v, edge_data))만 흉내 낸 테스트 전용 더미 —
+    실제 안전·경사 점수 커버리지 없이도 build_cycle_route의 가중 비용 배선만 검증한다."""
+
+    def __init__(self, multiplier: float):
+        self.multiplier = multiplier
+
+    def weight(self, u, v, edge_data):
+        return edge_data["length"] * self.multiplier
+
+
+def test_build_cycle_route_without_cost_context_sets_weighted_cost_equal_to_distance(grid_graph):
+    """cost_context를 안 주면(Beam 등) weighted_cost_m이 distance_m과 같아져
+    preference_penalty_ratio가 자연히 0.0이 된다(#467)."""
+    finder = DistancePathFinder(grid_graph)
+    start, p2, p3 = _node_id(0, 0), _node_id(0, 2), _node_id(2, 2)
+
+    route = build_cycle_route(grid_graph, finder.astar_path, start, [p2, p3])
+    assert route is not None
+    assert route.weighted_cost_m == route.distance_m
+
+
+def test_build_cycle_route_with_cost_context_sums_weighted_cost(grid_graph):
+    """cost_context를 주면 Route.weighted_cost_m이 그 가중치 합으로 채워진다 —
+    RouteObjective.preference_penalty_ratio 계산의 입력이다(#467)."""
+    finder = DistancePathFinder(grid_graph)
+    start, p2, p3 = _node_id(0, 0), _node_id(0, 2), _node_id(2, 2)
+    cost_context = _StubCostContext(multiplier=1.5)
+
+    route = build_cycle_route(grid_graph, finder.astar_path, start, [p2, p3], cost_context=cost_context)
+    assert route is not None
+    assert route.weighted_cost_m == pytest.approx(route.distance_m * 1.5)
+
+
 def test_compute_route_geometry_metrics_accepts_distance_path_finder(grid_graph):
     """일반화 이후 compute_route_geometry_metrics가 GRASP _CostCache 없이 임의의
     PathFinder 콜러블만으로 동작하는지 확인한다."""
