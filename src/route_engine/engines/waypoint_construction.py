@@ -151,7 +151,9 @@ def beam_construction(
 
     best_route, best_obj = None, _INFEASIBLE
     for order in result.orders:
-        route = BuildCycleRoute(G, cost_cache.astar_path, start_node, order.waypoint_ids)
+        route = BuildCycleRoute(
+            G, cost_cache.astar_path, start_node, order.waypoint_ids, cost_context=cost_cache.cost_context,
+        )
         if route is None:
             continue
         obj = evaluate_route(route, target_m, target_m * cfg.distance_tolerance_ratio)

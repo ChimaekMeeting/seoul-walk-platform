@@ -28,6 +28,7 @@ import networkx as nx
 
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.errors import MissingEdgeAttributeError
+from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
 
 _LENGTH_ATTR = "length"  # 그래프 엣지 거리 속성명. engines/grasp_waypoint_common.py와 동일 기준.
 
@@ -66,6 +67,13 @@ class Route:
     waypoints: list[int]  # p1 다음 정류점부터 순서대로 — "무엇을 요청했는가"(탐색 입력)
     distance_m: float
     repeated_edge_ratio: float
+    weighted_cost_m: Optional[float] = None
+    # cost_context(WeightedEdgeCost)가 주어졌을 때의 가중 비용 합(#467). cost_context가
+    # 없거나 비활성이면 distance_m과 같은 값이 되어, RouteObjective.preference_penalty_ratio
+    # (weighted_cost_m/distance_m - 1)가 자연스럽게 0.0이 된다. sum_weighted_cost() 참고.
+    # None으로 두고 만들면 __post_init__이 distance_m으로 채운다 — effective_waypoints와
+    # 같은 이유로, 가중 비용을 다루지 않는 기존 Route 생성부·테스트가 이 인자를 몰라도
+    # "가중 비용 미사용"과 동일한 값을 갖게 하기 위함이다.
     effective_waypoints: Optional[list[int]] = None
     # pruning 이후 node_ids에 실제로 남은 경유지 — "무엇을 실제로 지났는가"(관측값).
     # None으로 두고 만들면 __post_init__이 node_ids/waypoints에서 계산해 채우므로,
@@ -81,6 +89,8 @@ class Route:
     # 공간은 건드리지 않고 불일치를 드러내 기록만 한다.
 
     def __post_init__(self):
+        if self.weighted_cost_m is None:
+            self.weighted_cost_m = self.distance_m
         if self.effective_waypoints is None:
             self.effective_waypoints = surviving_waypoints(self.node_ids, self.waypoints)
 
@@ -99,6 +109,19 @@ def sum_edge_length(G: nx.Graph, path: list[int]) -> float:
         if _LENGTH_ATTR not in edge:
             raise MissingEdgeAttributeError(f"엣지에 '{_LENGTH_ATTR}' 속성이 없습니다: {edge!r}")
         total += edge[_LENGTH_ATTR]
+    return total
+
+
+def sum_weighted_cost(G: nx.Graph, path: list[int], cost_context: Optional[WeightedEdgeCost]) -> float:
+    """cost_context(WeightedEdgeCost)가 주어지면 그 가중치로, 없으면 sum_edge_length와
+    같은 값(순수 거리)으로 합산한다. cost_context.weight()는 비활성(enabled=False)일 때도
+    이미 순수 거리를 돌려주므로, 이 함수는 활성 여부를 따로 확인하지 않는다 — 가중 비용을
+    아예 쓰지 않는 호출부(cost_context=None)만 sum_edge_length로 분기한다."""
+    if cost_context is None:
+        return sum_edge_length(G, path)
+    total = 0.0
+    for u, v in zip(path, path[1:]):
+        total += cost_context.weight(u, v, G[u][v])
     return total
 
 
@@ -129,10 +152,16 @@ def build_cycle_route(
     path_finder: PathFinder,
     start_node: int,
     waypoints: Sequence[int],
+    cost_context: Optional[WeightedEdgeCost] = None,
 ) -> Optional[Route]:
     """start_node→waypoints[0]→...→waypoints[-1]→start_node 구간을 순서대로
     path_finder로 실제 연결한다. waypoints는 최소 1개 이상이어야 한다. 구간 중 하나라도
     실패(path_finder가 None 반환)하면 None(FAIL).
+
+    cost_context(WeightedEdgeCost)를 주면 Route.weighted_cost_m을 그 가중치 합으로 채운다
+    (#467, RouteObjective.preference_penalty_ratio 계산에 쓰임). 주지 않으면 weighted_cost_m은
+    distance_m과 같아져 그 비율이 0.0이 된다 — 가중 비용을 모르는 호출부(예: Beam의
+    DistancePathFinder 경로)는 인자를 생략하면 된다.
 
     distance_m은 반드시 반환된 실제 노드열의 엣지 길이 합산이며, 각 구간의 추정 비용을
     단순히 더한 값이 아니다.
@@ -168,11 +197,13 @@ def build_cycle_route(
 
     distance_m = sum_edge_length(G, pruned)
     repeated_edge_ratio = edge_overlap_ratio(G, pruned)
+    weighted_cost_m = sum_weighted_cost(G, pruned, cost_context)
     return Route(
         node_ids=pruned,
         waypoints=list(waypoints),
         distance_m=distance_m,
         repeated_edge_ratio=repeated_edge_ratio,
+        weighted_cost_m=weighted_cost_m,
     )
 
 
