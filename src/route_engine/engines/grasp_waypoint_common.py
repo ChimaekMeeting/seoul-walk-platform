@@ -72,6 +72,7 @@ from src.route_engine.waypoint_route_builder import (
     build_cycle_route as BuildCycleRoute,
     edge_overlap_ratio as _edge_overlap_ratio,
     sum_edge_length as _sum_edge_length,
+    sum_weighted_cost as _sum_weighted_cost,
 )
 
 # ── 데이터 구조 ──────────────────────────────────────────────────────────
@@ -85,22 +86,36 @@ class RouteObjective:
     """사전식 비교 키. feasible(목표거리 허용오차 충족) 여부가 최우선이다.
 
     feasible=False(허용오차 밖)인 두 해를 비교할 때는 distance_error_m을 먼저 본다 —
-    목표 거리에라도 최대한 가까워지는 게 우선이므로.
+    목표 거리에라도 최대한 가까워지는 게 우선이므로. 그다음은 repeated_edge_ratio,
+    마지막이 preference_penalty_ratio다(#467) — 거리 정확도가 이미 게이트에 못 미친
+    상태이므로 왕복 퇴화 방지를 선호도보다 앞세운다(아래 feasible=True 분기와 같은
+    우선순위 철학). 다만 distance_error_m(연속값)이 실측 그래프에서 정확히 같은 경우는
+    거의 없어, 이 두 항목은 극히 드문 완전 동률에서만 작동한다.
 
     feasible=True(허용오차 안)인 두 해를 비교할 때는 repeated_edge_ratio를 distance_error_m
     보다 먼저 본다. 애초에 distance_error_m을 그대로 먼저 비교하면, 실측 그래프에서는
     두 해가 정확히 같은 distance_error_m을 갖는 경우가 거의 없어 repeated_edge_ratio가
     사실상 한 번도 tie-break로 작동하지 않는다(왕복 퇴화 방지가 무력화됨) — 사용자
     피드백("겹치는 경로 말고 O형 경로를 원한다")에 따라, 허용오차 안에서는 "얼마나
-    정확히 맞았는지"보다 "얼마나 O자형인지"를 우선하도록 바꿨다."""
+    정확히 맞았는지"보다 "얼마나 O자형인지"를 우선하도록 바꿨다. preference_penalty_ratio는
+    repeated_edge_ratio 다음, distance_error_m보다는 앞에 둔다 — 왕복 퇴화 방지가
+    여전히 최우선이되, 목표거리에 정확히 맞추는 것보다는 선호(안전·편안) 반영을
+    우선한다.
+
+    preference_penalty_ratio(#467)는 weighted_cost_m/distance_m - 1이다. 엣지 배수가
+    1 + alpha*unsafe + beta*discomfort(WeightedEdgeCost.weight() 참고)이고 unsafe/discomfort
+    ∈ [0,1], alpha+beta ≤ weight_limit(k)이므로 경로 단위 비율은 [0, k] 범위이며, 가중
+    비용을 안 쓰면(cost_context=None) weighted_cost_m == distance_m이라 자연히 0.0이다.
+    """
     feasible: bool
     distance_error_m: float
     repeated_edge_ratio: float
+    preference_penalty_ratio: float = 0.0
 
     def sort_key(self) -> tuple:
         if not self.feasible:
-            return (1, self.distance_error_m, self.repeated_edge_ratio)
-        return (0, self.repeated_edge_ratio, self.distance_error_m)
+            return (1, self.distance_error_m, self.repeated_edge_ratio, self.preference_penalty_ratio)
+        return (0, self.repeated_edge_ratio, self.preference_penalty_ratio, self.distance_error_m)
 
 
 _INFEASIBLE = RouteObjective(feasible=False, distance_error_m=float("inf"), repeated_edge_ratio=1.0)
@@ -155,10 +170,14 @@ def evaluate_route(route: Optional[Route], target_distance_m: float, distance_to
     if route is None:
         return _INFEASIBLE
     error = abs(route.distance_m - target_distance_m)
+    preference_penalty_ratio = (
+        route.weighted_cost_m / route.distance_m - 1.0 if route.distance_m else 0.0
+    )
     return RouteObjective(
         feasible=error <= distance_tolerance_m,
         distance_error_m=error,
         repeated_edge_ratio=route.repeated_edge_ratio,
+        preference_penalty_ratio=preference_penalty_ratio,
     )
 
 
@@ -834,7 +853,7 @@ def construct_initial_route(
         waypoints.append(chosen)
         prev = chosen
 
-    route = BuildCycleRoute(G, cost_cache.astar_path, start_node, waypoints)
+    route = BuildCycleRoute(G, cost_cache.astar_path, start_node, waypoints, cost_context=cost_cache.cost_context)
     return ConstructionResult(route=route, had_valid_waypoint_pair=True)
 
 
@@ -879,7 +898,9 @@ def waypoint_replacement_neighbors(
         )[: cfg.rcl_size]:
             new_waypoints = list(waypoints)
             new_waypoints[i] = c
-            candidate = BuildCycleRoute(G, cost_cache.astar_path, start_node, new_waypoints)
+            candidate = BuildCycleRoute(
+                G, cost_cache.astar_path, start_node, new_waypoints, cost_context=cost_cache.cost_context,
+            )
             if candidate is not None:
                 yield candidate
 
@@ -931,7 +952,9 @@ def waypoint_pair_replacement_neighbors(
                     continue
                 new_waypoints = list(waypoints)
                 new_waypoints[i], new_waypoints[i + 1] = a, b
-                candidate = BuildCycleRoute(G, cost_cache.astar_path, start_node, new_waypoints)
+                candidate = BuildCycleRoute(
+                    G, cost_cache.astar_path, start_node, new_waypoints, cost_context=cost_cache.cost_context,
+                )
                 if candidate is not None:
                     yield candidate
 

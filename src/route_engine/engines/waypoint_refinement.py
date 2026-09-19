@@ -53,6 +53,7 @@ from src.route_engine.engines.grasp_waypoint_common import (
     RouteObjective,
     _edge_overlap_ratio,
     _sum_edge_length,
+    _sum_weighted_cost,
     better,
     construct_initial_route,
     evaluate_route,
@@ -137,7 +138,9 @@ def _shake_replace_one(G, cost_cache, pool_result: WaypointPoolResult, start_nod
         return None
     new_waypoints = list(route.waypoints)
     new_waypoints[i] = rng.choice(choices)
-    return BuildCycleRoute(G, cost_cache.astar_path, start_node, new_waypoints)
+    return BuildCycleRoute(
+        G, cost_cache.astar_path, start_node, new_waypoints, cost_context=cost_cache.cost_context,
+    )
 
 
 def _shake_replace_both(G, cost_cache, pool_result: WaypointPoolResult, start_node: int, cfg: GraspConfig,
@@ -146,7 +149,9 @@ def _shake_replace_both(G, cost_cache, pool_result: WaypointPoolResult, start_no
     if len(pool_result.pool_nodes) < n:
         return None
     new_waypoints = rng.sample(pool_result.pool_nodes, n)
-    return BuildCycleRoute(G, cost_cache.astar_path, start_node, new_waypoints)
+    return BuildCycleRoute(
+        G, cost_cache.astar_path, start_node, new_waypoints, cost_context=cost_cache.cost_context,
+    )
 
 
 def _shake_reroute_segment(G, cost_cache, start_node: int, route: Route, rng: random.Random) -> Optional[Route]:
@@ -177,6 +182,7 @@ def _shake_reroute_segment(G, cost_cache, start_node: int, route: Route, rng: ra
         waypoints=list(route.waypoints),
         distance_m=_sum_edge_length(G, pruned),
         repeated_edge_ratio=_edge_overlap_ratio(G, pruned),
+        weighted_cost_m=_sum_weighted_cost(G, pruned, cost_cache.cost_context),
     )
 
 
@@ -518,7 +524,10 @@ def _decisive_key(a: RouteObjective, b: RouteObjective) -> str:
     ka, kb = a.sort_key(), b.sort_key()
     if ka[0] != kb[0]:
         return "feasibility"
-    names = ("repeated_edge_ratio", "distance_error_m") if ka[0] == 0 else ("distance_error_m", "repeated_edge_ratio")
+    names = (
+        ("repeated_edge_ratio", "preference_penalty_ratio", "distance_error_m") if ka[0] == 0
+        else ("distance_error_m", "repeated_edge_ratio", "preference_penalty_ratio")
+    )
     for name, x, y in zip(names, ka[1:], kb[1:]):
         if x != y:
             return name
@@ -598,7 +607,9 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
                 _record_pending(stats, result, False, "separation_violation")
                 return route
 
-    improved = BuildCycleRoute(G, cost_cache.astar_path, start_node, new_waypoints)
+    improved = BuildCycleRoute(
+        G, cost_cache.astar_path, start_node, new_waypoints, cost_context=cost_cache.cost_context,
+    )
     if improved is None:
         _record_pending(stats, result, False, "rebuild_failed")
         return route
