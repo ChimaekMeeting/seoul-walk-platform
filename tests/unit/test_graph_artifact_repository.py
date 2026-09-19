@@ -133,3 +133,31 @@ def test_save_rejects_missing_required_attributes(tmp_path):
 def test_companion_paths_require_pickle_extension(tmp_path):
     with pytest.raises(GraphArtifactError, match=".pkl"):
         GraphArtifactRepository.companion_paths(tmp_path / "walk_graph.json")
+
+
+def test_save_records_score_coverage_in_manifest(tmp_path):
+    """scripts/build_walk_graph.py가 저장 전에 계산한 커버리지를 manifest에 남긴다(#474).
+
+    이 값이 낮은 채로 저장됐다면 이 artifact를 쓰는 쪽(벤치·서비스)에서 가중 비용이
+    거리 전용으로 폴백한다는 뜻이므로, 원인을 artifact 밖에서 다시 찾지 않아도 되게
+    manifest에 같이 남긴다.
+    """
+    artifact_path = tmp_path / "walk_graph_v1.pkl"
+    coverage = {"safety_score": 1.0, "accident_score": 1.0, "slope_score": 1.0}
+    manifest = GraphArtifactRepository.save(
+        make_graph(),
+        artifact_path,
+        data_version="test-v1",
+        source_commit="abc123",
+        source_dirty=False,
+        score_coverage=coverage,
+    )
+
+    assert manifest["score_coverage"] == coverage
+
+
+def test_save_without_score_coverage_records_none(tmp_path):
+    """score_coverage를 안 넘기면(기존 호출부) manifest에 None으로 남아 구분된다."""
+    artifact_path, manifest = save_graph(tmp_path)
+
+    assert manifest["score_coverage"] is None

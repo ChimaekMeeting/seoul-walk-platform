@@ -18,10 +18,10 @@ benchmarks/run_alt_circular_validation.py
 로직은 건드리지 않는다 — `PathUtils._search_heuristic()`이 고른 것을 그대로 계측판에
 넘기므로, 두 모드 사이의 유일한 차이는 ALT 부착 여부다.
 
-⚠ 점수(safety/accident/slope)는 fixture에 없어 `cost_context`를 주입하지 않는다. 즉 이
-러너가 지나가는 것은 **거리 전용 경로**뿐이다. 가중 비용 분기는 합성 그래프 단위
-테스트(tests/unit/test_grasp_waypoint_common.py)가 덮으며, 실그래프 검증은 점수 적재와
-artifact 재빌드 이후에 가능하다.
+⚠ 이 러너는 `cost_context`를 주입하지 않으므로 지나가는 것은 **거리 전용 경로**뿐이다.
+점수(safety/accident/slope)는 #474부터 artifact에 실려 있으므로 데이터가 없어서가
+아니라, ALT 부착 여부만을 유일한 차이로 두기 위한 의도적 선택이다. 가중 비용 분기는
+합성 그래프 단위 테스트(tests/unit/test_grasp_waypoint_common.py)가 덮는다.
 
 실행:
     python -m benchmarks.run_alt_circular_validation
@@ -107,7 +107,7 @@ def main() -> int:
 
     G = _load_default_graph()
     if G is None:
-        print("fixture 그래프가 없습니다. 'python -m benchmarks.build_fixtures'로 먼저 생성하세요.")
+        print("Graph artifact가 없습니다. artifacts/walk_graph_v1.pkl을 확인하세요.")
         return 2
     print(f"그래프: 노드 {G.number_of_nodes():,} / 엣지 {G.number_of_edges():,}")
 

@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # Walk Graph
     WALK_GRAPH_SOURCE: Literal["database", "artifact"] = "database"
     WALK_GRAPH_ARTIFACT_PATH: str = "artifacts/walk_graph_v1.pkl"
-    WALK_GRAPH_DATA_VERSION: str = "v1-2026-07-30"
+    WALK_GRAPH_DATA_VERSION: str = "v3-2026-09-19"
     WALK_GRAPH_EXPECTED_COMMIT: str = ""
 
     # ALT(A* + Landmark + Triangle inequality) 휴리스틱

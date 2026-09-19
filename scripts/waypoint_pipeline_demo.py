@@ -15,9 +15,9 @@ import json
 from collections import Counter
 
 import networkx as nx
-import pandas as pd
 
-from benchmarks.config import ROUTE_NODES_PARQUET, ROUTE_EDGES_PARQUET, ROUTE_ENGINE_DATASET
+from benchmarks.config import WALK_GRAPH_ARTIFACT, ROUTE_ENGINE_DATASET
+from src.repository.network.graph_artifact_repository import GraphArtifactRepository
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.waypoint_pool import WaypointPoolGenerator, WaypointPoolResult
 from src.route_engine.scoring.scoring_engine import compute_distance_only_lookup
@@ -28,14 +28,8 @@ _BEAM_WIDTH = 8       # circular_beam.py와 동일한 폭
 
 
 def load_graph() -> nx.Graph:
-    nodes_df = pd.read_parquet(ROUTE_NODES_PARQUET)
-    edges_df = pd.read_parquet(ROUTE_EDGES_PARQUET)
-    G = nx.Graph()
-    for row in nodes_df.itertuples():
-        G.add_node(row.node_id, lat=row.lat, lon=row.lon)
-    for row in edges_df.itertuples():
-        G.add_edge(row.u, row.v, length=row.length)
-    return G
+    """benchmark.py::_load_default_graph()와 같은 원본을 읽는다(원본 통일, #474)."""
+    return GraphArtifactRepository.load(WALK_GRAPH_ARTIFACT)
 
 
 def make_cost_fn(pool: WaypointPoolResult, p1: int):
