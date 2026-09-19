@@ -561,6 +561,8 @@ discomfort = 1 - slope_score
 | `oneway_random` | `custom_score`가 아니라 **거리 전용**. `OnewayAstarEngine`(=`oneway_shortest`와 동일, 임시 상태)을 쓰고, 안전·편안 가중 로직이 아직 없다 |
 | `circular_random` | (2026-09-19 갱신, #462) **가중** — `CircularGraspWaypointAlnsEngine`(`mode="distance"` 고정)이 `cost_context`를 받아 GRASP 구축·ALNS 최종 재연결의 A*(`BuildCycleRoute`)에 쓴다. ALNS의 경유지 선택 자체(`alns_search`)는 거리 기준 그대로다 |
 
+(2026-09-19 갱신, #467) #462는 `cost_context`가 A* 구간 연결 비용에만 영향을 줬고, 후보들 중 **어느 것을 채택할지**(`RouteObjective.sort_key()`/`evaluate_route`)는 여전히 거리·재통행 비율만 봤다 — 가중치를 켜도 "더 안전한 경로"가 "더 안전하지 않지만 거리가 더 정확한 경로"에 밀릴 수 있었다. `Route.weighted_cost_m`(`build_cycle_route`가 `cost_context`로 함께 합산)과 `RouteObjective.preference_penalty_ratio`(`= weighted_cost_m/distance_m - 1`, 범위 `[0, k]`)를 추가해 최종 채택·후보 선별(`_collect_alternatives`, #443)까지 선호도를 반영하도록 확장했다. `sort_key()`는 `feasible=True`일 때 `(0, repeated_edge_ratio, preference_penalty_ratio, distance_error_m)`, `feasible=False`일 때 `(1, distance_error_m, repeated_edge_ratio, preference_penalty_ratio)`다 — 두 경우 모두 왕복 퇴화 방지(`repeated_edge_ratio`)가 선호도보다 우선한다. `cost_context`가 없거나 비활성이면 `weighted_cost_m == distance_m`이라 `preference_penalty_ratio`는 항상 0.0이므로 가중치 미적용 모드의 기존 선택 결과는 바뀌지 않는다.
+
 `waypoint`의 `oneway_random` leg가 섞인 요청은 이번 새 가중 연결 대상에서 제외한다. 자동으로
 채운 구간과 명시된 `oneway_preferred` 모두 같은 규칙을 따른다. (2026-09-19 갱신) 아래 "leg
 방식 결정" 표의 사유 문자열 `beam_leg_present`는 이 규칙이 처음 생겼을 때 그 leg가 실제로
