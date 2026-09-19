@@ -44,9 +44,8 @@ def init_table():
         logger.info("[init_db] 스키마 변경 스킵 (DB_AUTO_MIGRATE=off)")
         return
 
-    inspector = inspect(engine)
-
     with engine.begin() as conn:
+        inspector = inspect(conn)
         for table in Base.metadata.sorted_tables:
             if not inspector.has_table(table.name):
                 # bind=conn(같은 트랜잭션)을 써야 한다 — bind=engine은 풀에서 별도 커넥션을
