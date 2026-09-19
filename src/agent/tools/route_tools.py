@@ -28,7 +28,9 @@ class RouteTool:
         특별한 조건 없이 자유롭게 산책하고 싶을 때 사용하세요.
         """
         return await asyncio.to_thread(
-            self.route_service.get_route, access_token, origin, None, target_km, WalkMode.CIRCULAR_RANDOM, custom_weights
+            self.route_service.get_route, access_token, origin, None, target_km, WalkMode.CIRCULAR_RANDOM, custom_weights,
+            # 최종 선호로 요청 비용을 만드는 서비스 입력도 채운다(#471).
+            preference=custom_weights,
         )
 
     async def oneway_shortest_route(self, origin: Coordinate, destination: Coordinate, access_token: str = "", custom_weights: Optional[Weights] = None):
