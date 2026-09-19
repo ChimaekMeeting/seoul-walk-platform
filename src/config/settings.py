@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     WALK_WEIGHTED_COST_ENABLED: bool = True
     # alpha + beta의 상한(k). 엣지 비용이 최대 몇 배까지 늘어날 수 있는지를 정한다.
     # 경로의 실제 우회 거리 제한과는 다른 값이다.
-    WALK_WEIGHT_LIMIT: float = 0.5
+    WALK_WEIGHT_LIMIT: float = 0.7
     # unsafe = lambda * (1 - safety_score) + (1 - lambda) * accident_score 의 lambda.
     # 안전시설 부족과 사고위험을 섞는 비율이며 서비스 의미에 해당한다. 데이터팀이
     # 결합된 단일 점수를 제공하기로 하면 이 값은 사라진다.
