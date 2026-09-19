@@ -405,11 +405,9 @@ def _load_default_graph() -> nx.Graph | None:
         graph.add_edge(
             row.u, row.v,
             length=row.length,
-            safety_score=getattr(row, "safety_score", 0.5) or 0.5,
-            nature_score=getattr(row, "nature_score", 0.5) or 0.5,
-            landmark_score=getattr(row, "landmark_score", 0.0) or 0.0,
-            child_score=getattr(row, "child_score", 0.0) or 0.0,
-            slope_score=0.5,
+            safety_score=getattr(row, "safety_score", None),
+            accident_score=getattr(row, "accident_score", None),
+            slope_score=getattr(row, "slope_score", None),
         )
     return graph
 
