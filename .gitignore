@@ -43,6 +43,7 @@ package-lock.json
 !tests/unit/test_oneway_astar_weighted.py
 !tests/unit/test_weighted_cost_runtime.py
 !tests/unit/test_waypoint_detour_cap.py
+!tests/unit/test_weight_extractor_state.py
 !/tests/integration/
 /tests/integration/*
 !tests/integration/test_route_feedback_flow.py
