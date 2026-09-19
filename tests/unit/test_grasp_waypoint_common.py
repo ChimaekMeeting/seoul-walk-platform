@@ -1,6 +1,7 @@
 import networkx as nx
 import pytest
 
+from src.route_engine.alt_runtime import attach_alt_heuristic, prepare_alt_heuristic
 from src.route_engine.engines.grasp_waypoint_common import EdgeCost, _CostCache, is_degenerate_loop_route
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
@@ -122,3 +123,53 @@ def test_cost_cache_weight_uses_cost_context_when_enabled():
     edge_data = G[_S][_A]
 
     assert cache._weight(_S, _A, edge_data) == pytest.approx(context.weight(_S, _A, edge_data))
+
+
+# ── 구간 연결 A*의 ALT 휴리스틱(#465) ───────────────────────────────────────
+#
+# 순환 경로의 구간 연결은 _CostCache.astar_path() → PathUtils.astar_path()를 타므로,
+# 그래프에 ALT가 부착돼 있으면 최단거리 A*와 같은 휴리스틱을 쓴다. ALT 거리표는
+# length 기준이고 가중 비용은 cost >= length이므로 하한이 그대로 admissible하다
+# (scoring_engine.py의 WeightedEdgeCost 주석 참고). 아래 두 테스트는 그 결과로
+# 나온 경로가 실제로 최적인지를 dijkstra와 대조해 고정한다.
+
+
+def _attach_alt(G: nx.Graph):
+    heuristic, info = prepare_alt_heuristic(G, enabled=True, method="planar", k=4, seed=0)
+    attach_alt_heuristic(G, heuristic, info)
+    return heuristic
+
+
+def _weighted_cost(G: nx.Graph, path, context: WeightedEdgeCost) -> float:
+    return sum(context.weight(u, v, G[u][v]) for u, v in zip(path, path[1:]))
+
+
+def test_cost_cache_uses_the_attached_alt_heuristic():
+    G = _make_graph()
+    attached = _attach_alt(G)
+    assert attached is not None  # 부착 자체가 실패하면 이 테스트는 의미가 없다
+
+    cache = _CostCache(G, mode="distance")
+
+    assert cache._path_utils._search_heuristic(1.0) is attached
+
+
+def test_cost_cache_with_alt_and_weighted_cost_matches_dijkstra():
+    G = _make_graph()
+    _attach_alt(G)
+    context = _make_context(0.6, 0.3)
+    cache = _CostCache(G, mode="distance", cost_context=context)
+
+    path = cache.astar_path(_S, _T)
+
+    assert _weighted_cost(G, path, context) == pytest.approx(
+        nx.dijkstra_path_length(G, _S, _T, weight=context.weight)
+    )
+
+
+def test_cost_cache_with_alt_matches_dijkstra_on_distance():
+    G = _make_graph()
+    _attach_alt(G)
+    cache = _CostCache(G, mode="distance")
+
+    assert cache.astar_path(_S, _T) == nx.shortest_path(G, _S, _T, weight="length")

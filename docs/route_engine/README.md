@@ -707,7 +707,8 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
 호출부가 하나도 남지 않아(죽은 코드) 2026-09-19에 삭제했다 — 현재 엔진들은 각자 직접
 `PathUtils.astar_path()`를 부르거나(`CircularGraspWaypointAlnsEngine`이 쓰는
 `grasp_waypoint_common.py`) `nx.astar_path`를 직접 부른다(`OnewayAstarEngine`). `astar_path()`
-자체(공용 admissible A* 래퍼)는 여전히 살아 있다.
+자체(공용 admissible A* 래퍼)는 여전히 살아 있다 — 2026-09-19부터는 그래프에 ALT가 붙어
+있고 `min_ratio >= 1.0`이면 Haversine 대신 ALT를 쓴다(아래 "ALT 서비스 연결" 절).
 
 ## 경유지 후보 풀: 단일 풀, cutoff SSSP + lazy 거리표 (2026-08-30)
 
@@ -1295,14 +1296,27 @@ popped 중앙값 (tier × method):
 | [alt_runtime.py](../../src/route_engine/alt_runtime.py) | `prepare_alt_heuristic()`(선정+거리표), `attach_alt_heuristic()`/`get_alt_heuristic()`(그래프 부착·조회) |
 | [dependencies.py](../../src/interfaces/dependencies.py) | `init_route_service()`에서 `precompute_scoring_features(G)` 직후, `RouteService` 생성 **전에** 준비·부착 |
 | [oneway_astar.py](../../src/route_engine/engines/oneway_astar.py) | `__init__`에서 쓸 휴리스틱을 정하고 `find_path()`의 `nx.astar_path(heuristic=...)`에 넘긴다 |
+| [path_utils.py](../../src/route_engine/engines/path_utils.py) | (2026-09-19 추가) `astar_path()`가 `_search_heuristic()`으로 매 호출 휴리스틱을 고른다 — 순환 경로의 구간 연결이 이 경로를 탄다 |
 
-휴리스틱 선택 규칙(위에서부터 먼저 이기는 순서):
+휴리스틱 선택 규칙 — `OnewayAstarEngine`(위에서부터 먼저 이기는 순서):
 
 1. `OnewayAstarEngine(..., heuristic=...)`로 **명시해서 넘긴 함수** → 로그 `heuristic=alt_injected`
 2. 그래프에 부착된 ALT(`G.graph["alt_heuristic"]`) → 로그 `heuristic=alt_planar`
 3. 기존 Haversine(`self._heuristic`) → 로그 `heuristic=haversine`
 
 `_heuristic` 메서드는 삭제하지 않고 그대로 남겼다 — 3번 경로가 이것을 쓴다.
+
+휴리스틱 선택 규칙 — `PathUtils.astar_path()`(2026-09-19 추가):
+
+1. `min_ratio >= 1.0`이고 그래프에 ALT가 부착돼 있으면 그 ALT
+2. 그 외에는 Haversine 직선거리 × `min_ratio`
+
+`min_ratio < 1.0`에서 ALT를 제외하는 이유는 거리표가 `weight="length"` 기준이기 때문이다.
+weight가 항상 `length` 이상이면(거리 그대로, 또는 `cost >= length`인 `WeightedEdgeCost`)
+length 기준 하한이 탐색 비용의 하한으로 그대로 성립하지만, `custom_score`처럼 length보다
+작아질 수 있는 weight(= `min_cost_length_ratio()`로 구한 `min_ratio < 1.0`)에서는 하한이
+실제 비용을 넘어설 수 있어 admissible이 깨진다. 2026-09-19 기준 `min_ratio`를 넘기는
+호출자는 없어 실제로는 전부 1번 경로다.
 
 ### 의존 영역
 
@@ -1311,11 +1325,25 @@ popped 중앙값 (tier × method):
 `landmark_* → engines.path_utils → engines/__init__ → oneway_astar → alt_runtime`로
 순환 import가 닫힌다.
 
+반대 방향인 `path_utils → alt_runtime`(2026-09-19 추가)은 최상단 import로 둬도 순환이
+닫히지 않는다 — `alt_runtime`이 최상단에서 가져오는 것은 stdlib과 networkx뿐이고
+`src/route_engine/__init__.py`가 비어 있어 `engines` 패키지를 끌어오지 않는다. 지연
+import로 두지 않은 이유는 호출 빈도다(순환 경로는 요청 1건에 구간 연결 A*를 반복 호출한다).
+확인: `path_utils`·`alt_runtime`·`landmark_planar` 각각을 첫 import로 놓고 셋 다 성공.
+
 ### 변경 영향
 
-- **순환 경로 엔진(`CircularGraspWaypointAlnsEngine`)과 경유지 엔진: 영향 없다.**(2026-09-19 갱신 — 이전에는 `CircularBeamEngine` 등이었으나 삭제됐다) 부착된 휴리스틱을
-  읽는 코드는 `OnewayAstarEngine.__init__` 한 곳뿐이고, 다른 엔진은 `get_alt_heuristic`을
-  호출하지 않는다. `PathUtils.astar_path`도 바꾸지 않았다.
+- **(2026-09-19 갱신) 순환 경로 엔진(`CircularGraspWaypointAlnsEngine`)도 이제 ALT를 쓴다.**
+  `PathUtils.astar_path()`가 부착된 ALT를 우선 사용하도록 바뀌면서, 구간 연결 경로
+  (`_CostCache.astar_path()` → `PathUtils.astar_path()` → `nx.astar_path`)가 최단거리 A*와
+  같은 휴리스틱을 타게 됐다. 가중 비용(`cost >= length`) 아래에서도 admissible이 유지되는
+  근거는 위 "비용식과 ALT 재사용 근거" 절과 같다.
+  같은 함수를 쓰는 `DistancePathFinder`(Beam 조립), `benchmarks/runner/waypoint_overlap_audit.py`,
+  `scripts/waypoint_pipeline_demo.py`도 함께 영향을 받는다 — 셋 다 `length` 이상인 weight라
+  최적성은 그대로다.
+  ⚠ 벤치마크 워커(`_pool_worker_init()`)는 ALT를 준비·부착하지 않는다. 벤치에서 순환
+  경로를 돌리면 여전히 Haversine 폴백으로 측정된다(2026-09-19 기준 미배선 — 배선하지
+  않기로 한 근거는 아래 "관측: 순환 경로 구간 연결" 절 참고).
 - `WaypointComposerEngine`은 leg를 `OnewayAstarEngine`으로 채우므로 그 leg는 ALT를 쓴다.
   응답 계약은 아래 이유로 달라지지 않는다.
 - **응답 계약**: ALT와 Haversine은 둘 다 admissible하므로 A*가 찾는 **최적 비용은 항상
@@ -1400,8 +1428,48 @@ popped 중앙값 (tier × method):
 3.7배 빨라졌지만 요청 한 건의 체감 시간은 그만큼 줄지 않는다** — 병목이 탐색 밖에 있다.
 이 조회표 비용을 줄이는 것은 이 작업의 범위가 아니라 별도 과제다.
 
+### 관측: 순환 경로 구간 연결 (2026-09-19, #465)
+
+환경: Windows-11, Python 3.12.10(`poetry run python`), networkx 3.6.
+입력: `benchmarks/fixtures/`(노드 160,328 / 엣지 223,927), 시나리오는
+`benchmarks/datasets/route_engine.json`의 `circular_01`~`circular_08`(목표 2.5~4.9km),
+엔진은 `CircularGraspWaypointAlnsEngine`(N=4, 기본 시드).
+재현: `python -m benchmarks.run_alt_circular_validation`.
+**이 입력·이 머신에서의 관측이며 고정 기대값이 아니다.**
+
+| 지표 | Haversine | ALT | 비 |
+|---|---:|---:|---:|
+| 구간 연결 A* 호출 | 854 | 854 | 동일 |
+| popped(큐에서 꺼낸 노드) | 77,994 | 43,993 | 1.77x 감소 |
+| pushed | 101,498 | 65,071 | 1.56x 감소 |
+| A* 순수 시간 | 0.25s | 0.22s | 1.11x |
+| 요청 전체 시간(8건 합) | 33.32s | 28.10s | — |
+| A*가 전체에서 차지하는 비중 | 0.7% | 0.8% | — |
+
+- **결과는 완전히 같다.** 노드열 8/8 일치, 거리 최대 차이 0.000000m. A* 호출 수도 8건
+  모두 같아 `_CostCache`의 캐시 동작이 휴리스틱 교체에 영향받지 않는 것도 확인됐다.
+- **탐색량은 실제로 1.77배 줄었다.** `popped`는 결정론적 값이라 2회 실행에서 같은 수가
+  나왔다(시간은 실행마다 흔들린다). 시나리오별로는 1.07x~2.15x다.
+- ⚠ **그런데 시간은 1.11배만 줄었고, 그 A*가 요청 전체의 1% 미만이다.** 노드를 1.77배
+  덜 펼쳤는데 시간이 그만큼 안 준 것은 노드당 휴리스틱 비용이 ALT 쪽이 비싸기
+  때문이다(랜드마크 k=8개 표 조회 대 삼각함수 1회). 게다가 순환 요청 시간의 99%는
+  경유지 풀 생성과 ALNS 반복이라, 구간 연결 A*를 아무리 개선해도 체감으로 이어지지
+  않는다. 이 변경의 근거는 속도가 아니라 **결과 불변 + 최단거리 A*와의 휴리스틱
+  일관성**으로 읽어야 한다.
+- 위 시나리오 8건의 전체 시간 차이(33.32s 대 28.10s)는 A* 시간 차이(0.03s)로 설명되지
+  않는다 — 실행 간 머신 편차다. 시간이 아니라 `popped`를 비교 기준으로 삼아야 하는
+  이유이기도 하다.
+- 벤치마크 워커(`_pool_worker_init()`)에는 ALT를 배선하지 않았다. 워커마다 준비
+  시간(이 실행에서 3.10초)이 붙는데 측정 대상이 요청 시간의 1% 미만이라 얻는 정보가
+  없다고 판단했다(2026-09-19). 필요해지면 `90bf83d`(가중 비용)와 같은 방식으로 넣는다.
+
 ### 미확인
 
+- **가중 비용을 켠 상태의 순환 경로는 실그래프로 확인하지 못했다.** fixture 엣지에
+  `accident_score`·`slope_score` 컬럼이 없어(2026-09-19 확인) 커버리지 게이트가 가중
+  모드를 끄므로, 위 관측은 전부 거리 전용 경로다. 가중 비용 × ALT 조합은 합성 그래프
+  단위 테스트(`tests/unit/test_grasp_waypoint_common.py`)만 덮고 있다 — 점수 적재와
+  artifact 재빌드 이후 같은 러너로 다시 확인할 것.
 - **실제 서버를 띄워 HTTP로 확인하지는 못했다.** Docker/PostgreSQL이 떠 있지 않아
   `src.main`의 lifespan(`init_db()`)을 통과하는 기동을 할 수 없었다. 위 on/off 비교는
   `RouteService`를 직접 만들고 인증을 스텁으로 대체해서 잰 것이다.

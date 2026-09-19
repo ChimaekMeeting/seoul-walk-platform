@@ -5,6 +5,12 @@ from typing import Optional, TypeVar
 
 import networkx as nx
 
+# alt_runtime은 최상단에서 가져와도 순환이 닫히지 않는다 — 이 모듈은 stdlib과 networkx만
+# 최상단에서 import하고, landmark_*(→ path_utils)는 함수 안에서 지연 import한다
+# (alt_runtime.py 모듈 docstring "순환 import" 참고). 지연 import로 두면 구간 연결마다
+# import 조회 비용이 붙으므로 최상단에 둔다 — 순환 경로는 A*를 요청당 수백~수천 회 부른다.
+from src.route_engine.alt_runtime import get_alt_heuristic
+
 _PathT = TypeVar("_PathT")
 
 
@@ -498,17 +504,43 @@ class PathUtils:
             for _, _, data in G.edges(data=True)
         )
 
-    def astar_path(self, source: int, target: int, weight, min_ratio: float = 1.0) -> list[int]:
+    def _search_heuristic(self, min_ratio: float):
+        """A*에 넘길 admissible heuristic을 고릅니다 — 부착된 ALT가 우선이고, 없으면
+        Haversine 직선거리(min_ratio로 스케일)입니다.
+
+        ALT를 쓸 수 있는 조건은 min_ratio >= 1.0 하나입니다. 거리표는 기동 때
+        weight="length"로 만들어지므로(alt_runtime.prepare_alt_heuristic) 삼각부등식
+        하한도 length 기준입니다. weight가 항상 length 이상이면(거리 그대로, 또는
+        WeightedEdgeCost처럼 cost >= length인 가중 비용) 그 하한이 탐색 비용의 하한으로
+        그대로 성립하지만, custom_score처럼 length보다 작아질 수 있는 weight
+        (= min_ratio < 1.0)에서는 하한이 실제 비용을 넘어설 수 있어 admissible이
+        깨집니다. 그 경우에는 ALT를 건너뛰고 보정된 Haversine을 씁니다.
+
+        둘 다 admissible하므로 어느 쪽을 써도 반환 경로는 같습니다 — 바뀌는 것은 탐색
+        속도뿐입니다(oneway_astar.py의 휴리스틱 선택과 같은 전제).
         """
-        nx.astar_path 래퍼 — Haversine 직선거리(min_ratio로 스케일)를 admissible heuristic으로
-        씁니다. weight가 length 그대로면 기본값(1.0)으로 충분합니다. custom_score처럼 length보다
-        작아질 수 있는 weight를 쓸 때는 min_cost_length_ratio(...)로 구한 값을 넘겨야
-        admissible이 유지됩니다(안 넘기면 A*가 최적이 아닌 경로를 반환할 수 있음).
-        경로가 없으면 nx.shortest_path와 동일하게 nx.NetworkXNoPath를 던집니다.
-        """
+        if min_ratio >= 1.0:
+            attached = get_alt_heuristic(self.G)
+            if attached is not None:
+                return attached
+
         def _h(u, v, _min_ratio=min_ratio):
             nu, nv = self.G.nodes[u], self.G.nodes[v]
             return self._haversine_m(
                 nu.get("lat", 0), nu.get("lon", 0), nv.get("lat", 0), nv.get("lon", 0)
             ) * _min_ratio
-        return nx.astar_path(self.G, source, target, heuristic=_h, weight=weight)
+
+        return _h
+
+    def astar_path(self, source: int, target: int, weight, min_ratio: float = 1.0) -> list[int]:
+        """
+        nx.astar_path 래퍼 — 그래프에 ALT 거리표가 부착돼 있으면 그것을, 없으면 Haversine
+        직선거리(min_ratio로 스케일)를 admissible heuristic으로 씁니다(_search_heuristic).
+        weight가 length 그대로면 min_ratio는 기본값(1.0)으로 충분합니다. custom_score처럼
+        length보다 작아질 수 있는 weight를 쓸 때는 min_cost_length_ratio(...)로 구한 값을
+        넘겨야 admissible이 유지됩니다(안 넘기면 A*가 최적이 아닌 경로를 반환할 수 있음).
+        경로가 없으면 nx.shortest_path와 동일하게 nx.NetworkXNoPath를 던집니다.
+        """
+        return nx.astar_path(
+            self.G, source, target, heuristic=self._search_heuristic(min_ratio), weight=weight
+        )
