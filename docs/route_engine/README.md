@@ -1,7 +1,7 @@
 # 경로 생성 엔진
 
 > 상태: Current
-> 기준일: 2026-09-19
+> 기준일: 2026-09-20
 > 관련 코드: `src/route_engine/`
 
 경로 생성 엔진은 외부 API나 챗봇 처리와 분리된 경로 계산 영역입니다.
@@ -787,6 +787,49 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
   1.4만개 시나리오(target_km=8)에서 약 31초 소요. 실제 조합 단계는 소수의 활성 후보를
   반복 접근하는 구조라 캐시 히트율이 이보다 높을 가능성이 크지만, 조합 단계가 나와야
   실측 확인 가능하다(`benchmarks/runner/waypoint_pool_benchmark.py`로 재현 가능).
+
+## 경유지 후보 풀(편도): 두-소스 타원 cutoff (2026-09-20)
+
+- 진입점은 [waypoint_pool.py](../../src/route_engine/engines/waypoint_pool.py)의
+  `WaypointPoolGenerator.build_pool_two_point()`/`WaypointPoolResultTwoPoint`다. 위
+  섹션의 왕복 전용 `build_pool()`(수정하지 않음)이 p1=p2인 퇴화 케이스로 보고, 서로
+  다른 두 지점(p1=출발지, p2=목적지)으로 일반화한 편도 전용 함수다.
+- 채택 조건은 `dist(p1,v) + dist(v,p2) <= budget_m` — p1·p2를 초점으로 하는 타원
+  조건이다. 각 소스에서 `cutoff=budget_m` SSSP를 1회씩(총 2회) 수행해 후보 도메인을
+  좁힌 뒤, 실제 채택은 이 합 조건 하나로만 판단한다. "두 cutoff 영역이 겹치는가"는
+  판단 기준이 아니다(두 영역은 `budget_m >= dist(p1,p2)/2`부터 겹치기 시작하지만, 그
+  안의 노드가 합 조건까지 만족한다는 보장은 없다). 왕복 `r_max=target_m/2` 원과
+  달리, 편도는 한쪽 구간이 0에 가까우면 다른 쪽이 예산 전체를 써야 하므로 각 소스의
+  cutoff 자체가 (거의) `budget_m` 전체여야 한다.
+- **target_m 클램프**: 사용자가 요청한 `target_km*1000`이 `dist(p1,p2)`(직선
+  최단거리)보다 짧으면 — 물리적으로 불가능한 요청이므로 — `target_m`을
+  `dist(p1,p2)`로 보정하고 경고 로그만 남긴 채 계속 진행한다. `None`을 반환하는
+  경우는 p1·p2의 최근접 노드를 못 찾거나, p1-p2 사이에 경로 자체가 없는 경우(그래프가
+  끊어짐, `NetworkXNoPath`)뿐이다 — "target이 짧아서" `None`이 되는 경우는 없다.
+- `dist(p1,p2)`는 `target=p2`를 지정한 조기 종료 다익스트라(`nx.single_source_dijkstra`)로
+  먼저 구한다. 이 값 하나로 클램프·`budget_m` 계산·(경로 자체가 없는 경우의) infeasible
+  조기 판정을 전부 해결하며, `budget_m` cutoff SSSP 2회보다 훨씬 싸다(아래 실측 참고).
+- `budget_m = target_m + slack_ratio * dist(p1,p2)`. `slack_ratio` 기본값은
+  5%(`_DEFAULT_SLACK_RATIO`)이며 **실험값/미튜닝**이다 — 실제 그래프 25개 편도
+  시나리오 실측(풀 크기라는 대리 지표)에만 근거했고, 이 풀을 실제로 소비할 편도 다중
+  경유지 조합 엔진이 아직 없어 완성된 경로 품질로는 검증하지 못했다. 그 엔진이 생기고
+  나면 실측 경로 품질 기준으로 재검토한다.
+- slack을 절대 m(고정값)이 아니라 `dist(p1,p2)` 비율로 둔 이유: 1차 실측(5개 표본,
+  절대 m {0,100,300})에서 여유가 빠듯한 실제 요청(부족분이 직선거리의 10%를 넘는
+  경우)을 절대 m 슬랙이 못 구하는 사례가 나왔다 — 25개 시나리오 재표본에서는 클램프
+  도입 전 기준으로 24%(6/25)가 클램프 없이는 target이 직선거리보다 짧은 요청이었다.
+- **실제 그래프 규모 벤치마크(2026-09-20, clamp+slack_ratio 적용 후)**: 편도 시나리오
+  25개 × {데이터셋 target_km, 경계근접(직선거리×1.02)} × `slack_ratio` {0/5/10/20%} =
+  200건 전부 성공(`feasible=True`), MemoryError 재현 안 됨. 호출당 평균 834ms(중앙값
+  719ms, 최대 2259ms) — `dist(p1,p2)` 조기종료 조회를 앞에 넣었는데도 `budget_m`
+  cutoff SSSP 2회가 여전히 대부분을 차지한다. `slack_ratio=0`으로 두면 클램프된
+  케이스(요청 `target_km`이 직선거리보다 짧아 `dist(p1,p2)`로 보정된 경우) 중
+  최솟값이 풀 크기 1개(`oneway_02`, `dist(p1,p2)`=2136m)까지 떨어진다 — 기본값
+  `slack_ratio=5%`는 이 경우를 84개로 되살린다(84배). 순환 대비 풀 크기 비율은
+  데이터셋 조건에서 `slack_ratio` 0%→20% 구간 중앙값 0.43배→1.03배, 경계근접
+  조건에서는 0.13배→0.66배로, 어느 조건도 순환보다 극단적으로 커지지는 않는다.
+- 소비하는 조합 단계는 아직 없다(위 섹션과 동일). 재현:
+  [waypoint_pool_two_point_benchmark.py](../../benchmarks/runner/waypoint_pool_two_point_benchmark.py).
 
 ## Planar 랜드마크 선택 독립 함수 (2026-08-30)
 

@@ -33,6 +33,16 @@ target_km이 큰 경우(5~8km) pool 크기·pairwise 항목 수가 함께 급증
 - Lewis & Corcoran, J. Heuristics (2022) — r_max=k/2 cutoff SSSP 전처리 공식
 - Lewis & Corcoran, SN Comp Sci (2024) — 단일 cutoff 영역에서 n=3~8 candidate pool 생성 검증,
   전체 쌍이 아니라 선택된 노드 기준으로 그때그때 계산하는 지역탐색 패턴
+
+편도(p1≠p2) 전용 — 두-소스 타원 cutoff (2026-09-20 추가, build_pool()은 무변경):
+build_pool_two_point()/WaypointPoolResultTwoPoint는 위 왕복 전용 r_max=target_m/2
+원 조건을 p1=p2 퇴화 케이스로 보고, 서로 다른 두 지점으로 일반화한다. 채택 조건은
+dist(p1,v)+dist(v,p2) <= budget_m(두 초점을 갖는 타원)이며, target_km*1000이
+dist(p1,p2)보다 짧은(물리적으로 불가능한) 요청은 dist(p1,p2)로 클램프한다 —
+None은 p1-p2 간 경로 자체가 없는 경우로만 좁혔다. budget_m의 slack 여유분은
+dist(p1,p2) 대비 비율(_DEFAULT_SLACK_RATIO, 실험값)로 준다. 자세한 근거와 실측은
+WaypointPoolResultTwoPoint/build_pool_two_point() docstring과
+docs/route_engine/README.md "경유지 후보 풀(편도)" 절 참고.
 """
 
 import logging
