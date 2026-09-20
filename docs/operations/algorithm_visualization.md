@@ -104,7 +104,7 @@ Docker·서버·DB·인터넷 연결 없이 실행한다. 시나리오의 출발
 |---|---|
 | 상명대 → 경복궁역 최단거리 | `OnewayAstarEngine.run()`, Haversine 휴리스틱 |
 | 같은 요청 · ALT | `OnewayAstarEngine.run()`, 서비스 기동과 같은 방식으로 준비해 그래프에 붙인 ALT 휴리스틱 |
-| 같은 목적지까지 우회 | (2026-09-19 갱신) `OnewayAstarEngine.run()` — `OnewayBeamEngine`은 삭제됐고 우회(`oneway_random`)는 지금 `oneway_shortest`와 같은 엔진을 쓰는 임시 상태라 목표 거리를 반영하지 않는다 |
+| 같은 목적지까지 우회 | (2026-09-19 갱신, `OnewayBeamEngine` 삭제) `OnewayAstarEngine.run()` — 이 시각화 도구(`route_experiment.py::execute()`)가 `detour`를 여전히 `oneway_shortest`와 같은 엔진으로 단순화해 목표 거리를 반영하지 않는다. **2026-09-20(#498 확장)부터 실제 서비스는 다르다** — `route_service.py`의 `WalkMode.ONEWAY_RANDOM`은 `OnewayGraspWaypointAlnsEngine`(GRASP+ALNS)을 써서 target_km에 맞춰 실제로 우회한다. 이 도구를 그 실제 엔진까지 확장하는 작업은 아직 하지 않았다 |
 | 상명대에서 3km 순환 | (2026-09-19 갱신) `CircularGraspWaypointAlnsEngine.run()` — `CircularBeamEngine`은 삭제됐다 |
 | 상명대에서 그냥 3km | 기존 `extraction.yaml`의 목적지 없는 거리 요청 → 순환 규칙에 따라 위 기록을 재사용 |
 
@@ -164,16 +164,20 @@ Docker·서버·DB·인터넷 연결 없이 실행한다. 시나리오의 출발
 알고리즘마다 기록 방식이 다르지만, 어댑터를 지나면 모두 같은 이벤트 형식이 된다. 화면과 점검기는 그 공통 형식만 본다 — 엔진 내부 변수명이나 줄 번호를 참조하지 않는다.
 
 (2026-09-19 갱신) `CircularBeamEngine`·`OnewayBeamEngine`과 `beam_adapter.py`는 8축→2축 축소에서
-전부 삭제됐다. `detour`(`oneway_random`)는 지금 `shortest`와 같은 `OnewayAstarEngine`을 쓰고,
-`circular`(`circular_random`)는 `CircularGraspWaypointAlnsEngine`(`WaypointEngine`을
-`construction="grasp", refinement="alns"`로 고정한 래퍼)을 쓴다 — 즉 `circular`도 이제
-`grasp_*` 계열과 같은 `waypoint_trace.py`/`waypoint_adapter.py` 경로로 계측된다. 아래
-다이어그램은 그 결과를 반영한 현재 구조다.
+전부 삭제됐다. 이 시각화 도구의 `detour`(mode)는 여전히 `shortest`와 같은 `OnewayAstarEngine`을
+쓴다 — 단 2026-09-20(#498 확장)부터 실제 서비스의 `oneway_random`(`WalkMode.ONEWAY_RANDOM`)은
+`OnewayGraspWaypointAlnsEngine`(GRASP+ALNS)으로 갈아 끼워졌으므로, 아래 "서비스 엔진"
+표기에서 `detour`는 더 이상 실제 서비스와 일치하지 않는 이 도구만의 단순화다(이름이
+`oneway_random`과 겹쳐 혼동하기 쉽다). `circular`(`circular_random`)는
+`CircularGraspWaypointAlnsEngine`(`WaypointEngine`을 `construction="grasp", refinement="alns"`로
+고정한 래퍼)을 쓴다 — 즉 `circular`도 이제 `grasp_*` 계열과 같은
+`waypoint_trace.py`/`waypoint_adapter.py` 경로로 계측된다. 아래 다이어그램은 그 결과를 반영한
+현재 구조다.
 
 ```mermaid
 flowchart LR
   subgraph engines["알고리즘 · src/route_engine (시각화가 수정하지 않음)"]
-    astar["OnewayAstarEngine<br/>+ALT 휴리스틱<br/>서비스 엔진(shortest·shortest_alt·detour)"]
+    astar["OnewayAstarEngine<br/>+ALT 휴리스틱<br/>서비스 엔진(shortest·shortest_alt) · 이 도구의 detour(단순화, 서비스와 다름)"]
     grasp["WaypointEngine 계열<br/>GRASP·Local·VND·VNS·ALNS<br/>circular=서비스(CircularGraspWaypointAlnsEngine)<br/>grasp_*=벤치마크 전용"]
   end
   subgraph adapters["기록 어댑터 · visualizations"]
@@ -379,7 +383,7 @@ GRASP의 `n`은 원본 기록의 `construction_call`, 즉 **구축 함수 호출
 | 모드 | 엔진 | service_use |
 |---|---|---|
 | `shortest`, `shortest_alt` | `OnewayAstarEngine` | `service` |
-| `detour` | `OnewayAstarEngine`(2026-09-19 갱신 — `OnewayBeamEngine` 삭제, 지금은 `shortest`와 같은 엔진) | `service` |
+| `detour` | `OnewayAstarEngine`(2026-09-19 갱신 — `OnewayBeamEngine` 삭제, 이 도구는 지금도 `shortest`와 같은 엔진으로 단순화한다. 2026-09-20부터 실제 서비스의 `oneway_random`은 `OnewayGraspWaypointAlnsEngine`을 쓴다 — `service` 배지는 `OnewayAstarEngine` 자체가 `oneway_shortest`용으로는 여전히 서비스 엔진이라는 뜻일 뿐, `detour`가 실제 서비스 동작과 같다는 뜻이 아니다) | `service` |
 | `circular` | `CircularGraspWaypointAlnsEngine`(2026-09-19 갱신 — `CircularBeamEngine` 삭제) | `service` |
 | `grasp_*` | `WaypointEngine` | `benchmark_only` |
 
@@ -434,7 +438,7 @@ PR-A·B가 만든 기록 구조는 그대로 두고, 화면이 이미 있는 데
 상단 "무엇을 볼지"에 **알고리즘 select(결과 선택)**, **테스트 상황 select(요청 문장)**, 읽기 전용 **시나리오 요약**, 선택한 결과의 **실행 조건 표**를 둔다.
 
 - 알고리즘 항목 표시명은 `LABELS` + `settings`다(예: `최단거리 · A* + ALT · ALT Planar k=8 (실제 8개) · 서비스 엔진`). 같은 알고리즘이라도 설정이 다르면 별도 항목이며, 끝에 `service_use` 배지가 붙는다.
-- 지원 목록(`payload.catalog`)은 코드에서 만든다. 최단거리 2건(Haversine·ALT) + `detour`·`circular` 2건 + GRASP × `REFINEMENT_REGISTRY`의 모든 키다. 정제 목록은 손으로 적지 않고 `src/route_engine/engines/waypoint_engine_assembly`에서 읽는다(읽기만 하고 수정하지 않는다). (2026-09-19 갱신) `detour`/`circular`는 이제 Beam이 아니라 각각 `OnewayAstarEngine`/`CircularGraspWaypointAlnsEngine`이며, `visualizations/route_view.py`의 `LABELS` 상수도 고쳐 표시명이 `"편도 우회 · A*(서비스, oneway_shortest와 동일 — 임시)"`/`"순환 · GRASP+ALNS(서비스)"`로 실제 엔진과 일치한다(이전에는 둘 다 "Beam(서비스)"였던 코드 버그였다).
+- 지원 목록(`payload.catalog`)은 코드에서 만든다. 최단거리 2건(Haversine·ALT) + `detour`·`circular` 2건 + GRASP × `REFINEMENT_REGISTRY`의 모든 키다. 정제 목록은 손으로 적지 않고 `src/route_engine/engines/waypoint_engine_assembly`에서 읽는다(읽기만 하고 수정하지 않는다). (2026-09-19 갱신) `detour`/`circular`는 이제 Beam이 아니라 각각 `OnewayAstarEngine`/`CircularGraspWaypointAlnsEngine`이며(이전에는 둘 다 "Beam(서비스)"였던 코드 버그였다), `visualizations/route_view.py`의 `LABELS` 상수도 그 실제 엔진과 일치하도록 고쳤다. (2026-09-20 갱신, #498 확장) 단 `detour`는 더 이상 실제 서비스와 같지 않다 — 서비스의 `oneway_random`은 `OnewayGraspWaypointAlnsEngine`을 쓰므로, 표시명도 `"편도 우회 · A*(서비스, oneway_shortest와 동일 — 임시)"`에서 `"편도 우회 · A*(이 도구의 단순화, oneway_shortest와 동일 — 서비스와 다름)"`로 바꿨다.
 - `available`은 "이 파일에 그 모드의 결과가 있는가"다. `false`면 select에 `disabled`로 넣고 `· 새 실행 필요`를 붙이며, 아래 주황 상자에 직접 실행할 명령(`python -m visualizations.routes` 또는 `--with-grasp`)을 보여 준다. **화면은 실행을 시작하지 않는다.**
 - 실행 조건 표에는 엔진, 휴리스틱(이름·선택법·요청/실제 랜드마크 수), 목표 거리, seed, 경유지 수·재시작 수·정제, 서비스 연결 배지, 코드 커밋 앞 7자, 도보망 `data_version`이 들어간다. 값은 전부 `RunConditions`에서 온다.
 

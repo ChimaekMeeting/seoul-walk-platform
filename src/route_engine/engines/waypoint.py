@@ -21,9 +21,13 @@ logger = logging.getLogger(__name__)
 # leg_modes 값(WaypointRouteInput.WaypointLegMode)별로 재사용할 기존 편도 엔진
 _LEG_ENGINES = {
     "oneway_shortest": OnewayAstarEngine,
-    # OnewayBeamEngine을 걷어내며 임시로 OnewayAstarEngine을 붙여 뒀다(route_service.py의
-    # WalkMode.ONEWAY_RANDOM과 같은 이유) — target_km에 맞춰 일부러 돌아가는 다양화 후보
-    # 생성은 아직 없다. 분기를 다른 키와 합치지 않고 남겨 둔 이유도 동일: 나중에 갈라칠 자리.
+    # OnewayBeamEngine을 걷어내며 임시로 OnewayAstarEngine을 붙여 뒀다. route_service.py의
+    # WalkMode.ONEWAY_RANDOM은 2026-09-20(#498 확장)부터 OnewayGraspWaypointAlnsEngine으로
+    # 갈아 끼웠지만, 다중 경유지 요청의 개별 leg 채움까지 같이 바꾸면 구간 수만큼 GRASP+ALNS
+    # 반복이 늘어 응답 시간이 나빠지는 트레이드오프가 있어 이 leg는 의도적으로 그대로 뒀다
+    # (route_service.py::RouteService._resolve_fill_leg_mode 참고, 범위 밖으로 남긴
+    # 이유도 같은 문서에 적어 뒀다). 분기를 다른 키와 합치지 않고 남겨 둔 이유는 여전히
+    # 같다: 나중에 갈라칠 자리.
     "oneway_random": OnewayAstarEngine,
     # 같은 A* 엔진에 안전·편안 가중 비용만 주입한 구간(#445). 엔진을 새로 만들지 않는다.
     "oneway_preferred": OnewayAstarEngine,

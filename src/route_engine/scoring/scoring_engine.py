@@ -183,8 +183,14 @@ def path_feature_averages(
 # 이 모델은 어디서 쓰이는가
 # -------------------------
 # oneway_astar.py(OnewayAstarEngine)와 그걸 leg 엔진으로 쓰는 waypoint.py
-# (WaypointComposerEngine의 oneway_preferred leg)뿐이다. oneway_shortest·oneway_random은
-# cost_context를 안 넘기므로 순수 거리로 돈다.
+# (WaypointComposerEngine의 oneway_preferred leg)뿐이다. OnewayAstarEngine을 쓰는 나머지
+# 두 leg(oneway_shortest·oneway_random)는 cost_context를 안 넘기므로 순수 거리로 돈다.
+#
+# 주의(2026-09-20, #498 확장): 이건 WaypointComposerEngine의 leg 모드 문자열 얘기다.
+# route_service.py의 최상위 WalkMode.ONEWAY_RANDOM은 더 이상 OnewayAstarEngine이
+# 아니다(OnewayGraspWaypointAlnsEngine, GRASP+ALNS) — 이 엔진은 cost_context를 받지만
+# 이 파일의 WeightedEdgeCost 모델을 그대로 재사용할 뿐, 경로 조립 방식 자체가
+# 완전히 다르므로 위 "어디서 쓰이는가" 목록에는 넣지 않았다.
 #
 # 책임 경계
 # ---------

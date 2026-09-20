@@ -44,11 +44,13 @@ package-lock.json
 !tests/unit/test_weighted_cost_runtime.py
 !tests/unit/test_waypoint_detour_cap.py
 !tests/unit/test_weight_extractor_state.py
+!tests/unit/test_oneway_grasp_waypoint_alns.py
 !/tests/integration/
 /tests/integration/*
 !tests/integration/test_route_feedback_flow.py
 !tests/integration/test_circular_preference_flow.py
 !tests/integration/check_circular_preference_artifact.py
+!tests/integration/test_oneway_detour_flow.py
 .claude/
 
 # 로컬 Poetry 환경 설정과 경로 API 테스트 결과는 버전 관리하지 않습니다.

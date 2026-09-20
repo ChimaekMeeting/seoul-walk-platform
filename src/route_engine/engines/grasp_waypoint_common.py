@@ -57,13 +57,17 @@ _rank_next_waypoint_candidates()에 p2=None이 그대로 전달되고 BuildCycle
 복귀해 기존 순환 동작과 완전히 동일하다(기존 4개 순환 엔진 호출부는 이 기본값만 쓴다).
 end_node를 넘기면 매 단계 랭킹의 tail(c) 기준점·방향 다양성 기준선이 p2=end_node 기준으로
 바뀌고(_rank_next_waypoint_candidates의 p2 파라미터 자체는 커밋 79a3515에서 먼저 도입됐다),
-마지막 구간 연결도 waypoint_route_builder.py::build_cycle_route()의 같은 이름 파라미터로
+마지막 구간 연결도 waypoint_route_builder.py::build_route()의 같은 이름 파라미터로
 end_node까지 이어진다. end_node를 실제로 start_node와 다른 값으로 쓰려면 pool_result가
 dist_from_p2를 가진 WaypointPoolResultTwoPoint(waypoint_pool.py::build_pool_two_point 결과)
 여야 한다 — 이 함수는 그 전제를 강제하지 않으므로 호출부가 맞춰야 한다. 정제 단계
 (local/VND/VNS/ALNS, waypoint_refinement.py)와 조립 계층(waypoint_engine_assembly.py)까지
 end_node를 넓히는 작업, 그리고 이 풀을 실제로 소비하는 조합 엔진 자체는 아직 없다 — 별도
 이슈로 남겨뒀다.
+
+BuildCycleRoute 심볼명(2026-09-20, #498): waypoint_route_builder.py의 실제 함수명은
+build_cycle_route에서 build_route로 바뀌었지만, 이 파일의 재-export 이름(BuildCycleRoute)은
+하위 호환을 위해 그대로 유지한다 — import 대상만 build_route로 갱신했다.
 
 """
 
@@ -84,7 +88,7 @@ from src.route_engine.waypoint_route_builder import (
     PathFinder,
     Route,
     _LENGTH_ATTR,
-    build_cycle_route as BuildCycleRoute,
+    build_route as BuildCycleRoute,
     edge_overlap_ratio as _edge_overlap_ratio,
     sum_edge_length as _sum_edge_length,
     sum_weighted_cost as _sum_weighted_cost,
@@ -932,6 +936,7 @@ def waypoint_replacement_neighbors(
     route: Route,
     target_m: float,
     cfg: GraspConfig,
+    end_node=None,
 ):
     """WaypointReplacement 이웃: 경유지를 한 번에 하나씩(위치별로) 다른 풀 후보로
     교체한다. 각 위치는 그 직전 경유지(prev)와 거기까지의 실제 누적 거리를 기준으로
@@ -944,7 +949,11 @@ def waypoint_replacement_neighbors(
     그 자리까지의 누적 거리를 구할 수 없는 위치(_prefix_distances_m이 None을 준 위치 — 앞
     구간 중 하나가 r_max를 넘어 도달 불가)는 랭킹 기준 자체가 없으므로 이웃을 만들지
     않는다. 위치 0·1은 구조적으로 항상 누적 거리가 정의되므로 이웃 집합이 통째로 비지는
-    않는다(_prefix_distances_m 참고)."""
+    않는다(_prefix_distances_m 참고).
+
+    end_node(편도 지원, 2026-09-20, #498 확장): None이면(기본값) 기존 순환 동작과
+    동일하다. 그대로 _rank_next_waypoint_candidates(p2=end_node)와
+    BuildCycleRoute(end_node=end_node)에 흘려보낸다."""
     waypoints = route.waypoints
     cum = _prefix_distances_m(pool_result, start_node, waypoints)
     fixed_exclude_all = frozenset(waypoints)
@@ -960,11 +969,13 @@ def waypoint_replacement_neighbors(
             G, pool_result, start_node, prev, cumulative_m, target_m, cfg,
             exclude=fixed_exclude_all,
             remaining_legs=n - i, total_legs=total_legs,
+            p2=end_node,
         )[: cfg.rcl_size]:
             new_waypoints = list(waypoints)
             new_waypoints[i] = c
             candidate = BuildCycleRoute(
                 G, cost_cache.astar_path, start_node, new_waypoints, cost_context=cost_cache.cost_context,
+                end_node=end_node,
             )
             if candidate is not None:
                 yield candidate
@@ -978,6 +989,7 @@ def waypoint_pair_replacement_neighbors(
     route: Route,
     target_m: float,
     cfg: GraspConfig,
+    end_node=None,
 ):
     """WaypointPairReplacement 이웃: 인접한 경유지 두 자리(위치 i, i+1)를 함께 바꾼다.
     N=2(경유지 2개)일 때는 유일한 인접 쌍이 곧 waypoint2·waypoint3라 기존 동작과 완전히
@@ -986,7 +998,11 @@ def waypoint_pair_replacement_neighbors(
     탐색은 기존과 동일하게 양쪽 rcl_size로 제한한 O(rcl×rcl)로 유지한다.
 
     누적 거리를 구할 수 없는 쌍(_prefix_distances_m이 None을 준 위치 i)은 건너뛴다 —
-    waypoint_replacement_neighbors와 같은 이유다."""
+    waypoint_replacement_neighbors와 같은 이유다.
+
+    end_node(편도 지원, 2026-09-20, #498 확장): waypoint_replacement_neighbors와 동일 —
+    None이면 기존 순환 동작과 같고, 그대로 _rank_next_waypoint_candidates(p2=end_node)와
+    BuildCycleRoute(end_node=end_node)에 흘려보낸다."""
     waypoints = route.waypoints
     cum = _prefix_distances_m(pool_result, start_node, waypoints)
     n = len(waypoints)
@@ -1002,6 +1018,7 @@ def waypoint_pair_replacement_neighbors(
         for a in _rank_next_waypoint_candidates(
             G, pool_result, start_node, prev, cumulative_m, target_m, cfg, exclude=fixed_exclude,
             remaining_legs=n - i, total_legs=total_legs,
+            p2=end_node,
         )[: cfg.rcl_size]:
             # a는 방금 랭킹을 통과한 후보라 prev와의 거리가 None일 수 없다
             # (prev == start_node면 dist_from_p1, 아니면 랭킹이 None 후보를 이미 제외).
@@ -1012,6 +1029,7 @@ def waypoint_pair_replacement_neighbors(
                 G, pool_result, start_node, a, cum_a, target_m, cfg,
                 exclude=fixed_exclude | {a},
                 remaining_legs=n - i - 1, total_legs=total_legs,
+                p2=end_node,
             )[: cfg.rcl_size]:
                 if a == waypoints[i] and b == waypoints[i + 1]:
                     continue
@@ -1019,6 +1037,7 @@ def waypoint_pair_replacement_neighbors(
                 new_waypoints[i], new_waypoints[i + 1] = a, b
                 candidate = BuildCycleRoute(
                     G, cost_cache.astar_path, start_node, new_waypoints, cost_context=cost_cache.cost_context,
+                    end_node=end_node,
                 )
                 if candidate is not None:
                     yield candidate
