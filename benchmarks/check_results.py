@@ -47,7 +47,17 @@ GRASP_POOL_REQUIRED = ("pool_cache_hits", "pool_cache_misses")
 
 # 전 행이 비었을 때 "누가 채웠어야 하는가"를 알려주기 위한 설명.
 EMPTY_COLUMN_OWNERS = {
-    "overlap_ratio": "편도(oneway) solver — 순환 전용 격자라면 비는 것이 정상",
+    "baseline_shortest_overlap_ratio": "편도(oneway) solver — 순환 전용 격자라면 비는 것이 정상",
+    "baseline_shortest_km": "편도(oneway) solver — 순환 전용 격자라면 비는 것이 정상",
+    "detour_ratio": "baseline_shortest_km를 보고한 편도(oneway) 실행",
+    "safety_exposure_ratio": "활성 WeightedEdgeCost가 있는 실행",
+    "comfort_exposure_ratio": "활성 WeightedEdgeCost가 있는 실행",
+    "safety_penalty_ratio": "활성 WeightedEdgeCost가 있는 실행",
+    "comfort_penalty_ratio": "활성 WeightedEdgeCost가 있는 실행",
+    "cost_alpha": "활성 WeightedEdgeCost가 있는 실행",
+    "cost_beta": "활성 WeightedEdgeCost가 있는 실행",
+    "median_substitutions": "활성 WeightedEdgeCost가 있는 실행",
+    "candidate_pairwise_overlap_ratio": "3개 후보를 반환한 순환 GRASP solver(grasp-wp-local/alns)",
     "alns_operator_stats": "ALNS 정제 solver(*-wp-alns)",
     "find_path_sec": "이 지표를 보고하는 solver가 아직 없음",
     "pool_cache_hits": "GRASP 경유지 풀 solver(grasp-wp-*)",
@@ -118,7 +128,10 @@ def coverage_by_algorithm(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     tracked = [
         c for c in (*WAYPOINT_SOLVER_REQUIRED, *GRASP_POOL_REQUIRED,
-                    "circularity_q", "passed", "within_time_budget")
+                    "circularity_q", "baseline_shortest_km", "baseline_shortest_overlap_ratio",
+                    "detour_ratio", "safety_exposure_ratio", "comfort_exposure_ratio",
+                    "safety_penalty_ratio", "comfort_penalty_ratio", "cost_alpha", "cost_beta",
+                    "median_substitutions", "candidate_pairwise_overlap_ratio", "passed", "within_time_budget")
         if c in df.columns
     ]
     if not tracked:

@@ -15,7 +15,10 @@ from benchmarks.stats import percentile
 
 def _row(algorithm, start_node, seed, *, status="ok", passed=True,
          deviation=0.1, repeated=0.0, elapsed=1.0, astar=100, circularity=0.5,
-         cache_hits=0, pool_misses=10):
+         cache_hits=0, pool_misses=10, candidate_overlap=None,
+         cost_alpha=None, cost_beta=None, safety_exposure=None, comfort_exposure=None,
+         safety_penalty=None, comfort_penalty=None, median_substitutions=None,
+         detour_ratio=None, baseline_shortest_overlap=None):
     return {
         "algorithm": algorithm, "start_node": start_node, "target_km": 3.0, "seed": seed,
         "status": status, "passed": passed,
@@ -24,6 +27,13 @@ def _row(algorithm, start_node, seed, *, status="ok", passed=True,
         "elapsed_sec": elapsed, "find_path_sec": None,
         "astar_calls": astar, "cache_hits": cache_hits, "pool_cache_misses": pool_misses,
         "waypoint_separation_m": 800.0, "segment_balance_ratio": 0.6,
+        "candidate_pairwise_overlap_ratio": candidate_overlap,
+        "cost_alpha": cost_alpha, "cost_beta": cost_beta,
+        "safety_exposure_ratio": safety_exposure, "comfort_exposure_ratio": comfort_exposure,
+        "safety_penalty_ratio": safety_penalty, "comfort_penalty_ratio": comfort_penalty,
+        "median_substitutions": median_substitutions,
+        "detour_ratio": detour_ratio,
+        "baseline_shortest_overlap_ratio": baseline_shortest_overlap,
     }
 
 
@@ -64,6 +74,20 @@ def test_g2b_result_columns_are_never_treated_as_conditions():
     assert "alns_iterations" in columns  # 진짜 노브는 그대로 남는다
 
 
+def test_g2c_normalized_cost_coefficients_are_conditions():
+    """가중치가 다른 실행은 동일 출발지·목표거리라도 한 표본으로 평균내면 안 된다."""
+    rows = [
+        _row("A", 1, 1, cost_alpha=0.2, cost_beta=0.1),
+        _row("A", 1, 2, cost_alpha=0.4, cost_beta=0.2),
+    ]
+
+    result = agg.per_condition(pd.DataFrame(rows))
+
+    assert {tuple(row) for row in result[["cost_alpha", "cost_beta"]].to_numpy()} == {
+        (0.2, 0.1), (0.4, 0.2),
+    }
+
+
 def test_g3_pass_rate_counts_failures_but_quality_mean_does_not():
     """실패 행은 분모에 남고(pass_rate), 품질 평균에서는 빠진다 — 그래서 둘을 같이 읽어야 한다."""
     rows = [
@@ -100,6 +124,89 @@ def test_g5_worst_follows_each_metrics_direction(column, higher_is_better, value
     metric = agg.Metric(column, higher_is_better=higher_is_better)
 
     assert metric.worst(pd.Series(values)) == expected_worst
+
+
+def test_g5b_candidate_overlap_is_aggregated_as_a_lower_is_better_observation():
+    rows = [
+        _row("A", 1, 1, candidate_overlap=0.2),
+        _row("A", 1, 2, candidate_overlap=0.6),
+    ]
+
+    result = agg.per_condition(pd.DataFrame(rows)).iloc[0]
+
+    assert result["candidate_pairwise_overlap_ratio_mean"] == pytest.approx(0.4)
+    assert result["candidate_pairwise_overlap_ratio_worst"] == pytest.approx(0.6)
+
+
+def test_g5b2_candidate_distinct_count_is_aggregated_as_higher_is_better():
+    rows = [
+        {**_row("A", 1, 1), "candidate_distinct_route_count": 2},
+        {**_row("A", 1, 2), "candidate_distinct_route_count": 3},
+    ]
+
+    result = agg.per_condition(pd.DataFrame(rows)).iloc[0]
+
+    assert result["candidate_distinct_route_count_mean"] == pytest.approx(2.5)
+    assert result["candidate_distinct_route_count_worst"] == 2
+
+
+def test_g5c_preference_and_oneway_metrics_are_aggregated_without_affecting_ranking_metrics():
+    rows = [
+        _row(
+            "A", 1, 1, cost_alpha=0.4, cost_beta=0.2,
+            safety_exposure=0.5, comfort_exposure=0.25,
+            safety_penalty=0.2, comfort_penalty=0.05, median_substitutions=3,
+            detour_ratio=0.4, baseline_shortest_overlap=0.6,
+        ),
+        _row(
+            "A", 1, 2, cost_alpha=0.4, cost_beta=0.2,
+            safety_exposure=0.3, comfort_exposure=0.15,
+            safety_penalty=0.12, comfort_penalty=0.03, median_substitutions=1,
+            detour_ratio=0.2, baseline_shortest_overlap=0.2,
+        ),
+    ]
+
+    result = agg.per_condition(pd.DataFrame(rows)).iloc[0]
+
+    assert result["safety_exposure_ratio_mean"] == pytest.approx(0.4)
+    assert result["comfort_penalty_ratio_mean"] == pytest.approx(0.04)
+    assert result["median_substitutions_worst"] == 3
+    assert result["detour_ratio_mean"] == pytest.approx(0.3)
+    assert result["baseline_shortest_overlap_ratio_mean"] == pytest.approx(0.4)
+    assert "safety_penalty_ratio" not in agg._RANKING_COLUMNS
+
+
+def test_g5d_weight_directionality_pairs_each_seed_with_its_distance_baseline():
+    base = {
+        **_row("A", 1, 42, safety_exposure=0.6, comfort_exposure=0.4),
+        "weight_mode": "distance", "route_signature": "distance-route",
+    }
+    rows = [
+        base,
+        {
+            **_row("A", 1, 42, cost_alpha=0.7, cost_beta=0.0, safety_exposure=0.3, comfort_exposure=0.45,
+                   safety_penalty=0.21, comfort_penalty=0.0),
+            "weight_mode": "safety", "route_signature": "safe-route",
+        },
+        {
+            **_row("A", 1, 42, cost_alpha=0.0, cost_beta=0.7, safety_exposure=0.65, comfort_exposure=0.2,
+                   safety_penalty=0.0, comfort_penalty=0.14),
+            "weight_mode": "comfort", "route_signature": "comfort-route",
+        },
+        {
+            **_row("A", 1, 42, cost_alpha=0.35, cost_beta=0.35, safety_exposure=0.4, comfort_exposure=0.3,
+                   safety_penalty=0.14, comfort_penalty=0.105),
+            "weight_mode": "mixed", "route_signature": "mixed-route",
+        },
+    ]
+
+    result = agg.weight_directionality(pd.DataFrame(rows)).set_index("weight_mode")
+
+    assert result.loc["safety", "direction_met_rate"] == 1.0
+    assert result.loc["comfort", "mean_reduction_ratio"] == pytest.approx(0.5)
+    # mixed 기준선: 0.35 * (0.6 + 0.4) = 0.35, 결과 비용: 0.14 + 0.105 = 0.245.
+    assert result.loc["mixed", "mean_reduction_ratio"] == pytest.approx(0.3)
+    assert (result["route_changed_rate"] == 1.0).all()
 
 
 def test_g6_paired_comparison_drops_conditions_where_any_algorithm_failed_entirely():

@@ -58,7 +58,7 @@ import pandas as pd
 
 from benchmarks.benchmark import SOLVER_REGISTRY, _build_cost_context, _load_default_graph
 from benchmarks.config import RESULTS_DIR
-from benchmarks.results import build_result_row, validate_solver_result
+from benchmarks.results import attach_cost_context_diagnostics, build_result_row, validate_solver_result
 from benchmarks.route_diversity import distinct_route_report
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
@@ -95,9 +95,11 @@ def main() -> None:
         rows, paths = [], []
         for seed in range(N_RUNS):
             params = {"target_km": TARGET_KM, "seed": seed, "cost_context": cost_context}
+            substitutions_before = cost_context.median_substitutions if cost_context is not None else 0
             t0 = time.perf_counter()
             try:
                 raw = solver.solve(graph, node, node, params)
+                raw = attach_cost_context_diagnostics(raw, cost_context, substitutions_before)
                 elapsed = time.perf_counter() - t0
                 result = validate_solver_result(raw)
                 row = build_result_row(solver, graph, params, elapsed, result, circular=True)

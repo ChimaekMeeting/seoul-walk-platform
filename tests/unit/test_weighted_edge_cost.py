@@ -127,6 +127,18 @@ def test_discomfort_is_inverse_of_slope_score():
     assert cost.discomfort(make_edge(slope=0.25)) == pytest.approx(0.75)
 
 
+def test_read_only_score_lookup_does_not_increment_median_substitutions():
+    """벤치마크 사후 측정은 탐색 중 발생한 결측 대체 진단을 바꾸지 않는다."""
+    medians = {SAFETY_ATTR: 0.5, ACCIDENT_ATTR: 0.5, SLOPE_ATTR: 0.5}
+    cost = make_cost(medians=medians)
+    edge = make_edge(safety=None, accident=None, slope=None)
+
+    cost.unsafe(edge, track_substitutions=False)
+    cost.discomfort(edge, track_substitutions=False)
+
+    assert cost.median_substitutions == 0
+
+
 def test_cost_formula_matches_specification():
     cost = make_cost(alpha=0.4, beta=0.2, accident_ratio=0.5)
     edge = make_edge(length=100.0, safety=0.0, accident=1.0, slope=0.0)

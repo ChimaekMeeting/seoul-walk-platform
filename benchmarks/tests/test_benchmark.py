@@ -38,6 +38,7 @@ from benchmarks.tests.fixtures import (
     HangingSolver,
     MissingCostSolver,
     MissingPathsSolver,
+    MedianSubstitutionSolver,
     MutatingSolver,
     NonDictReturnSolver,
     NoOverlapRatioSolver,
@@ -63,12 +64,11 @@ SHORT_TIMEOUT_SEC = 3.0
 # H. 하네스 필수 안전장치 (압축)
 # ══════════════════════════════════════════════════════════════════════════
 
-def test_h1_valid_result_ok_and_overlap_ratio_is_none_when_omitted():
-    """overlap_ratio를 보고하지 않으면 None으로 남는다(2026-09-10 계약 변경).
-
-    예전 기본값 0.0은, 이 지표를 아예 계산하지 않는 순환 solver의 행을 "겹침 0%"라는
-    실측값처럼 보이게 만들었다. 이제 안 준 것과 0.0으로 측정된 것이 구분된다."""
-    normal = SleepSolver("Normal", sleep_sec=0.0, cost=10.0, overlap_ratio=0.3)
+def test_h1_baseline_overlap_is_optional_and_self_overlap_is_harness_owned():
+    """기준 최단경로 중첩만 solver 선택값이고, overlap_ratio는 자기 재통행 alias다."""
+    normal = SleepSolver(
+        "Normal", sleep_sec=0.0, cost=10.0, baseline_shortest_overlap_ratio=0.3,
+    )
     no_overlap = NoOverlapRatioSolver("NoOverlap")
 
     df = bm.run_benchmark([normal, no_overlap], None, "A", "B", {}, timeout_sec=TEST_TIMEOUT_SEC)
@@ -76,7 +76,10 @@ def test_h1_valid_result_ok_and_overlap_ratio_is_none_when_omitted():
 
     assert by_name.loc["Normal", "status"] == "ok"
     assert by_name.loc["Normal", "cost"] == 10.0
-    assert by_name.loc["Normal", "overlap_ratio"] == 0.3
+    assert by_name.loc["Normal", "baseline_shortest_overlap_ratio"] == 0.3
+    assert pd.isna(by_name.loc["NoOverlap", "baseline_shortest_overlap_ratio"])
+    # graph이 없어 자기 재통행을 계산할 수 없으므로, alias도 None이다.
+    assert pd.isna(by_name.loc["Normal", "overlap_ratio"])
     assert pd.isna(by_name.loc["NoOverlap", "overlap_ratio"])
 
 
@@ -335,6 +338,151 @@ def test_r9_repeated_edge_ratio_is_distance_weighted_like_the_engine():
 
     assert by_name.loc["Clean", "repeated_edge_ratio"] == 0.0
     assert by_name.loc["OutAndBack", "repeated_edge_ratio"] == 0.5
+    assert by_name.loc["Clean", "overlap_ratio"] == 0.0
+    assert by_name.loc["OutAndBack", "overlap_ratio"] == 0.5
+
+
+def test_r9c_baseline_overlap_uses_physical_shortest_path_not_engine_weight():
+    """선호 가중치가 켜져도 기준선은 항상 length 최단경로여야 한다."""
+    from types import SimpleNamespace
+
+    from benchmarks.solvers._oneway_engine_common import baseline_shortest_metrics
+
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=10)
+    graph.add_edge("B", "D", length=10)
+    graph.add_edge("A", "C", length=5)
+    graph.add_edge("C", "D", length=5)
+    # 과거 구현은 이 가중치를 기준선에 사용해 A-B-D를 기준 최단으로 오판했다.
+    engine = SimpleNamespace(G=graph, _weight_fn=lambda u, v, data: 1 if "B" in (u, v) else 100)
+
+    assert baseline_shortest_metrics(engine, ["A", "B", "D"], "A", "D") == (0.01, 0.0)
+
+
+def test_r9d_detour_ratio_uses_final_distance_and_baseline_shortest_km():
+    """우회율은 solver cost가 아니라 하네스가 합산한 실제 거리로 계산한다."""
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=1000)
+    graph.add_edge("B", "D", length=1000)
+
+    row = bm_results.build_result_row(
+        "detour", graph, {}, 0.1,
+        {"paths": [["A", "B", "D"]], "cost": 1.0, "baseline_shortest_km": 1.0},
+    )
+
+    assert row["distance_km"] == 2.0
+    assert row["detour_ratio"] == 1.0
+
+
+def test_r9e_preference_metrics_split_weighted_cost_without_mutating_diagnostics():
+    """축별 추가 비용의 합은 가중 비용 비율이며, 사후 측정은 결측 진단을 건드리지 않는다."""
+    from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
+
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=100, safety_score=0.5, accident_score=0.5, slope_score=0.75)
+    context = WeightedEdgeCost(0.4, 0.2, accident_ratio=0.5, weight_limit=0.7)
+
+    row = bm_results.build_result_row(
+        "weighted", graph, {"cost_context": context}, 0.1,
+        {"paths": [["A", "B"]], "cost": 1.0},
+    )
+
+    assert row["safety_exposure_ratio"] == pytest.approx(0.5)
+    assert row["comfort_exposure_ratio"] == pytest.approx(0.25)
+    assert row["safety_penalty_ratio"] == pytest.approx(0.2)
+    assert row["comfort_penalty_ratio"] == pytest.approx(0.05)
+    assert row["safety_penalty_ratio"] + row["comfort_penalty_ratio"] == pytest.approx(0.25)
+    assert context.median_substitutions == 0
+
+
+def test_r9e_preference_metrics_are_unmeasured_when_weighted_cost_is_disabled():
+    """거리 전용 폴백은 선호도 추가비용 0이 아니라 '미측정'으로 남긴다."""
+    from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
+
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=100, safety_score=0.5, accident_score=0.5, slope_score=0.75)
+    disabled_context = WeightedEdgeCost(
+        0.4, 0.2, accident_ratio=0.5, weight_limit=0.7, enabled=False,
+    )
+
+    row = bm_results.build_result_row(
+        "distance-only", graph, {"cost_context": disabled_context}, 0.1,
+        {"paths": [["A", "B"]], "cost": 1.0},
+    )
+
+    assert row["safety_exposure_ratio"] is None
+    assert row["comfort_exposure_ratio"] is None
+    assert row["safety_penalty_ratio"] is None
+    assert row["comfort_penalty_ratio"] is None
+
+
+def test_r9f_cost_context_columns_report_normalized_coefficients_and_per_run_substitutions():
+    """spawn 워커에서도 가중치 조건과 결측 대체 횟수를 이번 solve분만 기록한다."""
+    from src.route_engine.scoring.scoring_engine import (
+        ACCIDENT_ATTR,
+        SAFETY_ATTR,
+        SLOPE_ATTR,
+        WeightedEdgeCost,
+    )
+
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=100, safety_score=None, accident_score=0.5, slope_score=0.75)
+    context = WeightedEdgeCost(
+        0.42, 0.28, accident_ratio=0.5, weight_limit=0.7,
+        medians={SAFETY_ATTR: 0.5, ACCIDENT_ATTR: 0.5, SLOPE_ATTR: 0.5},
+    )
+    # 부모의 기존 진단값과 자식 워커의 행 값을 섞지 않아야 한다.
+    context.weight("A", "B", graph["A"]["B"])
+    assert context.median_substitutions == 1
+
+    df = bm.run_benchmark(
+        [MedianSubstitutionSolver("Median")], graph, "A", "B",
+        {"cost_context": context}, timeout_sec=10.0,
+    )
+    row = df.iloc[0]
+
+    assert row["cost_alpha"] == pytest.approx(0.42)
+    assert row["cost_beta"] == pytest.approx(0.28)
+    assert row["median_substitutions"] == 1
+
+    direct_row = bm_results.run_solver_task(
+        MedianSubstitutionSolver("Median-direct"), graph, "A", "B", {"cost_context": context},
+    )
+    assert direct_row["median_substitutions"] == 1
+
+
+def test_r9g_candidate_pairwise_overlap_is_distance_weighted_jaccard_for_three_routes():
+    """후보 3개 사이 중첩은 자기 재통행과 별개의 거리 가중 Jaccard 평균이다."""
+    graph = nx.Graph()
+    for u, v in (("A", "B"), ("B", "C"), ("C", "A"), ("B", "D"), ("D", "A"), ("A", "E"), ("E", "D")):
+        graph.add_edge(u, v, length=100)
+    candidates = [
+        ["A", "B", "C", "A"],  # A-B-C-A
+        ["A", "B", "D", "A"],  # A-B만 첫 후보와 겹침
+        ["A", "E", "D", "A"],  # D-A만 둘째 후보와 겹침
+    ]
+
+    row = bm_results.build_result_row(
+        "three-candidate", graph, {}, 0.1,
+        {"paths": [candidates[0]], "candidate_paths": candidates, "cost": 1.0},
+    )
+
+    # (1/5 + 0/6 + 1/5) / 3 = 0.1333...
+    assert row["candidate_pairwise_overlap_ratio"] == pytest.approx(0.1333)
+    assert row["candidate_distinct_route_count"] == 3
+    assert row["route_signature"]
+
+
+def test_r9g_candidate_pairwise_overlap_is_unmeasured_without_exactly_three_candidates():
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=100)
+
+    row = bm_results.build_result_row(
+        "one-candidate", graph, {}, 0.1,
+        {"paths": [["A", "B"]], "candidate_paths": [["A", "B"]], "cost": 1.0},
+    )
+
+    assert row["candidate_pairwise_overlap_ratio"] is None
 
 
 def test_r9b_repeated_edge_ratio_needs_graph_and_is_none_without_it():
@@ -489,19 +637,53 @@ def test_d1_gate_uses_only_final_path_observations(path, target_km, expect_passe
         assert expect_reason in row["gate_failed_on"]
 
 
-def test_d2_gate_is_not_applied_to_oneway_rows():
-    """편도 행은 게이트 대상이 아니다 — 닫히면 오히려 틀렸고, target_km을 아예 보지 않는
-    알고리즘(A*/Dijkstra)도 섞여 있어 같은 기준이 무의미하다."""
+def test_d2_oneway_gate_checks_delivery_distance_quality_time_and_weight_mode():
+    """편도 gate는 실제 도착·우회 목표·경로 품질·시간·가중 활성화를 함께 본다."""
     graph = nx.Graph()
-    graph.add_edge("A", "B", length=1000)
+    graph.add_edge("A", "B", length=625)
+    graph.add_edge("B", "C", length=625)
 
-    df = bm.run_benchmark(
-        [FixedPathSolver("Oneway", path=["A", "B"])], graph, "A", "B", {"target_km": 1.0},
-        timeout_sec=TEST_TIMEOUT_SEC,
+    row = bm_results.build_result_row(
+        "Oneway", graph,
+        {
+            "target_km": 1.25, "time_budget_sec": 1.0, "weight_mode": "distance",
+            "_expected_end_node": "C",
+        },
+        0.1,
+        {"paths": [["A", "B", "C"]], "cost": 1250.0, "baseline_shortest_km": 1.0},
+        circular=False,
     )
 
-    assert pd.isna(df.iloc[0]["passed"])
-    assert pd.isna(df.iloc[0]["gate_failed_on"])
+    assert row["reaches_destination"] is True
+    assert row["target_distance_feasible"] is True
+    assert row["weight_active"] is True
+    assert row["passed"] is True
+
+
+@pytest.mark.parametrize(
+    "override, expected_failure",
+    [
+        ({"reaches_destination": False}, "reaches_destination"),
+        ({"target_distance_feasible": False}, "target_distance_feasible"),
+        ({"target_distance_error_ratio": 0.2}, "target_distance_error_ratio"),
+        ({"repeated_edge_ratio": 0.5}, "repeated_edge_ratio"),
+        ({"spike_count": 1}, "spike_count"),
+        ({"within_time_budget": False}, "within_time_budget"),
+        ({"weight_active": False}, "weight_active"),
+    ],
+)
+def test_d2b_oneway_gate_reports_each_required_failure(override, expected_failure):
+    row = {
+        "status": "ok", "reaches_destination": True, "target_distance_feasible": True,
+        "target_distance_error_ratio": 0.0, "repeated_edge_ratio": 0.0, "spike_count": 0,
+        "within_time_budget": True, "weight_active": True,
+    }
+    row.update(override)
+
+    passed, reason = bm_results.evaluate_gate(row, circular=False)
+
+    assert passed is False
+    assert expected_failure in reason
 
 
 def test_d3_failed_rows_are_gate_failures_on_circular_runs():

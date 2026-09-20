@@ -34,10 +34,13 @@ CSV로 저장한다. 이 프로젝트의 실제 목적("적당한 시간 내에 
 
 solver 자기 신고이며 알고리즘 간 비교에 쓰면 안 되는 컬럼:
   - cost               : wp 계열은 거리(m), 레거시 순환 계열은 누적 custom_score.
-  - overlap_ratio      : 베이스 최단경로와의 겹침 비율(_oneway_engine_common.
-                          base_shortest_path_overlap_ratio)로 편도 전용이다. 모든 oneway
-                          solver가 같은 헬퍼를 쓰므로 그들 사이의 비교 일관성은 유지되고,
-                          순환 solver는 이 값을 보고하지 않으므로 None이다.
+  - overlap_ratio      : repeated_edge_ratio의 하위 호환 alias. 자기 재통행 비율이다.
+  - baseline_shortest_overlap_ratio
+                        : 물리 거리 최단경로와의 겹침 비율로 편도 전용이다. 가중치와
+                          무관한 ``length`` 기준선이므로 우회 정도를 비교할 수 있다.
+  - baseline_shortest_km / detour_ratio
+                        : 같은 기준선의 길이와, 최종 경로가 그보다 얼마나 긴지
+                          (distance_km / baseline_shortest_km - 1)다.
 
 알고리즘 하나가 예외를 던지거나 타임아웃되어도 나머지 알고리즘 실행과 CSV 저장은
 계속 진행된다 (status/error 컬럼에 실패 사유가 기록됨). 타임아웃된 알고리즘은
@@ -61,14 +64,11 @@ solver 자기 신고이며 알고리즘 간 비교에 쓰면 안 되는 컬럼:
       engine을 새로 등록하면서 자체 G.copy() 없이 넘기면, 그 변형이 같은 워커의
       이후 호출(전혀 다른 solver·조건)에 그대로 새어나가는 버그가 된다.
 
-    현재 SOLVER_REGISTRY는 grasp_waypoint_common.py 기반 9종(Local/VND/VNS/ALNS ×
-    Grasp/Beam, circular_grasp_waypoint_*.py/circular_beam_waypoint_*.py)뿐이다. 전부
-    mode="distance" 전용이라 run_circular_engine_distance_only()를 쓰고, 이 파이프라인이
-    실제로 쓰는 것(grasp_waypoint_common.py/waypoint_pool.py/PathUtils)은 전부 읽기
-    전용이라 __init__에서 G.copy()를 하지 않는다(16만 노드 기준 1회 약 1.7초 절약 — VNS는
-    예전에 내부적으로 VndEngine을 또 만들며 이 복사를 두 번 해서 그중 한 번은 즉시
-    버려졌었다). 새 engine을 추가할 때 그래프를 변형하는 코드가 하나라도 있으면, 어느
-    실행 경로를 타든 안전하도록 반드시 자체적으로 G.copy()를 넣어야 한다 — 위 풀 재사용
+    현재 SOLVER_REGISTRY는 grasp_waypoint_common.py 기반 순환 9종(Local/VND/VNS/ALNS ×
+    Grasp/Beam)과 실제 서비스 편도 우회 엔진 OnewayGraspWaypointAlnsEngine 1종을 포함한다.
+    모두 입력 Graph를 읽기 전용으로 사용하므로 __init__에서 G.copy()를 하지 않는다(16만 노드
+    기준 1회 약 1.7초 절약). 새 engine을 추가할 때 그래프를 변형하는 코드가 하나라도 있으면,
+    어느 실행 경로를 타든 안전하도록 반드시 자체적으로 G.copy()를 넣어야 한다 — 위 풀 재사용
     경로에서는 하네스가 그 실수를 막아주지 않는다.
 
 실행:
@@ -93,6 +93,7 @@ import pandas as pd
 from benchmarks.config import BENCH_DIR, WALK_GRAPH_ARTIFACT
 from benchmarks.results import (
     RESULT_COLUMNS,
+    attach_cost_context_diagnostics,
     build_result_row,
     failed_row,
     validate_solver_result,
@@ -111,6 +112,7 @@ from benchmarks.solvers.beam_waypoint_refinement_solver import (
     CircularBeamWaypointVndSolver,
     CircularBeamWaypointVnsSolver,
 )
+from benchmarks.solvers.oneway_grasp_waypoint_alns_solver import OnewayGraspWaypointAlnsSolver
 from src.config.settings import settings
 from src.repository.network.graph_artifact_repository import GraphArtifactRepository
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
@@ -126,7 +128,7 @@ DEFAULT_TIMEOUT_SEC = 30.0
 KILL_GRACE_SEC = 2.0  # terminate(SIGTERM) 후 kill(SIGKILL)로 넘어가기 전 대기 시간
 QUEUE_FLUSH_GRACE_SEC = 5.0  # 자식 프로세스 종료 후 큐에 결과가 도착할 때까지 대기 시간
 
-# 벤치마크 대상 알고리즘 등록 지점 (경유지 구축·정제 알고리즘만 포함).
+# 벤치마크 대상 알고리즘 등록 지점. 순환 후보군과 실제 서비스 편도 우회 엔진을 포함한다.
 SOLVER_REGISTRY: dict[str, BasePathSolver] = {
     "grasp-wp-local": CircularGraspWaypointLocalSolver(),
     "grasp-wp-vnd": CircularGraspWaypointVndSolver(),
@@ -137,10 +139,10 @@ SOLVER_REGISTRY: dict[str, BasePathSolver] = {
     "beam-wp-vnd": CircularBeamWaypointVndSolver(),
     "beam-wp-vns": CircularBeamWaypointVnsSolver(),
     "beam-wp-alns": CircularBeamWaypointAlnsSolver(),
+    "oneway-grasp-wp-alns": OnewayGraspWaypointAlnsSolver(),
 }
 
-# params["seed"]를 실제로 읽는 solver (2026-09-10 코드 확인 — grasp_waypoint_solver.py와
-# beam_waypoint_refinement_solver.py만 params.get("seed")를 참조한다).
+# params["seed"]를 실제로 읽는 solver. GRASP/ALNS 편도판도 같은 seed를 엔진에 전달한다.
 # 나머지는 시드를 바꿔도 결과가 같으므로 격자에서 1회만 돌린다 — 전부 10회씩 돌리면
 # 실행 시간만 늘어난다.
 #
@@ -150,7 +152,8 @@ SOLVER_REGISTRY: dict[str, BasePathSolver] = {
 SEED_SENSITIVE_SOLVERS = frozenset({
     "grasp-wp-local", "grasp-wp-vnd", "grasp-wp-vns", "grasp-wp-alns",
     "beam-wp-local", "beam-wp-vnd", "beam-wp-vns", "beam-wp-alns",
-})  # 현재 registry의 모든 알고리즘
+    "oneway-grasp-wp-alns",
+})
 
 
 def _child_worker(solver, graph, start_node, target_node, params, result_queue) -> None:
@@ -160,8 +163,14 @@ def _child_worker(solver, graph, start_node, target_node, params, result_queue) 
     이 프로세스 안에서 직접 재고 그 델타만 부모에게 넘긴다.
     """
     child_start = time.perf_counter()
+    cost_context = params.get("cost_context")
+    substitutions_before = (
+        int(cost_context.median_substitutions)
+        if cost_context is not None and cost_context.enabled else 0
+    )
     try:
         raw_result = solver.solve(graph, start_node, target_node, params)
+        raw_result = attach_cost_context_diagnostics(raw_result, cost_context, substitutions_before)
         elapsed = time.perf_counter() - child_start
         result_queue.put(("ok", elapsed, raw_result))
     except Exception as e:
@@ -192,6 +201,7 @@ def _run_single(
     이 함수가 results.py::run_solver_task()를 쓰지 않는 이유는 위 하드킬 구조 때문이며,
     "어떤 컬럼을 어떻게 채우는가"는 러너 4종과 완전히 동일하게 공유한다.
     """
+    params = {**params, "_expected_end_node": target_node}
     target_km = params.get("target_km")
     circular = start_node == target_node  # 순환 경로는 출발=도착
 
@@ -516,7 +526,7 @@ def main():
     solvers = resolve_solvers(args.algo)
 
     if graph is not None:
-        # 등록된 9종 전부 WaypointPoolGenerator.build_pool() -> compute_distance_only_lookup()
+        # 등록된 waypoint solver 전부는 WaypointPoolGenerator.build_pool*() -> compute_distance_only_lookup()
         # -> _get_feature_cache() 경로를 타므로, 캐시가 없으면 자식 프로세스마다 lazy로 다시
         # 짓는다. 부모에서 미리 채워두면 graph가 pickle될 때 캐시도 함께 건너가 그 재계산이
         # 사라진다 — 풀 기반 러너 4종의 _pool_worker_init()과 같은 모양이다.

@@ -28,7 +28,9 @@ from benchmarks.config import (
     MAX_DISTANCE_DEVIATION_KM,
     MAX_REPEATED_EDGE_RATIO,
     MAX_SPIKE_COUNT,
+    ONEWAY_MAX_TARGET_ERROR_RATIO,
 )
+from benchmarks.route_diversity import candidate_pairwise_overlap_ratio, count_distinct_routes, route_signature
 from src.route_engine.waypoint_route_builder import edge_overlap_ratio
 
 REQUIRED_RESULT_KEYS = ("paths", "cost")
@@ -41,8 +43,16 @@ RESULT_COLUMNS = [
     # --- 1계층: 최종 경로에서 직접 관측되는 값 (합격 게이트가 쓰는 지표) ---
     # 경유지 분해에 의존하지 않으므로, pruning이 경유지를 지웠는지와 무관하게
     # "사용자에게 실제로 전달되는 경로"를 서술한다.
-    "distance_km", "target_km", "distance_deviation_km",
-    "is_closed_loop", "spike_count", "repeated_edge_ratio", "circularity_q",
+    "distance_km", "target_km", "distance_deviation_km", "target_distance_error_ratio",
+    "baseline_shortest_km", "detour_ratio", "reaches_destination", "target_distance_feasible",
+    # 가중 비용이 활성화된 경우에만 최종 경로에서 측정하는 안전·편안 축별 노출/추가 비용.
+    "safety_exposure_ratio", "comfort_exposure_ratio",
+    "safety_penalty_ratio", "comfort_penalty_ratio",
+    # 요청 선호도를 normalize_preference_weights()가 실제 비용식에 쓸 계수로 바꾼 결과.
+    "cost_alpha", "cost_beta", "weight_active",
+    # overlap_ratio는 repeated_edge_ratio의 하위 호환 alias다. 새 소비자는 의미가
+    # 명확한 repeated_edge_ratio를 사용한다.
+    "is_closed_loop", "spike_count", "repeated_edge_ratio", "overlap_ratio", "circularity_q",
     # 위 관측값들이 config.py의 임계값을 전부 통과했는지(순환 행만 판정, 편도는 None).
     # gate_failed_on은 떨어진 항목 이름을 쉼표로 묶은 문자열 — 집계에서 "무엇 때문에
     # 떨어졌는가"를 세려면 불리언 하나로는 부족하다. evaluate_gate() 참고.
@@ -51,9 +61,8 @@ RESULT_COLUMNS = [
     # --- solver 자기 신고 (알고리즘 간 비교 금지) ---
     # cost: wp 계열은 거리(m), 레거시 순환 계열은 누적 custom_score라 단위·스케일이 다르다.
     #       같은 알고리즘의 조건 간 비교에만 쓰고, 알고리즘끼리 나란히 비교하지 말 것.
-    # overlap_ratio: "베이스 최단경로와 겹치는 비율"로 repeated_edge_ratio와 개념이 다른
-    #       편도(oneway) 전용 지표다. 순환 solver는 이 값을 아예 보고하지 않으므로 None이다.
-    "cost", "overlap_ratio",
+    # 기준 물리 최단경로와의 겹침은 편도 전용의 별도 baseline_shortest_overlap_ratio다.
+    "cost", "baseline_shortest_overlap_ratio",
 
     # --- 3계층: 비용 ---
     "find_path_sec", "astar_calls", "cache_hits", "pool_cache_hits", "pool_cache_misses",
@@ -80,6 +89,12 @@ RESULT_COLUMNS = [
     "prune_clean_branch_count", "prune_clean_branch_length_m",
     "waypoints_lost_clean", "waypoints_lost_repeated",
     "alns_operator_stats",
+    # 최종 경로와 대안 2개를 함께 반환한 순환 solver의 후보 간 구간 중첩 진단.
+    "candidate_pairwise_overlap_ratio", "candidate_distinct_route_count",
+    # 원자료 노드열을 저장하지 않고 거리 전용 대비 실제 경로 변경률을 비교하기 위한 서명.
+    "route_signature",
+    # 가중 탐색 중 결측 점수를 중앙값으로 대체한 횟수. 품질/게이트에는 쓰지 않는다.
+    "median_substitutions",
 
     "error",
 ]
@@ -90,17 +105,19 @@ _OPTIONAL_INT_KEYS = (
     "num_waypoints_used", "effective_waypoints_used",
     "prune_branch_count", "prune_clean_branch_count",
     "waypoints_lost_clean", "waypoints_lost_repeated",
+    "median_substitutions",
 )
 _OPTIONAL_FLOAT_KEYS = (
-    "find_path_sec", "overlap_ratio",
+    "find_path_sec", "baseline_shortest_km", "baseline_shortest_overlap_ratio",
     "waypoint_separation_m", "min_waypoint_separation_m",
     "repeated_edge_ratio", "waypoint_angle_diff_deg", "segment_balance_ratio",
     "prune_branch_length_m", "prune_clean_branch_length_m",
 )
 _OPTIONAL_BOOL_KEYS = ("feasible", "is_degenerate_loop")
 _OPTIONAL_STR_KEYS = ("selection_status", "alns_operator_stats", "waypoint_bearings_deg")
+_OPTIONAL_PATHS_KEYS = ("candidate_paths",)
 
-# overlap_ratio / repeated_edge_ratio는 build_result_row가 별도 규칙으로 채우므로 제외한다.
+# overlap_ratio / repeated_edge_ratio는 build_result_row가 같은 자기 재통행 정의로 채우므로 제외한다.
 _PASSTHROUGH_KEYS = tuple(
     key
     for key in (*_OPTIONAL_INT_KEYS, *_OPTIONAL_FLOAT_KEYS, *_OPTIONAL_BOOL_KEYS, *_OPTIONAL_STR_KEYS)
@@ -146,6 +163,17 @@ def is_closed_loop(paths) -> Optional[bool]:
     return paths[0][0] == paths[0][-1]
 
 
+def reaches_destination(paths, expected_end_node) -> Optional[bool]:
+    """대표 경로가 요청한 편도 목적지 노드에서 끝나는지 확인한다.
+
+    expected_end_node를 받지 않은 옛 직접 호출에서는 판정 근거가 없으므로 None으로
+    남긴다. 모든 공통 실행 경로는 target_node를 params에 넣어 이 값을 제공한다.
+    """
+    if expected_end_node is None or not paths or not paths[0]:
+        return None
+    return paths[0][-1] == expected_end_node
+
+
 def count_spikes(paths) -> Optional[int]:
     """대표 경로에서 'A→B→A'처럼 갔다가 바로 되돌아오는 잔가시 개수.
 
@@ -177,6 +205,84 @@ def path_repeated_edge_ratio(graph, paths) -> Optional[float]:
         return round(edge_overlap_ratio(graph, paths[0]), 4)
     except Exception:
         return None
+
+
+def path_preference_metrics(graph, paths, cost_context) -> dict[str, Optional[float]]:
+    """최종 경로의 안전·편안 노출과 각 축의 추가 비용 비율을 독립 계산한다.
+
+    ``WeightedEdgeCost.weight``의 ``length * (1 + alpha * unsafe + beta * discomfort)``
+    식을 축별로 분해한다. exposure는 각 결핍도의 거리 가중 평균이고, penalty는 그
+    exposure에 alpha 또는 beta를 곱한 추가 비용 / 거리다. 따라서 두 penalty의 합은
+    같은 경로의 ``weighted_cost / distance - 1``과 일치한다.
+
+    가중 비용이 비활성화됐거나 경로·그래프가 없으면 None으로 둔다. 0.0은 "가중치를
+    실제로 적용했지만 해당 축의 추가 비용이 없었다"는 별도 의미이므로 사용하지 않는다.
+    사후 측정은 ``median_substitutions`` 진단을 오염시키지 않는다.
+    """
+    empty = {
+        "safety_exposure_ratio": None,
+        "comfort_exposure_ratio": None,
+        "safety_penalty_ratio": None,
+        "comfort_penalty_ratio": None,
+    }
+    if graph is None or not paths or not cost_context or not cost_context.enabled:
+        return empty
+
+    try:
+        distance_m = safety_exposure_m = comfort_exposure_m = 0.0
+        path = paths[0]
+        for u, v in zip(path, path[1:]):
+            edge_data = graph[u][v]
+            length = cost_context._length(u, v, edge_data)
+            unsafe = cost_context.unsafe(edge_data, track_substitutions=False)
+            discomfort = cost_context.discomfort(edge_data, track_substitutions=False)
+            distance_m += length
+            safety_exposure_m += length * unsafe
+            comfort_exposure_m += length * discomfort
+        if distance_m <= 0:
+            return empty
+        safety_exposure = safety_exposure_m / distance_m
+        comfort_exposure = comfort_exposure_m / distance_m
+        return {
+            "safety_exposure_ratio": round(safety_exposure, 4),
+            "comfort_exposure_ratio": round(comfort_exposure, 4),
+            "safety_penalty_ratio": round(cost_context.alpha * safety_exposure, 4),
+            "comfort_penalty_ratio": round(cost_context.beta * comfort_exposure, 4),
+        }
+    except Exception:
+        return empty
+
+
+def attach_cost_context_diagnostics(result, cost_context, substitutions_before: int = 0):
+    """solve() 직후의 요청별 가중 비용 진단을 결과에 붙인다.
+
+    median_substitutions는 탐색 과정에서만 증가하는 mutable 카운터다. 벤치마크 워커는
+    별도 프로세스라 부모의 cost_context와 서로 다른 인스턴스를 보므로, 이 시점의
+    **호출별 증가분**을 결과 dict에 실어야 부모가 정확히 기록할 수 있다.
+    """
+    if not isinstance(result, dict) or not cost_context or not cost_context.enabled:
+        return result
+    enriched = dict(result)
+    substitutions_after = int(cost_context.median_substitutions)
+    enriched["median_substitutions"] = max(0, substitutions_after - substitutions_before)
+    return enriched
+
+
+def cost_context_metrics(cost_context, result: dict) -> dict[str, Optional[float] | Optional[int]]:
+    """활성 WeightedEdgeCost의 실제 계수와 결측 대체 진단을 행 값으로 만든다."""
+    empty = {"cost_alpha": None, "cost_beta": None, "median_substitutions": None}
+    if not cost_context or not cost_context.enabled:
+        return empty
+
+    substitutions = result.get("median_substitutions")
+    if substitutions is None:
+        # run_solver_task처럼 같은 프로세스에서 바로 행을 만드는 호출의 안전망이다.
+        substitutions = int(cost_context.median_substitutions)
+    return {
+        "cost_alpha": round(cost_context.alpha, 4),
+        "cost_beta": round(cost_context.beta, 4),
+        "median_substitutions": substitutions,
+    }
 
 
 def circularity_q(graph, paths, perimeter_m: Optional[float]) -> Optional[float]:
@@ -253,9 +359,9 @@ def validate_solver_result(result) -> dict:
     선택 필드는 _OPTIONAL_*_KEYS 표만 보고 검증한다 — 필드가 늘어날 때 if 블록을 하나씩
     복붙하던 구조가 컬럼 누락의 원인이었으므로 표 기반으로 바꿨다(2026-09-10).
 
-    overlap_ratio 기본값 변경(2026-09-10): 예전에는 키가 없으면 0.0으로 채웠는데, 그
-    탓에 이 지표를 아예 계산하지 않는 순환 solver의 행이 "겹침 0%"라는 실측값처럼
-    보였다. 이제 없으면 None이다(편도 solver는 계속 실제 계산값을 보고한다).
+    overlap_ratio는 최종 경로의 자기 재통행(repeated_edge_ratio) alias다. solver가
+    반환한 옛 ``overlap_ratio`` 값은 기준 최단경로 중첩이라는 과거 의미일 수 있으므로
+    받아들이지 않는다. 편도 기준선 중첩은 baseline_shortest_overlap_ratio만 사용한다.
     """
     if not isinstance(result, dict):
         raise TypeError(f"solve()는 dict를 반환해야 합니다 (실제 타입: {type(result).__name__})")
@@ -295,15 +401,19 @@ def validate_solver_result(result) -> dict:
             raise TypeError(f"'{key}'는 str이어야 합니다 (실제 타입: {type(value).__name__})")
         validated[key] = value
 
+    for key in _OPTIONAL_PATHS_KEYS:
+        value = result.get(key)
+        if value is not None and (
+            not isinstance(value, list) or any(not isinstance(path, list) for path in value)
+        ):
+            raise TypeError(f"'{key}'는 list[list]여야 합니다 (실제 타입: {type(value).__name__})")
+        validated[key] = value
+
     return validated
 
 
 def evaluate_gate(row: dict, circular: Optional[bool]) -> tuple[Optional[bool], Optional[str]]:
-    """최종 경로 관측값만으로 합격 여부를 판정한다(2026-09-10 신설).
-
-    circular=False(편도)나 None(모름)이면 (None, None) — 이 게이트는 순환 경로 전용이다.
-    편도 경로는 애초에 닫히면 안 되고, A*/Dijkstra처럼 target_km을 아예 고려하지 않는
-    알고리즘도 섞여 있어 같은 기준을 적용하면 무의미한 판정이 된다.
+    """최종 경로 관측값으로 순환·편도 각각의 합격 여부를 판정한다.
 
     게이트에 넣지 않는 것과 그 이유:
       - feasible / selection_status : fallback은 "내부 제약을 만족하는 경유지 조합을
@@ -319,7 +429,7 @@ def evaluate_gate(row: dict, circular: Optional[bool]) -> tuple[Optional[bool], 
         성격과 맞지 않는다. 같은 이유로 순위 규칙에서도 뺐다
         (aggregate_results.py 모듈 docstring "순위 규칙" 참고).
     """
-    if not circular:
+    if circular is None:
         return None, None
 
     failures = []
@@ -327,12 +437,25 @@ def evaluate_gate(row: dict, circular: Optional[bool]) -> tuple[Optional[bool], 
         failures.append("status")
         return False, ",".join(failures)  # 실패 행은 나머지 지표가 전부 비어 있다
 
-    if row.get("is_closed_loop") is not True:
-        failures.append("is_closed_loop")
+    if circular:
+        if row.get("is_closed_loop") is not True:
+            failures.append("is_closed_loop")
 
-    deviation = row.get("distance_deviation_km")
-    if deviation is None or deviation > MAX_DISTANCE_DEVIATION_KM:
-        failures.append("distance_deviation_km")
+        deviation = row.get("distance_deviation_km")
+        if deviation is None or deviation > MAX_DISTANCE_DEVIATION_KM:
+            failures.append("distance_deviation_km")
+    else:
+        if row.get("reaches_destination") is not True:
+            failures.append("reaches_destination")
+        if row.get("target_distance_feasible") is not True:
+            failures.append("target_distance_feasible")
+        target_error = row.get("target_distance_error_ratio")
+        if target_error is None or target_error > ONEWAY_MAX_TARGET_ERROR_RATIO:
+            failures.append("target_distance_error_ratio")
+        if row.get("within_time_budget") is not True:
+            failures.append("within_time_budget")
+        if row.get("weight_active") is not True:
+            failures.append("weight_active")
 
     repeated = row.get("repeated_edge_ratio")
     if repeated is None or repeated > MAX_REPEATED_EDGE_RATIO:
@@ -388,6 +511,13 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
 
     distance_km = route_distance_km(graph, paths)
     perimeter_m = distance_km * 1000 if distance_km is not None else None
+    cost_context = params.get("cost_context")
+    # 거리 전용 실행도 동일 점수 기준의 노출을 기록해야 가중 조건과 짝지은 방향성
+    # 비교가 가능하다. 이 측정용 context는 solver 탐색 비용과 cost_alpha/beta에 영향을 주지 않는다.
+    preference_metrics = path_preference_metrics(
+        graph, paths, params.get("preference_metrics_context", cost_context),
+    )
+    cost_metrics = cost_context_metrics(cost_context, result)
 
     row = _empty_row()
     for key in _PASSTHROUGH_KEYS:
@@ -404,6 +534,27 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
             round(abs(distance_km - target_km), 4)
             if distance_km is not None and target_km is not None else None
         ),
+        "target_distance_error_ratio": (
+            round(abs(distance_km - target_km) / target_km, 4)
+            if distance_km is not None and target_km not in (None, 0) else None
+        ),
+        **preference_metrics,
+        **cost_metrics,
+        "baseline_shortest_km": result.get("baseline_shortest_km"),
+        "detour_ratio": (
+            round(distance_km / result["baseline_shortest_km"] - 1, 4)
+            if distance_km is not None and result.get("baseline_shortest_km") not in (None, 0) else None
+        ),
+        "reaches_destination": reaches_destination(paths, params.get("_expected_end_node")),
+        "target_distance_feasible": (
+            target_km >= result["baseline_shortest_km"]
+            if target_km is not None and result.get("baseline_shortest_km") is not None else None
+        ),
+        "weight_active": (
+            cost_context is None
+            if params.get("weight_mode", "distance") == "distance"
+            else bool(cost_context and cost_context.enabled and (cost_context.alpha > 0 or cost_context.beta > 0))
+        ),
         "is_closed_loop": is_closed_loop(paths),
         "spike_count": count_spikes(paths),
         # 엔진이 최종 경로(pruning 이후)에서 계산해 준 값을 우선하고, 안 주는 solver만
@@ -414,10 +565,20 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
             else path_repeated_edge_ratio(graph, paths)
         ),
         "circularity_q": circularity_q(graph, paths, perimeter_m),
+        "candidate_pairwise_overlap_ratio": candidate_pairwise_overlap_ratio(
+            graph, result.get("candidate_paths") or [],
+        ),
+        "candidate_distinct_route_count": (
+            count_distinct_routes(result["candidate_paths"])
+            if len(result.get("candidate_paths") or []) == 3 else None
+        ),
+        "route_signature": route_signature(paths[0]),
         "cost": result["cost"],
-        "overlap_ratio": result.get("overlap_ratio"),
+        "baseline_shortest_overlap_ratio": result.get("baseline_shortest_overlap_ratio"),
         "error": "",
     })
+    # overlap_ratio는 기존 CSV 소비자를 위한 별칭이다. 두 지표는 항상 같은 정의·값을 가진다.
+    row["overlap_ratio"] = row["repeated_edge_ratio"]
     row["passed"], row["gate_failed_on"] = evaluate_gate(row, circular)
     return row
 
@@ -429,9 +590,15 @@ def run_solver_task(solver, graph, start_node, target_node, params: dict) -> dic
     solve()를 별도 OS 프로세스에서 돌려야 해서 실행 구조가 다르다. 다만 행을 만드는
     부분(build_result_row / failed_row)은 동일하게 공유한다.
     """
+    params = {**params, "_expected_end_node": target_node}
     target_km = params.get("target_km")
     circular = start_node == target_node  # 순환 경로는 출발=도착
 
+    cost_context = params.get("cost_context")
+    substitutions_before = (
+        int(cost_context.median_substitutions)
+        if cost_context is not None and cost_context.enabled else 0
+    )
     t0 = time.perf_counter()
     try:
         raw_result = solver.solve(graph, start_node, target_node, params)
@@ -439,6 +606,7 @@ def run_solver_task(solver, graph, start_node, target_node, params: dict) -> dic
         return failed_row(solver, "failed", time.perf_counter() - t0, repr(e), target_km, circular)
 
     elapsed = time.perf_counter() - t0
+    raw_result = attach_cost_context_diagnostics(raw_result, cost_context, substitutions_before)
 
     try:
         result = validate_solver_result(raw_result)

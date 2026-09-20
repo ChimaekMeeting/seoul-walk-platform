@@ -138,7 +138,7 @@ def test_k6_all_empty_column_is_reported_with_its_owner():
     """전 행이 빈 컬럼은 실패가 아니라 '누가 채웠어야 하는지'와 함께 보고된다."""
     _, notes = check_results.check(_result_frame())
 
-    assert any("overlap_ratio" in note and "편도" in note for note in notes)
+    assert any("baseline_shortest_overlap_ratio" in note and "편도" in note for note in notes)
 
 
 def test_k7_failed_rows_do_not_trigger_value_violations():

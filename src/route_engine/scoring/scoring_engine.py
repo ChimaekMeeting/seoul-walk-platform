@@ -439,18 +439,20 @@ class WeightedEdgeCost:
 
     # ── 비용 ─────────────────────────────────────────────────────────────
 
-    def unsafe(self, edge_data: Mapping) -> float:
+    def unsafe(self, edge_data: Mapping, *, track_substitutions: bool = True) -> float:
         """0~1. 클수록 피해야 하는 도로.
 
         accident_ratio(lambda)가 안전시설 부족과 사고위험의 결합 비율이다.
+        track_substitutions=False는 사후 벤치마크 측정처럼 결측 대체 횟수 진단을
+        바꾸면 안 되는 읽기 전용 계산에 사용한다.
         """
-        safety = self._score(edge_data, SAFETY_ATTR)
-        accident = self._score(edge_data, ACCIDENT_ATTR)
+        safety = self._score(edge_data, SAFETY_ATTR, track_substitutions=track_substitutions)
+        accident = self._score(edge_data, ACCIDENT_ATTR, track_substitutions=track_substitutions)
         return self.accident_ratio * (1.0 - safety) + (1.0 - self.accident_ratio) * accident
 
-    def discomfort(self, edge_data: Mapping) -> float:
+    def discomfort(self, edge_data: Mapping, *, track_substitutions: bool = True) -> float:
         """0~1. 클수록 불편한(경사가 심한) 도로."""
-        return 1.0 - self._score(edge_data, SLOPE_ATTR)
+        return 1.0 - self._score(edge_data, SLOPE_ATTR, track_substitutions=track_substitutions)
 
     def weight(self, u, v, edge_data: Mapping) -> float:
         """nx.astar_path/nx.dijkstra의 weight= 콜러블.
@@ -478,7 +480,7 @@ class WeightedEdgeCost:
             raise ValueError(f"엣지 ({u}, {v})의 length는 양수여야 합니다: {length!r}")
         return float(length)
 
-    def _score(self, edge_data: Mapping, attr: str) -> float:
+    def _score(self, edge_data: Mapping, attr: str, *, track_substitutions: bool = True) -> float:
         """점수 하나를 0~1로 읽는다. 없거나 None이면 커버리지 게이트가 계산한
         중앙값으로 대체하고, 중앙값조차 없으면 예외를 던진다 — 0으로 조용히
         대체하면 "데이터 없는 도로가 가장 좋은 도로"가 되기 때문이다."""
@@ -489,7 +491,8 @@ class WeightedEdgeCost:
                 raise MissingEdgeAttributeError(
                     f"엣지에 '{attr}' 값이 없고 대체할 중앙값도 없습니다: {dict(edge_data)!r}"
                 )
-            self.median_substitutions += 1
+            if track_substitutions:
+                self.median_substitutions += 1
             return median
 
         value = float(value)

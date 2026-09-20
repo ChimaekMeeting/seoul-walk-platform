@@ -16,20 +16,30 @@ from benchmarks.solvers.base_solver import BasePathSolver
 class SleepSolver(BasePathSolver):
     """지정한 시간만큼 sleep 후 정상 결과를 반환한다. (시간 측정 정확도 테스트용)"""
 
-    def __init__(self, name: str, sleep_sec: float = 0.0, cost: float = 1234.5, overlap_ratio: float = 0.0):
+    def __init__(
+        self,
+        name: str,
+        sleep_sec: float = 0.0,
+        cost: float = 1234.5,
+        baseline_shortest_overlap_ratio: float | None = None,
+    ):
         super().__init__(name)
         self.sleep_sec = sleep_sec
         self.cost = cost
-        self.overlap_ratio = overlap_ratio
+        self.baseline_shortest_overlap_ratio = baseline_shortest_overlap_ratio
 
     def solve(self, graph, start_node, target_node, params):
         if self.sleep_sec:
             time.sleep(self.sleep_sec)
-        return {"paths": [[start_node, target_node]], "cost": self.cost, "overlap_ratio": self.overlap_ratio}
+        return {
+            "paths": [[start_node, target_node]],
+            "cost": self.cost,
+            "baseline_shortest_overlap_ratio": self.baseline_shortest_overlap_ratio,
+        }
 
 
 class NoOverlapRatioSolver(BasePathSolver):
-    """overlap_ratio를 아예 안 주는 solver. 명세대로 기본값 0.0이 적용되어야 한다."""
+    """기준 최단경로 중첩을 보고하지 않는 solver."""
 
     def solve(self, graph, start_node, target_node, params):
         return {"paths": [[start_node, target_node]], "cost": 42.0}
@@ -123,6 +133,15 @@ class ParamDrivenPathSolver(BasePathSolver):
 
     def solve(self, graph, start_node, target_node, params):
         return {"paths": [params["path"]], "cost": 0.0, "overlap_ratio": 0.0}
+
+
+class MedianSubstitutionSolver(BasePathSolver):
+    """가중 탐색 중 결측 점수 하나를 중앙값으로 대체하는 solver 모형."""
+
+    def solve(self, graph, start_node, target_node, params):
+        cost_context = params["cost_context"]
+        cost_context.weight(start_node, target_node, graph[start_node][target_node])
+        return {"paths": [[start_node, target_node]], "cost": 1.0}
 
 
 class CpuLoopSolver(BasePathSolver):

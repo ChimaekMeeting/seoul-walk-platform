@@ -2216,7 +2216,16 @@ GRASP 반복 24번      ALNS 반복 200번      RCSP 쪽지 상한 4장
 | 잘라내기 | 가지치기(pruning) | 후보를 버리는 것 |
 | 쪽지 | 라벨(label) | RCSP가 지점에 붙이는 (비용, 거리) 기록 |
 | 씨앗값 | 시드(seed) | 난수를 고정하는 값. 우리는 42 |
-| 겹침 비율 | `overlap_ratio` | 최단경로와 겹치는 거리 비율 |
+| 자기 재통행 비율 | `repeated_edge_ratio` (`overlap_ratio` 호환 alias) | 같은 간선을 두 번째 이후 통행한 거리 / 전체 거리 |
+| 기준 최단거리 | `baseline_shortest_km` | 편도 출발·도착 사이 물리 거리(`length`) 최단경로 길이 |
+| 우회율 | `detour_ratio` | `(실제 경로 거리 / 기준 최단거리) - 1` |
+| 기준 최단경로 중첩 비율 | `baseline_shortest_overlap_ratio` | 편도 경로가 물리 거리(`length`) 최단경로와 겹치는 통행 거리 비율 |
+| 안전 노출 비율 | `safety_exposure_ratio` | 최종 경로의 안전 결핍도(`unsafe`) 거리 가중 평균 |
+| 편안 노출 비율 | `comfort_exposure_ratio` | 최종 경로의 불편도(`discomfort`) 거리 가중 평균 |
+| 안전·편안 비용 비율 | `safety_penalty_ratio` / `comfort_penalty_ratio` | 각 노출 비율에 정규화된 비용 계수 alpha/beta를 곱한 거리 대비 추가 비용 |
+| 유효 비용 계수 | `cost_alpha` / `cost_beta` | 입력 안전·편안 선호도를 `normalize_preference_weights()`로 변환한, 실제 `WeightedEdgeCost` 비용식의 alpha/beta |
+| 중앙값 대체 횟수 | `median_substitutions` | 해당 solve 호출의 가중 탐색 중 점수 결측을 중앙값으로 대체한 횟수. 품질 게이트·순위에는 쓰지 않는 진단값 |
+| 후보 쌍 중첩 비율 | `candidate_pairwise_overlap_ratio` | 최종 순환 경로와 대안 2개, 총 3후보의 모든 쌍에서 `공통 간선 길이 / 합집합 간선 길이`를 구한 평균. 후보 3개가 아닌 실행은 `None` |
 | 잔가시 | spike | A→B→A처럼 갔다가 바로 돌아온 구간 |
 
 ## ◆ 실험에 관한 말

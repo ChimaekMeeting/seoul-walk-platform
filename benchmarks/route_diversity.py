@@ -14,6 +14,10 @@ solver.solve()를 직접 호출해 raw paths를 확보해야 한다(run_grasp_al
 """
 from __future__ import annotations
 
+import hashlib
+from itertools import combinations
+from typing import Optional
+
 
 def canonical_route_key(path: list) -> frozenset:
     """노드열 하나를 회전·방향 무관 간선 집합으로 정규화한다.
@@ -26,6 +30,23 @@ def canonical_route_key(path: list) -> frozenset:
         frozenset((u, v)) for u, v in zip(path, path[1:])
     )
     return edges
+
+
+def route_signature(path: list) -> Optional[str]:
+    """방향·시작 표현과 무관한 간선 집합의 안정적인 SHA-256 식별자.
+
+    원자료 노드열을 CSV에 넣지 않고도, 동일 조건의 거리 전용·가중 경로가 실제로
+    달라졌는지 짝지어 비교할 수 있게 한다. 노드 ID의 타입이 섞여도 repr 문자열로
+    정렬하므로 Python hash seed나 Graph 삽입 순서에 흔들리지 않는다.
+    """
+    if not path or len(path) < 2:
+        return None
+    edges = []
+    for left, right in zip(path, path[1:]):
+        a, b = sorted((repr(left), repr(right)))
+        edges.append(f"{a}|{b}")
+    payload = "\n".join(sorted(set(edges))).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def count_distinct_routes(paths: list[list]) -> int:
@@ -49,3 +70,40 @@ def distinct_route_report(paths: list[list]) -> dict:
         "frequency_of_most_common": max(counts.values()) if counts else 0,
         "distinct_route_sizes": sorted(counts.values(), reverse=True),
     }
+
+
+def candidate_pairwise_overlap_ratio(graph, paths: list[list], expected_count: int = 3) -> Optional[float]:
+    """반환 후보 간 구간 중첩의 거리 가중 Jaccard 평균을 계산한다.
+
+    각 후보 쌍에서 ``공통 간선 길이 / 합집합 간선 길이``를 구한 뒤 평균낸다. 따라서
+    완전히 같은 세 후보는 1.0, 공통 구간이 전혀 없으면 0.0이다. 개별 후보 안에서의
+    자기 재통행은 ``repeated_edge_ratio``가 별도로 측정하므로 여기서는
+    ``canonical_route_key()``의 간선 집합만 쓴다.
+
+    이 지표는 최종 경로 + 대안 2개라는 3후보 계약을 가진 순환 엔진에만 의미가 있다.
+    편도처럼 후보가 하나이거나 후보 생성이 실패한 경우에는 0.0으로 위장하지 않고 None을
+    반환한다.
+    """
+    if graph is None or len(paths) != expected_count:
+        return None
+
+    try:
+        edge_sets = [canonical_route_key(path) for path in paths]
+        pairwise = []
+        for left, right in combinations(edge_sets, 2):
+            union = left | right
+            if not union:
+                return None
+
+            def edge_length(edge) -> float:
+                u, v = tuple(edge)
+                return float(graph[u][v]["length"])
+
+            shared_m = sum(edge_length(edge) for edge in left & right)
+            union_m = sum(edge_length(edge) for edge in union)
+            if union_m <= 0:
+                return None
+            pairwise.append(shared_m / union_m)
+        return round(sum(pairwise) / len(pairwise), 4) if pairwise else None
+    except (KeyError, TypeError, ValueError):
+        return None
