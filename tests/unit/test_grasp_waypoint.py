@@ -346,14 +346,16 @@ def test_angular_separation_rad_ranges_from_zero_to_pi():
 
 
 class _FakePoolResult:
-    """_rank_next_waypoint_candidates가 실제로 쓰는 최소 인터페이스(pool_nodes/dist_from_p1/distance())만
-    구현한 테스트 전용 대역. cutoff SSSP 없이 거리값을 직접 지정해 '거리 적합도가 완전히
-    동점인 두 후보'를 정확히 구성하기 위함이다(실제 격자에서는 경로 비용이 축마다 미묘하게
-    달라 순수하게 방향 차이만 남기는 동점 상황을 만들기 어렵다)."""
+    """_rank_next_waypoint_candidates가 실제로 쓰는 최소 인터페이스(pool_nodes/dist_from_p1/distance(),
+    편도(p2)는 dist_from_p2도 추가)만 구현한 테스트 전용 대역. cutoff SSSP 없이 거리값을
+    직접 지정해 '거리 적합도가 완전히 동점인 두 후보'를 정확히 구성하기 위함이다(실제
+    격자에서는 경로 비용이 축마다 미묘하게 달라 순수하게 방향 차이만 남기는 동점 상황을
+    만들기 어렵다)."""
 
-    def __init__(self, pool_nodes, dist_from_p1, pairwise):
+    def __init__(self, pool_nodes, dist_from_p1, pairwise, dist_from_p2=None):
         self.pool_nodes = pool_nodes
         self.dist_from_p1 = dist_from_p1
+        self.dist_from_p2 = dist_from_p2
         self._pairwise = pairwise
 
     def distance(self, u, v):
@@ -391,6 +393,72 @@ def test_rank_next_waypoint_candidates_prefers_perpendicular_direction_when_dist
     on_cfg = GraspConfig(angle_diversity_weight_m=500.0, min_waypoint_separation_ratio=0.0)
     ranked_on = _rank_next_waypoint_candidates(G, pool, 1, 2, pool.dist_from_p1[2], target_m, on_cfg)
     assert ranked_on[0] == 5  # 직각 방향(5)이 항상 먼저 온다
+
+
+# ── 편도(p2 인자) tail(c)·방향 다양성 기준선 (2026-09-20 이슈: tail 기준점 변경) ──
+#
+# 편도(p1→p2)는 최종적으로 p1이 아니라 p2로 돌아가므로, tail(c)의 하한이 dist(p1,c)가
+# 아니라 dist(c,p2)여야 한다. 방향 다양성 페널티도 "p1 기준 prev와의 각도차"가 아니라
+# "p1→p2 기준선에서 얼마나 벗어나는가"로 바뀌어야 하며, 이 기준선은 prev와 무관하게
+# 고정이라 prev==p1(첫 경유지 선택) 단계에도 그대로 적용된다.
+
+def test_rank_next_waypoint_candidates_oneway_tail_uses_dist_from_p2():
+    """p2(목적지)를 넘기면 tail(c)이 dist_from_p1[c]가 아니라 dist_from_p2[c]를 써야 한다.
+    두 후보의 dist_from_p1은 동일하게, dist_from_p2만 다르게 구성한다 — tail이 여전히
+    dist_from_p1을 쓰는 버그라면 두 후보가 동점 처리되어 입력 순서([4, 3])가 그대로
+    유지되지만, dist_from_p2를 올바로 쓰면 순서가 [3, 4]로 뒤집힌다."""
+    G = nx.Graph()
+    for node in (1, 2, 3, 4):
+        G.add_node(node, lat=0.0, lon=0.0)
+
+    pool = _FakePoolResult(
+        pool_nodes=[4, 3],  # 입력 순서를 기대 결과([3, 4])와 다르게 둬 오탐을 방지
+        dist_from_p1={3: 100.0, 4: 100.0},  # 두 후보의 dist_from_p1은 동일(구분력 없음)
+        pairwise={},
+        dist_from_p2={3: 50.0, 4: 200.0},  # 3이 목적지에 더 가까움
+    )
+    off_cfg = GraspConfig(angle_diversity_weight_m=0.0, min_waypoint_separation_ratio=0.0)
+
+    ranked = _rank_next_waypoint_candidates(
+        G, pool, p1=1, prev=1, cumulative_so_far_m=0.0, target_m=150.0, cfg=off_cfg, p2=2,
+    )
+    # c=3: 0 + dist(p1,3)=100 + tail(dist_from_p2[3])=50 = 150 → 오차 0
+    # c=4: 0 + dist(p1,4)=100 + tail(dist_from_p2[4])=200 = 300 → 오차 150
+    assert ranked == [3, 4]
+
+
+def test_rank_next_waypoint_candidates_oneway_prefers_perpendicular_to_p1_p2_baseline_even_at_first_step():
+    """편도에서 방향 다양성 기준선은 p1→p2로 고정된다 — 순환과 달리 prev==p1(첫 경유지
+    선택) 단계에도 적용돼야 한다(순환은 이 단계에서 페널티를 아예 안 씀, 위
+    test_rank_next_waypoint_candidates_orders_by_half_target_distance_for_first_waypoint 참고).
+    거리 적합도가 완전히 동점인 세 후보(목적지와 같은 방향/정반대 방향/직각) 중 직각
+    방향이 항상 먼저 와야 한다."""
+    G = nx.Graph()
+    G.add_node(1, lat=0.0, lon=0.0)   # p1
+    G.add_node(2, lat=0.0, lon=1.0)   # 목적지(p2): p1 기준 정동
+    G.add_node(3, lat=0.0, lon=2.0)   # c_same: p1 기준 정동(0°, 목적지와 같은 방향)
+    G.add_node(4, lat=0.0, lon=-1.0)  # c_opp: p1 기준 정서(180°, 목적지와 정반대)
+    G.add_node(5, lat=1.0, lon=0.0)   # c_perp: p1 기준 정북(90°, 목적지와 직각)
+
+    pool = _FakePoolResult(
+        pool_nodes=[3, 4, 5],
+        dist_from_p1={3: 500.0, 4: 500.0, 5: 500.0},
+        pairwise={},
+        dist_from_p2={3: 500.0, 4: 500.0, 5: 500.0},
+    )
+    target_m = 1000.0  # 세 후보 모두 dist_from_p1 + dist_from_p2 = 1000 → 거리 오차 0으로 동점
+
+    off_cfg = GraspConfig(angle_diversity_weight_m=0.0, min_waypoint_separation_ratio=0.0)
+    ranked_off = _rank_next_waypoint_candidates(
+        G, pool, p1=1, prev=1, cumulative_so_far_m=0.0, target_m=target_m, cfg=off_cfg, p2=2,
+    )
+    assert ranked_off == [3, 4, 5]  # 페널티 꺼지면 동점 → 입력 순서 유지
+
+    on_cfg = GraspConfig(angle_diversity_weight_m=500.0, min_waypoint_separation_ratio=0.0)
+    ranked_on = _rank_next_waypoint_candidates(
+        G, pool, p1=1, prev=1, cumulative_so_far_m=0.0, target_m=target_m, cfg=on_cfg, p2=2,
+    )
+    assert ranked_on[0] == 5  # 직각 방향(5)이 항상 먼저 온다 — 첫 단계인데도 기준선이 적용됨
 
 
 # ── P2-P3 최소거리 안전장치 ──────────────────────────────────────────────
