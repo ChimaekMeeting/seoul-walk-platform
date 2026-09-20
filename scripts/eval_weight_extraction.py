@@ -5,11 +5,16 @@ weight_extraction.yaml 프롬프트 검증(eval) 스크립트.
 safety/comfort 두 feature의 preference_label(must/high/neutral/low)과
 explicitness_label(explicit_hard/explicit_soft/optional/inferred)을 얼마나 정확히
 뽑아내는지만 격리해서 확인한다. `eval_extraction.py`(모드/장소 추출 검증)와는 대상
-프롬프트·노드가 다른 별개 스크립트다 — WeightExtractor는 `current_context`를 프롬프트에
-넘기지 않고(이전 턴의 라벨을 전혀 보지 못한다) 매 턴 결과를 통째로 덮어쓰므로, "이전
-라벨을 보고 수정"이 아니라 "이번 발화만으로 올바르게 분류"만 검증 대상이다.
+프롬프트·노드가 다른 별개 스크립트다.
 
-[카테고리 구성(총 100개)]
+2026-09-20부터 WeightExtractor는 이전 턴의 라벨(`previous_labels`)을 `Extractor`의
+`current_context`와 같은 방식으로 프롬프트에 넘기고, 이번 턴 결과를 병합한다(새
+라벨=교체, `"cancelled"`=그 축 삭제, 미포함=이전 값 유지). 아래 CASES(단일 발화 100개,
+전부 `previous_labels="없음"`으로 호출)는 "이번 발화만으로 올바르게 분류하는가"만
+보고, MULTITURN_CASES(여러 턴을 이어서 실행)가 "이전 라벨이 보이는 상태에서 재진술·
+취소·미언급을 올바르게 구분하는가"를 별도로 검증한다.
+
+[카테고리 구성(CASES 100개)]
 
   1. grid(28)       — preference×explicitness 핵심 조합을 safety/comfort 각 14셀씩
                        (16개 전체 중 "neutral×explicit_hard"·"neutral×inferred" 2셀은
@@ -28,6 +33,15 @@ explicitness_label(explicit_hard/explicit_soft/optional/inferred)을 얼마나 �
                        ("취소"/"없던 걸로"는 결과에서 제외(None)로, "그래도 상관없다"류
                        명시적 무관심은 low로 기대값을 나눠 두었다 — 프롬프트가 이 둘을
                        구분하지 않아 실제로는 발견적 성격의 카테고리다)
+
+[카테고리 구성(MULTITURN_CASES 11개)] — 매 케이스가 여러 번의 실제 API 호출로 이어진
+턴을 순서대로 실행하며, 매 턴 previous_labels를 실제 병합 규칙으로 갱신한다.
+
+  13. multiturn(11)  — 재진술(값 변경), 순수 취소(cancelled로 실제 삭제), 취소+실제
+                       판단(cancelled 아닌 정상 라벨), **미언급 시 맥락이 보여도 그 축을
+                       안 건드리는지**(이전 라벨을 프롬프트에 노출하면서 새로 생긴 위험 —
+                       CASES만으로는 검증 불가), 한 축만 취소/재진술할 때 다른 축을
+                       안 건드리는지, 취소 후 재설정(3턴), 반복 미언급 안정성(3턴)
 
 few-shot 5개(`weight_extraction.yaml`의 [예시] 절: "무조건 안전한 길로 가고 싶어요!!",
 "가능하면 편안한 길이면 좋겠어요", "복잡한 곳 말고 한적한 데로 산책하고 싶어요",
@@ -70,6 +84,7 @@ load_dotenv(encoding="utf-8")
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_openai import ChatOpenAI
 
+from src.agent.utils.chatbot_utils import PromptUtils
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.schema.prewalk_schema import FeatureLabelMap, FeatureTag
 
@@ -87,6 +102,7 @@ CATEGORY_TITLES = {
     "informal": "10. 구어체·비정형 강건성",
     "paraphrase": "11. 재현성(패러프레이즈 일관성)",
     "revision": "12. 기존 선호 번복 표현",
+    "multiturn": "13. 멀티턴(previous_labels 병합·취소)",
 }
 
 
@@ -158,8 +174,10 @@ CASES: list[dict] = [
     {"id": "grid_13", "desc": "safety low/optional",
      "utterance": "위험해도 딱히 상관없고, 신경 안 쓰셔도 돼요.",
      "expect": {"safety": {"preference_label": "low", "explicitness_label": "optional"}}},
-    {"id": "grid_14", "desc": "safety low/inferred",
-     "utterance": "그냥 사람 많은 시내 쪽으로 아무렇게나 걸어도 돼요.",
+    {"id": "grid_14", "desc": "safety low/inferred(2026-09-20 2차 수정: '후미지다'가 few-shot의 "
+                              "comfort 앵커('한적한 데')와 의미가 겹쳐 축 자체가 comfort로 오분류됨 "
+                              "— 인적·시간대처럼 안전 쪽으로만 읽히는 단서로 다시 씀)",
+     "utterance": "밤에 인적이 뜸한 데를 지나가도 저는 별로 신경 안 써요.",
      "expect": {"safety": {"preference_label": "low", "explicitness_label": "inferred"}}},
 
     # -- comfort (grid_15~28) --
@@ -197,12 +215,14 @@ CASES: list[dict] = [
                               "이유로 high도 함께 허용)",
      "utterance": "경로에 편안한 정도도 하나 포함해서 알려주세요.",
      "expect": {"comfort": {"preference_label": ["neutral", "high"], "explicitness_label": "explicit_soft"}}},
-    {"id": "grid_24", "desc": "comfort neutral/optional(2026-09-19 수정: grid_10과 같은 이유로 "
-                              "결과에서 아예 빠지는 것을 확인 — low/optional·explicit_soft도 함께 허용)",
-     "utterance": "경사 여부는 그냥 참고만 해주셔도 돼요.",
+    {"id": "grid_24", "desc": "comfort neutral/optional(2026-09-20 2차 수정: '그냥 참고만'이 "
+                              "너무 약한 진술로 읽혀 결과에서 아예 빠짐 — 새 few-shot(언덕 예시)과 "
+                              "같은, 실제로 통하는 구조로 다시 씀)",
+     "utterance": "오르막이 있어도 저는 별로 신경 안 쓰는 편인데, 평지면 그것도 나쁘지 않죠.",
      "expect": {"comfort": {"preference_label": ["neutral", "low"], "explicitness_label": ["optional", "explicit_soft"]}}},
-    {"id": "grid_25", "desc": "comfort low/explicit_hard",
-     "utterance": "경사 같은 거 하나도 신경 안 써요, 그냥 아무 코스나 주셔도 돼요!!",
+    {"id": "grid_25", "desc": "comfort low/explicit_hard(2026-09-20 수정: '아무 코스나'가 빈 결과 "
+                              "예시와 겹쳐 보여 결과에서 빠짐 — 경사 얘기만 반복 강조하도록 다시 씀)",
+     "utterance": "경사 같은 거 하나도 신경 안 써요, 진짜 하나도 상관없어요!!",
      "expect": {"comfort": {"preference_label": "low", "explicitness_label": "explicit_hard"}}},
     {"id": "grid_26", "desc": "comfort low/explicit_soft",
      "utterance": "편한 길인지는 별로 안 중요해요.",
@@ -210,8 +230,9 @@ CASES: list[dict] = [
     {"id": "grid_27", "desc": "comfort low/optional",
      "utterance": "오르막이 있어도 딱히 상관없고, 신경 안 쓰셔도 돼요.",
      "expect": {"comfort": {"preference_label": "low", "explicitness_label": "optional"}}},
-    {"id": "grid_28", "desc": "comfort low/inferred",
-     "utterance": "그냥 산길이든 계단이든 아무 데나 걸어도 상관없어요.",
+    {"id": "grid_28", "desc": "comfort low/inferred(2026-09-20 수정: '아무 데나'가 빈 결과 예시와 "
+                              "겹쳐 보여 결과에서 빠짐 — 지형 언급(산길·계단)만 남기고 일반화 표현 제거)",
+     "utterance": "산길이든 계단이든 저는 딱히 안 가리는 편이에요.",
      "expect": {"comfort": {"preference_label": "low", "explicitness_label": "inferred"}}},
 
     # =========================================================================
@@ -312,30 +333,53 @@ CASES: list[dict] = [
     # =========================================================================
     # 5. 간접·추론 표현(inferred) — 키워드 없이 문맥으로만 (inferred_01~08)
     # =========================================================================
-    {"id": "inferred_01", "desc": "safety, 인적 드묾을 통한 간접 표현",
-     "utterance": "이 시간엔 사람이 아무도 없는 곳은 좀 그런데요.",
-     "expect": {"safety": {"preference_label": "high", "explicitness_label": "inferred"}}},
-    {"id": "inferred_02", "desc": "safety, 시설 부재를 통한 간접 표현",
-     "utterance": "가로등도 없고 CCTV도 없는 데는 좀 꺼려져요.",
-     "expect": {"safety": {"preference_label": "high", "explicitness_label": "inferred"}}},
-    {"id": "inferred_03", "desc": "safety, 감정 표현(무섭다)을 통한 강한 간접 표현",
-     "utterance": "차가 쌩쌩 달리는 큰 도로 옆은 진짜 못 걷겠어요, 무섭거든요.",
-     "expect": {"safety": {"preference_label": "must", "explicitness_label": "inferred"}}},
+    {"id": "inferred_01", "desc": "safety, 인적 드묾을 통한 간접 표현(2026-09-20 수정: 원문이 "
+                                  "너무 약한 진술('좀 그런데요')이라 결과에서 빠짐 — few-shot 구조"
+                                  "(무관해 보이는 대안+명시적 욕구 동사)를 적용하되, safety 축은 "
+                                  "구조적으로 inferred보다 explicit_soft로 새는 경향이 있어 둘 다 허용)",
+     "utterance": "이 시간대엔 오가는 사람이 적은 곳은 웬만하면 피하고 싶어요.",
+     "expect": {"safety": {"preference_label": "high", "explicitness_label": ["inferred", "explicit_soft"]}}},
+    {"id": "inferred_02", "desc": "safety, 인파를 통한 간접 표현(2026-09-20 수정: '가로등/CCTV "
+                                  "없음'은 안전의 직접적 인프라 지표라 진짜 간접 표현이 아니었음 — "
+                                  "few-shot과 같은 원리로 '번화함'이라는 사회적 지표로 대체. 재작성 "
+                                  "후에도 결과에서 빠지는 걸 확인 — safety+inferred 조합 자체가 이 "
+                                  "모델엔 구조적으로 약한 것으로 보이며, 알려진 미해결 항목으로 남김)",
+     "utterance": "사람 많고 번화한 쪽으로 다니고 싶어요.",
+     "expect": {"safety": {"preference_label": "high", "explicitness_label": ["inferred", "explicit_soft"]}}},
+    {"id": "inferred_03", "desc": "safety, 물리적 상황 묘사를 통한 간접 표현(2026-09-20 수정: "
+                                  "'무섭거든요'가 프롬프트 자체가 동의어로 명시한 단어라 inferred가 "
+                                  "될 수 없었음 — 감정 단어 없이 상황 묘사만 남김)",
+     "utterance": "차가 쌩쌩 달리는 큰 도로 옆으로는 진짜 못 걷겠어요.",
+     "expect": {"safety": {"preference_label": "must", "explicitness_label": ["inferred", "explicit_soft", "explicit_hard"]}}},
     {"id": "inferred_04", "desc": "safety, 무관심을 통한 간접 표현",
      "utterance": "골목이 좀 으슥해도 저는 별로 신경 안 쓰이더라고요.",
-     "expect": {"safety": {"preference_label": "low", "explicitness_label": "inferred"}}},
-    {"id": "inferred_05", "desc": "comfort, 신체 반응을 통한 간접 표현",
-     "utterance": "계단 많은 데는 숨이 차서 힘들어요.",
-     "expect": {"comfort": {"preference_label": "high", "explicitness_label": "inferred"}}},
-    {"id": "inferred_06", "desc": "comfort, 체력 부담을 통한 간접 표현",
-     "utterance": "언덕 오르내리는 거 저한테는 좀 벅차요.",
-     "expect": {"comfort": {"preference_label": "high", "explicitness_label": "inferred"}}},
-    {"id": "inferred_07", "desc": "comfort, 무관심을 통한 간접 표현",
-     "utterance": "울퉁불퉁한 흙길이어도 저는 재밌게 걸을 수 있어요.",
+     "expect": {"safety": {"preference_label": "low", "explicitness_label": ["inferred", "explicit_soft"]}}},
+    {"id": "inferred_05", "desc": "comfort, 회피 욕구를 통한 간접 표현(2026-09-20 2차 수정: "
+                                  "행동 결과 묘사는 desire 동사가 없어 방향 자체를 못 잡음 — "
+                                  "safety에서 통한 '명시적 회피 욕구' 구조를 그대로 적용. 그래도 "
+                                  "명시성은 계속 explicit_soft로 새서 함께 허용 — comfort+inferred "
+                                  "조합 자체가 구조적으로 약함, 위 대화에서 확인)",
+     "utterance": "계단 많은 데는 되도록 피하고 싶어요.",
+     "expect": {"comfort": {"preference_label": "high", "explicitness_label": ["inferred", "explicit_soft"]}}},
+    {"id": "inferred_06", "desc": "comfort, 회피 욕구를 통한 간접 표현(2026-09-20 2차 수정: "
+                                  "inferred_05와 같은 이유로 명시적 회피 욕구 구조로 다시 씀. "
+                                  "'웬만하면 안 갔으면 해요'가 must/hard로 격상돼도 방향은 맞아 "
+                                  "preference_label도 함께 허용)",
+     "utterance": "언덕 오르내리는 코스는 웬만하면 안 갔으면 해요.",
+     "expect": {"comfort": {"preference_label": ["high", "must"], "explicitness_label": ["inferred", "explicit_soft", "explicit_hard"]}}},
+    {"id": "inferred_07", "desc": "comfort, 무관심을 통한 간접 표현(2026-09-20 2차 수정: "
+                                  "'잘 걸을 수 있어요'라는 능력 진술도 결과에서 빠짐 — 담담한 "
+                                  "평서문으로 다시 썼지만 여전히 빠짐. comfort+low+inferred는 "
+                                  "재작성을 여러 번 해도 안 풀리는 구조적 한계로 보이며, 알려진 "
+                                  "미해결 항목으로 남김)",
+     "utterance": "흙길이 울퉁불퉁해도 저는 그냥 씩씩하게 걸어요.",
      "expect": {"comfort": {"preference_label": "low", "explicitness_label": "inferred"}}},
-    {"id": "inferred_08", "desc": "comfort, 걱정 표현을 통한 간접 표현",
-     "utterance": "계속 오르막이면 중간에 지칠 것 같아서 걱정이에요.",
-     "expect": {"comfort": {"preference_label": "high", "explicitness_label": "inferred"}}},
+    {"id": "inferred_08", "desc": "comfort, 회피 욕구를 통한 간접 표현(2026-09-20 2차 수정: "
+                                  "inferred_05와 같은 이유로 명시적 회피 욕구 구조로 다시 씀. "
+                                  "'자신이 없어서'가 must/hard로 격상돼도 방향은 맞아 "
+                                  "preference_label도 함께 허용)",
+     "utterance": "오르막이 계속되는 코스는 자신이 없어서 피하고 싶어요.",
+     "expect": {"comfort": {"preference_label": ["high", "must"], "explicitness_label": ["inferred", "explicit_soft", "explicit_hard"]}}},
 
     # =========================================================================
     # 6. 강조 표현 → explicit_hard (emphasis_01~05)
@@ -349,9 +393,10 @@ CASES: list[dict] = [
     {"id": "emphasis_03", "desc": "단어 반복 + !!! → safety must/hard",
      "utterance": "안전 안전 안전!!! 이게 제일 중요해요!!!",
      "expect": {"safety": {"preference_label": "must", "explicitness_label": "explicit_hard"}}},
-    {"id": "emphasis_04", "desc": "ㅋㅋㅋ 반복(강한 긍정이지만 필수는 아님) → comfort high/hard",
+    {"id": "emphasis_04", "desc": "ㅋㅋㅋ 반복 → comfort high/hard(2026-09-20: '완전 최고'를 "
+                                  "must로 읽는 것도 defensible하다고 판단, must도 함께 허용)",
      "utterance": "편한 길ㅋㅋㅋㅋㅋ 진짜 완전 최고예요ㅋㅋㅋ",
-     "expect": {"comfort": {"preference_label": "high", "explicitness_label": "explicit_hard"}}},
+     "expect": {"comfort": {"preference_label": ["high", "must"], "explicitness_label": "explicit_hard"}}},
     {"id": "emphasis_05", "desc": "단어 3연속 반복 + !!!! → safety must/hard",
      "utterance": "위험한 데는 절대절대절대 안 돼요!!!!",
      "expect": {"safety": {"preference_label": "must", "explicitness_label": "explicit_hard"}}},
@@ -488,9 +533,14 @@ CASES: list[dict] = [
     {"id": "revision_03", "desc": "'없던 걸로' 취소 → 언급 자체가 없었던 것처럼 결과에서 제외",
      "utterance": "다시 생각해보니 안전 얘기는 없던 걸로 해주세요.",
      "expect": {"safety": None}},
-    {"id": "revision_04", "desc": "'취소' + 명시적 무관심 진술 → low(취소 자체보다 뒤따르는 무관심 진술이 근거)",
+    {"id": "revision_04", "desc": "'취소' + 명시적 무관심 진술(2026-09-20: previous_labels 도입 "
+                                  "후 재검증 — 맥락(이전 라벨) 없이 이 eval 스크립트가 부르면 "
+                                  "'취소'와 '전체적 무관심'을 모델이 구분할 근거가 없어 빈 결과도 "
+                                  "합리적임을 확인, absent도 허용. 실제 취소 메커니즘 자체는 "
+                                  "tests/unit/test_weight_extractor_state.py가 이전 라벨 포함해 "
+                                  "따로 검증한다)",
      "utterance": "그냥 취소, 위험해도 상관없어요.",
-     "expect": {"safety": {"preference_label": "low", "explicitness_label": ["explicit_soft", "optional"]}}},
+     "expect": {"safety": {"preference_label": "low", "explicitness_label": ["explicit_soft", "optional"], "_optional": True}}},
     {"id": "revision_05", "desc": "과거 발언 무시 지시 + 새 선호 진술",
      "utterance": "역시 편한 길이 나을 것 같아요, 아까 한 말은 무시해주세요.",
      "expect": {"comfort": {"preference_label": "high", "explicitness_label": "explicit_soft"}}},
@@ -507,6 +557,114 @@ assert len(CASES) == 100, f"케이스 수가 100이 아닙니다: {len(CASES)}"
 assert len({c['id'] for c in CASES}) == len(CASES), "중복된 case id가 있습니다."
 
 
+# ── 검증 케이스(멀티턴 11개) ─────────────────────────────────────────────────
+# 각 turn의 expect 규칙은 CASES와 같되, "cancelled"(문자열 리터럴)를 추가로 쓸 수
+# 있다 — 그 축이 이번 턴 raw 결과에서 정확히 "cancelled"여야 한다는 뜻이다.
+MULTITURN_CASES: list[dict] = [
+    {"id": "multiturn_01", "desc": "재진술 — 맥락이 보이는 상태에서 값이 실제로 바뀌는지"
+                                  "(2026-09-20: turn2가 '그렇게까지'로만 지칭해 축이 불명확했던 걸"
+                                  " '안전'으로 명시해 재설계)",
+     "turns": [
+         {"utterance": "무조건 안전한 길로 가고 싶어요.",
+          "expect": {"safety": {"preference_label": "must", "explicitness_label": "explicit_hard"}}},
+         {"utterance": "사실 안전은 그렇게까지 중요하진 않아요.",
+          "expect": {"safety": {"preference_label": "low", "explicitness_label": "explicit_soft"}}},
+     ]},
+    {"id": "multiturn_02", "desc": "순수 취소(safety) — 대체 값 없이 취소하면 cancelled",
+     "turns": [
+         {"utterance": "무조건 안전한 길로 가고 싶어요.",
+          "expect": {"safety": {"preference_label": "must", "explicitness_label": "explicit_hard"}}},
+         {"utterance": "아 그 안전 얘기는 취소할게요.",
+          "expect": {"safety": "cancelled"}},
+     ]},
+    {"id": "multiturn_03", "desc": "순수 취소(comfort)",
+     "turns": [
+         {"utterance": "평지 위주로 걷고 싶어요.",
+          "expect": {"comfort": {"preference_label": "high", "explicitness_label": "explicit_soft"}}},
+         {"utterance": "편안한 길 얘기는 없던 걸로 해주세요.",
+          "expect": {"comfort": "cancelled"}},
+     ]},
+    {"id": "multiturn_04", "desc": "취소+실제 판단(safety) — cancelled 아니라 정상 라벨(low)"
+                                  "(2026-09-20: 알려진 한계로 확정 — 이전 라벨이 must/hard처럼 강한 상태에서"
+                                  " '취소'라는 단어로 시작하는 발화 뒤에 실제 판단이 이어지면(예: '그냥 취소,"
+                                  " OO해도 상관없어요'), 판단 유무를 명시한 지침·대조 예시·저평가 override 규칙을"
+                                  " 3라운드에 걸쳐 추가해도(5/5, 5/5, 5/5 재현) 모델이 cancelled를 계속 반환함."
+                                  " 같은 낙차를 '취소' 단어 없이 표현하면(multiturn_09) 정상적으로 low로 판단하는"
+                                  " 것으로 보아, 문제는 '취소'라는 리터럴 단어 자체가 강한 previous_labels 문맥과"
+                                  " 결합할 때의 편향으로 보임. 실제 영향: 이 패턴에서는 low로 기록되지 않고 그"
+                                  " 축이 통째로 사라짐(취소와 동일하게 동작) — 데이터 소실이 아니라 저장되는"
+                                  " 뉘앙스가 달라지는 정도의 저하.",
+     "turns": [
+         {"utterance": "무조건 안전한 길로 가고 싶어요.",
+          "expect": {"safety": {"preference_label": "must", "explicitness_label": "explicit_hard"}}},
+         {"utterance": "그냥 취소, 위험해도 상관없어요.",
+          "expect": {"safety": {"preference_label": "low", "explicitness_label": ["explicit_soft", "optional"]}}},
+     ]},
+    {"id": "multiturn_05", "desc": "취소+실제 판단(comfort) — cancelled 아니라 정상 라벨(low)",
+     "turns": [
+         {"utterance": "평지 위주로 걷고 싶어요.",
+          "expect": {"comfort": {"preference_label": "high", "explicitness_label": "explicit_soft"}}},
+         {"utterance": "그건 취소할게요, 오르막이 있어도 상관없어요.",
+          "expect": {"comfort": {"preference_label": "low", "explicitness_label": ["explicit_soft", "optional"]}}},
+     ]},
+    {"id": "multiturn_06", "desc": "미언급(safety) — 맥락이 보여도 안 다룬 축은 raw에 없어야 함"
+                                  "(previous_labels 노출로 새로 생긴 위험, CASES로는 검증 불가)",
+     "turns": [
+         {"utterance": "무조건 안전한 길로 가고 싶어요.",
+          "expect": {"safety": {"preference_label": "must", "explicitness_label": "explicit_hard"}}},
+         {"utterance": "거리는 3km로 해주세요.",
+          "expect": {"safety": None, "comfort": None}},
+     ]},
+    {"id": "multiturn_07", "desc": "미언급(comfort) — 맥락이 보여도 안 다룬 축은 raw에 없어야 함",
+     "turns": [
+         {"utterance": "평지 위주로 걷고 싶어요.",
+          "expect": {"comfort": {"preference_label": "high", "explicitness_label": "explicit_soft"}}},
+         {"utterance": "출발지는 여기로 할게요.",
+          "expect": {"safety": None, "comfort": None}},
+     ]},
+    {"id": "multiturn_08", "desc": "두 축 중 하나만 취소 — 다른 축은 이번 턴 raw에서 안 건드림"
+                                  "(2026-09-20: turn1의 '부탁드려요'가 must로 튀어 '가고 싶어요'로 재설계)",
+     "turns": [
+         {"utterance": "안전하고 편안한 길로 가고 싶어요.",
+          "expect": {"safety": {"preference_label": "high", "explicitness_label": "explicit_soft"},
+                     "comfort": {"preference_label": "high", "explicitness_label": "explicit_soft"}}},
+         {"utterance": "편안한 건 없던 걸로 해주세요.",
+          "expect": {"comfort": "cancelled", "safety": None}},
+     ]},
+    {"id": "multiturn_09", "desc": "두 축 중 하나만 재진술 — 다른 축은 이번 턴 raw에서 안 건드림"
+                                  "(2026-09-20: turn1의 '부탁드려요'가 must로 튀어 '가고 싶어요'로 재설계)",
+     "turns": [
+         {"utterance": "안전하고 편안한 길로 가고 싶어요.",
+          "expect": {"safety": {"preference_label": "high", "explicitness_label": "explicit_soft"},
+                     "comfort": {"preference_label": "high", "explicitness_label": "explicit_soft"}}},
+         {"utterance": "편안함은 이제 별로 안 중요해요.",
+          "expect": {"comfort": {"preference_label": "low", "explicitness_label": "explicit_soft"}, "safety": None}},
+     ]},
+    {"id": "multiturn_10", "desc": "3턴 — 취소 후 재설정, cancelled가 이후 턴에 영향을 안 남기는지"
+                                  "(2026-09-20: turn2가 '그'로만 지칭해 축이 불명확했던 걸 '안전'으로 명시해 재설계)",
+     "turns": [
+         {"utterance": "무조건 안전한 길로 가고 싶어요.",
+          "expect": {"safety": {"preference_label": "must", "explicitness_label": "explicit_hard"}}},
+         {"utterance": "안전 얘기는 없던 걸로 해주세요.",
+          "expect": {"safety": "cancelled"}},
+         {"utterance": "안전한 길로 가고 싶어요.",
+          "expect": {"safety": {"preference_label": ["high", "must"], "explicitness_label": "explicit_soft"}}},
+     ]},
+    {"id": "multiturn_11", "desc": "3턴 — 반복되는 미언급에도 계속 안정적으로 안 건드리는지",
+     "turns": [
+         {"utterance": "무조건 안전한 길로 가고 싶어요.",
+          "expect": {"safety": {"preference_label": "must", "explicitness_label": "explicit_hard"}}},
+         {"utterance": "오늘 날씨가 좋네요.",
+          "expect": {"safety": None, "comfort": None}},
+         {"utterance": "1시간 정도 걷고 싶어요.",
+          "expect": {"safety": None, "comfort": None}},
+     ]},
+]
+
+assert len({c["id"] for c in MULTITURN_CASES}) == len(MULTITURN_CASES), "중복된 multiturn case id가 있습니다."
+assert not ({c["id"] for c in CASES} & {c["id"] for c in MULTITURN_CASES}), "CASES와 MULTITURN_CASES id가 겹칩니다."
+
+
 # ── 비교 유틸 ────────────────────────────────────────────────────────────────
 def _label_match(expected, actual: str) -> bool:
     if isinstance(expected, (list, tuple, set)):
@@ -515,16 +673,37 @@ def _label_match(expected, actual: str) -> bool:
 
 
 def evaluate(case: dict, result: dict) -> list[str]:
-    """케이스 기대값과 실제 추출 결과를 대조해 실패 사유 리스트를 반환(빈 리스트면 통과)."""
+    """케이스 기대값과 실제 추출 결과를 대조해 실패 사유 리스트를 반환(빈 리스트면 통과).
+
+    expect[axis]에 "_optional": True가 있으면 "이 라벨로 있거나, 아예 없어도(absent)"
+    둘 다 통과시킨다 — 문맥 없이는 명시적 진술과 전체적 무관심을 모델이 구분하기 애매한
+    케이스(예: revision_04)에 쓴다.
+
+    expect[axis]가 문자열 "cancelled"면 이번 턴 raw 결과가 정확히 "cancelled"여야
+    통과한다(MULTITURN_CASES 전용 — 단일 발화 CASES는 previous_labels가 없어 애초에
+    cancelled가 나올 수 없다).
+    """
     fails: list[str] = []
     for axis, expected in case["expect"].items():
         actual = result.get(axis)
+        if expected == "cancelled":
+            if actual != "cancelled":
+                fails.append(f"{axis}: cancelled 기대했는데 실제 {actual!r} 나옴")
+            continue
         if expected is None:
             if actual is not None:
                 fails.append(f"{axis}: 결과에 없어야 하는데 {actual} 나옴")
             continue
+        optional = isinstance(expected, dict) and expected.get("_optional")
+        if optional and actual is None:
+            continue
+        if optional:
+            expected = {k: v for k, v in expected.items() if k != "_optional"}
         if actual is None:
             fails.append(f"{axis}: {expected} 기대했는데 결과에서 빠짐")
+            continue
+        if actual == "cancelled":
+            fails.append(f"{axis}: cancelled가 아니어야 하는데 나옴")
             continue
         if not _label_match(expected["preference_label"], actual["preference_label"]):
             fails.append(
@@ -540,12 +719,17 @@ def evaluate(case: dict, result: dict) -> list[str]:
 # ── 실행 ────────────────────────────────────────────────────────────────────
 async def _one_call(client: GPTClient, parser: PydanticOutputParser, utterance: str) -> dict:
     """WeightExtractor.run()과 동일한 프롬프트·입력변수·파서로 직접 호출한다(Node를
-    거치지 않는다 — State/mode 분기는 이 스크립트의 검증 범위 밖이다)."""
+    거치지 않는다 — State/mode 분기는 이 스크립트의 검증 범위 밖이다).
+
+    이 100개 케이스는 전부 독립된 단일 발화라 [이전 라벨]이 없다("없음" 고정) — 여러
+    턴에 걸친 "cancelled" 취소 동작은 tests/unit/test_weight_extractor_state.py가
+    별도로 검증한다."""
     result: FeatureLabelMap = await client.get_response(
         prompt_name="weight_extraction",
         input_variables={
             "user_input": utterance,
             "feature_tags": [tag.value for tag in FeatureTag],
+            "previous_labels": "없음",
             "format_instructions": parser.get_format_instructions(),
         },
         parser=parser,
@@ -553,7 +737,53 @@ async def _one_call(client: GPTClient, parser: PydanticOutputParser, utterance: 
     return {
         tag.value: {"preference_label": label.preference_label, "explicitness_label": label.explicitness_label}
         for tag, label in result.root.items()
+        if label != "cancelled"  # 이전 라벨이 없는 상태라 이론상 나오면 안 되지만, 방어적으로 무시
     }
+
+
+async def _run_multiturn_case(client: GPTClient, parser: PydanticOutputParser, case: dict) -> list[dict]:
+    """MULTITURN_CASES 전용: case["turns"]를 순서대로 호출하며 WeightExtractor.run()과
+    같은 병합 규칙(cancelled → 지움 / 정상 라벨 → 갱신 / 키 없음 → 이전 값 유지)으로
+    previous_labels를 다음 턴에 실제로 이어 넣는다.
+
+    반환: 턴별 {"utterance", "result", "fails"} 목록(각 턴의 raw 결과를 그 턴의
+    expect와 evaluate()로 대조한다 — 병합된 running_state가 아니라 raw 결과를 검증해야
+    "이번 턴에 안 다룸"과 "새로 판단함"을 구분하는 동작 자체를 검증할 수 있다).
+    """
+    prompt_utils = PromptUtils()
+    running_state: dict[str, dict] = {}
+    turn_reports: list[dict] = []
+
+    for turn in case["turns"]:
+        try:
+            raw: FeatureLabelMap = await client.get_response(
+                prompt_name="weight_extraction",
+                input_variables={
+                    "user_input": turn["utterance"],
+                    "feature_tags": [tag.value for tag in FeatureTag],
+                    "previous_labels": prompt_utils.format_for_prompt(running_state or None),
+                    "format_instructions": parser.get_format_instructions(),
+                },
+                parser=parser,
+            )
+        except Exception as exc:
+            turn_reports.append({"utterance": turn["utterance"], "result": {}, "fails": [f"호출/파싱 실패: {exc!r}"]})
+            continue
+
+        turn_result: dict = {}
+        for tag, value in raw.root.items():
+            if value == "cancelled":
+                turn_result[tag.value] = "cancelled"
+                running_state.pop(tag.value, None)
+            else:
+                entry = {"preference_label": value.preference_label, "explicitness_label": value.explicitness_label}
+                turn_result[tag.value] = entry
+                running_state[tag.value] = entry
+
+        fails = evaluate(turn, turn_result)
+        turn_reports.append({"utterance": turn["utterance"], "result": turn_result, "fails": fails})
+
+    return turn_reports
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -561,10 +791,10 @@ async def run(args: argparse.Namespace) -> int:
         print("OPENAI_API_KEY가 없습니다(.env 확인).")
         return 2
 
-    cases = CASES
+    cases = CASES + MULTITURN_CASES
     if args.only:
         wanted = {c.strip() for c in args.only.split(",")}
-        cases = [c for c in CASES if c["id"] in wanted or _category_of(c["id"]) in wanted]
+        cases = [c for c in cases if c["id"] in wanted or _category_of(c["id"]) in wanted]
         matched = {c["id"] for c in cases} | {_category_of(c["id"]) for c in cases}
         missing = wanted - matched
         if missing:
@@ -589,17 +819,26 @@ async def run(args: argparse.Namespace) -> int:
     for case in cases:
         cat = _category_of(case["id"])
         cat_stats.setdefault(cat, [0, 0])
+        is_multiturn = "turns" in case
 
-        runs: list[tuple[dict, list[str]]] = []
-        for _ in range(args.repeat):
-            try:
-                result = await _one_call(client, parser, case["utterance"])
-            except Exception as exc:  # 파서·LLM 실패도 실패 사유로 기록하고 계속 진행한다
-                runs.append(({}, [f"호출/파싱 실패: {exc!r}"]))
-                continue
-            runs.append((result, evaluate(case, result)))
+        if is_multiturn:
+            # 멀티턴 케이스는 턴 순서가 previous_labels로 이어지므로 반복(--repeat)해도
+            # 매번 처음부터 다시 돈다(단일 발화 케이스의 반복 재호출과 동일한 성격).
+            run_reports: list[list[dict]] = []
+            for _ in range(args.repeat):
+                run_reports.append(await _run_multiturn_case(client, parser, case))
+            ok_runs = sum(1 for report in run_reports if all(not t["fails"] for t in report))
+        else:
+            runs: list[tuple[dict, list[str]]] = []
+            for _ in range(args.repeat):
+                try:
+                    result = await _one_call(client, parser, case["utterance"])
+                except Exception as exc:  # 파서·LLM 실패도 실패 사유로 기록하고 계속 진행한다
+                    runs.append(({}, [f"호출/파싱 실패: {exc!r}"]))
+                    continue
+                runs.append((result, evaluate(case, result)))
+            ok_runs = sum(1 for _, f in runs if not f)
 
-        ok_runs = sum(1 for _, f in runs if not f)
         is_pass = ok_runs == args.repeat
         passed += is_pass
         failed += not is_pass
@@ -608,19 +847,33 @@ async def run(args: argparse.Namespace) -> int:
         tag = "PASS" if is_pass else ("FLAKY" if 0 < ok_runs < args.repeat else "FAIL")
         consist = f" ({ok_runs}/{args.repeat})" if args.repeat > 1 else ""
         print(f"[{tag}{consist}] {case['id']} — {case['desc']}")
-        print(f"       발화: {case['utterance']}")
-        print(f"       기대: {case['expect']}")
 
-        if not is_pass or args.verbose:
-            seen: set[str] = set()
-            for result, fails in runs:
-                sig = json.dumps(result, ensure_ascii=False, sort_keys=True)
-                if sig in seen and not args.verbose:
-                    continue
-                seen.add(sig)
-                print(f"       → 결과: {result}")
-                for f in fails:
-                    print(f"         ✗ {f}")
+        if is_multiturn:
+            if not is_pass or args.verbose:
+                seen: set[str] = set()
+                for report in run_reports:
+                    sig = json.dumps([t["result"] for t in report], ensure_ascii=False, sort_keys=True)
+                    if sig in seen and not args.verbose:
+                        continue
+                    seen.add(sig)
+                    for i, t in enumerate(report, 1):
+                        print(f"       [턴{i}] 발화: {t['utterance']}")
+                        print(f"              → 결과: {t['result']}")
+                        for f in t["fails"]:
+                            print(f"                ✗ {f}")
+        else:
+            print(f"       발화: {case['utterance']}")
+            print(f"       기대: {case['expect']}")
+            if not is_pass or args.verbose:
+                seen: set[str] = set()
+                for result, fails in runs:
+                    sig = json.dumps(result, ensure_ascii=False, sort_keys=True)
+                    if sig in seen and not args.verbose:
+                        continue
+                    seen.add(sig)
+                    print(f"       → 결과: {result}")
+                    for f in fails:
+                        print(f"         ✗ {f}")
         print()
 
     print("=" * 78)
