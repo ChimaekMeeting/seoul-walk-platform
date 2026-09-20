@@ -30,7 +30,7 @@ from benchmarks.config import (
     MAX_SPIKE_COUNT,
     ONEWAY_MAX_TARGET_ERROR_RATIO,
 )
-from benchmarks.route_diversity import candidate_pairwise_overlap_ratio, count_distinct_routes
+from benchmarks.route_diversity import candidate_pairwise_overlap_ratio, count_distinct_routes, route_signature
 from src.route_engine.waypoint_route_builder import edge_overlap_ratio
 
 REQUIRED_RESULT_KEYS = ("paths", "cost")
@@ -91,6 +91,8 @@ RESULT_COLUMNS = [
     "alns_operator_stats",
     # 최종 경로와 대안 2개를 함께 반환한 순환 solver의 후보 간 구간 중첩 진단.
     "candidate_pairwise_overlap_ratio", "candidate_distinct_route_count",
+    # 원자료 노드열을 저장하지 않고 거리 전용 대비 실제 경로 변경률을 비교하기 위한 서명.
+    "route_signature",
     # 가중 탐색 중 결측 점수를 중앙값으로 대체한 횟수. 품질/게이트에는 쓰지 않는다.
     "median_substitutions",
 
@@ -510,7 +512,11 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
     distance_km = route_distance_km(graph, paths)
     perimeter_m = distance_km * 1000 if distance_km is not None else None
     cost_context = params.get("cost_context")
-    preference_metrics = path_preference_metrics(graph, paths, cost_context)
+    # 거리 전용 실행도 동일 점수 기준의 노출을 기록해야 가중 조건과 짝지은 방향성
+    # 비교가 가능하다. 이 측정용 context는 solver 탐색 비용과 cost_alpha/beta에 영향을 주지 않는다.
+    preference_metrics = path_preference_metrics(
+        graph, paths, params.get("preference_metrics_context", cost_context),
+    )
     cost_metrics = cost_context_metrics(cost_context, result)
 
     row = _empty_row()
@@ -566,6 +572,7 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
             count_distinct_routes(result["candidate_paths"])
             if len(result.get("candidate_paths") or []) == 3 else None
         ),
+        "route_signature": route_signature(paths[0]),
         "cost": result["cost"],
         "baseline_shortest_overlap_ratio": result.get("baseline_shortest_overlap_ratio"),
         "error": "",

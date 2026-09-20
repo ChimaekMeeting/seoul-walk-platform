@@ -22,10 +22,11 @@ from benchmarks.results import RESULT_COLUMNS, failed_row, run_solver_task
 from benchmarks.run_metadata import save_run_metadata
 from src.config.settings import settings
 from src.route_engine.engines.path_utils import PathUtils
-from src.route_engine.scoring.scoring_engine import precompute_scoring_features
+from src.route_engine.scoring.scoring_engine import WeightedEdgeCost, precompute_scoring_features
 from src.route_engine.weighted_cost_runtime import (
     attach_weighted_cost,
     build_request_cost_context,
+    get_coverage_report,
     prepare_weighted_cost,
 )
 
@@ -94,6 +95,16 @@ def _task_params(condition: dict, seed: int) -> dict:
         weight_limit=settings.WALK_WEIGHT_LIMIT,
         accident_ratio=settings.WALK_UNSAFE_ACCIDENT_RATIO,
     )
+    preference_metrics_context = context
+    if preference_metrics_context is None:
+        report = get_coverage_report(_POOL_GRAPH)
+        if report is not None and report.ok:
+            preference_metrics_context = WeightedEdgeCost(
+                0.0, 0.0,
+                accident_ratio=settings.WALK_UNSAFE_ACCIDENT_RATIO,
+                weight_limit=settings.WALK_WEIGHT_LIMIT,
+                medians=report.medians,
+            )
     return {
         "target_km": condition["target_km"],
         "num_waypoints": condition["num_waypoints"],
@@ -101,6 +112,7 @@ def _task_params(condition: dict, seed: int) -> dict:
         "time_budget_sec": DEFAULT_TIME_BUDGET_SEC,
         "weight_mode": condition["weight_mode"],
         "cost_context": context,
+        "preference_metrics_context": preference_metrics_context,
     }
 
 
@@ -129,6 +141,9 @@ def _write_aggregates(rows: list[dict], out_path: Path) -> None:
     )
     aggregate_results.per_algorithm(work).to_csv(
         out_path.with_name(f"{out_path.stem}_aggregate_by_algorithm.csv"), index=False,
+    )
+    aggregate_results.weight_directionality(work).to_csv(
+        out_path.with_name(f"{out_path.stem}_aggregate_weight_directionality.csv"), index=False,
     )
 
 

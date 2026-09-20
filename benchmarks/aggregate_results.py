@@ -400,6 +400,92 @@ def per_algorithm(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("algorithm").reset_index(drop=True)
 
 
+_DIRECTIONAL_WEIGHT_MODES = ("safety", "comfort", "mixed")
+_DIRECTIONAL_EXCLUDED_KEYS = frozenset({"weight_mode", "cost_alpha", "cost_beta"})
+
+
+def weight_directionality(df: pd.DataFrame) -> pd.DataFrame:
+    """거리 전용 대비 가중치의 기대 방향 충족률과 경로 변경률을 짝지어 집계한다.
+
+    비교 키는 algorithm·seed와 가중치 축을 제외한 모든 조건이다. 따라서 지리·목표
+    거리·경유지 수·시드는 같고 weight_mode만 다른 두 실행만 비교한다. 실패/타임아웃은
+    품질 평균에 섞지 않고, inner join 밖으로 남아 ``n_paired``에도 포함되지 않는다.
+
+    safety/comfort는 해당 노출 비율이 거리 전용보다 작거나 같으면 기대 방향을 충족한
+    것으로 센다. mixed는 mixed 행의 실제 alpha/beta로 거리 전용 노출을 재가중한
+    기준 비용과 mixed 경로의 축별 penalty 합을 비교한다. 이 값은 사용자 체감 품질의
+    증명이 아니라, 구현된 비용식이 경로 선택에 만든 방향성 관측이다.
+    """
+    required = {"algorithm", "seed", "status", "weight_mode", "route_signature"}
+    if not required <= set(df.columns):
+        return pd.DataFrame()
+
+    condition_keys = [
+        key for key in condition_columns(df) if key not in _DIRECTIONAL_EXCLUDED_KEYS
+    ]
+    keys = ["algorithm", "seed", *condition_keys]
+    available = df[df["status"] == "ok"].copy()
+    baseline = available[available["weight_mode"] == "distance"]
+    if baseline.empty:
+        return pd.DataFrame()
+
+    columns = [
+        "weight_mode", "route_signature", "safety_exposure_ratio", "comfort_exposure_ratio",
+        "safety_penalty_ratio", "comfort_penalty_ratio", "cost_alpha", "cost_beta",
+    ]
+    for column in columns:
+        if column not in available:
+            available[column] = None
+    baseline = baseline[keys + columns[1:]].copy()
+    baseline = baseline.rename(columns={column: f"baseline_{column}" for column in columns[1:]})
+
+    rows = []
+    for mode in _DIRECTIONAL_WEIGHT_MODES:
+        weighted = available[available["weight_mode"] == mode]
+        paired = baseline.merge(weighted[keys + columns[1:]], on=keys, how="inner")
+        for algorithm, pair in paired.groupby("algorithm", dropna=False):
+            if mode == "safety":
+                base_value = pd.to_numeric(pair["baseline_safety_exposure_ratio"], errors="coerce")
+                weighted_value = pd.to_numeric(pair["safety_exposure_ratio"], errors="coerce")
+                metric = "safety_exposure_ratio"
+            elif mode == "comfort":
+                base_value = pd.to_numeric(pair["baseline_comfort_exposure_ratio"], errors="coerce")
+                weighted_value = pd.to_numeric(pair["comfort_exposure_ratio"], errors="coerce")
+                metric = "comfort_exposure_ratio"
+            else:
+                alpha = pd.to_numeric(pair["cost_alpha"], errors="coerce")
+                beta = pd.to_numeric(pair["cost_beta"], errors="coerce")
+                base_value = (
+                    alpha * pd.to_numeric(pair["baseline_safety_exposure_ratio"], errors="coerce")
+                    + beta * pd.to_numeric(pair["baseline_comfort_exposure_ratio"], errors="coerce")
+                )
+                weighted_value = (
+                    pd.to_numeric(pair["safety_penalty_ratio"], errors="coerce")
+                    + pd.to_numeric(pair["comfort_penalty_ratio"], errors="coerce")
+                )
+                metric = "combined_penalty_ratio"
+
+            valid = base_value.notna() & weighted_value.notna()
+            reduction = (base_value[valid] - weighted_value[valid]) / base_value[valid].where(base_value[valid] > 0)
+            signatures = pair["baseline_route_signature"].notna() & pair["route_signature"].notna()
+            changed = pair.loc[signatures, "baseline_route_signature"] != pair.loc[signatures, "route_signature"]
+            rows.append({
+                "algorithm": algorithm,
+                "weight_mode": mode,
+                "metric": metric,
+                "n_paired": len(pair),
+                "n_metric_available": int(valid.sum()),
+                "n_direction_met": int((weighted_value[valid] <= base_value[valid]).sum()),
+                "direction_met_rate": (weighted_value[valid] <= base_value[valid]).mean() if valid.any() else None,
+                "n_route_signature_available": int(signatures.sum()),
+                "n_route_changed": int(changed.sum()),
+                "route_changed_rate": changed.mean() if len(changed) else None,
+                "mean_reduction_ratio": reduction.mean() if reduction.notna().any() else None,
+                "worst_reduction_ratio": reduction.min() if reduction.notna().any() else None,
+            })
+    return pd.DataFrame(rows).dropna(subset=["algorithm"]).sort_values(["algorithm", "weight_mode"]).reset_index(drop=True)
+
+
 def _condition_keys_of(condition_df: pd.DataFrame) -> list[str]:
     return [
         c for c in condition_df.columns
@@ -695,6 +781,7 @@ def main(argv=None):
     wins_df = win_rates(ranking_source)
     tests_df = paired_tests(ranking_source)
     survival_df = survival_by_budget(df)
+    directionality_df = weight_directionality(df)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     condition_df.to_csv(args.out_dir / "aggregate_by_condition.csv", index=False)
@@ -705,6 +792,8 @@ def main(argv=None):
         tests_df.to_csv(args.out_dir / "aggregate_paired_tests.csv", index=False)
     if not survival_df.empty:
         survival_df.to_csv(args.out_dir / "aggregate_budget_survival.csv", index=False)
+    if not directionality_df.empty:
+        directionality_df.to_csv(args.out_dir / "aggregate_weight_directionality.csv", index=False)
 
     _print_section(
         "알고리즘별 전체 요약 (모든 조건·시드 합산)",
@@ -753,6 +842,10 @@ def main(argv=None):
         )
 
     _print_section("시간 예산선별 생존율 (동기 요청이면 최악값이 예산을 정한다)", survival_df)
+    _print_section(
+        "가중치 방향성 — 같은 조건·시드의 거리 전용 대비",
+        directionality_df,
+    )
     for budget in TIME_BUDGET_REFERENCE_SEC:
         table = quality_under_budget(df, budget)
         if not table.empty:
@@ -772,6 +865,8 @@ def main(argv=None):
         print(f"                {args.out_dir}/aggregate_paired_tests.csv")
     if not survival_df.empty:
         print(f"                {args.out_dir}/aggregate_budget_survival.csv")
+    if not directionality_df.empty:
+        print(f"                {args.out_dir}/aggregate_weight_directionality.csv")
 
 
 if __name__ == "__main__":

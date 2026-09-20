@@ -470,6 +470,7 @@ def test_r9g_candidate_pairwise_overlap_is_distance_weighted_jaccard_for_three_r
     # (1/5 + 0/6 + 1/5) / 3 = 0.1333...
     assert row["candidate_pairwise_overlap_ratio"] == pytest.approx(0.1333)
     assert row["candidate_distinct_route_count"] == 3
+    assert row["route_signature"]
 
 
 def test_r9g_candidate_pairwise_overlap_is_unmeasured_without_exactly_three_candidates():

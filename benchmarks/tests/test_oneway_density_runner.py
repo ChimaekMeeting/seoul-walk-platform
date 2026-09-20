@@ -71,6 +71,7 @@ def test_task_params_build_the_declared_weight_axis(
 
     if expected_alpha is None:
         assert context is None
+        assert params["preference_metrics_context"] is not None
         return
     assert (context.alpha > 0) if expected_alpha == "positive" else context.alpha == expected_alpha
     assert (context.beta > 0) if expected_beta == "positive" else context.beta == expected_beta
@@ -88,3 +89,31 @@ def test_oneway_condition_columns_keep_density_destination_multiplier_and_weight
 
     for expected in ("origin_id", "destination_id", "origin_density_tier", "shortest_distance_km", "detour_multiplier", "weight_mode"):
         assert expected in columns
+
+
+def test_runner_writes_the_weight_directionality_summary(tmp_path):
+    rows = [
+        {
+            "algorithm": "GRASP", "status": "ok", "seed": 42, "mode": "oneway",
+            "origin_id": "a", "destination_id": "b", "origin_density_tier": "dense",
+            "shortest_distance_km": 1.0, "detour_multiplier": 1.25, "target_km": 1.25,
+            "num_waypoints": 2, "weight_mode": "distance", "route_signature": "base",
+            "safety_exposure_ratio": 0.6, "comfort_exposure_ratio": 0.4,
+        },
+        {
+            "algorithm": "GRASP", "status": "ok", "seed": 42, "mode": "oneway",
+            "origin_id": "a", "destination_id": "b", "origin_density_tier": "dense",
+            "shortest_distance_km": 1.0, "detour_multiplier": 1.25, "target_km": 1.25,
+            "num_waypoints": 2, "weight_mode": "safety", "route_signature": "safe",
+            "cost_alpha": 0.7, "cost_beta": 0.0,
+            "safety_exposure_ratio": 0.3, "comfort_exposure_ratio": 0.4,
+            "safety_penalty_ratio": 0.21, "comfort_penalty_ratio": 0.0,
+        },
+    ]
+    out_path = tmp_path / "oneway.csv"
+
+    runner._write_aggregates(rows, out_path)
+
+    assert out_path.with_name("oneway_aggregate_by_condition.csv").exists()
+    assert out_path.with_name("oneway_aggregate_by_algorithm.csv").exists()
+    assert out_path.with_name("oneway_aggregate_weight_directionality.csv").exists()

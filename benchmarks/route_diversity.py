@@ -14,6 +14,7 @@ solver.solve()를 직접 호출해 raw paths를 확보해야 한다(run_grasp_al
 """
 from __future__ import annotations
 
+import hashlib
 from itertools import combinations
 from typing import Optional
 
@@ -29,6 +30,23 @@ def canonical_route_key(path: list) -> frozenset:
         frozenset((u, v)) for u, v in zip(path, path[1:])
     )
     return edges
+
+
+def route_signature(path: list) -> Optional[str]:
+    """방향·시작 표현과 무관한 간선 집합의 안정적인 SHA-256 식별자.
+
+    원자료 노드열을 CSV에 넣지 않고도, 동일 조건의 거리 전용·가중 경로가 실제로
+    달라졌는지 짝지어 비교할 수 있게 한다. 노드 ID의 타입이 섞여도 repr 문자열로
+    정렬하므로 Python hash seed나 Graph 삽입 순서에 흔들리지 않는다.
+    """
+    if not path or len(path) < 2:
+        return None
+    edges = []
+    for left, right in zip(path, path[1:]):
+        a, b = sorted((repr(left), repr(right)))
+        edges.append(f"{a}|{b}")
+    payload = "\n".join(sorted(set(edges))).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def count_distinct_routes(paths: list[list]) -> int:

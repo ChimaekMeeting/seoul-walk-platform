@@ -176,6 +176,39 @@ def test_g5c_preference_and_oneway_metrics_are_aggregated_without_affecting_rank
     assert "safety_penalty_ratio" not in agg._RANKING_COLUMNS
 
 
+def test_g5d_weight_directionality_pairs_each_seed_with_its_distance_baseline():
+    base = {
+        **_row("A", 1, 42, safety_exposure=0.6, comfort_exposure=0.4),
+        "weight_mode": "distance", "route_signature": "distance-route",
+    }
+    rows = [
+        base,
+        {
+            **_row("A", 1, 42, cost_alpha=0.7, cost_beta=0.0, safety_exposure=0.3, comfort_exposure=0.45,
+                   safety_penalty=0.21, comfort_penalty=0.0),
+            "weight_mode": "safety", "route_signature": "safe-route",
+        },
+        {
+            **_row("A", 1, 42, cost_alpha=0.0, cost_beta=0.7, safety_exposure=0.65, comfort_exposure=0.2,
+                   safety_penalty=0.0, comfort_penalty=0.14),
+            "weight_mode": "comfort", "route_signature": "comfort-route",
+        },
+        {
+            **_row("A", 1, 42, cost_alpha=0.35, cost_beta=0.35, safety_exposure=0.4, comfort_exposure=0.3,
+                   safety_penalty=0.14, comfort_penalty=0.105),
+            "weight_mode": "mixed", "route_signature": "mixed-route",
+        },
+    ]
+
+    result = agg.weight_directionality(pd.DataFrame(rows)).set_index("weight_mode")
+
+    assert result.loc["safety", "direction_met_rate"] == 1.0
+    assert result.loc["comfort", "mean_reduction_ratio"] == pytest.approx(0.5)
+    # mixed 기준선: 0.35 * (0.6 + 0.4) = 0.35, 결과 비용: 0.14 + 0.105 = 0.245.
+    assert result.loc["mixed", "mean_reduction_ratio"] == pytest.approx(0.3)
+    assert (result["route_changed_rate"] == 1.0).all()
+
+
 def test_g6_paired_comparison_drops_conditions_where_any_algorithm_failed_entirely():
     """한 알고리즘이 전부 실패한 조건은 짝지은 비교에서 빠진다 — 안 그러면 그 알고리즘이
     쉬운 조건만으로 평가된다."""
