@@ -56,6 +56,7 @@ class WalkRouteStatus(str, Enum):
     NO_NEAREST_START_NODE = "no_nearest_start_node"
     NO_NEAREST_END_NODE = "no_nearest_end_node"
     NO_PATH = "no_path"
+    TIMEOUT = "timeout"
     RETURN_PATH_NOT_FOUND = "return_path_not_found"
     PARTIAL_ROUTE = "partial_route"
     WEIGHT_RELAXED = "weight_relaxed"
@@ -90,6 +91,8 @@ class WalkRouteRequest(BaseModel):
         description="목표 산책 거리(km). 숫자 문자열도 허용하며 0 초과 10 이하의 유한한 값이어야 합니다.",
     )
     mode: WalkMode = Field(description="경로 생성 모드")
+    # 편도 우회 재현성 제어. 생략하면 서비스 기본 seed를 사용한다.
+    seed: Optional[int] = Field(default=None, ge=0, description="편도 우회 탐색 시드")
 
     @field_validator("target_km", mode="before")
     @classmethod
@@ -194,3 +197,9 @@ class WalkRouteResponse(BaseModel):
     #   partial_route       일부 구간 실패로 선호가 적용된 전체 경로를 반환하지 못함
     #   detour_cap_exceeded / baseline_failed는 보존한 실험 정책 전용이다.
     preference_skipped_reason: Optional[PreferenceSkippedReason] = None
+    # 편도 우회 품질 진단값. 기존 호출자는 기본값으로 하위 호환된다.
+    selection_status: Optional[str] = None
+    target_distance_error_km: Optional[float] = None
+    candidate_unique_count: int = 1
+    candidate_duplicate_ratio: float = 0.0
+    route_seed: Optional[int] = None

@@ -48,10 +48,12 @@ class OnewayGraspWaypointAlnsEngine(WaypointEngine):
         num_waypoints: Optional[int] = None,
         alns_options: Optional[Mapping[str, Any]] = None,
         cost_context: Optional[WeightedEdgeCost] = None,
+        time_budget_sec: Optional[float] = None,
     ):
         super().__init__(
             inp, G, mode=mode, seed=seed, config=config, num_waypoints=num_waypoints,
             construction="grasp", refinement="alns",
             refinement_options={**GRASP_ALNS_OPTIONS, **(alns_options or {})},
             cost_context=cost_context,
+            time_budget_sec=time_budget_sec,
         )

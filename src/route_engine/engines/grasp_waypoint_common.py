@@ -152,6 +152,7 @@ class SelectionStatus:
     FEASIBLE = "feasible"                        # 목표거리 허용범위와 최소거리 조건 모두 충족
     FALLBACK_DISTANCE = "fallback_distance"       # 최소거리 조건은 만족하지만 목표거리 허용범위 후보가 없음
     NO_VALID_WAYPOINT_PAIR = "no_valid_waypoint_pair"  # 경유지 조합을 하나도 완성하지 못했음
+    TIMEOUT = "timeout"
 
 
 def determine_selection_status(

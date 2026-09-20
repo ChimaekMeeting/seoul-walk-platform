@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,11 +11,13 @@ from src.interfaces.schema.walk_schema import (
     Coordinate,
     WalkRouteRequest,
     WalkRouteResponse,
+    WalkRouteStatus,
 )
 from src.interfaces.validators.coord_validator import validate_seoul_polygon_contains
 from src.interfaces.validators.highway_validator import validate_no_highway
 from src.interfaces.validators.water_validator import snap_coordinate_from_water
 from src.service.route.route_service import RouteService
+from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +70,13 @@ async def walk_route(
                     validate_no_highway(request.destination.lat, request.destination.lon, db)
                 destination = Coordinate.model_construct(lat=dest_lat, lon=dest_lon)
 
-        results = service.get_route(
-            access_token, origin, destination, request.target_km, request.mode,
+        results = await asyncio.wait_for(
+            asyncio.to_thread(
+                service.get_route,
+                access_token, origin, destination, request.target_km, request.mode,
+                seed=request.seed,
+            ),
+            timeout=settings.WALK_ROUTE_HARD_TIMEOUT_SEC,
         )
         # RouteService.get_route()는 06fc3b1(경로 N개 생성 리팩토링) 이후 List[WalkRouteResponse]를
         # 반환하도록 바뀌었지만 이 라우터는 아직 단일 응답 계약(response_model=WalkRouteResponse)에
@@ -76,6 +84,19 @@ async def walk_route(
         response = results[0]
         logger.info("walk route response completed: mode=%s status=%s", request.mode, response.status.value)
         return response
+    except asyncio.TimeoutError:
+        logger.warning(
+            "walk route hard timeout: mode=%s timeout_sec=%.1f",
+            request.mode, settings.WALK_ROUTE_HARD_TIMEOUT_SEC,
+        )
+        return WalkRouteResponse(
+            status=WalkRouteStatus.TIMEOUT,
+            mode=request.mode,
+            coordinates=[],
+            total_km=0.0,
+            selection_status="timeout",
+            route_seed=request.seed if request.seed is not None else 42,
+        )
     except HTTPException:
         raise
     except ValueError as e:

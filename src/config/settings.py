@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # 전용으로 폴백한다 — 결측을 엣지 단위로 0 처리하면 점수가 없는 도로가 가장
     # 안전한 도로로 읽히기 때문이다. 실제 적재율을 보고 조정한다.
     WALK_SCORE_COVERAGE_MIN: float = 0.95
+    # 편도/순환 경유지 엔진의 협력형 탐색 시간 예산(초). None이 아닌 경우
+    # GRASP 반복 경계에서 탐색을 중단한다.
+    WALK_ROUTE_TIME_BUDGET_SEC: float = 20.0
+    WALK_ROUTE_HARD_TIMEOUT_SEC: float = 25.0
     # 우회 상한과 초과 시 대체 정책은 미합의다. 운영 설정으로 활성화하지 않는다.
     # 실험 코드는 WaypointComposerEngine.experimental_detour_max_ratio와
     # docs/proposals/route_engine_detour_policy_proposal.md에 보존한다.

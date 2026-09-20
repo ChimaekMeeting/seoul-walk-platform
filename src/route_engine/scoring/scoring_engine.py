@@ -74,6 +74,7 @@ def _build_feature_cache(
     slope_raw = np.empty(n, dtype=np.float64)
 
     safety_present = [data.get("safety_score") for _, _, data in edges if data.get("safety_score") is not None]
+    accident_present = [data.get("accident_score") for _, _, data in edges if data.get("accident_score") is not None]
     slope_present = [data.get("slope_score") for _, _, data in edges if data.get("slope_score") is not None]
     safety_median = statistics.median(safety_present) if safety_present else 0.0
     slope_median = statistics.median(slope_present) if slope_present else 0.0
