@@ -16,6 +16,15 @@ PathFunction과 같은 관례다.
 
 engines/grasp_waypoint_common.py는 하위 호환을 위해 이 모듈의 Route/BuildCycleRoute
 등을 그대로 재-export한다(기존 4개 GRASP 엔진 파일의 import는 바뀌지 않는다).
+
+build_cycle_route()의 편도(end_node) 지원(2026-09-20, feat/496): end_node: Optional[int]
+= None을 추가했다. None이면(기본값) 기존처럼 마지막 구간이 waypoints[-1]→start_node라
+이름(build_cycle_route) 그대로 순환만 만든다. end_node를 넘기면 마지막 구간이
+waypoints[-1]→end_node로 바뀌어 편도 경로도 만들 수 있다 — 상세 계약은 함수 자체의
+docstring 참고. 이 변경은 원래 별도 항목("구간 연결 함수 end_node 파라미터 추가")이었지만,
+engines/grasp_waypoint_common.py::construct_initial_route()의 편도 지원이 이 파라미터
+없이는 완성되지 않아 같은 커밋에 포함했다. 함수 이름 자체의 정리(이제 순환 전용이
+아니므로)는 범위 밖으로 남겨뒀다.
 """
 
 from __future__ import annotations
