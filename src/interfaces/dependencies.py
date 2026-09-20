@@ -72,7 +72,8 @@ def load_runtime_graph():
 def init_route_service():
     global G, route_service, prewalk_orchestrator
     G             = load_runtime_graph()
-    precompute_scoring_features(G)
+    # 장기 프로필 SGD의 안전 특성값(1 - unsafe)이 탐색 비용식과 같은 비율을 쓰도록 설정값을 넘긴다.
+    precompute_scoring_features(G, unsafe_accident_ratio=settings.WALK_UNSAFE_ACCIDENT_RATIO)
     # ALT 휴리스틱은 그래프에 붙여 두고 OnewayAstarEngine이 알아서 집어 쓴다 —
     # RouteService와 route_service.py는 이 때문에 바뀌지 않는다. 준비에 실패하면
     # (None, None)이 와서 아무것도 붙지 않고 엔진이 Haversine으로 돌아간다.
