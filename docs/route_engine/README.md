@@ -396,7 +396,7 @@ Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
 self.base_engines: dict = {
     WalkMode.CIRCULAR_RANDOM: CircularGraspWaypointAlnsEngine,
     WalkMode.ONEWAY_SHORTEST: OnewayAstarEngine,
-    WalkMode.ONEWAY_RANDOM:   OnewayAstarEngine,
+    WalkMode.ONEWAY_RANDOM:   OnewayGraspWaypointAlnsEngine,
     WalkMode.GPS_ART:         GpsArtEngine,
     WalkMode.WAYPOINT:        WaypointComposerEngine,
 }
@@ -408,36 +408,41 @@ self.base_engines: dict = {
 만든 `WeightedEdgeCost`를 엔진 생성자에 넘기면 GRASP 구축 반복과 ALNS 최종 재연결의
 A*(`BuildCycleRoute`)가 그 가중 비용으로 구간을 잇는다 — 단, ALNS 자체의 경유지 선택
 (`alns_search`, destroy-repair)은 `WaypointPoolResult.distance()`(순수 거리)만 보므로 어떤 노드를
-경유지로 쓸지·몇 번째로 방문할지는 여전히 거리 기준이다. `ONEWAY_RANDOM`은 지금은
-`ONEWAY_SHORTEST`와 완전히 같은 `OnewayAstarEngine`을 쓴다(우회 로직이 아직 없는 임시 상태) —
-다만 나중에 갈라칠 수 있도록 `_build_engine()`에서 `ONEWAY_SHORTEST`와 분기를 합치지 않고
-별도 `if`로 남겨 뒀다. `oneway_random`은 여전히 안전·편안 가중치가 걸리지 않는 거리 전용
-비용으로 탐색한다 — 예전 Beam 계열이 하던, "안전·자연 등을 블렌딩한 스칼라 비용으로 고른
-대표 1개 + 벡터로 다양화한 나머지"라는 다양화 메커니즘(`select_diverse_paths` 직접 호출)은
-`circular_random`·`oneway_random` 어느 쪽에서도 더 이상 쓰이지 않는다(그 메커니즘 자체는
-`WaypointComposerEngine`의 leg 조합에만 남아 있다 — 아래 "후보 다양화" 절 참고). **반환 후보
-개수는 별개다** — `oneway_random`(`OnewayAstarEngine`)은 항상 1개뿐이지만, `circular_random`
-(`CircularGraspWaypointAlnsEngine`)은 아래 `WaypointEngine`의 `grasp+alns` 다중 후보 규칙을
-그대로 물려받아 여전히 3개를 반환한다 — 자세한 내용은 바로 아래 문단 참고.
+경유지로 쓸지·몇 번째로 방문할지는 여전히 거리 기준이다. `ONEWAY_RANDOM`은 2026-09-20(#498
+확장)부터 `CircularGraspWaypointAlnsEngine`과 대칭인 `OnewayGraspWaypointAlnsEngine`을 쓴다
+(`WaypointEngine`을 `OnewayRouteInput`으로 생성하면 `end_lat`/`end_lon` 존재만으로 자동
+편도 판별) — 이전에는 `ONEWAY_SHORTEST`와 완전히 같은 `OnewayAstarEngine`으로 대체하던
+임시 상태였다. `_build_engine()`이 `ONEWAY_SHORTEST`와 분기를 합치지 않고 별도 `if`로 둔
+덕에 우회 엔진만 이렇게 갈아 끼울 수 있었다. `oneway_random`도 `circular_random`과 동일하게
+`cost_context`(안전·편안 가중치)를 받는다 — 더 이상 거리 전용이 아니다. 예전 Beam 계열이
+하던, "안전·자연 등을 블렌딩한 스칼라 비용으로 고른 대표 1개 + 벡터로 다양화한 나머지"라는
+다양화 메커니즘(`select_diverse_paths` 직접 호출)은 `circular_random`·`oneway_random` 어느
+쪽에서도 쓰이지 않는다(그 메커니즘 자체는 `WaypointComposerEngine`의 leg 조합에만 남아
+있다 — 아래 "후보 다양화" 절 참고). **반환 후보 개수도 이제 순환과 같다** — `oneway_random`
+(`OnewayGraspWaypointAlnsEngine`)도 `("grasp", "alns")` 고정이라 `MULTI_CANDIDATE_COMBOS`에
+속해 `circular_random`과 마찬가지로 3개(최종 경로 1개 + 후보 2개)를 반환한다. 자세한 내용은
+바로 아래 문단 참고.
 
-- `src/route_engine/engines/`의 남은 엔진(`OnewayAstarEngine`·`GpsArtEngine`·
-  `WaypointComposerEngine`, 그리고 route_service가 직접 잡는 `CircularGraspWaypointAlnsEngine`)의
-  `run()`은 모두 `List[WalkRouteResponse]`를 반환한다(2026-08-23 통일된 계약, 삭제된 엔진들도
-  삭제 전까지는 이 계약을 따랐다).
+- `src/route_engine/engines/`의 남은 엔진(`OnewayAstarEngine`은 이제 `ONEWAY_SHORTEST`
+  전용·`GpsArtEngine`·`WaypointComposerEngine`, 그리고 route_service가 직접 잡는
+  `CircularGraspWaypointAlnsEngine`)의 `run()`은 모두 `List[WalkRouteResponse]`를
+  반환한다(2026-08-23 통일된 계약, 삭제된 엔진들도 삭제 전까지는 이 계약을 따랐다).
 - `oneway_astar`의 `find_path()`는 노드ID 경로 후보를 `list[list[int]]`로 감싸서 반환한다.
   `gps_art`·`waypoint`는 자체 `find_path()`가 없다 — 대신 다른 엔진들의 `run()` 결과를
   조합(`WaypointComposerEngine`)하거나 그 조합에 위임(`GpsArtEngine`)해서 최종 경로를 만든다.
-- 경유지 선택 계열(`waypoint_engine_assembly.py::WaypointEngine`과 그 얇은 래퍼 5종 —
-  `circular_grasp_waypoint_{alns,local,vnd,vns}.py`·`circular_beam_waypoint_vns.py`)의 `run()`도
-  같은 계약(`list[WalkRouteResponse]`)이며, 2026-09-17부터 `MULTI_CANDIDATE_COMBOS`에 속한
-  조합에서만 **최종 경로 1개 + 후보 2개**, 합계 `CANDIDATE_COUNT`(=3)개를 반환한다. 현재 그
-  집합은 `grasp+local`·`grasp+alns` 둘이고, 나머지 조합(`grasp+vnd`·`grasp+vns`·`beam+*`)과
-  실패 상태(`NO_PATH`·`NO_NEAREST_START_NODE`)는 1개만 반환한다. `CircularGraspWaypointAlnsEngine`은
-  `(construction, refinement)`을 오버라이드하지 않는 `("grasp", "alns")` 고정 래퍼이므로 이
-  `grasp+alns` 규칙을 그대로 물려받는다 — `route_service.py`를 통한 `circular_random` 요청도
-  실제로 후보 3개를 반환한다(2026-09-19, 실제 엔진으로 재확인). 단 `select_diverse_paths`
-  기반 벡터 다양화는 쓰지 않는다(`mode="distance"` 전용) — 후보 3개는 순수하게 구축·정제
-  반복이 만들어낸 서로 다른 경로들이다.
+- 경유지 선택 계열(`waypoint_engine_assembly.py::WaypointEngine`과 그 얇은 래퍼 6종 —
+  `circular_grasp_waypoint_{alns,local,vnd,vns}.py`·`circular_beam_waypoint_vns.py`·
+  `oneway_grasp_waypoint_alns.py`)의 `run()`도 같은 계약(`list[WalkRouteResponse]`)이며,
+  2026-09-17부터 `MULTI_CANDIDATE_COMBOS`에 속한 조합에서만 **최종 경로 1개 + 후보 2개**,
+  합계 `CANDIDATE_COUNT`(=3)개를 반환한다. 현재 그 집합은 `grasp+local`·`grasp+alns`
+  둘이고, 나머지 조합(`grasp+vnd`·`grasp+vns`·`beam+*`)과 실패 상태(`NO_PATH`·
+  `NO_NEAREST_START_NODE`·`NO_NEAREST_END_NODE`)는 1개만 반환한다.
+  `CircularGraspWaypointAlnsEngine`·`OnewayGraspWaypointAlnsEngine` 둘 다
+  `(construction, refinement)`을 오버라이드하지 않는 `("grasp", "alns")` 고정 래퍼이므로
+  이 `grasp+alns` 규칙을 그대로 물려받는다 — `route_service.py`를 통한 `circular_random`·
+  `oneway_random` 요청 모두 실제로 후보 3개를 반환한다(2026-09-19/2026-09-20, 실제 엔진으로
+  재확인). 단 `select_diverse_paths` 기반 벡터 다양화는 쓰지 않는다(`mode="distance"`
+  전용) — 후보 3개는 순수하게 구축·정제 반복이 만들어낸 서로 다른 경로들이다.
 - 조합을 가른 근거는 실측이다(2026-09-17, seed 42, 벤치 fixture 160,328노드/223,927엣지, `target_km=3.0`·N=2에서 정제 후 서로 다른 경로 수): `grasp+alns` 18~21개, `grasp+local` 2~8개, `grasp+vnd` 1~2개, `grasp+vns` 2~7개, `beam+*` 1개. VND·VNS는 결정적 단조 하강이라 서로 다른 구축 결과 24개가 같은 지역 최적해로 수렴하고, `beam_construction()`은 애초에 `ConstructionResult`를 1개만 yield한다. 재현 기준은 구축×정제 루프를 그대로 돌면서 매 반복의 `Route`를 모아 `node_ids` 기준 중복을 제거하는 것이다.
 - `WaypointEngine.find_path()`는 위 조합에서도 **최종 경로 노드열 하나**(`list[int]`)만 반환한다 — `circular_beam`·`oneway_beam`·`oneway_astar`가 `list[list[int]]`를 반환하는 것과 다르다. 후보는 `last_alternative_routes` 속성으로만 나간다. 그래서 이 함수를 쓰는 벤치마크 어댑터(`benchmarks/solvers/_circular_engine_common.py::run_circular_engine_distance_only`)와 CSV 지표는 이 변경으로 바뀌지 않는다. `benchmarks/results.py`의 `route_distance_km()`이 `paths` 전체를 합산하므로, 후보를 `paths`에 넣었다면 거리·게이트 지표가 전부 어긋났을 것이다.
 - 후보 선별은 `evaluate_route`/`better`의 사전식 키(`RouteObjective.sort_key()`)로 **안정 정렬**한 뒤 `node_ids` 완전 일치 중복만 제거하고, 그래도 2개를 못 채우면 최종 경로를 복제해 채운다. 최선해 추적(`better` 순차 갱신)은 그대로 두고 후보 수집만 옆에 붙였으므로, 같은 seed에서 최종 경로는 이 변경 전과 동일하다(실측 9조건에서 `|cost - target_m|`이 소수점까지 일치, 2026-09-17).
@@ -558,7 +563,7 @@ discomfort = 1 - slope_score
 | `waypoint`의 `oneway_shortest` leg | 새 선호 가중치 미적용. 기존 재방문 페널티는 유지 |
 | `oneway_shortest` | 거리 기준 최단 유지 |
 | `gps_art` | 새 선호 가중치 미적용. 기존 경유지 연결 방식 유지 |
-| `oneway_random` | `custom_score`가 아니라 **거리 전용**. `OnewayAstarEngine`(=`oneway_shortest`와 동일, 임시 상태)을 쓰고, 안전·편안 가중 로직이 아직 없다 |
+| `oneway_random`(최상위 `WalkMode`) | (2026-09-20 갱신, #498 확장) **가중** — `OnewayGraspWaypointAlnsEngine`(`mode="distance"` 고정)이 `cost_context`를 받아 GRASP 구축·ALNS 최종 재연결의 A*(`BuildCycleRoute`)에 쓴다. `circular_random`과 동일한 구조·제약(ALNS의 경유지 선택 자체는 거리 기준 그대로)이다. `waypoint`의 개별 leg에 쓰이는 `"oneway_random"` 문자열(아래 leg 규칙)과는 다른 것이다 — leg는 여전히 `OnewayAstarEngine`(거리 전용)을 쓴다 |
 | `circular_random` | (2026-09-19 갱신, #462) **가중** — `CircularGraspWaypointAlnsEngine`(`mode="distance"` 고정)이 `cost_context`를 받아 GRASP 구축·ALNS 최종 재연결의 A*(`BuildCycleRoute`)에 쓴다. ALNS의 경유지 선택 자체(`alns_search`)는 거리 기준 그대로다 |
 
 (2026-09-19 갱신, #467) #462는 `cost_context`가 A* 구간 연결 비용에만 영향을 줬고, 후보들 중 **어느 것을 채택할지**(`RouteObjective.sort_key()`/`evaluate_route`)는 여전히 거리·재통행 비율만 봤다 — 가중치를 켜도 "더 안전한 경로"가 "더 안전하지 않지만 거리가 더 정확한 경로"에 밀릴 수 있었다. `Route.weighted_cost_m`(`build_cycle_route`가 `cost_context`로 함께 합산)과 `RouteObjective.preference_penalty_ratio`(`= weighted_cost_m/distance_m - 1`, 범위 `[0, k]`)를 추가해 최종 채택·후보 선별(`_collect_alternatives`, #443)까지 선호도를 반영하도록 확장했다. `sort_key()`는 `feasible=True`일 때 `(0, repeated_edge_ratio, preference_penalty_ratio, distance_error_m)`, `feasible=False`일 때 `(1, distance_error_m, repeated_edge_ratio, preference_penalty_ratio)`다 — 두 경우 모두 왕복 퇴화 방지(`repeated_edge_ratio`)가 선호도보다 우선한다. `cost_context`가 없거나 비활성이면 `weighted_cost_m == distance_m`이라 `preference_penalty_ratio`는 항상 0.0이므로 가중치 미적용 모드의 기존 선택 결과는 바뀌지 않는다.
@@ -848,17 +853,26 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
   `slack_ratio=5%`는 이 경우를 84개로 되살린다(84배). 순환 대비 풀 크기 비율은
   데이터셋 조건에서 `slack_ratio` 0%→20% 구간 중앙값 0.43배→1.03배, 경계근접
   조건에서는 0.13배→0.66배로, 어느 조건도 순환보다 극단적으로 커지지는 않는다.
-- **구축 단계 연결(2026-09-20, feat/496)**: 이 풀을 직접 소비하는 조합 엔진은 여전히
-  없지만, `engines/grasp_waypoint_common.py::construct_initial_route()`와
-  `waypoint_route_builder.py::build_cycle_route()`가 `end_node` 파라미터로 이 풀의
+- **구축 단계 연결(2026-09-20, feat/496)**: `engines/grasp_waypoint_common.py::
+  construct_initial_route()`와 `waypoint_route_builder.py::build_route()`(2026-09-20,
+  #498 리네이밍 전 `build_cycle_route()`)가 `end_node` 파라미터로 이 풀의
   `dist_from_p2`와 `_rank_next_waypoint_candidates()`의 `p2`(커밋 79a3515)를 받아 실제
-  경로를 연결할 수 있는 상태는 됐다 — `end_node=None`(기본값)이면 두 함수 모두 기존
-  순환 동작과 완전히 동일하다. `route_service.py`·조립 계층(`waypoint_engine_assembly.py`)이
-  이 풀(`build_pool_two_point`)을 만들어 그 함수들에 넘기는 프로덕션 배선은 아직 빠져
-  있어 "완성된 편도 다중 경유지 조합 엔진"은 여전히 없다 — 위 `slack_ratio` 미검증
-  항목도 그대로 유효하다. 정제 단계(local/VND/VNS/ALNS)와 조립 루프까지 `end_node`를
-  넓히는 작업은 별도 이슈로 남겨뒀다. 재현:
-  [waypoint_pool_two_point_benchmark.py](../../benchmarks/runner/waypoint_pool_two_point_benchmark.py).
+  경로를 연결할 수 있게 됐다 — `end_node=None`(기본값)이면 두 함수 모두 기존 순환
+  동작과 완전히 동일하다.
+- **정제·조립·서비스 연결 완료(2026-09-20, #498 확장)**: 정제 단계(local/VND/VNS/ALNS,
+  `waypoint_refinement.py`)와 GRASP/Beam 구축 어댑터(`waypoint_construction.py`)까지
+  `end_node`를 전부 흘리도록 확장했고, 조립 계층(`waypoint_engine_assembly.py::
+  WaypointEngine`)이 입력 스키마 모양(`OnewayRouteInput`의 `end_lat`/`end_lon` 존재
+  여부)만으로 순환/편도를 자동 판별해 이 풀(`build_pool_two_point`)을 직접 만들어
+  넘긴다. `engines/oneway_grasp_waypoint_alns.py::OnewayGraspWaypointAlnsEngine`이
+  순환의 `CircularGraspWaypointAlnsEngine`과 대칭인 프로덕션 엔진이며,
+  `route_service.py`가 `WalkMode.ONEWAY_RANDOM`을 이 엔진으로 배선한다(이전에는
+  `OnewayAstarEngine`으로 대체하던 임시 상태였다) — "완성된 편도 다중 경유지 조합
+  엔진"이 이제 존재한다. 위 `slack_ratio` 벤치마크 수치는 여전히 pool 생성 단계
+  기준으로 유효하다. 재현:
+  [waypoint_pool_two_point_benchmark.py](../../benchmarks/runner/waypoint_pool_two_point_benchmark.py),
+  실제 서비스 진입점 검증은
+  [tests/integration/test_oneway_detour_flow.py](../../tests/integration/test_oneway_detour_flow.py).
 
 ## Planar 랜드마크 선택 독립 함수 (2026-08-30)
 
@@ -1714,7 +1728,7 @@ target_km=3.0, seed 0~119)으로 확인했다: 97/120(80.8%), 실패 23건 전�
 
 ## Waypoint(경유지) 조합 엔진
 
-- `waypoint.py`(`WaypointComposerEngine`)는 출발지 → 경유지들 → 목적지를 구간(leg)별로 나눠, 각 leg에 지정된 모드의 편도 엔진을 순차 호출해 하나의 경로로 이어 붙인다. 새 탐색 알고리즘은 추가하지 않고 기존 엔진을 조합만 한다. (2026-09-19 갱신) `_LEG_ENGINES`의 세 키(`oneway_shortest`/`oneway_random`/`oneway_preferred`)가 지금은 전부 `OnewayAstarEngine`이다 — `OnewayBeamEngine`은 삭제됐고, `oneway_random`이 임시로 `oneway_shortest`와 같은 엔진을 쓰는 동안은 셋 다 사실상 같은 동작이다(다만 나중에 갈라칠 수 있도록 분기는 합치지 않고 남겨 뒀다).
+- `waypoint.py`(`WaypointComposerEngine`)는 출발지 → 경유지들 → 목적지를 구간(leg)별로 나눠, 각 leg에 지정된 모드의 편도 엔진을 순차 호출해 하나의 경로로 이어 붙인다. 새 탐색 알고리즘은 추가하지 않고 기존 엔진을 조합만 한다. `_LEG_ENGINES`의 세 키(`oneway_shortest`/`oneway_random`/`oneway_preferred`)는 지금도 전부 `OnewayAstarEngine`이다 — `OnewayBeamEngine`은 삭제됐고 셋 다 사실상 같은 동작이다(다만 나중에 갈라칠 수 있도록 분기는 합치지 않고 남겨 뒀다). **주의**: 이 `"oneway_random"`은 leg 문자열일 뿐이며, 최상위 `WalkMode.ONEWAY_RANDOM`(2026-09-20부터 `OnewayGraspWaypointAlnsEngine`, 위 "Engine 반환 계약" 절 참고)과는 다른 것이다 — 다중 경유지 요청의 개별 leg까지 GRASP+ALNS로 바꾸면 구간 수만큼 반복이 늘어 응답 시간이 나빠지는 트레이드오프가 있어(route_service.py::`_resolve_fill_leg_mode` 참고) 의도적으로 갈라 뒀다.
 - 입력은 `WaypointRouteInput`(`src/schema/route_schema.py`)이며 `waypoints`(경유지 좌표 리스트), `leg_modes`(leg별 모드), `leg_target_km`(leg별 목표 거리, `oneway_random` leg만 필수)로 구성된다. `len(leg_modes) == len(waypoints) + 1`이어야 한다.
 - `leg_modes`/`leg_target_km`은 `WalkMode`/`Coordinate`를 그대로 쓰지 않고 `route_schema.py` 안에 로컬로 정의한 `WaypointLegMode`와 `WaypointCoordinate`를 쓴다. (2026-09-19 갱신) `WaypointLegMode`는 지금 `Literal["oneway_shortest", "oneway_random", "oneway_preferred"]`(3개 값, #445에서 `oneway_preferred` 추가)다. 로컬 재정의 이유로 적혀 있던 `route_schema.py -> walk_schema.py -> route_engine.profiles -> route_schema.py` 순환 임포트는 더 이상 사실이 아니다 — `profiles.py`가 삭제되면서 그 순환 고리 자체가 없어졌고, 실제로 지금 `route_schema.py`는 `src.*` 모듈을 전혀 import하지 않는다(`typing`/`pydantic`만 사용). 그래도 `walk_schema.py`는 여전히 import하지 않는데, 이는 `route_schema.py`가 route_engine 계층 스키마로서 API/챗봇 계층 스키마(`walk_schema.py`)에 의존하지 않는 편이 계층 경계상 낫다는 판단으로 남아 있는 것으로 보인다(재검증 필요 — 원래의 순환 임포트 근거는 더 이상 유효하지 않다).
 - `WaypointComposerEngine`은 그래프를 직접 mutate하지 않고 leg 엔진에 그대로 넘기기만 하므로 `G.copy()`를 하지 않는다(`self.G = G`). 실제 mutation은 그걸 하는 leg 엔진이 자체적으로 격리한다. 인접 leg의 경계 좌표는 동일한 `(lat, lon)` 값을 그대로 재사용해 노드 스냅 불일치를 방지한다.

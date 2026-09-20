@@ -20,6 +20,7 @@ from src.route_engine.engines import (
     WaypointComposerEngine,
 )
 from src.route_engine.engines.circular_grasp_waypoint_alns import CircularGraspWaypointAlnsEngine
+from src.route_engine.engines.oneway_grasp_waypoint_alns import OnewayGraspWaypointAlnsEngine
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.weighted_cost_runtime import build_request_cost_context
 from src.config.settings import settings
@@ -39,10 +40,10 @@ logger = logging.getLogger(__name__)
 
 # 장기 프로필(안전/편안 SGD 갱신)이 신뢰할 수 있는 대조값(contrast)을 계산하려면
 # 대표 후보와 비교할 경쟁 후보가 최소 2개(전체 3개) 있어야 한다. circular_random
-# (CircularGraspWaypointAlnsEngine)은 MULTI_CANDIDATE_COMBOS(construction="grasp",
+# (CircularGraspWaypointAlnsEngine)과 oneway_random(OnewayGraspWaypointAlnsEngine,
+# 2026-09-20, #498 확장)은 둘 다 MULTI_CANDIDATE_COMBOS(construction="grasp",
 # refinement="alns")에 속해 이미 이 최솟값을 만족한다 — longterm_profile_service가
-# RouteHistory.candidate_features 길이를 이 상수로 검증한다. oneway_random은 이제
-# OnewayAstarEngine(단일 경로)이라 candidate_feature_vectors 자체가 없다.
+# RouteHistory.candidate_features 길이를 이 상수로 검증한다.
 MIN_CANDIDATES_FOR_PROFILE = 3
 
 
@@ -54,7 +55,7 @@ class RouteService:
         self.base_engines: dict = {
             WalkMode.CIRCULAR_RANDOM: CircularGraspWaypointAlnsEngine,
             WalkMode.ONEWAY_SHORTEST: OnewayAstarEngine,
-            WalkMode.ONEWAY_RANDOM: OnewayAstarEngine,
+            WalkMode.ONEWAY_RANDOM: OnewayGraspWaypointAlnsEngine,
             WalkMode.GPS_ART: GpsArtEngine,
             WalkMode.WAYPOINT: WaypointComposerEngine,
         }
@@ -250,11 +251,13 @@ class RouteService:
         패딩 **전에** 판단해야 한다 — 먼저 oneway_shortest로 채워 버리면 "사용자가
         고른 최단"과 "서비스가 채운 연결"을 더 이상 구분할 수 없다.
 
-        oneway_random 구간이 섞인 요청은 이번 가중 연결 대상에서 제외한다. 지금은
-        oneway_shortest와 동일하게 순수 거리로 도는 임시 상태라(OnewayBeamEngine을
-        걷어내며 OnewayAstarEngine으로 교체, waypoint.py 참고) 가중 연결 대상이
-        아니다. reason 문자열 "beam_leg_present"는 원래 Beam 구간이었을 때 이름을
-        그대로 쓴다(API 응답 계약).
+        oneway_random 구간이 섞인 요청은 이번 가중 연결 대상에서 제외한다. 최상위
+        WalkMode.ONEWAY_RANDOM은 2026-09-20(#498 확장)부터 GRASP+ALNS로 cost_context를
+        쓰지만, 다중 경유지(WaypointRouteInput) 요청의 개별 leg 채움은 그와 별개로
+        여기서 의도적으로 건드리지 않았다(#498 확장 범위 밖 — 구간별로 GRASP+ALNS를
+        돌리면 다구간 요청의 응답 시간이 늘어나는 트레이드오프가 있어 별도 판단이 필요).
+        reason 문자열 "beam_leg_present"는 원래 Beam 구간이었을 때 이름을 그대로 쓴다
+        (API 응답 계약).
         """
         if "oneway_random" in given_modes:
             return "oneway_shortest", "beam_leg_present"
@@ -348,10 +351,11 @@ class RouteService:
             if destination is None:
                 raise ValueError(f"{mode} 모드에서는 destination이 필요합니다")
 
-            # 지금은 ONEWAY_SHORTEST와 완전히 같은 코드다 — target_km에 맞춰 일부러
-            # 돌아가는 "우회" 동작이 아직 없다(OnewayBeamEngine을 걷어내며 임시로
-            # OnewayAstarEngine을 붙여 뒀다). 분기를 ONEWAY_SHORTEST와 합치지 않고
-            # 따로 둔 이유는 우회 로직이 생기면 여기만 고치기 위해서다.
+            # GRASP+ALNS 기반 편도 우회(2026-09-20, #498 확장) — target_km에 맞춰
+            # 경유지를 골라 일부러 돌아가는 "우회" 경로를 만든다. cost_context가 있으면
+            # 경유지 확정 후 A* 연결이 가중 비용을 쓴다(CIRCULAR_RANDOM과 동일한 배선).
+            # 분기를 ONEWAY_SHORTEST와 합치지 않은 이유는 그대로다 — 우회 로직만
+            # 여기서 갈아 끼울 수 있어야 한다.
             inp = OnewayRouteInput(
                 start_lat=origin.lat,
                 start_lon=origin.lon,
@@ -359,7 +363,7 @@ class RouteService:
                 end_lon=destination.lon,
                 target_km=target_km,
             )
-            return self.base_engines[mode](inp, self.G, custom_weights=custom_weights)
+            return self.base_engines[mode](inp, self.G, cost_context=cost_context)
 
         if destination is None:
             raise ValueError(f"{mode} 모드에서는 destination이 필요합니다")

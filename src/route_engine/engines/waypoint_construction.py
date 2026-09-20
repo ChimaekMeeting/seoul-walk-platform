@@ -19,8 +19,8 @@ Beam은 무작위성이 없고 beam_search를 1회만 실행해 beam_width(=cfg.
 이 함수 자신이 "정제 전" 최선 후보 하나만 evaluate_route/better로 골라 ConstructionResult
 1개만 yield한다 — 조립 루프가 그 하나에 정제를 적용해 새 Beam+{Local,VND,VNS,ALNS}
 조합을 만든다. 이 구현은 benchmarks/solvers/beam_waypoint_solver.py::
-CircularBeamWaypointSolver.solve()의 pool→beam_search→build_cycle_route→최선 선택
-로직을 그대로 옮긴 것이며, 그 solver 자체는 건드리지 않았다("beam-wp" 키의 기존 동작
+CircularBeamWaypointSolver.solve()의 pool→beam_search→build_route(2026-09-20, #498
+리네이밍 전 build_cycle_route)→최선 선택 로직을 그대로 옮긴 것이며, 그 solver 자체는 건드리지 않았다("beam-wp" 키의 기존 동작
 보존). rng 인자는 시그니처를 맞추기 위한 자리이며 쓰지 않는다.
 
 최소거리 하드 필터(2026-09-06, "GRASP/Beam 구축 단계 랭킹 공정성" 후속 논의): GRASP
@@ -72,51 +72,73 @@ from src.route_engine.waypoint_pool_beam_adapter import (
     waypoint_pool_cost_function,
     waypoint_pool_to_beam_candidates,
 )
-from src.route_engine.waypoint_route_builder import build_cycle_route as BuildCycleRoute
+from src.route_engine.waypoint_route_builder import build_route as BuildCycleRoute
 
 
 def grasp_construction(
     G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, target_m: float,
-    cfg: GraspConfig, rng: random.Random,
+    cfg: GraspConfig, rng: random.Random, end_node=None,
 ) -> Iterator[ConstructionResult]:
     """cfg.grasp_iters회 construct_initial_route()를 반복 호출한다 — 기존 4개 GRASP
-    엔진의 find_path() 반복문 본문과 동일하다."""
+    엔진의 find_path() 반복문 본문과 동일하다.
+
+    end_node(편도 지원, 2026-09-20, #498 확장): None이면(기본값) 기존 순환 동작과
+    동일하다. 그대로 construct_initial_route(end_node=end_node)에 흘려보낸다(이미
+    지원하는 파라미터, #498)."""
     for _ in range(cfg.grasp_iters):
-        yield construct_initial_route(G, cost_cache, pool_result, start_node, target_m, rng, cfg)
+        yield construct_initial_route(G, cost_cache, pool_result, start_node, target_m, rng, cfg,
+                                       end_node=end_node)
 
 
-def _with_min_separation_filter(cost, start_node: int, min_separation_m: float):
+def _with_min_separation_filter(cost, start_node: int, min_separation_m: float, end_node=None):
     """GRASP의 is_waypoint_pair_separated()와 동일한 하드 필터를 beam_search()의
     cost()에 얹는다(위 모듈 docstring "최소거리 하드 필터" 참고). min_separation_m이
-    0이면(비율 0) 그대로 통과시켜 필터를 끈다."""
+    0이면(비율 0) 그대로 통과시켜 필터를 끈다.
+
+    end_node(편도 지원, 2026-09-20, #498 확장): 첫 경유지 선택(a==start_node)과 도착
+    폐합 예외를 편도에서는 b==end_node(순환에서는 b==start_node)로 판정한다 — GRASP도
+    이 두 경우엔 필터를 안 건다."""
     if not min_separation_m:
         return cost
+    closing_node = end_node if end_node is not None else start_node
 
     def wrapped(a: int, b: int) -> float:
         base = cost(a, b)
-        if a == start_node or b == start_node or base == inf:
+        if a == start_node or b == closing_node or base == inf:
             return base
         return base if base >= min_separation_m else inf
 
     return wrapped
 
 
-def _angle_diversity_rank_penalty(G: nx.Graph, start_node: int, weight_m: float):
+def _angle_diversity_rank_penalty(G: nx.Graph, start_node: int, weight_m: float, end_node=None):
     """GRASP의 _rank_next_waypoint_candidates()와 동일한 방향 다양성 페널티를
     beam_search()의 rank_penalty 훅으로 재사용한다(위 모듈 docstring "각도 다양성
     페널티" 참고). a==start_node(첫 경유지 선택)면 비교할 '직전 방향'이 없어 0을
     반환한다. weight_m이 0이면(페널티 비활성) None을 반환해 beam_search 호출부가
-    rank_penalty 자체를 안 넘기게 한다."""
+    rank_penalty 자체를 안 넘기게 한다.
+
+    end_node(편도 지원, 2026-09-20, #498 확장): GRASP의 p2 분기와 동일하게, end_node가
+    주어지면 기준선을 p1→end_node로 고정한다 — prev와 무관하게 매 단계(첫 경유지 선택
+    포함) 같은 공식을 쓴다. end_node가 None이면(기본값) 기존 순환 동작과 완전히 같다."""
     if not weight_m:
         return None
     p1_data = G.nodes[start_node]
+    reference_bearing = None
+    if end_node is not None:
+        end_data = G.nodes[end_node]
+        reference_bearing = _bearing_rad(p1_data["lat"], p1_data["lon"], end_data["lat"], end_data["lon"])
 
     def penalty(a: int, b: int) -> float:
-        if a == start_node:
+        if reference_bearing is None and a == start_node:
             return 0.0
-        a_data, b_data = G.nodes[a], G.nodes[b]
-        bearing_prev = _bearing_rad(p1_data["lat"], p1_data["lon"], a_data["lat"], a_data["lon"])
+        b_data = G.nodes[b]
         bearing_c = _bearing_rad(p1_data["lat"], p1_data["lon"], b_data["lat"], b_data["lon"])
+        if reference_bearing is not None:
+            bearing_prev = reference_bearing
+        else:
+            a_data = G.nodes[a]
+            bearing_prev = _bearing_rad(p1_data["lat"], p1_data["lon"], a_data["lat"], a_data["lon"])
         separation = _angular_separation_rad(bearing_prev, bearing_c)
         return weight_m * abs(math.cos(separation))
 
@@ -125,23 +147,29 @@ def _angle_diversity_rank_penalty(G: nx.Graph, start_node: int, weight_m: float)
 
 def beam_construction(
     G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, target_m: float,
-    cfg: GraspConfig, rng: random.Random,
+    cfg: GraspConfig, rng: random.Random, end_node=None,
 ) -> Iterator[ConstructionResult]:
     """beam_search()를 1회 실행해 cfg.rcl_size개 조합("공정 비교"를 위해 beam_width로
     재사용 — beam_waypoint_solver.py 기존 관례) 중 정제 전 최선 후보 하나만 골라
-    ConstructionResult 1개를 yield한다. rng는 쓰지 않는다(beam_search는 결정적)."""
+    ConstructionResult 1개를 yield한다. rng는 쓰지 않는다(beam_search는 결정적).
+
+    end_node(편도 지원, 2026-09-20, #498 확장): None이면(기본값) 기존처럼
+    beam_search의 end_id가 start_node로 닫힌다(순환). end_node를 넘기면 end_id가
+    end_node가 되어 편도 조합을 탐색하고, 최소거리 필터·각도 다양성 페널티·최종
+    A* 연결도 같은 end_node 기준으로 맞춘다."""
     candidates = waypoint_pool_to_beam_candidates(G, pool_result)
     min_separation_m = target_m * cfg.min_waypoint_separation_ratio
     cost = _with_min_separation_filter(
-        waypoint_pool_cost_function(pool_result, start_node), start_node, min_separation_m,
+        waypoint_pool_cost_function(pool_result, start_node, end_node=end_node), start_node, min_separation_m,
+        end_node=end_node,
     )
-    rank_penalty = _angle_diversity_rank_penalty(G, start_node, cfg.angle_diversity_weight_m)
+    rank_penalty = _angle_diversity_rank_penalty(G, start_node, cfg.angle_diversity_weight_m, end_node=end_node)
 
     result = beam_search(
         candidates=candidates,
         cost=cost,
         start_id=start_node,
-        end_id=start_node,
+        end_id=end_node if end_node is not None else start_node,
         target_m=target_m,
         waypoint_count=cfg.num_waypoints,
         beam_width=cfg.rcl_size,
@@ -153,6 +181,7 @@ def beam_construction(
     for order in result.orders:
         route = BuildCycleRoute(
             G, cost_cache.astar_path, start_node, order.waypoint_ids, cost_context=cost_cache.cost_context,
+            end_node=end_node,
         )
         if route is None:
             continue

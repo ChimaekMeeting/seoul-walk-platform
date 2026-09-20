@@ -30,12 +30,18 @@ def waypoint_pool_to_beam_candidates(
     ]
 
 
-def waypoint_pool_cost_function(pool_result: WaypointPoolResult, start_node: int) -> CostFunction:
+def waypoint_pool_cost_function(pool_result: WaypointPoolResult, start_node: int, end_node=None) -> CostFunction:
     """pool_result.distance()/dist_from_p1을 beam_search가 요구하는 cost(a, b) 콜러블로
     감싼다. start_node는 pool_result의 풀 노드가 아니므로(p1 자신은 제외) dist_from_p1으로
     따로 처리한다 — grasp_waypoint_common.py::_rank_next_waypoint_candidates가 prev==p1일
     때 쓰는 것과 같은 분기다. r_max 밖이라 거리를 못 구하면 inf를 반환한다(beam_search의
-    cost 계약과 동일)."""
+    cost 계약과 동일).
+
+    end_node(편도 지원, 2026-09-20, #498 확장): None이면(기본값) start_node만 특별
+    취급하는 기존 동작과 동일하다. end_node가 주어지면(start_node와 다르면) 그 노드가
+    관여하는 구간은 dist_from_p2로 처리한다 — waypoint_refinement.py::_alns_cost_fn과
+    같은 방식. pool_result가 dist_from_p2를 갖지 않으면(WaypointPoolResultTwoPoint가
+    아니면) AttributeError로 즉시 드러난다."""
 
     def cost(a: int, b: int) -> float:
         if a == b:
@@ -44,6 +50,10 @@ def waypoint_pool_cost_function(pool_result: WaypointPoolResult, start_node: int
             distance = pool_result.dist_from_p1.get(b)
         elif b == start_node:
             distance = pool_result.dist_from_p1.get(a)
+        elif end_node is not None and a == end_node:
+            distance = pool_result.dist_from_p2.get(b)
+        elif end_node is not None and b == end_node:
+            distance = pool_result.dist_from_p2.get(a)
         else:
             distance = pool_result.distance(a, b)
         return distance if distance is not None else inf

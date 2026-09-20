@@ -7,12 +7,22 @@ src/route_engine/engines/waypoint_refinement.py
 
 공통 시그니처:
     refine(G, cost_cache, pool_result, start_node, route, target_m, cfg, rng,
-           stats=None, options=None) -> Route
+           stats=None, options=None, end_node=None) -> Route
 
 rng는 vns/alns처럼 무작위성이 필요한 정제만 실제로 쓴다(local/vnd/none은 인자를 받되
 무시한다 — 조립 루프가 모든 refinement를 같은 방식으로 호출할 수 있어야 하기 때문).
 stats는 alns 전용 통계·1회분 상태 훅(AlnsStatsAccumulator)이며, 다른 정제 함수는 받되
 무시한다.
+
+end_node(편도 지원, 2026-09-20, #498 확장): 기본값 None이면 마지막 도착지가 start_node로
+취급되어 기존 순환 동작과 완전히 동일하다 — construct_initial_route/build_route(#498)가
+이미 쓰는 관례(파라미터 목록 맨 끝, Optional[int] = None)를 그대로 따른다. None이 아니면
+각 정제가 내부적으로 부르는 A* 재연결(BuildCycleRoute)·이웃 생성(waypoint_replacement_neighbors
+등)·ALNS(alns_search)에 그대로 흘려보내 "마지막 구간이 start_node가 아니라 end_node로
+끝나는" 편도 정제가 된다. end_node를 실제로 start_node와 다른 값으로 쓰려면 pool_result가
+dist_from_p2를 가진 WaypointPoolResultTwoPoint(waypoint_pool.py::build_pool_two_point 결과)
+여야 한다(construct_initial_route와 같은 전제 — 이 파일은 그 전제를 강제하지 않으므로
+호출부가 맞춰야 한다).
 
 options는 정제별 하이퍼파라미터 주입구다("ALNS 정제 로직 이중화 해소" 이슈). alns()에서는
 ALNSConfig 필드 이름을 키로 하는 부분 override 매핑이고(ex) {"iterations": 60,
@@ -72,16 +82,16 @@ logger = logging.getLogger(__name__)
 # ── none / local ─────────────────────────────────────────────────────────
 
 def none(G, cost_cache, pool_result, start_node, route: Route, target_m, cfg, rng=None,
-         stats=None, options=None) -> Route:
+         stats=None, options=None, end_node=None) -> Route:
     """정제를 적용하지 않는다(구축 단계 결과를 그대로 채택) — construction 단독 성능을
     비교하고 싶을 때 쓴다."""
     return route
 
 
 def local(G, cost_cache, pool_result: WaypointPoolResult, start_node, route: Route, target_m, cfg,
-          rng=None, stats=None, options=None) -> Route:
+          rng=None, stats=None, options=None, end_node=None) -> Route:
     """waypoint_local_search.py::local_search()를 조립 모듈 공통 시그니처로 감싼다."""
-    refined, _obj = local_search(G, cost_cache, pool_result, start_node, route, target_m, cfg)
+    refined, _obj = local_search(G, cost_cache, pool_result, start_node, route, target_m, cfg, end_node=end_node)
     return refined
 
 
@@ -93,7 +103,7 @@ _VND_NEIGHBORHOODS = (waypoint_replacement_neighbors, waypoint_pair_replacement_
 
 
 def vnd(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
-        target_m: float, cfg: GraspConfig, rng=None, stats=None, options=None) -> Route:
+        target_m: float, cfg: GraspConfig, rng=None, stats=None, options=None, end_node=None) -> Route:
     """VND: 이웃 목록(WaypointReplacement→WaypointPairReplacement)을 순서대로 검사하다가
     개선을 찾으면 첫 이웃부터 다시 시작한다. 원래
     CircularGraspWaypointVndEngine.vnd()의 로직을 그대로 옮긴 것 — vns()가 지역탐색
@@ -104,7 +114,8 @@ def vnd(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: in
     while idx < len(_VND_NEIGHBORHOODS):
         neighborhood_fn = _VND_NEIGHBORHOODS[idx]
         best_neighbor, best_neighbor_obj = current, current_obj
-        for neighbor in neighborhood_fn(G, cost_cache, pool_result, start_node, current, target_m, cfg):
+        for neighbor in neighborhood_fn(G, cost_cache, pool_result, start_node, current, target_m, cfg,
+                                         end_node=end_node):
             neighbor_obj = evaluate_route(neighbor, target_m, target_m * cfg.distance_tolerance_ratio)
             if better(neighbor_obj, best_neighbor_obj):
                 best_neighbor, best_neighbor_obj = neighbor, neighbor_obj
@@ -131,7 +142,7 @@ _MAX_ITERATIONS = 12
 
 
 def _shake_replace_one(G, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
-                        rng: random.Random) -> Optional[Route]:
+                        rng: random.Random, end_node=None) -> Optional[Route]:
     i = rng.randrange(len(route.waypoints))
     choices = [c for c in pool_result.pool_nodes if c not in route.waypoints]
     if not choices:
@@ -140,21 +151,24 @@ def _shake_replace_one(G, cost_cache, pool_result: WaypointPoolResult, start_nod
     new_waypoints[i] = rng.choice(choices)
     return BuildCycleRoute(
         G, cost_cache.astar_path, start_node, new_waypoints, cost_context=cost_cache.cost_context,
+        end_node=end_node,
     )
 
 
 def _shake_replace_both(G, cost_cache, pool_result: WaypointPoolResult, start_node: int, cfg: GraspConfig,
-                         rng: random.Random) -> Optional[Route]:
+                         rng: random.Random, end_node=None) -> Optional[Route]:
     n = cfg.num_waypoints
     if len(pool_result.pool_nodes) < n:
         return None
     new_waypoints = rng.sample(pool_result.pool_nodes, n)
     return BuildCycleRoute(
         G, cost_cache.astar_path, start_node, new_waypoints, cost_context=cost_cache.cost_context,
+        end_node=end_node,
     )
 
 
-def _shake_reroute_segment(G, cost_cache, start_node: int, route: Route, rng: random.Random) -> Optional[Route]:
+def _shake_reroute_segment(G, cost_cache, start_node: int, route: Route, rng: random.Random,
+                            end_node=None) -> Optional[Route]:
     node_ids = route.node_ids
     if len(node_ids) < 3:
         return None
@@ -164,7 +178,7 @@ def _shake_reroute_segment(G, cost_cache, start_node: int, route: Route, rng: ra
         return None
     banned = frozenset({frozenset((u, v))})
 
-    stops = [start_node, *route.waypoints, start_node]
+    stops = [start_node, *route.waypoints, end_node if end_node is not None else start_node]
     rerouted_nodes: list[int] = []
     for a, b in zip(stops, stops[1:]):
         leg = cost_cache.astar_path_avoiding_edges(a, b, banned)
@@ -187,20 +201,23 @@ def _shake_reroute_segment(G, cost_cache, start_node: int, route: Route, rng: ra
 
 
 def _shake(G, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route, target_m: float,
-           cfg: GraspConfig, shake_level: int, rng: random.Random) -> Optional[Route]:
+           cfg: GraspConfig, shake_level: int, rng: random.Random, end_node=None) -> Optional[Route]:
     if shake_level == 1:
-        return _shake_replace_one(G, cost_cache, pool_result, start_node, route, rng)
+        return _shake_replace_one(G, cost_cache, pool_result, start_node, route, rng, end_node=end_node)
     if shake_level == 2:
-        return _shake_replace_both(G, cost_cache, pool_result, start_node, cfg, rng)
+        return _shake_replace_both(G, cost_cache, pool_result, start_node, cfg, rng, end_node=end_node)
     if shake_level == 3:
-        return _shake_reroute_segment(G, cost_cache, start_node, route, rng)
-    return construct_initial_route(G, cost_cache, pool_result, start_node, target_m, rng, cfg).route
+        return _shake_reroute_segment(G, cost_cache, start_node, route, rng, end_node=end_node)
+    return construct_initial_route(
+        G, cost_cache, pool_result, start_node, target_m, rng, cfg, end_node=end_node,
+    ).route
 
 
 def vns_loop(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
              target_m: float, cfg: GraspConfig, rng: random.Random,
              max_shake_level: int = _MAX_SHAKE_LEVEL,
-             max_iterations: Optional[int] = _MAX_ITERATIONS) -> Route:
+             max_iterations: Optional[int] = _MAX_ITERATIONS,
+             end_node=None) -> Route:
     """이미 지역최적(VND 적용 완료)인 route를 받아 Shake(레벨 1~max_shake_level)로 교란·
     재개선을 반복한다. 원래 CircularGraspWaypointVnsEngine._vns_loop의 로직을 그대로 옮긴
     것 — 최초 vnd() 호출은 포함하지 않는다(호출부가 먼저 vnd()를 적용한 뒤 이 함수에 넘겨야
@@ -228,11 +245,12 @@ def vns_loop(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_nod
             logger.debug("VNS 반복 상한(%d회)에 도달해 종료합니다: shake_level=%d", max_iterations, shake_level)
             break
         iterations += 1
-        shaken = _shake(G, cost_cache, pool_result, start_node, current, target_m, cfg, shake_level, rng)
+        shaken = _shake(G, cost_cache, pool_result, start_node, current, target_m, cfg, shake_level, rng,
+                         end_node=end_node)
         if shaken is None:
             shake_level += 1
             continue
-        candidate = vnd(G, cost_cache, pool_result, start_node, shaken, target_m, cfg)
+        candidate = vnd(G, cost_cache, pool_result, start_node, shaken, target_m, cfg, end_node=end_node)
         candidate_obj = evaluate_route(candidate, target_m, target_m * cfg.distance_tolerance_ratio)
         if better(candidate_obj, current_obj):
             current, current_obj = candidate, candidate_obj
@@ -272,7 +290,7 @@ def _vns_loop_limits(options: Optional[Mapping[str, Any]]) -> tuple[int, Optiona
 
 def vns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
         target_m: float, cfg: GraspConfig, rng: random.Random, stats=None,
-        options: Optional[Mapping[str, Any]] = None) -> Route:
+        options: Optional[Mapping[str, Any]] = None, end_node=None) -> Route:
     """vnd() → vns_loop() 순서로 조립한 공통 시그니처 정제 함수. 원래 GRASP+VNS 엔진의
     find_path() 안에서 `current = self._vnd_engine.vnd(...); current =
     self._vns_loop(...)`이던 두 호출과 rng 소비 순서가 완전히 동일하다.
@@ -287,10 +305,10 @@ def vns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: in
     된다. 따라서 4를 넘는 값은 "새로운 교란 단계"가 아니라 "전체 재구축을 몇 번 더
     시도하는가"로 동작한다(매번 rng가 다르므로 다중 재시작 효과는 있다)."""
     max_shake_level, max_iterations = _vns_loop_limits(options)
-    current = vnd(G, cost_cache, pool_result, start_node, route, target_m, cfg)
+    current = vnd(G, cost_cache, pool_result, start_node, route, target_m, cfg, end_node=end_node)
     return vns_loop(
         G, cost_cache, pool_result, start_node, current, target_m, cfg, rng,
-        max_shake_level=max_shake_level, max_iterations=max_iterations,
+        max_shake_level=max_shake_level, max_iterations=max_iterations, end_node=end_node,
     )
 
 
@@ -341,18 +359,28 @@ def _alns_candidates_from_pool(G: nx.Graph, pool_result: WaypointPoolResult) -> 
     ]
 
 
-def _alns_cost_fn(pool_result: WaypointPoolResult, start_node: int):
+def _alns_cost_fn(pool_result: WaypointPoolResult, start_node: int, end_node=None):
     """waypoint_alns.py::CostFunction 계약(대칭 거리 m, 도달 불가는 inf)에 맞춘 cost(a,b).
 
     p1(start_node)은 waypoint_pool.py 설계상 pool_nodes에 포함되지 않으므로(자기 자신이라
     제외됨), pool_result.distance()에 직접 넘기면 ValueError가 난다 — p1이 관여하는 두
-    구간(start→첫 경유지, 마지막 경유지→start)은 dist_from_p1으로 따로 처리한다."""
+    구간(start→첫 경유지, 마지막 경유지→start)은 dist_from_p1으로 따로 처리한다.
+
+    end_node(편도 지원, 2026-09-20, #498 확장): None이면(기본값) start_node만 특별
+    취급하는 기존 동작과 동일하다. end_node가 주어지면(그리고 start_node와 다르면) 그
+    노드가 관여하는 두 구간은 dist_from_p2로 처리한다 — pool_result가
+    WaypointPoolResultTwoPoint가 아니면(dist_from_p2 없음) AttributeError로 즉시
+    드러난다(construct_initial_route와 같은 계약, 조용히 잘못된 값을 쓰지 않는다)."""
 
     def cost(a: int, b: int) -> float:
         if a == start_node:
             return pool_result.dist_from_p1.get(b, float("inf"))
         if b == start_node:
             return pool_result.dist_from_p1.get(a, float("inf"))
+        if end_node is not None and a == end_node:
+            return pool_result.dist_from_p2.get(b, float("inf"))
+        if end_node is not None and b == end_node:
+            return pool_result.dist_from_p2.get(a, float("inf"))
         d = pool_result.distance(a, b)
         return d if d is not None else float("inf")
 
@@ -360,15 +388,16 @@ def _alns_cost_fn(pool_result: WaypointPoolResult, start_node: int):
 
 
 def _alns_adapter(G: nx.Graph, pool_result: WaypointPoolResult, start_node: int,
-                  stats: Optional["AlnsStatsAccumulator"]):
+                  stats: Optional["AlnsStatsAccumulator"], end_node=None):
     """(candidates, cost_fn)을 만들되, 조립 루프가 find_path 1회마다 새로 만드는 stats에
     첫 호출 결과를 캐시한다 — 그 1회 동안 pool_result/start_node는 바뀌지 않으므로 구축
     반복(기본 24회)마다 풀 크기만큼의 재구성을 되풀이할 이유가 없다(예전 GRASP+ALNS 엔진이
     find_path 안에서 한 번만 만들던 것과 같은 효과). stats가 None인 직접 호출(단위 테스트
-    등)에서는 매번 새로 만든다 — 값 자체는 동일하다."""
+    등)에서는 매번 새로 만든다 — 값 자체는 동일하다. end_node도 같은 1회 동안 바뀌지
+    않으므로 캐시 키에 넣지 않는다."""
     if stats is not None and stats.adapter_cache is not None:
         return stats.adapter_cache
-    adapter = (_alns_candidates_from_pool(G, pool_result), _alns_cost_fn(pool_result, start_node))
+    adapter = (_alns_candidates_from_pool(G, pool_result), _alns_cost_fn(pool_result, start_node, end_node=end_node))
     if stats is not None:
         stats.adapter_cache = adapter
     return adapter
@@ -548,7 +577,7 @@ def _record_pending(stats: Optional[AlnsStatsAccumulator], result: Optional[ALNS
 def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: int, route: Route,
          target_m: float, cfg: GraspConfig, rng: random.Random,
          stats: Optional[AlnsStatsAccumulator] = None,
-         options: Optional[Mapping[str, Any]] = None) -> Route:
+         options: Optional[Mapping[str, Any]] = None, end_node=None) -> Route:
     """route.waypoints를 초기 순서로 alns_search()를 1회 실행하고, 결과 경유지 순서를
     BuildCycleRoute(A*)로 다시 연결한다.
 
@@ -570,7 +599,7 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
     _rank_next_waypoint_candidates가 이 조건을 후보 생성 단계에서 이미 걸러 구조적으로
     위반이 불가능하지만, ALNS는 repair가 그 랭킹 함수를 거치지 않으므로 사후 검증이
     반드시 필요하다."""
-    alns_candidates, cost_fn = _alns_adapter(G, pool_result, start_node, stats)
+    alns_candidates, cost_fn = _alns_adapter(G, pool_result, start_node, stats, end_node=end_node)
     alns_config = _alns_config(target_m, cfg, rng, options)
 
     try:
@@ -579,7 +608,7 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
             cost=cost_fn,
             initial_ids=tuple(route.waypoints),
             start_id=start_node,
-            end_id=start_node,
+            end_id=end_node if end_node is not None else start_node,
             target_m=target_m,
             config=alns_config,
         )
@@ -609,6 +638,7 @@ def alns(G: nx.Graph, cost_cache, pool_result: WaypointPoolResult, start_node: i
 
     improved = BuildCycleRoute(
         G, cost_cache.astar_path, start_node, new_waypoints, cost_context=cost_cache.cost_context,
+        end_node=end_node,
     )
     if improved is None:
         _record_pending(stats, result, False, "rebuild_failed")

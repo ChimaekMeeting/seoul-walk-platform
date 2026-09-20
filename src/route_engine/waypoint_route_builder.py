@@ -17,14 +17,19 @@ PathFunction과 같은 관례다.
 engines/grasp_waypoint_common.py는 하위 호환을 위해 이 모듈의 Route/BuildCycleRoute
 등을 그대로 재-export한다(기존 4개 GRASP 엔진 파일의 import는 바뀌지 않는다).
 
-build_cycle_route()의 편도(end_node) 지원(2026-09-20, feat/496): end_node: Optional[int]
+build_route()의 편도(end_node) 지원(2026-09-20, feat/496): end_node: Optional[int]
 = None을 추가했다. None이면(기본값) 기존처럼 마지막 구간이 waypoints[-1]→start_node라
-이름(build_cycle_route) 그대로 순환만 만든다. end_node를 넘기면 마지막 구간이
-waypoints[-1]→end_node로 바뀌어 편도 경로도 만들 수 있다 — 상세 계약은 함수 자체의
-docstring 참고. 이 변경은 원래 별도 항목("구간 연결 함수 end_node 파라미터 추가")이었지만,
-engines/grasp_waypoint_common.py::construct_initial_route()의 편도 지원이 이 파라미터
-없이는 완성되지 않아 같은 커밋에 포함했다. 함수 이름 자체의 정리(이제 순환 전용이
-아니므로)는 범위 밖으로 남겨뒀다.
+순환만 만든다. end_node를 넘기면 마지막 구간이 waypoints[-1]→end_node로 바뀌어 편도
+경로도 만들 수 있다 — 상세 계약은 함수 자체의 docstring 참고. 이 변경은 원래 별도
+항목("구간 연결 함수 end_node 파라미터 추가")이었지만, engines/grasp_waypoint_common.py::
+construct_initial_route()의 편도 지원이 이 파라미터 없이는 완성되지 않아 같은 커밋에
+포함했다.
+
+함수 이름 리네이밍(2026-09-20, #498): end_node 지원으로 더 이상 순환 전용이 아니게 되어,
+"순환"을 뜻하던 이름(build_cycle_route)을 build_route로 바꿨다. 하위 호환을 위해
+engines/grasp_waypoint_common.py의 재-export 심볼명(BuildCycleRoute)은 그대로 두고
+import 대상만 build_route로 갱신했다 — 그 파일 및 이를 통해 간접 참조하는 호출부
+(waypoint_construction.py/waypoint_refinement.py 등)는 BuildCycleRoute 이름을 계속 쓴다.
 """
 
 from __future__ import annotations
@@ -56,7 +61,7 @@ def surviving_waypoints(node_ids: Sequence[int], waypoints: Sequence[int]) -> li
     """왕복 가지 제거(PathUtils.prune_dead_ends) 이후 node_ids에 실제로 남아 있는
     경유지만 요청 순서 그대로 추린다(2026-09-09 버그픽스).
 
-    build_cycle_route는 구간을 이어붙인 뒤 prune_dead_ends로 "잠깐 나갔다 그대로
+    build_route는 구간을 이어붙인 뒤 prune_dead_ends로 "잠깐 나갔다 그대로
     되돌아오는" 가지를 걷어내는데, 그 가지가 곧 어떤 경유지로 들어갔다 나오는 왕복
     구간이면 경유지 노드 자체가 node_ids에서 사라진다. 그런데도 Route.waypoints는
     선언값 그대로 남아, "경유지 6개를 지난다"고 기록하면서 실제로는 1개만 지나는
@@ -86,7 +91,7 @@ class Route:
     effective_waypoints: Optional[list[int]] = None
     # pruning 이후 node_ids에 실제로 남은 경유지 — "무엇을 실제로 지났는가"(관측값).
     # None으로 두고 만들면 __post_init__이 node_ids/waypoints에서 계산해 채우므로,
-    # 기존 Route 생성부(build_cycle_route, waypoint_refinement.py::_shake_reroute_segment)는
+    # 기존 Route 생성부(build_route, waypoint_refinement.py::_shake_reroute_segment)는
     # 인자를 추가하지 않아도 자동으로 올바른 값을 갖는다.
     #
     # waypoints를 생존분으로 덮어쓰지 않고 별도 필드로 분리한 이유(2026-09-09 계약 결정):
@@ -156,7 +161,7 @@ def edge_overlap_ratio(G: nx.Graph, path: list[int]) -> float:
     return repeated / total if total else 0.0
 
 
-def build_cycle_route(
+def build_route(
     G: nx.Graph,
     path_finder: PathFinder,
     start_node: int,
@@ -174,8 +179,9 @@ def build_cycle_route(
     바뀐다 — 경유지 선택 단계(engines/grasp_waypoint_common.py::construct_initial_route)가
     같은 end_node를 _rank_next_waypoint_candidates(p2=end_node)에 넘겨 tail(c) 기준점과
     방향 다양성 기준선을 이미 목적지 기준으로 맞춘 뒤이므로, 여기서도 실제 연결이
-    같은 목적지로 향해야 앞뒤가 맞는다. 함수 이름(build_cycle_route)은 "순환"을 뜻하지만
-    이번 변경 범위는 이 파라미터 도입까지이며, 이름 자체의 정리는 범위 밖이다.
+    같은 목적지로 향해야 앞뒤가 맞는다. 이 함수는 원래 이름이 build_cycle_route였으나
+    "순환"을 뜻하는 이름이 더 이상 정확하지 않아 build_route로 바꿨다(2026-09-20, #498,
+    모듈 docstring "함수 이름 리네이밍" 참고).
 
     cost_context(WeightedEdgeCost)를 주면 Route.weighted_cost_m을 그 가중치 합으로 채운다
     (#467, RouteObjective.preference_penalty_ratio 계산에 쓰임). 주지 않으면 weighted_cost_m은
@@ -232,7 +238,7 @@ def build_cycle_route(
 class DistancePathFinder:
     """distance 전용 A* PathFinder + 경로 캐시. GraspConfig/EdgeCost와 무관한 최소
     구현 — mode="distance"만 필요한 조립 계층(예: Beam)에서 GRASP 전용
-    _CostCache(engines/grasp_waypoint_common.py) 없이 build_cycle_route/
+    _CostCache(engines/grasp_waypoint_common.py) 없이 build_route/
     compute_route_geometry_metrics에 바로 넘길 수 있는 PathFinder를 만든다.
 
     astar_path()는 _CostCache.astar_path()와 동일한 캐싱 전략(양방향 키 정규화,

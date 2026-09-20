@@ -13,7 +13,7 @@ solver가 다음 순서로 조각을 직접 엮는다:
   2) waypoint_pool_beam_adapter.py — 위 풀을 beam_search가 요구하는
      candidates/cost 형태로 변환
   3) beam_search() — 추상적인 경유지 순서 조합만 beam_width개까지 탐색
-  4) build_cycle_route() — 각 조합을 실제 A*로 연결(distance 전용
+  4) build_route() — 각 조합을 실제 A*로 연결(distance 전용
      DistancePathFinder — GraspConfig/EdgeCost와 무관, waypoint_route_builder.py)
   5) evaluate_route()/better() — GRASP과 동일한 사전식 비교로 beam_width개 조합 중
      최선 선택
@@ -44,7 +44,7 @@ from src.route_engine.waypoint_pool_beam_adapter import (
     waypoint_pool_cost_function,
     waypoint_pool_to_beam_candidates,
 )
-from src.route_engine.waypoint_route_builder import DistancePathFinder, build_cycle_route
+from src.route_engine.waypoint_route_builder import DistancePathFinder, build_route
 
 _DEFAULT_TARGET_KM = 3.0
 _DEFAULT_SEED = 42
@@ -155,7 +155,7 @@ class CircularBeamWaypointSolver(BasePathSolver):
 
         best_route, best_obj = None, _INFEASIBLE
         for order in result.orders:
-            route = build_cycle_route(graph, path_finder.astar_path, start_node, order.waypoint_ids)
+            route = build_route(graph, path_finder.astar_path, start_node, order.waypoint_ids)
             if route is None:
                 continue
             obj = evaluate_route(route, target_m, target_m * distance_tolerance_ratio)
