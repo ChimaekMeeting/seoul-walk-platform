@@ -14,6 +14,10 @@ src/service/user/longterm_profile_service.py
 
         X_contrast,i = X_R,i - mean(X_candidates,i)   (i = safety, comfort)
 
+    특성값은 탐색 비용식과 같은 지표다 — safety = 1 - unsafe, comfort = 1 - discomfort
+    (scoring_engine.path_feature_averages). 학습된 가중치가 비용식에서 alpha * unsafe,
+    beta * discomfort로 쓰이므로 입력도 같은 지표여야 한다.
+
     X_R은 대표 후보(사용자에게 보여준/걸은 경로), X_candidates는 같은 요청에서 함께
     생성됐지만 보여주지 않은 나머지 후보(RouteService가 최소 2개를 보장 — route_service.
     MIN_CANDIDATES_FOR_PROFILE)다. 대표 후보 자신은 mean에서 제외한다 — 대조는 "내가
@@ -58,6 +62,11 @@ logger = logging.getLogger(__name__)
 INITIAL_LR = 0.5
 DECAY_RATE = 0.5
 MIN_LR = 0.05
+
+# 갱신 폭 상한의 기준값 (#487, 팀 결정 대기 — 미확정이라 비활성). 활성화 절차는 _apply_sgd_update 참고.
+# 기준값은 "한 번의 피드백에서 가중치를 최대 얼마나 움직이게 할지"로 정한다
+# (0.1이면 첫 피드백 기준 최대 약 ±0.055, 피드백이 쌓일수록 η가 줄어 더 작아진다).
+# _CONTRAST_CAP = 0.1
 
 _NEUTRAL_PREDICTION = 0.5  # ŷ의 중심값 — X_contrast=0(모든 후보가 특성상 동일)이면 예측은 "평범"
 
@@ -168,6 +177,20 @@ class LongTermProfileService:
         )
 
         x_contrast = _contrast_vector(candidate_features)
+
+        # --- 갱신 폭 상한 (#487, 팀 결정 대기 — 미확정이라 비활성) --------------------------
+        # 대표 후보 선정이 겹침 우선이라 대조값이 크게 음수로 나오는 요청이 있고, 그때 높은 별점이
+        # 안전 가중치를 한 번에 크게 내릴 수 있다. x_contrast를 제한해 한 번의 피드백 영향을 묶는다.
+        # 결정되면 모듈 상단의 _CONTRAST_CAP 주석을 풀고 아래 방식 중 하나만 주석을 해제한다.
+        # 음수만 자르거나 0으로 만드는 방식은 쓰지 않는다 — 높은 별점이 항상 가중치를 올리는
+        # 편향이 생긴다(크기만 제한하고 부호는 유지한다).
+        #   [방식 1] 음수만 제한:
+        # x_contrast = {dim: max(-_CONTRAST_CAP, v) for dim, v in x_contrast.items()}
+        #   [방식 2] 양쪽 제한:
+        # x_contrast = {dim: max(-_CONTRAST_CAP, min(_CONTRAST_CAP, v)) for dim, v in x_contrast.items()}
+        # 적용 축(안전만 / 안전+편안)도 함께 정한다. 안전만이면 dim == "safety"일 때만 제한한다.
+        # 활성화하면 tests/unit/test_longterm_profile_service.py의 TestContrastCap(skip) 해제.
+
         eta = _adaptive_learning_rate(feedback_count)
 
         y = {

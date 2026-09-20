@@ -28,7 +28,9 @@ Beam+ALNS가 waypoint_refinement.py::alns() 하나를 공유한다.
 
 candidate_feature_vectors(장기 프로필 SGD 스냅샷):
     run()이 반환하는 각 WalkRouteResponse와 같은 순서로 후보별 {"safety": 0~1, "comfort": 0~1}
-    평균을 채운다. 안전/편안 특성값은 그래프 엣지 데이터로만 계산할 수 있어, 피드백이 들어오는
+    평균을 채운다. 각 값은 탐색 비용식과 같은 지표다 — safety는 1 - unsafe(안전시설 커버리지와
+    사고위험 결합), comfort는 slope_score(= 1 - discomfort)의 길이 가중 평균이다
+    (scoring_engine.path_feature_averages 참고). 안전/편안 특성값은 그래프 엣지 데이터로만 계산할 수 있어, 피드백이 들어오는
     시점(수 분~수 일 뒤)에는 이 요청의 그래프 상태를 재현할 수 없다 — 그래서 후보 생성 시점에
     바로 계산해 route_service가 RouteHistory.candidate_features(JSON)로 그대로 얼려 저장하고,
     피드백 처리 시점(longterm_profile_service)에는 재계산 없이 DB 값만 읽는다.
