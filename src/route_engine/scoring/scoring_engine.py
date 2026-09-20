@@ -26,6 +26,13 @@ def _build_feature_cache(graph: nx.Graph) -> dict:
     comfort는 slope_score(클수록 평탄, 0~1)를 데이터 소스로 쓴다 — tags 기반
     comfort_penalty는 graph_contract.md 기준 tags가 실제로 전달되지 않아 제거했다
     (이 파일의 WeightedEdgeCost가 이미 slope_score를 comfort 선호로 쓰는 것과 같은 매핑).
+
+    결측(None) safety_score/slope_score는 중앙값으로 대체한다 — WeightedEdgeCost._score()와
+    같은 규칙이다. 예전에는 `or 0.0`으로 대체해 "점수 없는 도로 = 안전/편안 최악"이 됐는데,
+    graph_repository.py가 명시한 "None을 0.0으로 바꾸지 않는다"는 계약과 어긋났고, 이 캐시로
+    계산하는 path_feature_averages()가 longterm_profile_service의 SGD 대조값(X_R)에 그대로
+    들어가 데이터 희박 지역의 점수를 체계적으로 낮게 왜곡시켰다(#476). 값이 하나도 없는
+    속성은 중앙값도 없으므로 그때만 0.0으로 남긴다.
     """
     edges = list(graph.edges(data=True))
     n = len(edges)
@@ -35,10 +42,17 @@ def _build_feature_cache(graph: nx.Graph) -> dict:
     safety_raw = np.empty(n, dtype=np.float64)
     slope_raw = np.empty(n, dtype=np.float64)
 
+    safety_present = [data.get("safety_score") for _, _, data in edges if data.get("safety_score") is not None]
+    slope_present = [data.get("slope_score") for _, _, data in edges if data.get("slope_score") is not None]
+    safety_median = statistics.median(safety_present) if safety_present else 0.0
+    slope_median = statistics.median(slope_present) if slope_present else 0.0
+
     for i, (_, _, data) in enumerate(edges):
         length_raw[i] = max(1.0, float(data.get("length", 1.0) or 1.0))
-        safety_raw[i] = data.get("safety_score") or 0.0
-        slope_raw[i] = data.get("slope_score") or 0.0
+        safety_value = data.get("safety_score")
+        safety_raw[i] = safety_value if safety_value is not None else safety_median
+        slope_value = data.get("slope_score")
+        slope_raw[i] = slope_value if slope_value is not None else slope_median
 
     return {
         "edge_keys": edge_keys,
