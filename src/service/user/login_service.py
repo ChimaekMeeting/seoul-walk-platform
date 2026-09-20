@@ -122,7 +122,8 @@ class KakaoLoginService:
 
     async def logout(self, access_token: Optional[str], refresh_token: Optional[str]):
         """
-        DB의 refresh_token을 제거하여 완전히 로그아웃합니다.
+        유효한 access 또는 저장값이 일치하는 refresh로 사용자를 찾아
+        Valkey의 갱신 정보를 제거합니다. 이미 발급된 access JWT는 만료까지 유효합니다.
         """
         provider_id = None
 

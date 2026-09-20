@@ -51,6 +51,7 @@ package-lock.json
 /tests/integration/*
 !tests/integration/test_route_feedback_flow.py
 !tests/integration/test_circular_preference_flow.py
+!tests/integration/test_mobile_logout.py
 !tests/integration/check_circular_preference_artifact.py
 .claude/
 

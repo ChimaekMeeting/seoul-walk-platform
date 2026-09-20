@@ -9,7 +9,7 @@ from src.interfaces.schema.auth_schema import Status
 optional_access_bearer = HTTPBearer(
     auto_error=False,
     scheme_name="AccessTokenBearer",
-    description="ROUDI access token. refresh token은 인증 갱신 API에서만 사용합니다.",
+    description="ROUDI access token. refresh token은 인증 갱신 API의 Bearer 또는 로그아웃 본문으로 보냅니다.",
 )
 
 
