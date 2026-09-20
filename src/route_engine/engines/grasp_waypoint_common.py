@@ -406,23 +406,26 @@ def _remaining_distance_estimate_m(
     remaining_legs: int,
     total_legs: Optional[int],
 ) -> float:
-    """후보 c를 고른 뒤 p1로 돌아갈 때까지 "남은 거리"의 추정값(2026-09-09 버그픽스).
+    """후보 c를 고른 뒤 최종 도착지(순환이면 p1, 편도면 p2)까지 "남은 거리"의
+    추정값(2026-09-09 버그픽스, 2026-09-20 편도 일반화 — 함수 자체는 그때도 수정하지
+    않았다: 아래 논리가 목적지가 p1이든 p2든 무관하게 성립하기 때문이다).
 
-    remaining_legs는 c에서 p1까지 남은 구간 수(c가 마지막 경유지면 1), total_legs는
-    순환 전체 구간 수 N+1이다. tail_lower_bound_m은 dist(c, p1)이며, 남은 경로가 어떤
-    경유지를 더 거치든 삼각부등식상 이보다 짧아질 수 없으므로 항상 하한이다.
+    remaining_legs는 c에서 최종 도착지까지 남은 구간 수(c가 마지막 경유지면 1),
+    total_legs는 전체 구간 수 N+1이다. tail_lower_bound_m은 dist(c, 최종 도착지)이며
+    (호출부가 순환이면 dist_from_p1[c], 편도면 dist_from_p2[c]를 넘긴다), 남은 경로가
+    어떤 경유지를 더 거치든 삼각부등식상 이보다 짧아질 수 없으므로 항상 하한이다.
 
     예전에는 이 하한을 그대로 추정값으로 썼다 — 즉 "지금 고르는 경유지가 마지막"이라고
     가정해 남은 경유지들의 거리를 0으로 본 셈이다. 그 하한을 target_m에 맞추려 하면
-    앞쪽 구간이 예산을 전부 써버린다: 첫 단계에서 식이 |2·dist(p1,c) − target_m|로
-    축약되어 d = target_m/2 = r_max에서 최소가 되는데, 균형 잡힌 순환이라면 첫 구간은
+    앞쪽 구간이 예산을 전부 써버린다: 순환 첫 단계에서 식이 |2·dist(p1,c) − target_m|로
+    축약되어 d = target_m/2 = r_max에서 최소가 되는데, 균형 잡힌 경로라면 첫 구간은
     target_m/(N+1)이어야 하므로 조준점이 (N+1)/2배 어긋난다(N=2에서도 1.5배).
 
-    remaining_legs == 1이면 남은 구간이 c→p1 하나뿐이라 하한이 곧 정확한 값이고 추정할
-    것이 없다 — 이때는 균형 가정값을 쓰지 않는다(정확한 값을 근사로 덮어쓰면 오히려
-    나빠진다). remaining_legs > 1일 때만 균형 순환 가정값(각 구간이 target_m/(N+1)씩
-    쓴다는 가정)을 쓰되, 그 가정값이 실제 하한보다 작아질 수 있으므로 max로 하한을
-    지킨다 — 하한을 깨면 "물리적으로 불가능한 총거리"를 조준하게 된다.
+    remaining_legs == 1이면 남은 구간이 c→최종 도착지 하나뿐이라 하한이 곧 정확한
+    값이고 추정할 것이 없다 — 이때는 균형 가정값을 쓰지 않는다(정확한 값을 근사로
+    덮어쓰면 오히려 나빠진다). remaining_legs > 1일 때만 균형 가정값(각 구간이
+    target_m/(N+1)씩 쓴다는 가정)을 쓰되, 그 가정값이 실제 하한보다 작아질 수 있으므로
+    max로 하한을 지킨다 — 하한을 깨면 "물리적으로 불가능한 총거리"를 조준하게 된다.
     """
     if remaining_legs <= 1 or not total_legs:
         return tail_lower_bound_m
@@ -441,13 +444,30 @@ def _rank_next_waypoint_candidates(
     *,
     remaining_legs: int = 1,
     total_legs: Optional[int] = None,
+    p2: Optional[int] = None,
 ) -> list[int]:
     """다음 경유지 후보를 "직전 경유지(prev) 기준" 결합 점수 오름차순으로 정렬한다
     (기존 _rank_p2_candidates/_rank_p3_candidates를 경유지 n개로 일반화한 단일 함수):
 
-        score = |cumulative_so_far_m + dist(prev,c) + tail(c) − target_m|
-                + (prev != p1인 경우) cfg.angle_diversity_weight_m · |cos(각도차(p1→prev, p1→c))|
-        tail(c) = _remaining_distance_estimate_m(dist(p1,c), target_m, remaining_legs, total_legs)
+        score = |cumulative_so_far_m + dist(prev,c) + tail(c) − target_m| + diversity_penalty(c)
+        tail(c) = _remaining_distance_estimate_m(tail_lower_bound_m, target_m, remaining_legs, total_legs)
+        tail_lower_bound_m = dist(p1,c)(p2 없음, 순환) 또는 dist(c,p2)(p2 있음, 편도)
+
+    p2(편도 지원, 2026-09-20 추가): 기본값 None이면 기존 순환 동작과 완전히 동일하다
+    (호출부 3곳은 모두 p2를 넘기지 않는다). p2를 넘기면 "최종적으로 돌아갈 지점"이 p1이
+    아니라 p2가 된다 — tail(c)의 하한이 dist(p1,c) 대신 dist(c,p2)(pool_result가
+    WaypointPoolResultTwoPoint일 때만 있는 dist_from_p2)로 바뀐다. _remaining_distance_estimate_m
+    자체는 "c에서 목적지까지"라는 의미로 이미 일반적이라 이 함수는 수정하지 않는다.
+
+    diversity_penalty(c)도 p2 유무로 갈린다:
+      - p2 없음(순환): (prev != p1인 경우) cfg.angle_diversity_weight_m · |cos(각도차(p1→prev, p1→c))|
+        — "왕복처럼 보이는 정도"를 벌점 준다. prev==p1(첫 경유지 선택)이면 비교할 '직전 방향'이
+        없어 페널티를 적용하지 않는다.
+      - p2 있음(편도): cfg.angle_diversity_weight_m · |cos(각도차(p1→p2, p1→c))| — 기준선이
+        p1→p2로 고정이라 prev와 무관하게 매 단계 동일한 공식을 쓴다(첫 경유지 선택 단계도
+        포함). "p1→p2 직선에서 벗어나지 않는 정도(=우회가 없는 정도)"를 벌점 줘, 그냥
+        직진하는 경로 대신 옆으로 벗어나는 경유지를 선호하게 한다. num_waypoints가 커져도
+        기준선은 고정이며, 그 경우의 지역 적응형(prev 기준) 대안은 범위 밖이다.
 
     cumulative_so_far_m은 p1에서 prev까지 이미 확정된 경유지들을 실제로 거쳐온 누적
     거리(m) — 호출부(construct_initial_route 등)가 매 단계 재계산해 넘긴다. 매 단계
@@ -469,8 +489,9 @@ def _rank_next_waypoint_candidates(
 
     prev==p1(첫 경유지를 고르는 단계)이고 remaining_legs==1이면 cumulative_so_far_m=0,
     dist(prev,c)==dist(p1,c)이므로 score의 첫 항이 |2·dist(p1,c) − target_m|로 축약된다 —
-    경유지가 1개뿐인 순환의 정확한 기준이다. 이 단계에서는 비교할 '직전 방향'이 없으므로
-    각도 다양성 페널티를 적용하지 않는다(bearing_prev가 정의되지 않음).
+    경유지가 1개뿐인 순환의 정확한 기준이다. p2가 없으면(순환) 이 단계에서 비교할 '직전
+    방향'이 없으므로 각도 다양성 페널티를 적용하지 않는다(reference_bearing이 정의되지
+    않음). p2가 있으면(편도) 기준선이 p1→p2로 고정이라 이 단계에도 그대로 적용된다.
 
     cfg.min_waypoint_separation_ratio > 0이고 prev != p1이면, prev-c 실제 A* 거리
     (WaypointPoolResult.distance — 직선거리 아님)가 target_m * cfg.min_waypoint_separation_ratio
@@ -485,10 +506,14 @@ def _rank_next_waypoint_candidates(
     다른 후보 조회는 캐시를 그대로 쓴다 — 후보 하나하나에 실제 경로 탐색을 부르지 않는다."""
     p1_data = G.nodes[p1]
 
-    bearing_prev = None
-    if prev != p1 and cfg.angle_diversity_weight_m:
-        prev_data = G.nodes[prev]
-        bearing_prev = _bearing_rad(p1_data["lat"], p1_data["lon"], prev_data["lat"], prev_data["lon"])
+    reference_bearing = None
+    if cfg.angle_diversity_weight_m:
+        if p2 is not None:
+            p2_data = G.nodes[p2]
+            reference_bearing = _bearing_rad(p1_data["lat"], p1_data["lon"], p2_data["lat"], p2_data["lon"])
+        elif prev != p1:
+            prev_data = G.nodes[prev]
+            reference_bearing = _bearing_rad(p1_data["lat"], p1_data["lon"], prev_data["lat"], prev_data["lon"])
 
     ranked = []
     for c in pool_result.pool_nodes:
@@ -502,16 +527,17 @@ def _rank_next_waypoint_candidates(
         if prev != p1 and cfg.min_waypoint_separation_ratio and not is_waypoint_pair_separated(d_prev_c, target_m, cfg):
             continue  # 직전 경유지와 후보가 실제 도보상 너무 가까움 — 왕복 퇴화 위험이 있는 조합이라 제외
 
+        tail_lower_bound_m = pool_result.dist_from_p1[c] if p2 is None else pool_result.dist_from_p2[c]
         tail_m = _remaining_distance_estimate_m(
-            pool_result.dist_from_p1[c], target_m, remaining_legs, total_legs,
+            tail_lower_bound_m, target_m, remaining_legs, total_legs,
         )
         total = cumulative_so_far_m + d_prev_c + tail_m
         distance_error = abs(total - target_m)
 
-        if bearing_prev is not None:
+        if reference_bearing is not None:
             c_data = G.nodes[c]
             bearing_c = _bearing_rad(p1_data["lat"], p1_data["lon"], c_data["lat"], c_data["lon"])
-            separation = _angular_separation_rad(bearing_prev, bearing_c)
+            separation = _angular_separation_rad(reference_bearing, bearing_c)
             diversity_penalty = cfg.angle_diversity_weight_m * abs(math.cos(separation))
         else:
             diversity_penalty = 0.0
