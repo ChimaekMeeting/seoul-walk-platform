@@ -38,6 +38,7 @@ from benchmarks.tests.fixtures import (
     HangingSolver,
     MissingCostSolver,
     MissingPathsSolver,
+    MedianSubstitutionSolver,
     MutatingSolver,
     NonDictReturnSolver,
     NoOverlapRatioSolver,
@@ -413,6 +414,41 @@ def test_r9e_preference_metrics_are_unmeasured_when_weighted_cost_is_disabled():
     assert row["comfort_exposure_ratio"] is None
     assert row["safety_penalty_ratio"] is None
     assert row["comfort_penalty_ratio"] is None
+
+
+def test_r9f_cost_context_columns_report_normalized_coefficients_and_per_run_substitutions():
+    """spawn 워커에서도 가중치 조건과 결측 대체 횟수를 이번 solve분만 기록한다."""
+    from src.route_engine.scoring.scoring_engine import (
+        ACCIDENT_ATTR,
+        SAFETY_ATTR,
+        SLOPE_ATTR,
+        WeightedEdgeCost,
+    )
+
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=100, safety_score=None, accident_score=0.5, slope_score=0.75)
+    context = WeightedEdgeCost(
+        0.42, 0.28, accident_ratio=0.5, weight_limit=0.7,
+        medians={SAFETY_ATTR: 0.5, ACCIDENT_ATTR: 0.5, SLOPE_ATTR: 0.5},
+    )
+    # 부모의 기존 진단값과 자식 워커의 행 값을 섞지 않아야 한다.
+    context.weight("A", "B", graph["A"]["B"])
+    assert context.median_substitutions == 1
+
+    df = bm.run_benchmark(
+        [MedianSubstitutionSolver("Median")], graph, "A", "B",
+        {"cost_context": context}, timeout_sec=10.0,
+    )
+    row = df.iloc[0]
+
+    assert row["cost_alpha"] == pytest.approx(0.42)
+    assert row["cost_beta"] == pytest.approx(0.28)
+    assert row["median_substitutions"] == 1
+
+    direct_row = bm_results.run_solver_task(
+        MedianSubstitutionSolver("Median-direct"), graph, "A", "B", {"cost_context": context},
+    )
+    assert direct_row["median_substitutions"] == 1
 
 
 def test_r9b_repeated_edge_ratio_needs_graph_and_is_none_without_it():

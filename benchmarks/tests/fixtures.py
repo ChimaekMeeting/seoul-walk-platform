@@ -135,6 +135,15 @@ class ParamDrivenPathSolver(BasePathSolver):
         return {"paths": [params["path"]], "cost": 0.0, "overlap_ratio": 0.0}
 
 
+class MedianSubstitutionSolver(BasePathSolver):
+    """가중 탐색 중 결측 점수 하나를 중앙값으로 대체하는 solver 모형."""
+
+    def solve(self, graph, start_node, target_node, params):
+        cost_context = params["cost_context"]
+        cost_context.weight(start_node, target_node, graph[start_node][target_node])
+        return {"paths": [[start_node, target_node]], "cost": 1.0}
+
+
 class CpuLoopSolver(BasePathSolver):
     """sleep이 아니라 실제 CPU 연산(순수 파이썬 루프)을 수행하는 solver.
 

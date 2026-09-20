@@ -96,6 +96,7 @@ import pandas as pd
 from benchmarks.config import BENCH_DIR, WALK_GRAPH_ARTIFACT
 from benchmarks.results import (
     RESULT_COLUMNS,
+    attach_cost_context_diagnostics,
     build_result_row,
     failed_row,
     validate_solver_result,
@@ -163,8 +164,14 @@ def _child_worker(solver, graph, start_node, target_node, params, result_queue) 
     이 프로세스 안에서 직접 재고 그 델타만 부모에게 넘긴다.
     """
     child_start = time.perf_counter()
+    cost_context = params.get("cost_context")
+    substitutions_before = (
+        int(cost_context.median_substitutions)
+        if cost_context is not None and cost_context.enabled else 0
+    )
     try:
         raw_result = solver.solve(graph, start_node, target_node, params)
+        raw_result = attach_cost_context_diagnostics(raw_result, cost_context, substitutions_before)
         elapsed = time.perf_counter() - child_start
         result_queue.put(("ok", elapsed, raw_result))
     except Exception as e:

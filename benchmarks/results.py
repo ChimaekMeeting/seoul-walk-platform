@@ -45,6 +45,8 @@ RESULT_COLUMNS = [
     # 가중 비용이 활성화된 경우에만 최종 경로에서 측정하는 안전·편안 축별 노출/추가 비용.
     "safety_exposure_ratio", "comfort_exposure_ratio",
     "safety_penalty_ratio", "comfort_penalty_ratio",
+    # 요청 선호도를 normalize_preference_weights()가 실제 비용식에 쓸 계수로 바꾼 결과.
+    "cost_alpha", "cost_beta",
     # overlap_ratio는 repeated_edge_ratio의 하위 호환 alias다. 새 소비자는 의미가
     # 명확한 repeated_edge_ratio를 사용한다.
     "is_closed_loop", "spike_count", "repeated_edge_ratio", "overlap_ratio", "circularity_q",
@@ -84,6 +86,8 @@ RESULT_COLUMNS = [
     "prune_clean_branch_count", "prune_clean_branch_length_m",
     "waypoints_lost_clean", "waypoints_lost_repeated",
     "alns_operator_stats",
+    # 가중 탐색 중 결측 점수를 중앙값으로 대체한 횟수. 품질/게이트에는 쓰지 않는다.
+    "median_substitutions",
 
     "error",
 ]
@@ -94,6 +98,7 @@ _OPTIONAL_INT_KEYS = (
     "num_waypoints_used", "effective_waypoints_used",
     "prune_branch_count", "prune_clean_branch_count",
     "waypoints_lost_clean", "waypoints_lost_repeated",
+    "median_substitutions",
 )
 _OPTIONAL_FLOAT_KEYS = (
     "find_path_sec", "baseline_shortest_km", "baseline_shortest_overlap_ratio",
@@ -227,6 +232,38 @@ def path_preference_metrics(graph, paths, cost_context) -> dict[str, Optional[fl
         }
     except Exception:
         return empty
+
+
+def attach_cost_context_diagnostics(result, cost_context, substitutions_before: int = 0):
+    """solve() 직후의 요청별 가중 비용 진단을 결과에 붙인다.
+
+    median_substitutions는 탐색 과정에서만 증가하는 mutable 카운터다. 벤치마크 워커는
+    별도 프로세스라 부모의 cost_context와 서로 다른 인스턴스를 보므로, 이 시점의
+    **호출별 증가분**을 결과 dict에 실어야 부모가 정확히 기록할 수 있다.
+    """
+    if not isinstance(result, dict) or not cost_context or not cost_context.enabled:
+        return result
+    enriched = dict(result)
+    substitutions_after = int(cost_context.median_substitutions)
+    enriched["median_substitutions"] = max(0, substitutions_after - substitutions_before)
+    return enriched
+
+
+def cost_context_metrics(cost_context, result: dict) -> dict[str, Optional[float] | Optional[int]]:
+    """활성 WeightedEdgeCost의 실제 계수와 결측 대체 진단을 행 값으로 만든다."""
+    empty = {"cost_alpha": None, "cost_beta": None, "median_substitutions": None}
+    if not cost_context or not cost_context.enabled:
+        return empty
+
+    substitutions = result.get("median_substitutions")
+    if substitutions is None:
+        # run_solver_task처럼 같은 프로세스에서 바로 행을 만드는 호출의 안전망이다.
+        substitutions = int(cost_context.median_substitutions)
+    return {
+        "cost_alpha": round(cost_context.alpha, 4),
+        "cost_beta": round(cost_context.beta, 4),
+        "median_substitutions": substitutions,
+    }
 
 
 def circularity_q(graph, paths, perimeter_m: Optional[float]) -> Optional[float]:
@@ -438,7 +475,9 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
 
     distance_km = route_distance_km(graph, paths)
     perimeter_m = distance_km * 1000 if distance_km is not None else None
-    preference_metrics = path_preference_metrics(graph, paths, params.get("cost_context"))
+    cost_context = params.get("cost_context")
+    preference_metrics = path_preference_metrics(graph, paths, cost_context)
+    cost_metrics = cost_context_metrics(cost_context, result)
 
     row = _empty_row()
     for key in _PASSTHROUGH_KEYS:
@@ -456,6 +495,7 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
             if distance_km is not None and target_km is not None else None
         ),
         **preference_metrics,
+        **cost_metrics,
         "baseline_shortest_km": result.get("baseline_shortest_km"),
         "detour_ratio": (
             round(distance_km / result["baseline_shortest_km"] - 1, 4)
@@ -491,6 +531,11 @@ def run_solver_task(solver, graph, start_node, target_node, params: dict) -> dic
     target_km = params.get("target_km")
     circular = start_node == target_node  # 순환 경로는 출발=도착
 
+    cost_context = params.get("cost_context")
+    substitutions_before = (
+        int(cost_context.median_substitutions)
+        if cost_context is not None and cost_context.enabled else 0
+    )
     t0 = time.perf_counter()
     try:
         raw_result = solver.solve(graph, start_node, target_node, params)
@@ -498,6 +543,7 @@ def run_solver_task(solver, graph, start_node, target_node, params: dict) -> dic
         return failed_row(solver, "failed", time.perf_counter() - t0, repr(e), target_km, circular)
 
     elapsed = time.perf_counter() - t0
+    raw_result = attach_cost_context_diagnostics(raw_result, cost_context, substitutions_before)
 
     try:
         result = validate_solver_result(raw_result)

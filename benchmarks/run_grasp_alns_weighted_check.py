@@ -50,7 +50,7 @@ import pandas as pd
 
 from benchmarks.benchmark import SOLVER_REGISTRY, _build_cost_context, _load_default_graph
 from benchmarks.config import RESULTS_DIR
-from benchmarks.results import build_result_row, validate_solver_result
+from benchmarks.results import attach_cost_context_diagnostics, build_result_row, validate_solver_result
 from benchmarks.route_diversity import distinct_route_report
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
 
@@ -88,9 +88,11 @@ def _run_point(solver, graph, start_node, target_node, label, safety, comfort, n
     paths = []
     for seed in range(n_runs):
         params = {"target_km": target_km, "seed": seed, "cost_context": cost_context}
+        substitutions_before = cost_context.median_substitutions if cost_context is not None else 0
         t0 = time.perf_counter()
         try:
             raw = solver.solve(graph, start_node, target_node, params)
+            raw = attach_cost_context_diagnostics(raw, cost_context, substitutions_before)
             elapsed = time.perf_counter() - t0
             if elapsed > timeout:
                 print(f"  [경고] [{label}] seed={seed} elapsed={elapsed:.1f}s > timeout={timeout}s "

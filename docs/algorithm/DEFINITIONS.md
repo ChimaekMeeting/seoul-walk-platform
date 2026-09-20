@@ -2223,6 +2223,8 @@ GRASP 반복 24번      ALNS 반복 200번      RCSP 쪽지 상한 4장
 | 안전 노출 비율 | `safety_exposure_ratio` | 최종 경로의 안전 결핍도(`unsafe`) 거리 가중 평균 |
 | 편안 노출 비율 | `comfort_exposure_ratio` | 최종 경로의 불편도(`discomfort`) 거리 가중 평균 |
 | 안전·편안 비용 비율 | `safety_penalty_ratio` / `comfort_penalty_ratio` | 각 노출 비율에 정규화된 비용 계수 alpha/beta를 곱한 거리 대비 추가 비용 |
+| 유효 비용 계수 | `cost_alpha` / `cost_beta` | 입력 안전·편안 선호도를 `normalize_preference_weights()`로 변환한, 실제 `WeightedEdgeCost` 비용식의 alpha/beta |
+| 중앙값 대체 횟수 | `median_substitutions` | 해당 solve 호출의 가중 탐색 중 점수 결측을 중앙값으로 대체한 횟수. 품질 게이트·순위에는 쓰지 않는 진단값 |
 | 잔가시 | spike | A→B→A처럼 갔다가 바로 돌아온 구간 |
 
 ## ◆ 실험에 관한 말
