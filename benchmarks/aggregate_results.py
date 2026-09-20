@@ -155,7 +155,13 @@ PROXY_METRICS = (
     Metric("segment_balance_ratio", higher_is_better=True),
 )
 
-ALL_METRICS = (*QUALITY_METRICS, *COST_METRICS, *PROXY_METRICS)
+# 최종 경로 품질·게이트와 별개로, 사용자에게 함께 보여 준 3후보가 실제로 얼마나 다른지
+# 관측한다. 후보를 하나만 내는 solver/편도 행은 None이므로 순위·게이트에 넣지 않는다.
+CANDIDATE_METRICS = (
+    Metric("candidate_pairwise_overlap_ratio", higher_is_better=False),
+)
+
+ALL_METRICS = (*QUALITY_METRICS, *COST_METRICS, *PROXY_METRICS, *CANDIDATE_METRICS)
 
 # raw CSV에는 없고 add_derived_columns()가 만드는 컬럼. 누락 경고 대상에서 제외한다.
 DERIVED_COLUMNS = frozenset({"path_lookups", "search_work", "circularity_q_rel"})

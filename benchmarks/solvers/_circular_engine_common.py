@@ -11,6 +11,10 @@ graph edge 'length'를 직접 합산해 거리/루프폐합/잔가시/왕복겹�
 좌표 변환 이전 단계의 결과를 얻는다 (엔진 알고리즘 자체는 건드리지 않음).
 """
 
+from typing import Optional
+
+from src.route_engine.engines.waypoint_engine_assembly import CANDIDATE_COUNT
+
 
 def run_circular_engine_distance_only(engine, start_node: int, target_km: float) -> tuple[list, float]:
     """mode="distance" 전용 엔진에서 노드ID 경로와 실제 거리(cost, m)를 얻는다.
@@ -30,3 +34,24 @@ def run_circular_engine_distance_only(engine, start_node: int, target_km: float)
 
     cost = engine.utils.calc_distance(pruned)
     return pruned, cost
+
+
+def circular_candidate_paths(engine, final_path: list) -> Optional[list[list]]:
+    """최종 경로와 엔진이 만든 대안 2개를 렌더링과 같은 pruning 후 노드열로 꺼낸다.
+
+    ``WaypointEngine.run()``은 최종 경로와 ``last_alternative_routes``를 각각
+    ``prune_dead_ends()`` 한 뒤 사용자에게 돌려준다. 벤치마크도 같은 형태를 비교해야
+    후보 중첩률이 실제 반환 경로를 서술한다. 3개를 온전히 확보하지 못하면 None으로
+    두어 1~2개 후보에서 나온 수치를 3후보 지표로 오해하지 않게 한다.
+    """
+    alternatives = getattr(engine, "last_alternative_routes", [])
+    if len(alternatives) != CANDIDATE_COUNT - 1:
+        return None
+
+    candidate_paths = [final_path]
+    for route in alternatives:
+        pruned = engine.utils.prune_dead_ends(route.node_ids)
+        if len(pruned) < 2:
+            return None
+        candidate_paths.append(pruned)
+    return candidate_paths if len(candidate_paths) == CANDIDATE_COUNT else None

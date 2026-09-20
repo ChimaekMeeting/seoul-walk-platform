@@ -19,7 +19,7 @@ import json
 from dataclasses import replace
 from typing import Optional
 
-from benchmarks.solvers._circular_engine_common import run_circular_engine_distance_only
+from benchmarks.solvers._circular_engine_common import circular_candidate_paths, run_circular_engine_distance_only
 from benchmarks.solvers.base_solver import BasePathSolver
 from src.route_engine.engines.circular_grasp_waypoint_alns import (
     GRASP_ALNS_CONFIG,
@@ -169,9 +169,11 @@ class CircularGraspWaypointLocalSolver(BasePathSolver):
             cost_context=params.get("cost_context"),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
+        candidate_paths = circular_candidate_paths(engine, path)
 
         return {
             "paths": [path],
+            "candidate_paths": candidate_paths,
             "cost": cost,
             "astar_calls": engine.cost_cache.astar_calls,
             "cache_hits": engine.cost_cache.cache_hits,
@@ -253,9 +255,11 @@ class CircularGraspWaypointAlnsSolver(BasePathSolver):
             cost_context=params.get("cost_context"),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
+        candidate_paths = circular_candidate_paths(engine, path)
 
         return {
             "paths": [path],
+            "candidate_paths": candidate_paths,
             "cost": cost,
             "astar_calls": engine.cost_cache.astar_calls,
             "cache_hits": engine.cost_cache.cache_hits,

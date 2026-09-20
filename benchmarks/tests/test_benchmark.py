@@ -451,6 +451,38 @@ def test_r9f_cost_context_columns_report_normalized_coefficients_and_per_run_sub
     assert direct_row["median_substitutions"] == 1
 
 
+def test_r9g_candidate_pairwise_overlap_is_distance_weighted_jaccard_for_three_routes():
+    """후보 3개 사이 중첩은 자기 재통행과 별개의 거리 가중 Jaccard 평균이다."""
+    graph = nx.Graph()
+    for u, v in (("A", "B"), ("B", "C"), ("C", "A"), ("B", "D"), ("D", "A"), ("A", "E"), ("E", "D")):
+        graph.add_edge(u, v, length=100)
+    candidates = [
+        ["A", "B", "C", "A"],  # A-B-C-A
+        ["A", "B", "D", "A"],  # A-B만 첫 후보와 겹침
+        ["A", "E", "D", "A"],  # D-A만 둘째 후보와 겹침
+    ]
+
+    row = bm_results.build_result_row(
+        "three-candidate", graph, {}, 0.1,
+        {"paths": [candidates[0]], "candidate_paths": candidates, "cost": 1.0},
+    )
+
+    # (1/5 + 0/6 + 1/5) / 3 = 0.1333...
+    assert row["candidate_pairwise_overlap_ratio"] == pytest.approx(0.1333)
+
+
+def test_r9g_candidate_pairwise_overlap_is_unmeasured_without_exactly_three_candidates():
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=100)
+
+    row = bm_results.build_result_row(
+        "one-candidate", graph, {}, 0.1,
+        {"paths": [["A", "B"]], "candidate_paths": [["A", "B"]], "cost": 1.0},
+    )
+
+    assert row["candidate_pairwise_overlap_ratio"] is None
+
+
 def test_r9b_repeated_edge_ratio_needs_graph_and_is_none_without_it():
     """거리 가중 정의라 graph 없이는 계산할 수 없다 — 0.0으로 위장하지 않고 None."""
     solver = FixedPathSolver("NoGraph", path=["A", "B", "A"])

@@ -15,7 +15,7 @@ from benchmarks.stats import percentile
 
 def _row(algorithm, start_node, seed, *, status="ok", passed=True,
          deviation=0.1, repeated=0.0, elapsed=1.0, astar=100, circularity=0.5,
-         cache_hits=0, pool_misses=10):
+         cache_hits=0, pool_misses=10, candidate_overlap=None):
     return {
         "algorithm": algorithm, "start_node": start_node, "target_km": 3.0, "seed": seed,
         "status": status, "passed": passed,
@@ -24,6 +24,7 @@ def _row(algorithm, start_node, seed, *, status="ok", passed=True,
         "elapsed_sec": elapsed, "find_path_sec": None,
         "astar_calls": astar, "cache_hits": cache_hits, "pool_cache_misses": pool_misses,
         "waypoint_separation_m": 800.0, "segment_balance_ratio": 0.6,
+        "candidate_pairwise_overlap_ratio": candidate_overlap,
     }
 
 
@@ -100,6 +101,18 @@ def test_g5_worst_follows_each_metrics_direction(column, higher_is_better, value
     metric = agg.Metric(column, higher_is_better=higher_is_better)
 
     assert metric.worst(pd.Series(values)) == expected_worst
+
+
+def test_g5b_candidate_overlap_is_aggregated_as_a_lower_is_better_observation():
+    rows = [
+        _row("A", 1, 1, candidate_overlap=0.2),
+        _row("A", 1, 2, candidate_overlap=0.6),
+    ]
+
+    result = agg.per_condition(pd.DataFrame(rows)).iloc[0]
+
+    assert result["candidate_pairwise_overlap_ratio_mean"] == pytest.approx(0.4)
+    assert result["candidate_pairwise_overlap_ratio_worst"] == pytest.approx(0.6)
 
 
 def test_g6_paired_comparison_drops_conditions_where_any_algorithm_failed_entirely():

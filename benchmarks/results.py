@@ -29,6 +29,7 @@ from benchmarks.config import (
     MAX_REPEATED_EDGE_RATIO,
     MAX_SPIKE_COUNT,
 )
+from benchmarks.route_diversity import candidate_pairwise_overlap_ratio
 from src.route_engine.waypoint_route_builder import edge_overlap_ratio
 
 REQUIRED_RESULT_KEYS = ("paths", "cost")
@@ -86,6 +87,8 @@ RESULT_COLUMNS = [
     "prune_clean_branch_count", "prune_clean_branch_length_m",
     "waypoints_lost_clean", "waypoints_lost_repeated",
     "alns_operator_stats",
+    # 최종 경로와 대안 2개를 함께 반환한 순환 solver의 후보 간 구간 중첩 진단.
+    "candidate_pairwise_overlap_ratio",
     # 가중 탐색 중 결측 점수를 중앙값으로 대체한 횟수. 품질/게이트에는 쓰지 않는다.
     "median_substitutions",
 
@@ -108,6 +111,7 @@ _OPTIONAL_FLOAT_KEYS = (
 )
 _OPTIONAL_BOOL_KEYS = ("feasible", "is_degenerate_loop")
 _OPTIONAL_STR_KEYS = ("selection_status", "alns_operator_stats", "waypoint_bearings_deg")
+_OPTIONAL_PATHS_KEYS = ("candidate_paths",)
 
 # overlap_ratio / repeated_edge_ratio는 build_result_row가 같은 자기 재통행 정의로 채우므로 제외한다.
 _PASSTHROUGH_KEYS = tuple(
@@ -382,6 +386,14 @@ def validate_solver_result(result) -> dict:
             raise TypeError(f"'{key}'는 str이어야 합니다 (실제 타입: {type(value).__name__})")
         validated[key] = value
 
+    for key in _OPTIONAL_PATHS_KEYS:
+        value = result.get(key)
+        if value is not None and (
+            not isinstance(value, list) or any(not isinstance(path, list) for path in value)
+        ):
+            raise TypeError(f"'{key}'는 list[list]여야 합니다 (실제 타입: {type(value).__name__})")
+        validated[key] = value
+
     return validated
 
 
@@ -511,6 +523,9 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
             else path_repeated_edge_ratio(graph, paths)
         ),
         "circularity_q": circularity_q(graph, paths, perimeter_m),
+        "candidate_pairwise_overlap_ratio": candidate_pairwise_overlap_ratio(
+            graph, result.get("candidate_paths") or [],
+        ),
         "cost": result["cost"],
         "baseline_shortest_overlap_ratio": result.get("baseline_shortest_overlap_ratio"),
         "error": "",

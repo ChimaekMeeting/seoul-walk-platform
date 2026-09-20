@@ -2225,6 +2225,7 @@ GRASP 반복 24번      ALNS 반복 200번      RCSP 쪽지 상한 4장
 | 안전·편안 비용 비율 | `safety_penalty_ratio` / `comfort_penalty_ratio` | 각 노출 비율에 정규화된 비용 계수 alpha/beta를 곱한 거리 대비 추가 비용 |
 | 유효 비용 계수 | `cost_alpha` / `cost_beta` | 입력 안전·편안 선호도를 `normalize_preference_weights()`로 변환한, 실제 `WeightedEdgeCost` 비용식의 alpha/beta |
 | 중앙값 대체 횟수 | `median_substitutions` | 해당 solve 호출의 가중 탐색 중 점수 결측을 중앙값으로 대체한 횟수. 품질 게이트·순위에는 쓰지 않는 진단값 |
+| 후보 쌍 중첩 비율 | `candidate_pairwise_overlap_ratio` | 최종 순환 경로와 대안 2개, 총 3후보의 모든 쌍에서 `공통 간선 길이 / 합집합 간선 길이`를 구한 평균. 후보 3개가 아닌 실행은 `None` |
 | 잔가시 | spike | A→B→A처럼 갔다가 바로 돌아온 구간 |
 
 ## ◆ 실험에 관한 말
