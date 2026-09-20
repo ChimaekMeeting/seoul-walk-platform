@@ -874,6 +874,25 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
   실제 서비스 진입점 검증은
   [tests/integration/test_oneway_detour_flow.py](../../tests/integration/test_oneway_detour_flow.py).
 
+- **알려진 제약: target_km이 클수록 응답 시간이 나빠짐(2026-09-20 확인, v1은 그대로 감수하기로
+  결정)**. 실제 그래프(160,328노드)·상명대 정문→경복궁역 3번 출입구(직선 3.2km) 기준
+  실측: target_km 3.85 → 7초, 4.81 → 10.5초, 6.41 → 21.5초, 8.01 → 60~85초(3회 반복,
+  변동 있음). 정확도 자체는 문제없다(목표거리 오차 전부 10m 미만).
+  원인은 `pairwise_cache_rows`(위 #489 재튜닝, 256) 부족이 **아니다** — 256을 2048·8192로
+  올려도 시간이 그대로였고(65.7s/73.8s/58.7s), `WaypointPoolResult`의 행 캐시는 세 값
+  전부에서 196개만 채워져 애초에 캐시 용량엔 한 번도 걸리지 않았다(cProfile로 재확인:
+  `single_source_dijkstra_path_length` 196~198회가 전체 시간의 대부분을 차지). #489
+  튜닝은 순환(`CircularGraspWaypointAlnsEngine`, r_max=target_m/2인 원 cutoff) 기준으로만
+  검증됐고, 편도의 타원 cutoff(두 초점 각각에서 budget_m≈target_m 반경)는 같은 target_km에서
+  훨씬 넓은 영역을 본다 — GRASP 24회 독립 반복이 매번 다른 경유지를 골라, 반복마다 "처음
+  보는 출발노드" 기준 `single_source_dijkstra`를 새로 계산해야 하는 횟수(196회)가 반복
+  구조 자체에서 나온다. 캐시를 늘려서 줄일 수 있는 종류의 비용이 아니다.
+  검토했던 대안(전부 미적용, 품질-속도 트레이드오프가 있어 별도 판단 필요할 때 재검토):
+  `grasp_iters`(공유 기본값 24)를 편도만 줄이기, 196회의 개별 Dijkstra를 배치(multi-source)로
+  묶기, 편도 후보 풀 자체를 좁히기(`slack_ratio` 축소). 재현:
+  [scratchpad 검증 스크립트는 세션 로컬이라 저장소에 없음 — `dependencies.route_service.get_route`를
+  `WalkMode.ONEWAY_RANDOM`·큰 target_km으로 반복 호출하면 재현된다].
+
 ## Planar 랜드마크 선택 독립 함수 (2026-08-30)
 
 ALT(A* + Landmark + Triangle inequality)의 Planar 랜드마크 선택법을 독립 함수로
