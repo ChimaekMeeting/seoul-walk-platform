@@ -42,6 +42,9 @@ RESULT_COLUMNS = [
     # 경유지 분해에 의존하지 않으므로, pruning이 경유지를 지웠는지와 무관하게
     # "사용자에게 실제로 전달되는 경로"를 서술한다.
     "distance_km", "target_km", "distance_deviation_km", "baseline_shortest_km", "detour_ratio",
+    # 가중 비용이 활성화된 경우에만 최종 경로에서 측정하는 안전·편안 축별 노출/추가 비용.
+    "safety_exposure_ratio", "comfort_exposure_ratio",
+    "safety_penalty_ratio", "comfort_penalty_ratio",
     # overlap_ratio는 repeated_edge_ratio의 하위 호환 alias다. 새 소비자는 의미가
     # 명확한 repeated_edge_ratio를 사용한다.
     "is_closed_loop", "spike_count", "repeated_edge_ratio", "overlap_ratio", "circularity_q",
@@ -178,6 +181,52 @@ def path_repeated_edge_ratio(graph, paths) -> Optional[float]:
         return round(edge_overlap_ratio(graph, paths[0]), 4)
     except Exception:
         return None
+
+
+def path_preference_metrics(graph, paths, cost_context) -> dict[str, Optional[float]]:
+    """최종 경로의 안전·편안 노출과 각 축의 추가 비용 비율을 독립 계산한다.
+
+    ``WeightedEdgeCost.weight``의 ``length * (1 + alpha * unsafe + beta * discomfort)``
+    식을 축별로 분해한다. exposure는 각 결핍도의 거리 가중 평균이고, penalty는 그
+    exposure에 alpha 또는 beta를 곱한 추가 비용 / 거리다. 따라서 두 penalty의 합은
+    같은 경로의 ``weighted_cost / distance - 1``과 일치한다.
+
+    가중 비용이 비활성화됐거나 경로·그래프가 없으면 None으로 둔다. 0.0은 "가중치를
+    실제로 적용했지만 해당 축의 추가 비용이 없었다"는 별도 의미이므로 사용하지 않는다.
+    사후 측정은 ``median_substitutions`` 진단을 오염시키지 않는다.
+    """
+    empty = {
+        "safety_exposure_ratio": None,
+        "comfort_exposure_ratio": None,
+        "safety_penalty_ratio": None,
+        "comfort_penalty_ratio": None,
+    }
+    if graph is None or not paths or not cost_context or not cost_context.enabled:
+        return empty
+
+    try:
+        distance_m = safety_exposure_m = comfort_exposure_m = 0.0
+        path = paths[0]
+        for u, v in zip(path, path[1:]):
+            edge_data = graph[u][v]
+            length = cost_context._length(u, v, edge_data)
+            unsafe = cost_context.unsafe(edge_data, track_substitutions=False)
+            discomfort = cost_context.discomfort(edge_data, track_substitutions=False)
+            distance_m += length
+            safety_exposure_m += length * unsafe
+            comfort_exposure_m += length * discomfort
+        if distance_m <= 0:
+            return empty
+        safety_exposure = safety_exposure_m / distance_m
+        comfort_exposure = comfort_exposure_m / distance_m
+        return {
+            "safety_exposure_ratio": round(safety_exposure, 4),
+            "comfort_exposure_ratio": round(comfort_exposure, 4),
+            "safety_penalty_ratio": round(cost_context.alpha * safety_exposure, 4),
+            "comfort_penalty_ratio": round(cost_context.beta * comfort_exposure, 4),
+        }
+    except Exception:
+        return empty
 
 
 def circularity_q(graph, paths, perimeter_m: Optional[float]) -> Optional[float]:
@@ -389,6 +438,7 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
 
     distance_km = route_distance_km(graph, paths)
     perimeter_m = distance_km * 1000 if distance_km is not None else None
+    preference_metrics = path_preference_metrics(graph, paths, params.get("cost_context"))
 
     row = _empty_row()
     for key in _PASSTHROUGH_KEYS:
@@ -405,6 +455,7 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
             round(abs(distance_km - target_km), 4)
             if distance_km is not None and target_km is not None else None
         ),
+        **preference_metrics,
         "baseline_shortest_km": result.get("baseline_shortest_km"),
         "detour_ratio": (
             round(distance_km / result["baseline_shortest_km"] - 1, 4)

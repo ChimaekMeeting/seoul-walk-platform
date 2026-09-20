@@ -2220,6 +2220,9 @@ GRASP 반복 24번      ALNS 반복 200번      RCSP 쪽지 상한 4장
 | 기준 최단거리 | `baseline_shortest_km` | 편도 출발·도착 사이 물리 거리(`length`) 최단경로 길이 |
 | 우회율 | `detour_ratio` | `(실제 경로 거리 / 기준 최단거리) - 1` |
 | 기준 최단경로 중첩 비율 | `baseline_shortest_overlap_ratio` | 편도 경로가 물리 거리(`length`) 최단경로와 겹치는 통행 거리 비율 |
+| 안전 노출 비율 | `safety_exposure_ratio` | 최종 경로의 안전 결핍도(`unsafe`) 거리 가중 평균 |
+| 편안 노출 비율 | `comfort_exposure_ratio` | 최종 경로의 불편도(`discomfort`) 거리 가중 평균 |
+| 안전·편안 비용 비율 | `safety_penalty_ratio` / `comfort_penalty_ratio` | 각 노출 비율에 정규화된 비용 계수 alpha/beta를 곱한 거리 대비 추가 비용 |
 | 잔가시 | spike | A→B→A처럼 갔다가 바로 돌아온 구간 |
 
 ## ◆ 실험에 관한 말

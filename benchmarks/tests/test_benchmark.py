@@ -373,6 +373,48 @@ def test_r9d_detour_ratio_uses_final_distance_and_baseline_shortest_km():
     assert row["detour_ratio"] == 1.0
 
 
+def test_r9e_preference_metrics_split_weighted_cost_without_mutating_diagnostics():
+    """축별 추가 비용의 합은 가중 비용 비율이며, 사후 측정은 결측 진단을 건드리지 않는다."""
+    from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
+
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=100, safety_score=0.5, accident_score=0.5, slope_score=0.75)
+    context = WeightedEdgeCost(0.4, 0.2, accident_ratio=0.5, weight_limit=0.7)
+
+    row = bm_results.build_result_row(
+        "weighted", graph, {"cost_context": context}, 0.1,
+        {"paths": [["A", "B"]], "cost": 1.0},
+    )
+
+    assert row["safety_exposure_ratio"] == pytest.approx(0.5)
+    assert row["comfort_exposure_ratio"] == pytest.approx(0.25)
+    assert row["safety_penalty_ratio"] == pytest.approx(0.2)
+    assert row["comfort_penalty_ratio"] == pytest.approx(0.05)
+    assert row["safety_penalty_ratio"] + row["comfort_penalty_ratio"] == pytest.approx(0.25)
+    assert context.median_substitutions == 0
+
+
+def test_r9e_preference_metrics_are_unmeasured_when_weighted_cost_is_disabled():
+    """거리 전용 폴백은 선호도 추가비용 0이 아니라 '미측정'으로 남긴다."""
+    from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
+
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=100, safety_score=0.5, accident_score=0.5, slope_score=0.75)
+    disabled_context = WeightedEdgeCost(
+        0.4, 0.2, accident_ratio=0.5, weight_limit=0.7, enabled=False,
+    )
+
+    row = bm_results.build_result_row(
+        "distance-only", graph, {"cost_context": disabled_context}, 0.1,
+        {"paths": [["A", "B"]], "cost": 1.0},
+    )
+
+    assert row["safety_exposure_ratio"] is None
+    assert row["comfort_exposure_ratio"] is None
+    assert row["safety_penalty_ratio"] is None
+    assert row["comfort_penalty_ratio"] is None
+
+
 def test_r9b_repeated_edge_ratio_needs_graph_and_is_none_without_it():
     """거리 가중 정의라 graph 없이는 계산할 수 없다 — 0.0으로 위장하지 않고 None."""
     solver = FixedPathSolver("NoGraph", path=["A", "B", "A"])

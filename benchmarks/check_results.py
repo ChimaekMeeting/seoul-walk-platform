@@ -50,6 +50,10 @@ EMPTY_COLUMN_OWNERS = {
     "baseline_shortest_overlap_ratio": "편도(oneway) solver — 순환 전용 격자라면 비는 것이 정상",
     "baseline_shortest_km": "편도(oneway) solver — 순환 전용 격자라면 비는 것이 정상",
     "detour_ratio": "baseline_shortest_km를 보고한 편도(oneway) 실행",
+    "safety_exposure_ratio": "활성 WeightedEdgeCost가 있는 실행",
+    "comfort_exposure_ratio": "활성 WeightedEdgeCost가 있는 실행",
+    "safety_penalty_ratio": "활성 WeightedEdgeCost가 있는 실행",
+    "comfort_penalty_ratio": "활성 WeightedEdgeCost가 있는 실행",
     "alns_operator_stats": "ALNS 정제 solver(*-wp-alns)",
     "find_path_sec": "이 지표를 보고하는 solver가 아직 없음",
     "pool_cache_hits": "GRASP 경유지 풀 solver(grasp-wp-*)",
@@ -121,7 +125,8 @@ def coverage_by_algorithm(df: pd.DataFrame) -> pd.DataFrame:
     tracked = [
         c for c in (*WAYPOINT_SOLVER_REQUIRED, *GRASP_POOL_REQUIRED,
                     "circularity_q", "baseline_shortest_km", "baseline_shortest_overlap_ratio",
-                    "detour_ratio", "passed", "within_time_budget")
+                    "detour_ratio", "safety_exposure_ratio", "comfort_exposure_ratio",
+                    "safety_penalty_ratio", "comfort_penalty_ratio", "passed", "within_time_budget")
         if c in df.columns
     ]
     if not tracked:
