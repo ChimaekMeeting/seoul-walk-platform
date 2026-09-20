@@ -1,5 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel, Field, RootModel, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 from typing import Literal, Optional, Union, List
 from src.interfaces.schema.walk_schema import WalkMode, WalkRouteResponse
 from src.interfaces.validators.dist_validator import validate_target_km_positive
@@ -141,7 +142,10 @@ class State(BaseModel):
     """
     user_id: int
     current_location: Location
-    access_token: Optional[str] = None
+    access_token: SkipJsonSchema[Optional[str]] = Field(
+        default=None,
+        description="현재 Graph 실행에서만 사용하는 내부 access token",
+    )
 
     mode: Optional[WalkMode] = None
     user_context: Optional[
@@ -164,3 +168,7 @@ class State(BaseModel):
     user_prompt: str  = ""
     response:    str  = ""
     feature_labels: dict[FeatureTag, FeatureLabel] = Field(default_factory=dict)  # feature별 명시적 라벨, 선호도 라벨
+
+    def model_dump_for_storage(self) -> dict:
+        """Valkey 저장 시 내부 access token을 제외한 JSON 호환 상태를 반환합니다."""
+        return self.model_dump(mode="json", exclude={"access_token"})

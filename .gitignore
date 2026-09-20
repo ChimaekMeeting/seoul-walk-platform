@@ -45,6 +45,8 @@ package-lock.json
 !tests/unit/test_waypoint_detour_cap.py
 !tests/unit/test_weight_extractor_state.py
 !tests/unit/test_distance_validation.py
+!tests/unit/test_prewalk_access_control.py
+!tests/unit/test_safe_error_policy.py
 !/tests/integration/
 /tests/integration/*
 !tests/integration/test_route_feedback_flow.py

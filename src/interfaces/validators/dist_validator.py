@@ -9,6 +9,8 @@ def _coerce_finite_target_km(value: object) -> object:
         raise ValueError("목표 산책 거리는 숫자로 입력해주세요.")
     try:
         number = float(value)
+    except OverflowError as exc:
+        raise ValueError("목표 산책 거리는 유한한 숫자로 입력해주세요.") from exc
     except (TypeError, ValueError):
         # 숫자가 아닌 입력의 형식 오류는 뒤이은 Pydantic float 검증이 보고한다.
         return value

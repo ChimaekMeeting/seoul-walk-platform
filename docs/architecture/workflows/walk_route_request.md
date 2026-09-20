@@ -13,7 +13,7 @@
 
 - 서버가 NetworkX Graph를 로드했다.
 - 서울 경계·수계·도보망·POI가 적재되어 있다.
-- 정상 이력 저장에는 유효한 `access_token` cookie와 사용자가 필요하다.
+- 정상 이력 저장에는 유효한 ROUDI access token과 사용자가 필요하다. `Authorization: Bearer`를 우선하고, header가 없을 때만 기존 `access_token` cookie를 사용한다.
 
 지원 모드:
 
@@ -24,18 +24,19 @@
 | `oneway_random` | `origin`, `destination`, `target_km`, `mode` |
 
 `target_km`을 보내는 경우 숫자 또는 숫자 문자열을 허용하며, 숫자로 변환한 값이 유한하고
-`0 < target_km <= 10`이어야 한다. `NaN`·양/음의 무한대·boolean·범위 밖 값은 요청 schema
-단계에서 HTTP 422로 거절한다. `target_km` 생략·`None`은 기존처럼 허용하지만
+`0 < target_km <= 10`이어야 한다. `NaN`·양/음의 무한대·boolean·범위 밖 값과 float 변환
+범위를 넘는 거대 정수·지수값은 요청 schema 단계에서 HTTP 422로 거절한다. 422의 `detail[]`은
+`type`, `loc`, `msg`만 반환하고 입력 원문은 되비추지 않는다. `target_km` 생략·`None`은 기존처럼 허용하지만
 `oneway_random`에서는 필수다. 10km 상한은 이 직접 경로 요청 계약에만 적용한다.
 
-프로필은 `default`, `nature`, `safe`, `flat`, `running`, `landmark`, `child`, `convenient`, `accessible`을 지원한다.
+현재 `WalkRouteRequest`에는 `profile`이나 가중치 입력 필드가 없다. 직접 API는 서버 기본 가중치로 실행하며, safety/comfort 설문·대화 선호를 섞는 흐름은 챗봇 `RouteExecutor`가 내부 `custom_weights`로 전달할 때만 적용한다.
 
 ## 2. 참여 코드
 
 | 코드 | 역할 |
 |---|---|
 | `walk_schema.py`, `interfaces/validators/` | 좌표·거리·모드·서울 범위 검증 |
-| `walk_router.py` | cookie와 요청을 RouteService에 전달 |
+| `walk_router.py` | Bearer 우선·cookie fallback으로 access token을 선택하고 요청을 RouteService에 전달 |
 | `route_service.py` | 인증, 엔진 선택, POI와 이력 저장 조정 |
 | `route_engine/engines/` | 경로 생성 |
 | `route_poi_repository.py` | 성공 경로 50m 안의 연결 POI 조회 |
@@ -48,7 +49,7 @@
 → 서울 경계·수계·고속도로 검증
 → JWT 확인
 → 가까운 Graph Node 탐색
-→ profile 가중치로 경로 생성
+→ 모드별 경로 엔진으로 경로 생성
 → 경로 주변 POI 조회
 → 사용자 이력 저장
 → 응답
@@ -58,12 +59,12 @@
 
 ## 4. 상태 변화와 결과
 
-- 엔진은 공유 Graph 복사본에 `custom_score`를 계산한다.
+- 직접 API는 별도 profile 선택 없이 서버 기본 가중치로 엔진을 실행한다.
 - POI 조회 실패는 성공 경로를 실패로 바꾸지 않는다.
 - 사용자가 없거나 이력 저장만 실패하면 경로는 반환하고 `id=null`이다.
 - 성공 경로마다 별도 이력이 생성된다.
 
-2026-07-30 서울시청 `(37.5665, 126.9780)` 개발 DB 관측:
+다음은 2026-07-30 당시 profile 입력을 지원하던 코드의 서울시청 `(37.5665, 126.9780)` 개발 DB 관측이다. 현재 `WalkRouteRequest`에는 profile 필드가 없으므로 최신 API의 지원 기능이나 2026-09-20 회귀 검증 결과로 사용하지 않는다.
 
 | 요청 | 상태 | 결과 거리 | 좌표 | 결과 |
 |---|---|---:|---:|---|
@@ -74,7 +75,7 @@
 | 3km `convenient` | success | 2.84km | 55 | default와 동일 경로 |
 | 3km `accessible` | success | 2.58km | 46 | 다른 경로 |
 
-`accessible`이 다른 경로를 생성해 프로필 입력의 실제 반영을 확인했다. `convenient`는 이 위치에서 최종 후보를 바꾸지 않았다.
+당시 `accessible`이 다른 경로를 생성했고 `convenient`는 이 위치에서 최종 후보를 바꾸지 않았다. 이는 과거 구현의 일회성 결과다.
 
 ## 5. 실패·복구
 
@@ -82,23 +83,30 @@
 |---|---|---|
 | 요청 schema 오류 | HTTP 422 | 입력 수정 |
 | 서울 Polygon 밖·금지 위치 | HTTP 400 | 출발·도착 위치 수정 |
-| cookie 없음·만료 | 인증 상태 응답 | 로그인·토큰 갱신 |
+| access token 없음·만료 | HTTP 200의 인증 상태 응답 | 로그인·토큰 갱신 |
+| 잘못된 Authorization 형식 | HTTP 401 `invalid_token`, cookie fallback 없음 | Bearer header 수정 |
 | 가까운 Graph Node 없음 | `no_nearest_*` | 좌표·도보망 확인 |
 | 경로 없음 | `no_path` 계열 | Graph·엔진 로그 확인 |
 | POI 조회 실패 | 경로 유지, 빈 POI | POI 적재·공간 인덱스 확인 |
 | 이력 저장 실패 | 경로 유지, `id=null` | 사용자·DB 확인 |
+| 예기치 않은 서버 오류 | HTTP 500 공통 안전 메시지 | 사건명·예외 형식 로그로 원인 추적 |
 
 ## 6. 검증과 남은 항목
 
 완료:
 
 - 인증 사용자 경로 생성
-- 프로필 전달
+- 현재 request schema에 삭제된 profile 입력이 다시 노출되지 않음
 - 경로 좌표·POI 반환
 - 사용자 이력 저장
 - `accessible` 경로 변화 확인
+- Bearer·cookie·동시 입력·잘못된 header·손상/만료 Bearer 우선순위 회귀 테스트
+- 거대 정수·`1e400`·NaN·Infinity의 JSON 입력이 서비스 호출 전 안전한 422가 되는지 확인
+- `no_path` 등 기존 업무 상태와 예기치 않은 500 공통 메시지를 분리해 확인
 
-알고리즘 인계:
+2026-09-20 기준 commit `d2eba6d` 이후 미커밋 worktree를 Windows 로컬 `.venv`에서 TestClient와 mock으로 검증했다. DB 초기화와 Graph 로드는 차단했으며 PostgreSQL·Valkey·외부 API·실제 경로 엔진은 호출하지 않았다. 실제 OpenAPI의 `target_km` 범위, 요청 예시, `AccessTokenBearer`, 400/401/422/500 응답 설명도 자동 테스트로 대조했다.
+
+과거 알고리즘 관측 인계(현재 API 회귀 결과가 아님):
 
 - 1km 요청이 0.66km인데도 `success`
 - 3km `accessible` 결과가 2.58km로 10% 허용 오차 밖인데도 `success`

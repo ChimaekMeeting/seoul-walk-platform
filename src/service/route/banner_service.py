@@ -1,4 +1,5 @@
 import logging
+from src.config.logging import log_unexpected_error
 import re
 from datetime import datetime, date
 
@@ -81,14 +82,14 @@ class BannerService:
 
         try:
             weather = await self.weather_client.get_weather(lat, lon) or {}
-        except Exception:
-            logger.exception("weather_api_error | lat=%s | lon=%s", lat, lon)
+        except Exception as exc:
+            log_unexpected_error(logger, "banner_weather_api_error", exc)
             weather = {}
 
         try:
             banners = {b.key: b for b in BannerRepository.find_all()}
-        except Exception:
-            logger.exception("banner_db_error | lat=%s | lon=%s", lat, lon)
+        except Exception as exc:
+            log_unexpected_error(logger, "banner_db_error", exc)
             return BannerResponse(status=BannerStatus.DB_ERROR, items=[])
 
         result = []
@@ -98,8 +99,8 @@ class BannerService:
             active_event = await self.get_active_event()
             if active_event:
                 result.append(self._get_event_text(active_event))
-        except Exception:
-            logger.exception("marathon_api_error | lat=%s | lon=%s", lat, lon)
+        except Exception as exc:
+            log_unexpected_error(logger, "banner_marathon_api_error", exc)
 
         # 2순위: 시즌 배너 (날씨 기반)
         if self._is_hot(weather):
@@ -124,5 +125,5 @@ class BannerService:
             if key in banners:
                 result.append(banners[key].to_dict())
 
-        logger.info("banner_served | lat=%s | lon=%s | count=%d", lat, lon, len(result))
+        logger.info("banner_served | count=%d", len(result))
         return BannerResponse(status=BannerStatus.SUCCESS, items=result)

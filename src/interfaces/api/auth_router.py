@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from src.interfaces.dependencies import get_auth_service
+from src.interfaces.security import optional_access_bearer
 from src.service.user.auth_service import AuthService
 from src.interfaces.schema.auth_schema import AuthResponse, Status
 
@@ -10,11 +11,15 @@ router = APIRouter(
     tags=["Auth"]
 )
 
-optional_bearer = HTTPBearer(auto_error=False)
+optional_refresh_bearer = HTTPBearer(
+    auto_error=False,
+    scheme_name="RefreshTokenBearer",
+    description="ROUDI refresh token. access token 재발급 API에서만 사용합니다.",
+)
 
 @router.get("/check/access_token", response_model=AuthResponse)
 def check_access_token(
-    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_access_bearer),
     service: AuthService = Depends(get_auth_service)
 ):
     """
@@ -27,7 +32,7 @@ def check_access_token(
 @router.get("/check/refresh_token", response_model=AuthResponse)
 async def check_refresh_token(
     response: Response,
-    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_refresh_bearer),
     service: AuthService = Depends(get_auth_service)
 ):
     """

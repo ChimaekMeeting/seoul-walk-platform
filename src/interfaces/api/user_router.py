@@ -7,8 +7,7 @@ src/interfaces/api/user_router.py
 
 from typing import Optional
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Depends, HTTPException
 import logging
 
 from src.interfaces.dependencies import (
@@ -30,49 +29,38 @@ from src.repository.user.user_repository import UserRepository
 from src.repository.user.route_history_repository import RouteHistoryRepository
 from src.service.user.auth_service import AuthService
 from src.interfaces.schema.auth_schema import Status
+from src.interfaces.errors import SAFE_INTERNAL_ERROR_DETAIL, log_unexpected_error
+from src.interfaces.security import resolve_access_token
 
 logger = logging.getLogger(__name__)
-
-optional_bearer = HTTPBearer(auto_error=False)
-
-
-def _resolve_token(
-    credentials: HTTPAuthorizationCredentials | None,
-    cookie_token: str | None,
-) -> str | None:
-    return (credentials.credentials if credentials else None) or cookie_token
-
 
 router = APIRouter(prefix="/api/user", tags=["user"])
 
 
 @router.get("/me", response_model=UserMeResponse)
 def get_me(
-    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
-    cookie_token: str = Cookie(None, alias="access_token"),
+    access_token: str | None = Depends(resolve_access_token),
     service: UserService = Depends(get_user_service),
 ):
-    return service.get_me(_resolve_token(credentials, cookie_token))
+    return service.get_me(access_token)
 
 
 @router.patch("/me", response_model=UserUpdateResponse)
 def update_me(
     request: UserUpdateRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
-    cookie_token: str = Cookie(None, alias="access_token"),
+    access_token: str | None = Depends(resolve_access_token),
     service: UserService = Depends(get_user_service),
 ):
-    return service.update_me(_resolve_token(credentials, cookie_token), request.nickname)
+    return service.update_me(access_token, request.nickname)
 
 
 @router.post("/survey", response_model=SurveyResponse)
 def submit_survey(
     request: SurveyRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
-    cookie_token: str = Cookie(None, alias="access_token"),
+    access_token: str | None = Depends(resolve_access_token),
     service: SurveyService = Depends(get_survey_service),
 ):
-    return service.submit(_resolve_token(credentials, cookie_token), request)
+    return service.submit(access_token, request)
 
 
 @router.get("/routes", response_model=RouteHistoryResponse)
@@ -80,8 +68,7 @@ def get_route_histories(
     limit: int = 20,
     offset: int = 0,
     is_favorite: Optional[bool] = None,
-    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
-    cookie_token: str = Cookie(None, alias="access_token"),
+    access_token: str | None = Depends(resolve_access_token),
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """
@@ -90,7 +77,7 @@ def get_route_histories(
     """
     try:
         status, provider, provider_id = auth_service.check_access_token(
-            _resolve_token(credentials, cookie_token)
+            access_token
         )
         if status != Status.SUCCESS:
             logger.warning("경로 기록 조회 인증 실패: status=%s", status.value)
@@ -98,7 +85,7 @@ def get_route_histories(
 
         user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
         if user is None:
-            logger.warning("경로 기록 조회 - 사용자를 찾을 수 없습니다: provider=%s", provider)
+            logger.warning("route_history_list_user_not_found")
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
         histories = RouteHistoryRepository.find_by_user_id(
@@ -111,49 +98,47 @@ def get_route_histories(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("경로 기록 조회 중 오류가 발생했습니다.")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_unexpected_error(logger, "route_history_list_unexpected_error", e)
+        raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e
 
 
 @router.patch("/routes/{history_id}/favorite", response_model=RouteHistoryItem)
 def toggle_favorite(
     history_id: int,
-    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
-    cookie_token: str = Cookie(None, alias="access_token"),
+    access_token: str | None = Depends(resolve_access_token),
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """경로 기록의 즐겨찾기를 토글합니다."""
     try:
         status, provider, provider_id = auth_service.check_access_token(
-            _resolve_token(credentials, cookie_token)
+            access_token
         )
         if status != Status.SUCCESS:
-            logger.warning("즐겨찾기 토글 인증 실패: status=%s, history_id=%s", status.value, history_id)
+            logger.warning("route_favorite_auth_failed | status=%s", status.value)
             raise HTTPException(status_code=401, detail=status.value)
 
         user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
         if user is None:
-            logger.warning("즐겨찾기 토글 - 사용자를 찾을 수 없습니다: provider=%s", provider)
+            logger.warning("route_favorite_user_not_found")
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
         history = RouteHistoryRepository.toggle_favorite(history_id, user.id)
         if history is None:
-            logger.warning("즐겨찾기 토글 - 경로 기록을 찾을 수 없습니다: history_id=%s, user_id=%s", history_id, user.id)
+            logger.warning("route_favorite_not_found")
             raise HTTPException(status_code=404, detail="경로 기록을 찾을 수 없습니다.")
 
         return RouteHistoryItem.model_validate(history)
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("즐겨찾기 토글 중 오류가 발생했습니다: history_id=%s", history_id)
-        raise HTTPException(status_code=500, detail=str(e))
+        log_unexpected_error(logger, "route_favorite_unexpected_error", e)
+        raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e
 
 
 @router.get("/routes/{history_id}", response_model=RouteHistoryItem)
 def get_route_history(
     history_id: int,
-    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
-    cookie_token: str = Cookie(None, alias="access_token"),
+    access_token: str | None = Depends(resolve_access_token),
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """
@@ -161,36 +146,35 @@ def get_route_history(
     """
     try:
         status, provider, provider_id = auth_service.check_access_token(
-            _resolve_token(credentials, cookie_token)
+            access_token
         )
         if status != Status.SUCCESS:
-            logger.warning("경로 기록 상세 조회 인증 실패: status=%s, history_id=%s", status.value, history_id)
+            logger.warning("route_history_detail_auth_failed | status=%s", status.value)
             raise HTTPException(status_code=401, detail=status.value)
 
         user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
         if user is None:
-            logger.warning("경로 기록 상세 조회 - 사용자를 찾을 수 없습니다: provider=%s", provider)
+            logger.warning("route_history_detail_user_not_found")
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
         history = RouteHistoryRepository.find_by_id(history_id, user.id)
         if history is None:
-            logger.warning("경로 기록 상세 조회 - 경로 기록을 찾을 수 없습니다: history_id=%s, user_id=%s", history_id, user.id)
+            logger.warning("route_history_detail_not_found")
             raise HTTPException(status_code=404, detail="경로 기록을 찾을 수 없습니다.")
 
         return RouteHistoryItem.model_validate(history)
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("경로 기록 상세 조회 중 오류가 발생했습니다: history_id=%s", history_id)
-        raise HTTPException(status_code=500, detail=str(e))
+        log_unexpected_error(logger, "route_history_detail_unexpected_error", e)
+        raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e
 
 
 @router.post("/routes/{history_id}/feedback", response_model=RouteFeedbackResponse)
 def submit_route_feedback(
     history_id: int,
     request: RouteFeedbackRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
-    cookie_token: str = Cookie(None, alias="access_token"),
+    access_token: str | None = Depends(resolve_access_token),
     service: LongTermProfileService = Depends(get_longterm_profile_service),
 ):
     """
@@ -199,15 +183,14 @@ def submit_route_feedback(
     (weights_safety/weights_comfort)이 온라인 SGD로 갱신됩니다 — longterm_profile_service 참고.
     """
     return service.submit_feedback(
-        _resolve_token(credentials, cookie_token), history_id, request
+        access_token, history_id, request
     )
 
 
 @router.get("/survey", response_model=SurveyStatusResponse)
 def get_survey_status(
-    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
-    cookie_token: str = Cookie(None, alias="access_token"),
+    access_token: str | None = Depends(resolve_access_token),
     service: SurveyService = Depends(get_survey_service),
 ):
     """설문 완료 여부를 반환합니다."""
-    return service.get_status(_resolve_token(credentials, cookie_token))
+    return service.get_status(access_token)

@@ -34,6 +34,7 @@ from src.schema.route_schema import (
     Weights,
 )
 from src.service.user.auth_service import AuthService
+from src.config.logging import log_unexpected_error
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +84,9 @@ class RouteService:
         지정하지 않은 구간은 최단 경로(oneway_shortest)로 채워진다.
         """
         logger.info(
-            "walk route request: mode=%s origin=(%.5f, %.5f) has_destination=%s target_km=%s",
+            "walk route request: mode=%s has_destination=%s",
             mode,
-            origin.lat,
-            origin.lon,
             destination is not None,
-            target_km,
         )
 
         auth_status, provider, provider_id = self.auth_service.check_access_token(access_token)
@@ -164,8 +162,8 @@ class RouteService:
         # TODO: 사용자가 후보 중 하나를 선택하는 흐름이 생기면, 그때 선택된 후보를 저장하도록 바꾼다.
         first_result = results[0]
         logger.info(
-            "walk route result: mode=%s status=%s total_km=%s candidates=%d",
-            mode, first_result.status.value, first_result.total_km, len(results),
+            "walk route result: mode=%s status=%s candidates=%d",
+            mode, first_result.status.value, len(results),
         )
 
         for result in results:
@@ -178,8 +176,8 @@ class RouteService:
                         result.coordinates
                     )
                 ]
-            except Exception:
-                logger.exception("route POI lookup failed: mode=%s", mode)
+            except Exception as exc:
+                log_unexpected_error(logger, "route_poi_lookup_error", exc)
 
         if first_result.status == WalkRouteStatus.SUCCESS:
             try:
@@ -206,8 +204,8 @@ class RouteService:
                         candidate_features=candidate_features,
                     )
                     first_result.id = history.id
-            except Exception:
-                logger.exception("walk route history save failed: mode=%s", mode)
+            except Exception as exc:
+                log_unexpected_error(logger, "route_history_save_error", exc)
 
         return results
 

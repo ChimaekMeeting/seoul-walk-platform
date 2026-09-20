@@ -10,6 +10,7 @@ from src.interfaces.schema.walk_schema import (
 )
 from src.schema.route_schema import OnewayRouteInput, Weights
 from src.route_engine.scoring.scoring_engine import compute_distance_only_lookup
+from src.config.logging import log_unexpected_error
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +88,8 @@ class OnewayDijkstraEngine:
         except nx.NetworkXNoPath:
             logger.warning("출발-도착 노드 사이에 연결된 경로가 없습니다")
             return []
-        except Exception:
-            logger.exception("최단 경로 생성에 실패했습니다")
+        except Exception as exc:
+            log_unexpected_error(logger, "dijkstra_path_error", exc)
             return []
 
     def path_cost(self, path: list[int]) -> float:

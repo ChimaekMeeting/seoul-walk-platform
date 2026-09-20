@@ -1,11 +1,9 @@
-from fastapi import APIRouter, Body, Depends, Query, Request, Response
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Depends, Query, Request, Response
 from src.service.user.login_service import KakaoLoginService
 from src.interfaces.schema.login_schema import LoginUrlResponse, LoginResponse, MobileLoginRequest
 from src.interfaces.schema.auth_schema import AuthResponse, Status
 from src.interfaces.dependencies import get_kakao_login_service
-
-optional_bearer = HTTPBearer(auto_error=False)
+from src.interfaces.security import resolve_access_token
 
 router = APIRouter(
     prefix="/api/login",
@@ -52,7 +50,14 @@ async def kakao_callback(
     )
     return LoginResponse(status=Status.SUCCESS, token_type="Bearer", nickname=nickname, access_token=jwt_access_token, refresh_token=refresh_token)
 
-@router.post("/kakao/mobile-login", response_model=LoginResponse)
+@router.post(
+    "/kakao/mobile-login",
+    response_model=LoginResponse,
+    responses={
+        422: {"description": "Kakao SDK access token 누락 또는 빈 값"},
+        500: {"description": "안전한 공통 메시지로 반환하는 예기치 않은 서버 오류"},
+    },
+)
 async def kakao_mobile_login(
     body: MobileLoginRequest,
     service: KakaoLoginService = Depends(get_kakao_login_service)
@@ -68,10 +73,9 @@ async def kakao_mobile_login(
 async def kakao_logout(
     request: Request,
     response: Response,
-    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
+    access_token: str | None = Depends(resolve_access_token),
     service: KakaoLoginService = Depends(get_kakao_login_service)
 ):
-    access_token = (credentials.credentials if credentials else None) or request.cookies.get("access_token")
     refresh_token = request.cookies.get("refresh_token")
 
     await service.logout(access_token, refresh_token)

@@ -5,6 +5,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from src.schema.prewalk_schema import State, FeatureTag, FeatureLabelMap
 from src.interfaces.schema.walk_schema import WalkMode
 from src.infrastructure.external.client.gpt_client import GPTClient
+from src.config.logging import log_unexpected_error
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +36,11 @@ class WeightExtractor(GPTClient):
                 input_variables = input_variables,
                 parser          = self.parser,
             )
-        except Exception:
-            logger.exception("weight_extractor_llm_error")
+        except Exception as exc:
+            log_unexpected_error(logger, "weight_extractor_llm_error", exc)
             return state
 
         state.feature_labels = result.root
-        logger.info(f"feature_labels: {state.feature_labels}")
+        logger.info("weight_extractor_completed | labels=%d", len(state.feature_labels))
 
         return state

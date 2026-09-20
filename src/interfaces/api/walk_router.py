@@ -1,9 +1,11 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Cookie
+from fastapi import APIRouter, Depends, HTTPException
 
 from src.database.postgresql import get_postgresql_db
 from src.interfaces.dependencies import get_route_service
+from src.interfaces.errors import SAFE_INTERNAL_ERROR_DETAIL, log_unexpected_error
+from src.interfaces.security import resolve_access_token
 from src.interfaces.schema.walk_schema import (
     Coordinate,
     WalkRouteRequest,
@@ -21,14 +23,24 @@ router = APIRouter(
     tags=["walk"],
 )
 
-@router.post("/route", response_model=WalkRouteResponse)
+@router.post(
+    "/route",
+    response_model=WalkRouteResponse,
+    responses={
+        400: {"description": "PostGIS 영역·도로·수계 검증 등 요청 좌표 오류"},
+        401: {"description": "Authorization 헤더 형식 오류"},
+        422: {"description": "요청 스키마·좌표·거리 제약 오류"},
+        500: {"description": "안전한 공통 메시지로 반환하는 예기치 않은 서버 오류"},
+    },
+)
 async def walk_route(
     request: WalkRouteRequest,
-    access_token: str = Cookie(None),
+    access_token: str | None = Depends(resolve_access_token),
     service: RouteService = Depends(get_route_service),
 ):
     """
-    산책 경로를 추천합니다.
+    산책 경로를 추천합니다. ROUDI access token은 Bearer를 우선하며, 없으면
+    기존 access_token cookie를 사용합니다.
     """
     logger.info("walk route request received: mode=%s", request.mode)
     try:
@@ -70,5 +82,5 @@ async def walk_route(
         logger.warning("walk route invalid request: mode=%s error=%s", request.mode, e)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.exception("walk route unexpected server error: mode=%s", request.mode)
-        raise HTTPException(status_code=500, detail=str(e))
+        log_unexpected_error(logger, "walk_route_unexpected_error", e)
+        raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e

@@ -5,6 +5,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.utils.chatbot_utils import PromptUtils
 from src.schema.prewalk_schema import State, ConfirmationResult
+from src.config.logging import log_unexpected_error
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +34,9 @@ class ConfirmationClassifier(GPTClient):
                 input_variables=input_variables,
                 parser=self.parser,
             )
-        except Exception:
+        except Exception as exc:
             # 판정 실패 시 정보 미완료로 간주해 interviewer가 확인 질문을 다시 생성하도록 함
-            logger.exception("confirmation_classifier_llm_error")
+            log_unexpected_error(logger, "confirmation_classifier_llm_error", exc)
             state.is_complete = False
             return state
 

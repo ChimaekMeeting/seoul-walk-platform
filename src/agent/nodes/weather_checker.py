@@ -5,6 +5,7 @@ from langchain_core.output_parsers import StrOutputParser
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.infrastructure.external.client.weather_client import WeatherClient
 from src.infrastructure.cache.repository.weather_cache_repository import WeatherCacheRepository
+from src.config.logging import log_unexpected_error
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,8 @@ class WeatherChecker(GPTClient):
                 weather_info = await self.weather_client.get_weather(lat, lon)
                 if weather_info:
                     await WeatherCacheRepository.save_weather(nx, ny, weather_info)
-        except Exception:
-            logger.exception("weather_api_error | lat=%s | lon=%s", lat, lon)
+        except Exception as exc:
+            log_unexpected_error(logger, "weather_api_error", exc)
             weather_info = None
 
         try:
@@ -38,8 +39,8 @@ class WeatherChecker(GPTClient):
                 air_info = await self.weather_client.get_air_quality(lat, lon)
                 if air_info:
                     await WeatherCacheRepository.save_air_quality(nx, ny, air_info)
-        except Exception:
-            logger.exception("air_quality_api_error | lat=%s | lon=%s", lat, lon)
+        except Exception as exc:
+            log_unexpected_error(logger, "air_quality_api_error", exc)
             air_info = None
 
         try:
@@ -51,8 +52,8 @@ class WeatherChecker(GPTClient):
                 },
                 parser=self.str_parser
             )
-        except Exception:
-            logger.exception("weather_checker_llm_error | lat=%s | lon=%s", lat, lon)
+        except Exception as exc:
+            log_unexpected_error(logger, "weather_checker_llm_error", exc)
             res = "안녕하세요! 오늘 어디로 산책을 떠나볼까요?"
 
         return res

@@ -7,6 +7,7 @@ from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.utils.chatbot_utils import PromptUtils
 from src.agent.tools.mode_tools import ModeTool
 from src.repository.user.user_preference_repository import UserPreferenceRepository
+from src.config.logging import log_unexpected_error
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +79,8 @@ class Extractor(GPTClient):
                 input_variables = input_variables,
                 llm             = self.model,
             )
-        except Exception:
-            logger.exception("extractor_llm_error")
+        except Exception as exc:
+            log_unexpected_error(logger, "extractor_llm_error", exc)
             return state
 
         # 예외1. 산책 모드를 결정하지 못한 경우
@@ -107,9 +108,7 @@ class Extractor(GPTClient):
         state.user_context = pref
 
         # 로그
-        logger.info(f"user_prompt: {state.user_prompt}")
         logger.info(f"mode: {state.mode}")
-        logger.info(f"user_context: {state.user_context.model_dump_json() if state.user_context else None}")
 
         return state
 
@@ -160,10 +159,7 @@ class Extractor(GPTClient):
             if origin_name and dest_name and origin_name == dest_name:
                 if not any(m in state.user_prompt for m in _EXPLICIT_ORIGIN_MARKERS):
                     args["origin"] = None
-                    logger.warning(
-                        f"origin과 destination이 동일한 장소명({origin_name})이며 "
-                        f"명시적 출발지 표현이 없어 origin을 null로 보정합니다."
-                    )
+                    logger.warning("동일한 출발·도착 장소가 명시적 출발지 없이 입력되어 origin을 비웁니다.")
 
         # 예외6. 모드가 바뀌었는데 그 전환을 정당화할 새 정보가 이번 발화에 없다면 옛
         #   도구로 되돌린다. extraction.yaml [3]는 "명시적으로 다르게 요구했을 때만 모드를
@@ -195,8 +191,9 @@ class Extractor(GPTClient):
                 )
                 if not has_new_field_value and not has_explicit_keyword:
                     logger.info(
-                        f"{tool_name}로 바뀔 새 필드나 명시적 전환 표현이 없어 "
-                        f"이전 도구({prior_tool})로 되돌립니다: args={args}"
+                        "%s 전환 근거가 없어 이전 도구(%s)를 유지합니다.",
+                        tool_name,
+                        prior_tool,
                     )
                     tool_name = prior_tool
                     allowed_fields = self.mode_tool.tool_map[tool_name].args.keys()
@@ -220,12 +217,12 @@ class Extractor(GPTClient):
                         args[field_name] = (
                             prior_value.model_dump() if isinstance(prior_value, BaseModel) else prior_value
                         )
-                        logger.info(f"{field_name} 미언급 → 직전 context 값으로 보존: {args[field_name]}")
+                        logger.info("%s 미언급 → 직전 context 값으로 보존", field_name)
 
         # 예외8. 출발지가 없는 경우
         if args.get("origin") is None:
             args["origin"] = state.current_location.model_dump()
-            logger.warning(f"출발지가 정해지지 않아, 현 위치를 출발지로 설정합니다: {args['origin']}")
+            logger.warning("출발지가 없어 현재 위치를 출발지로 설정합니다.")
 
         # 예외9. target_km/target_minutes 정리(target_km 필드가 있는 도구에서만 —
         #   select_oneway_shortest·select_waypoint는 이 필드 자체가 없음).
@@ -252,21 +249,21 @@ class Extractor(GPTClient):
             minutes = args.pop("target_minutes", None)
             if minutes is not None:
                 args["target_km"] = minutes * _WALK_SPEED_KMH / 60
-                logger.info(f"target_minutes={minutes}분을 target_km={args['target_km']:.3f}km로 환산했습니다.")
+                logger.info("target_minutes를 target_km로 환산했습니다.")
             elif args.get("target_km") is None:
                 preference = UserPreferenceRepository.get_by_user_id(state.user_id)
                 default_km = getattr(preference, "default_target_km", None) if preference else None
                 if default_km is not None:
                     args["target_km"] = default_km
-                    logger.info(f"거리·시간 언급이 없어 온보딩 선호 거리 target_km={default_km}km를 채웠습니다.")
+                    logger.info("거리·시간 언급이 없어 온보딩 선호 거리를 적용했습니다.")
                 else:
                     logger.info("거리·시간 언급도 온보딩 선호 거리도 없어 target_km을 비워둡니다(Interviewer 재질문).")
 
         # 예외10. tool 호출 자체가 실패하는 경우(예: LLM이 예상 밖 형식의 인자를 채운 경우)
         try:
             return self.mode_tool.tool_map[tool_name].invoke(args)
-        except Exception:
-            logger.exception(f"산책 모드 도구 호출에 실패했습니다: tool_name={tool_name}, args={args}")
+        except Exception as exc:
+            log_unexpected_error(logger, "extractor_mode_tool_error", exc)
             return None
 
     @staticmethod

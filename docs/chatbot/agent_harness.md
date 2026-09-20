@@ -3,7 +3,7 @@
 > 상태: Current  
 > 기준일: 2026-09-20
 > 관련 코드: `src/agent/`, `src/service/chat/prewalk_service.py`, `src/schema/prewalk_schema.py`  
-> 검증 상태: 코드 정적 대조 완료(2026-07-30, `ConfirmationClassifier` 추가·Graph 재배선·dev PR #310 profile/nearby_pois 반영) + `ConfirmationClassifier`·조건부 진입점 실행 검증 완료(2026-07-30, 로컬 PostgreSQL·Valkey·실제 Kakao·OpenAI, 프런트엔드 연동 안드로이드 기기 테스트). profile/nearby_pois(dev PR #310)는 정적 대조만 했고 격리 환경 실행 검증은 별도로 안 함. GPS Art 모드 배선(2026-08-06)은 정적 대조·문법 체크만 했고 실행 검증은 안 함(전용 테스트도 아직 없음) — 상세는 [경로 생성 엔진 GPS Art](../route_engine/README.md#gps-art) 참고. Waypoint 모드 배선(2026-08-07)은 정적 대조 + 단위 테스트(mock 엔진 기반)까지 확인했고, 추출·인터뷰 prompt 가이드(2026-08-07 추가)도 정적 대조(YAML 파싱·렌더링 확인)만 했다 — 실제 LLM·Kakao·그래프 실행 검증은 아직 없다 — 상세는 [경로 생성 엔진](../route_engine/README.md) 참고. `circular_random`/`oneway_random`의 후보 다양화(벡터 score, 2026-08-08)는 toy 그래프로 직접 실행 검증했지만 정식 `tests/` 회귀 테스트와 실서비스 그래프 검증은 아직 없다 — 상세는 [경로 생성 엔진](../route_engine/README.md)의 "후보 다양화(벡터 score 기반)" 절 참고. `Interviewer` 하드코딩 문구 전면 제거(2026-08-20, 확인·검색실패·서울밖 안내를 `interview.yaml` LLM 생성으로 통합 + LLM/Kakao 오류 시 raw exception 노출)는 문법·정적 대조만 했고 실제 LLM·Kakao 실행 검증은 아직 없다. `extraction.yaml`/`interview.yaml` 구조 개편과 `extractor.py` 결정론적 후처리 추가(2026-09-14, PR #429/refactor#400)는 `scripts/eval_extraction.py`·`scripts/eval_interviewer.py`로 실제 OpenAI 호출까지 실행 검증했다(DB·Kakao·Valkey는 쓰지 않음) — 상세와 실행 결과는 §9 "2026-09-14" 절 참고. `themes`/`TAG_WEIGHT_MAP` 기반 테마 추출과 `RouteExecutor._select_profile`(자동 accessible/convenient 선택)을 제거하고, `WeightExtractor` Node(`weight_extraction.yaml`, `PydanticOutputParser`)가 feature(`safety`/`comfort`)별 `preference_label`·`explicitness_label`을 추출해 `State.feature_labels`에 저장하도록 Graph를 `Extractor → WeightExtractor → Interviewer`로 재배선했다(2026-09-17). `RouteExecutor._build_weights`도 이 라벨을 EMA 블렌딩(`_PREFERENCE_TARGET_MAP`, `_EXPLICITNESS_ALPHA_MAP`, `_FEATURE_TO_WEIGHTS_KEY`)으로 반영하도록 바뀌었다 — 코드 정적 대조와 격리 단위 실행(schema round-trip, EMA 계산, 그래프 import 순서, 프롬프트 렌더링)까지는 확인했다. 온보딩 설문(`UserPreference`, `survey_service.py`)도 같은 날 후속 작업으로 safety/comfort 두 축만 남기게 정리했고, 그 과정에서 깨졌던 `TestRouteProfilePropagation`(옛 `_select_profile` 기준) 4개는 `TestRouteWeightPersonalization`으로 재작성해 전부 통과로 되돌렸으며, 컴파일된 LangGraph를 직접 실행해 `Extractor → WeightExtractor → Interviewer → RouteExecutor` 배선과 State 전달까지 확인했다 — 실제 OpenAI 호출·실제 DB/Kakao를 쓰는 전체 대화 흐름 실행 검증은 아직 없다. 같은 날 `origin/dev`(팀원의 waypoint 안전·편안 가중 연결 기능, #445)와 `route_executor.py`에서 병합 충돌이 나 두 기능을 모두 살리는 방향으로 정리했고(격리 단위 실행으로 재확인), `POST /api/prewalk/intent`에 `lat`/`lon`을 추가해 좌표가 바뀐 턴에만 서울 폴리곤·수계·고속도로 검증과 Kakao 역지오코딩을 다시 하도록 바꿨다(직접 호출 검증 완료) — 상세는 §9 "2026-09-17", "2026-09-17 후속", "2026-09-17 dev 병합", "2026-09-17 intent 좌표 수신" 절 참고
+> 검증 상태: 코드 정적 대조 완료(2026-07-30, `ConfirmationClassifier` 추가·Graph 재배선·dev PR #310 profile/nearby_pois 반영) + `ConfirmationClassifier`·조건부 진입점 실행 검증 완료(2026-07-30, 로컬 PostgreSQL·Valkey·실제 Kakao·OpenAI, 프런트엔드 연동 안드로이드 기기 테스트). profile/nearby_pois(dev PR #310)는 정적 대조만 했고 격리 환경 실행 검증은 별도로 안 함. GPS Art 모드 배선(2026-08-06)은 정적 대조·문법 체크만 했고 실행 검증은 안 함(전용 테스트도 아직 없음) — 상세는 [경로 생성 엔진 GPS Art](../route_engine/README.md#gps-art) 참고. Waypoint 모드 배선(2026-08-07)은 정적 대조 + 단위 테스트(mock 엔진 기반)까지 확인했고, 추출·인터뷰 prompt 가이드(2026-08-07 추가)도 정적 대조(YAML 파싱·렌더링 확인)만 했다 — 실제 LLM·Kakao·그래프 실행 검증은 아직 없다 — 상세는 [경로 생성 엔진](../route_engine/README.md) 참고. `circular_random`/`oneway_random`의 후보 다양화(벡터 score, 2026-08-08)는 toy 그래프로 직접 실행 검증했지만 정식 `tests/` 회귀 테스트와 실서비스 그래프 검증은 아직 없다 — 상세는 [경로 생성 엔진](../route_engine/README.md)의 "후보 다양화(벡터 score 기반)" 절 참고. `Interviewer` 하드코딩 문구 전면 제거(2026-08-20, 확인·검색실패·서울밖 안내를 `interview.yaml` LLM 생성으로 통합)는 문법·정적 대조만 했고 실제 LLM·Kakao 실행 검증은 아직 없다. 2026-09-20에는 LLM/Kakao 실패 시 원문 예외 대신 공통 안전 문구를 반환하고 실패 로그에도 원문·좌표·토큰·사용자 식별자를 남기지 않도록 바꿔 격리 단위 테스트로 확인했다. `extraction.yaml`/`interview.yaml` 구조 개편과 `extractor.py` 결정론적 후처리 추가(2026-09-14, PR #429/refactor#400)는 `scripts/eval_extraction.py`·`scripts/eval_interviewer.py`로 실제 OpenAI 호출까지 실행 검증했다(DB·Kakao·Valkey는 쓰지 않음) — 상세와 실행 결과는 §9 "2026-09-14" 절 참고. `themes`/`TAG_WEIGHT_MAP` 기반 테마 추출과 `RouteExecutor._select_profile`(자동 accessible/convenient 선택)을 제거하고, `WeightExtractor` Node(`weight_extraction.yaml`, `PydanticOutputParser`)가 feature(`safety`/`comfort`)별 `preference_label`·`explicitness_label`을 추출해 `State.feature_labels`에 저장하도록 Graph를 `Extractor → WeightExtractor → Interviewer`로 재배선했다(2026-09-17). `RouteExecutor._build_weights`도 이 라벨을 EMA 블렌딩(`_PREFERENCE_TARGET_MAP`, `_EXPLICITNESS_ALPHA_MAP`, `_FEATURE_TO_WEIGHTS_KEY`)으로 반영하도록 바뀌었다 — 코드 정적 대조와 격리 단위 실행(schema round-trip, EMA 계산, 그래프 import 순서, 프롬프트 렌더링)까지는 확인했다. 온보딩 설문(`UserPreference`, `survey_service.py`)도 같은 날 후속 작업으로 safety/comfort 두 축만 남기게 정리했고, 그 과정에서 깨졌던 `TestRouteProfilePropagation`(옛 `_select_profile` 기준) 4개는 `TestRouteWeightPersonalization`으로 재작성해 전부 통과로 되돌렸으며, 컴파일된 LangGraph를 직접 실행해 `Extractor → WeightExtractor → Interviewer → RouteExecutor` 배선과 State 전달까지 확인했다 — 실제 OpenAI 호출·실제 DB/Kakao를 쓰는 전체 대화 흐름 실행 검증은 아직 없다. 같은 날 `origin/dev`(팀원의 waypoint 안전·편안 가중 연결 기능, #445)와 `route_executor.py`에서 병합 충돌이 나 두 기능을 모두 살리는 방향으로 정리했고(격리 단위 실행으로 재확인), `POST /api/prewalk/intent`에 `lat`/`lon`을 추가해 좌표가 바뀐 턴에만 서울 폴리곤·수계·고속도로 검증과 Kakao 역지오코딩을 다시 하도록 바꿨다(직접 호출 검증 완료) — 상세는 §9 "2026-09-17", "2026-09-17 후속", "2026-09-17 dev 병합", "2026-09-17 intent 좌표 수신" 절 참고
 
 ## 1. 책임
 
@@ -17,8 +17,10 @@ HTTP 입력:
 
 | 진입점 | 입력 |
 |---|---|
-| `POST /api/prewalk/init` | `lat`, `lon`, `access_token` cookie |
-| `POST /api/prewalk/intent` | `thread_id`, 공백이 아닌 `user_prompt`, `lat`, `lon`(2026-09-17부터 필수), `access_token` cookie |
+| `POST /api/prewalk/init` | `lat`, `lon`, access Bearer 우선·header가 없을 때 `access_token` cookie |
+| `POST /api/prewalk/intent` | `thread_id`, 공백이 아닌 `user_prompt`, `lat`, `lon`(2026-09-17부터 필수), access Bearer 우선·cookie fallback |
+
+Authorization header가 있으면 Bearer를 사용하고 cookie는 보지 않는다. 잘못된 scheme·빈 값·공백이 섞인 Bearer는 HTTP 401 `invalid_token`이며, 형식은 맞지만 손상·만료된 Bearer도 유효한 cookie로 되돌아가지 않는다. header가 아예 없을 때만 cookie를 사용한다.
 
 공유 `State` 계약:
 
@@ -26,7 +28,7 @@ HTTP 입력:
 |---|---|---|
 | `user_id` | Orchestrator init | 소유권 확인, `RouteExecutor` |
 | `current_location` | Orchestrator init, intent Orchestrator(좌표가 이전 턴과 다를 때만 갱신, 2026-09-17부터) | `Extractor`, `Interviewer` |
-| `access_token` | intent Orchestrator | `RouteExecutor` → `RouteService` |
+| `access_token` | intent Orchestrator | `RouteExecutor` → `RouteService`; 현재 Graph 실행에서만 사용하고 API 응답·Valkey 직렬화에서는 제외 |
 | `user_prompt` | intent Orchestrator | `Extractor`, `Interviewer` |
 | `mode` | `Extractor` | `RouteExecutor` |
 | `user_context` | `Extractor` | `Interviewer`, `RouteExecutor` |
@@ -59,7 +61,7 @@ HTTP 입력:
 - 경로 성공: `RouteService`가 `RouteHistory`를 저장하고 `route_result[0].id`(대표 후보만)에 반영한다 — 나머지 후보의 `id`는 비어 있다(사용자가 실제로 고른 후보를 저장하는 흐름은 아직 없음, 알려진 개선 항목)
 - 경로 성공: 성공한 후보 전부에 대해 그 경로 50m 안의 도보망 연결 POI를 `route_result[i].nearby_pois`로 반환
 - LLM 출력: 초기 인사, 모드·거리·위치 추출, feature(safety/comfort)별 `preference_label`·`explicitness_label` 추출, 누락 질문, 확인 질문 긍정·부정 판정, 최종 확인 요청·검색 실패·서울 밖 안내(2026-08-20부터 전부 `interview.yaml` 생성, 하드코딩 문구 없음)
-- 오류 출력: `Interviewer`의 LLM·Kakao API 호출이 실패하면 안내 문구 대신 발생한 예외 메시지를 `response`에 그대로 노출한다(2026-08-20부터, 의도된 동작)
+- 오류 출력: `Interviewer`의 LLM·Kakao API 호출이 실패하면 원문 예외 대신 `서버 내부 오류가 발생했습니다.`를 `response`에 넣는다. 실패 로그는 사건명과 예외 형식만 기록한다(2026-09-20).
 
 현재 intent State에는 access JWT가 포함되며 API 응답과 Valkey JSON 양쪽으로 전달된다. `ChatSession.current_state`는 경로 완료 후에도 `START`로 남는다.
 
@@ -167,7 +169,7 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 
 이전에는(2026-07-29 이전) `Interviewer`가 정보 충분 시 만든 `awaiting_confirmation=True` 상태를 Orchestrator가 Python if/else로 직접 처리하며 Graph 자체를 우회했고(긍정 시 `route_executor.run()` 직접 호출, 부정 시 하드코딩 문구 반환), 그래서 Graph에 선언된 조건부 Edge가 실행되지 않는 죽은 코드였다. 2026-07-30 `ConfirmationClassifier` 도입과 함께 이 우회 코드를 제거하고 확인 판정 자체를 Graph 안의 정식 Node·조건부 Edge로 옮겼다(근거: [챗봇 하드코딩 문구 처리 방안 제안](../proposals/chatbot_hardcoding_proposal.md) 1, 3번 항목).
 
-2026-08-20에는 `Interviewer` 내부의 나머지 하드코딩 응답 문구(확인 질문 f-string, 검색 실패·서울 밖 안내 f-string, LLM/Kakao API 실패 시 fallback 문장)를 모두 제거했다. 확인 질문·검색 실패·서울 밖 안내는 `interview.yaml`에 추가한 우선순위 지침(0: 서울 밖, 1: 검색 실패, 2: 최종 확인)을 통해 LLM이 생성하고, LLM·Kakao API 호출이 실패한 경우에는 대체 문구 대신 발생한 예외를 그대로 `response`에 노출한다(근거: [챗봇 하드코딩 문구 처리 방안 제안](../proposals/chatbot_hardcoding_proposal.md) 2, 6, 9번 항목). 이 변경은 정적 대조만 했고, 실제 LLM이 새 지침을 얼마나 정확히 따르는지·raw exception 노출이 실제 대화에서 어떻게 보이는지는 아직 실행 검증하지 않았다.
+2026-08-20에는 `Interviewer` 내부의 나머지 하드코딩 응답 문구(확인 질문 f-string, 검색 실패·서울 밖 안내 f-string)를 제거했다. 확인 질문·검색 실패·서울 밖 안내는 `interview.yaml`에 추가한 우선순위 지침(0: 서울 밖, 1: 검색 실패, 2: 최종 확인)을 통해 LLM이 생성한다(근거: [챗봇 하드코딩 문구 처리 방안 제안](../proposals/chatbot_hardcoding_proposal.md) 2, 6, 9번 항목). 당시 LLM/Kakao 예외 원문도 `response`에 노출했으나, 2026-09-20 안전 오류 계약에 따라 공통 문구로 교체했다. 정상 LLM 생성 문구와 `no_path` 등 경로 업무 상태는 이 변경의 대상이 아니다.
 
 ### Tool과 Prompt
 
@@ -232,7 +234,7 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 | 타 사용자 State | `unaccessible` | 자신의 thread 사용 |
 | Extractor LLM 실패 | 기존 State 유지 | 다음 intent에서 재시도 |
 | WeightExtractor LLM·파싱 실패 | 직전 턴 `feature_labels`를 그대로 유지(재추출 없이 진행, 대화는 계속됨) | 다음 intent에서 재시도 |
-| Interviewer LLM·Kakao API 실패 | 발생한 예외 메시지를 그대로 `response`에 노출(2026-08-20부터, 하드코딩 fallback 문구 없음) | 다음 intent에서 재시도 |
+| Interviewer LLM·Kakao API 실패 | 원문 대신 공통 안전 문구를 `response`에 반환 | 다음 intent에서 재시도 |
 | ConfirmationClassifier LLM 실패 | `is_complete=False`로 처리해 `Extractor`로 진행(안전 측 기본값, 별도 fallback 문구 없음) | 다음 intent에서 재확인 질문 재생성 |
 | RouteTool 실패 | 예외를 기록하고 기존 State 유지 | 조건 확인 후 재확인 |
 | State 저장 실패 | 응답은 반환될 수 있음 | Valkey 복구 후 init 재시작 |
@@ -240,6 +242,16 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 HTTP 200만으로 성공을 판단하지 않는다. `status`, `awaiting_confirmation`, `is_complete`, `route_result.status`를 함께 확인한다.
 
 ## 9. 검증 방법
+
+**2026-09-20 (기준 commit `d2eba6d` 이후 미커밋 worktree, Windows 로컬 `.venv`, TestClient·mock 격리 실행)**
+
+- init의 Bearer 단독·cookie 단독·동시 입력(Bearer 우선), 잘못된 Authorization+유효 cookie(401, fallback 없음), 손상 Bearer+유효 cookie(Bearer 판정 유지)를 확인했다.
+- intent의 `unaccessible`, 실제 Orchestrator의 State `user_id`와 인증 사용자가 다를 때 Graph 실행 전 차단을 확인했다.
+- 챗봇 Preference의 거대 양/음 정수와 `1e400`/`-1e400` 문자열이 `ValidationError`가 되고, HTTP 좌표·공백 입력 422 계약이 유지되는지 확인했다.
+- `Interviewer._generate_response()`의 LLM 오류가 공통 안전 문구만 반환하고 로그에는 원문 token 문자열 대신 예외 형식만 남는지 확인했다.
+- intent State의 내부 access token이 API body와 Valkey용 직렬화에서 제외되는지 확인했다.
+- 실제 OpenAPI에서 `AccessTokenBearer`, 호환 `access_token` cookie, init/intent 예시와 400/401/422/500 설명을 대조했다.
+- PostgreSQL 초기화·Graph 로드·Valkey·Kakao·OpenAI·실제 경로 엔진은 호출하지 않았다. 실제 외부 서비스와 실기기 전체 대화는 여전히 별도 검증 대상이다.
 
 **2026-07-27 (Orchestrator 우회 방식 기준, 격리 PostgreSQL·Valkey + 실제 Kakao·OpenAI·경로 엔진)**
 
@@ -264,7 +276,7 @@ HTTP 200만으로 성공을 판단하지 않는다. `status`, `awaiting_confirma
 
 **아직 확인 안 된 항목**: `confirmation.yaml` 프롬프트가 애매한 응답(명시적 긍/부정 단어가 없는 경우)을 얼마나 잘 판정하는지, `ConfirmationClassifier` LLM 호출 실패 시 fallback 동작(`is_complete=False` 처리), 격리된(공유 상태 없는) 환경에서의 재현. 인증·세션·소유권 실패 경로는 이번 확인 범위에 포함되지 않았다.
 
-`tests/integration/test_api.py`는 router를 mock Orchestrator로 확인한다. 현재 실제 Node·Edge·State 저장·LLM tool call을 자동 검증하는 챗봇 전용 테스트는 없다.
+`tests/integration/test_api.py`는 router를 mock Orchestrator로 확인한다. 실제 Node 전용 자동 검증은 안전 오류와 State 소유권 경계까지만 있으며, 전체 Edge·State 저장·LLM tool call은 자동 통합 검증하지 않는다.
 
 **2026-08-07 (Waypoint 모드 배선, 격리 실행 없이 정적 대조 + 단위 테스트)**
 

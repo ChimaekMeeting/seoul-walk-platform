@@ -6,6 +6,8 @@ from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.tools.place_tools import PlaceTool
 from src.infrastructure.external.schema.place_schema import PlaceSearchResult
 from src.agent.utils.chatbot_utils import PromptUtils
+from src.config.logging import log_unexpected_error
+from src.interfaces.errors import SAFE_INTERNAL_ERROR_DETAIL
 from src.interfaces.validators.coord_validator import is_within_seoul_bbox
 from src.schema.prewalk_schema import (
     State,
@@ -33,7 +35,7 @@ class Interviewer(GPTClient):
         정보가 부족하다면 → 질문을 던지고
         정보가 충분하면   → 확인 메시지를 생성한다(경로는 사용자 확인 후 실행).
         모든 사용자 응대 문구는 interview.yaml을 통해 LLM이 생성한다.
-        LLM/외부 API 호출이 실패한 경우에만 발생한 오류를 그대로 응답으로 노출한다.
+        LLM/외부 API 호출이 실패하면 내부 원문 대신 공통 안전 메시지를 반환한다.
         """
         is_complete  = self._is_complete(state.user_context)
         missing_info = self._get_missing_info(state.user_context)
@@ -46,7 +48,7 @@ class Interviewer(GPTClient):
             state.awaiting_confirmation = True
             state.is_complete           = False
             state.response = await self._generate_response(state, missing_info="")
-            logger.info(f"확인 대기 상태로 전환합니다: {state.response}")
+            logger.info("interviewer_confirmation_pending")
             return state
 
         # 정보가 부족하면 → interview.yaml 호출 (장소 검색 tool 바인딩)
@@ -56,9 +58,9 @@ class Interviewer(GPTClient):
                 input_variables=self._build_input_variables(state, missing_info),
                 llm=self.model,
             )
-        except Exception as e:
-            logger.exception("interviewer_interview_llm_error")
-            state.response = str(e)
+        except Exception as exc:
+            log_unexpected_error(logger, "interviewer_interview_llm_error", exc)
+            state.response = SAFE_INTERNAL_ERROR_DETAIL
             return state
         logger.info("interview.yaml이 호출되었습니다.")
 
@@ -67,7 +69,7 @@ class Interviewer(GPTClient):
             state,
         )
 
-        # Kakao API 호출 자체가 예외로 실패했으면, 검색 결과 판단 없이 오류를 그대로 보여준다.
+        # Kakao API 호출 자체가 실패했으면 검색 결과 판단 없이 안전한 공통 문구를 보여준다.
         if api_error_message is not None:
             state.is_complete = False
             state.response    = api_error_message
@@ -80,7 +82,7 @@ class Interviewer(GPTClient):
             state.response = await self._generate_response(
                 state, missing_info, search_failures=search_failures, out_of_seoul=out_of_seoul,
             )
-            logger.info(f"검색 실패/서울 밖 안내: {state.response}")
+            logger.info("interviewer_location_guidance_generated")
             return state
 
         if candidates:
@@ -88,15 +90,13 @@ class Interviewer(GPTClient):
                 state.origin_candidate = candidates["origin_candidate"]
                 if state.user_context and candidates["origin_candidate"]:
                     state.user_context.origin = candidates["origin_candidate"][0]
-                    logger.info(f"origin_candidate: {candidates['origin_candidate']}")
-                    logger.info(f"origin: {state.user_context.origin}")
+                    logger.info("interviewer_origin_candidate_selected")
 
             if "destination_candidate" in candidates:
                 state.destination_candidate = candidates["destination_candidate"]
                 if state.user_context and hasattr(state.user_context, "destination") and candidates["destination_candidate"]:
                     state.user_context.destination = candidates["destination_candidate"][0]
-                    logger.info(f"destination_candidate: {candidates['destination_candidate']}")
-                    logger.info(f"destination: {state.user_context.destination}")
+                    logger.info("interviewer_destination_candidate_selected")
 
             if "waypoint_candidates" in candidates:
                 waypoint_candidates: dict = candidates["waypoint_candidates"]
@@ -112,8 +112,7 @@ class Interviewer(GPTClient):
                         state.waypoint_candidates[idx] = locs
                         if locs and idx < len(waypoints):
                             waypoints[idx] = locs[0]
-                            logger.info(f"waypoint_candidate[{idx}]: {locs}")
-                            logger.info(f"waypoint[{idx}]: {waypoints[idx]}")
+                            logger.info("interviewer_waypoint_candidate_selected | index=%d", idx)
 
             is_complete = self._is_complete(state.user_context)
             logger.info(f"is_complete을 재확인합니다: is_complete = {is_complete}")
@@ -123,7 +122,7 @@ class Interviewer(GPTClient):
                 state.awaiting_confirmation = True
                 state.is_complete           = False
                 state.response = await self._generate_response(state, missing_info="")
-                logger.info(f"확인 대기 상태로 전환합니다: {state.response}")
+                logger.info("interviewer_confirmation_pending")
                 return state
 
             # 검색으로 확정된 origin/destination을 반영해 interview.yaml을 다시 호출한다.
@@ -135,8 +134,7 @@ class Interviewer(GPTClient):
         state.is_complete = False
         state.response    = response
 
-        logger.info(f"response: {state.response}")
-        logger.info(f"user_context: {state.user_context.model_dump_json() if state.user_context else None}")
+        logger.info("interviewer_response_generated")
 
         return state
 
@@ -166,7 +164,7 @@ class Interviewer(GPTClient):
         """
         interview.yaml을 tool 미바인딩 상태(parser=str_parser)로 호출해 사용자 응답 문구를 생성한다.
         확인 질문 / 검색 실패 안내 / 서울 밖 안내 / 정보 재질문을 전부 이 경로로 통일한다.
-        호출이 실패하면 발생한 예외를 그대로 문자열로 반환한다.
+        호출이 실패하면 내부 원문 대신 공통 안전 메시지를 반환한다.
         """
         try:
             return await super().get_response(
@@ -176,9 +174,9 @@ class Interviewer(GPTClient):
                 ),
                 parser=self.str_parser,
             )
-        except Exception as e:
-            logger.exception("interviewer_response_llm_error")
-            return str(e)
+        except Exception as exc:
+            log_unexpected_error(logger, "interviewer_response_llm_error", exc)
+            return SAFE_INTERNAL_ERROR_DETAIL
 
     @staticmethod
     def _target_label(key: str) -> str:
@@ -265,15 +263,15 @@ class Interviewer(GPTClient):
         try:
             result = await coro
             return result, None
-        except Exception as e:
-            logger.exception("kakao_api_error")
-            return None, e
+        except Exception as exc:
+            log_unexpected_error(logger, "kakao_api_error", exc)
+            return None, exc
 
     async def _execute_tool_calls(self, tool_calls: list, state: State) -> tuple[dict, dict, dict, Optional[str]]:
         candidates      = {}
         search_failures = {}  # target("origin"/"destination") -> 검색했지만 결과 없던 키워드
         out_of_seoul    = {}  # target("origin"/"destination") -> 검색은 됐지만 전부 서울 밖이던 키워드
-        api_error_message: Optional[str] = None  # Kakao API 호출 자체가 예외로 실패했으면 그 오류 문자열
+        api_error_message: Optional[str] = None  # Kakao API 호출 자체가 실패했으면 안전한 공통 문구
 
         fallback_lat = (
             (state.user_context.origin.lat if state.user_context and state.user_context.origin else None)
@@ -309,10 +307,14 @@ class Interviewer(GPTClient):
                 self.place_tool.tool_map[name].ainvoke(args)
             )
             if error is not None:
-                api_error_message = str(error)
+                api_error_message = SAFE_INTERNAL_ERROR_DETAIL
                 continue
 
-            logger.info(f"위치를 검색합니다: keyword={args.get('query', name)}, target={target}, 결과수={len(output.documents) if isinstance(output, PlaceSearchResult) else 0}")
+            logger.info(
+                "interviewer_location_search_completed | target=%s | count=%d",
+                target,
+                len(output.documents) if isinstance(output, PlaceSearchResult) else 0,
+            )
 
             if isinstance(output, PlaceSearchResult) and output.documents:
                 if target == "origin":
@@ -345,7 +347,7 @@ class Interviewer(GPTClient):
                     )
                 )
                 if error is not None:
-                    api_error_message = str(error)
+                    api_error_message = SAFE_INTERNAL_ERROR_DETAIL
                 elif isinstance(result, PlaceSearchResult) and result.documents:
                     fallback_lat = float(result.documents[0].y)
                     fallback_lon = float(result.documents[0].x)
@@ -372,7 +374,7 @@ class Interviewer(GPTClient):
                         )
                     )
                     if error is not None:
-                        api_error_message = str(error)
+                        api_error_message = SAFE_INTERNAL_ERROR_DETAIL
                     elif isinstance(result, PlaceSearchResult) and result.documents:
                         seoul_docs = [
                             Location(lat=float(d.y), lon=float(d.x), address=d.address_name, place_name=d.place_name)
@@ -398,7 +400,7 @@ class Interviewer(GPTClient):
                         )
                     )
                     if error is not None:
-                        api_error_message = str(error)
+                        api_error_message = SAFE_INTERNAL_ERROR_DETAIL
                     elif isinstance(result, PlaceSearchResult) and result.documents:
                         seoul_docs = [
                             Location(lat=float(d.y), lon=float(d.x), address=d.address_name, place_name=d.place_name)

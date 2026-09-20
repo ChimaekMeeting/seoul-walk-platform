@@ -58,6 +58,16 @@ def test_직접_경로는_범위밖_비유한_비숫자_boolean_거리를_거절
         )
 
 
+@pytest.mark.parametrize("value", [10**400, -(10**400), "1e400", "-1e400"])
+def test_직접_경로는_float_변환_범위를_넘는_거리를_검증_오류로_거절한다(value):
+    with pytest.raises(ValidationError):
+        WalkRouteRequest(
+            origin=_ORIGIN,
+            mode="circular_random",
+            target_km=value,
+        )
+
+
 def test_직접_경로의_생략과_편도우회_필수_정책을_유지한다():
     circular = WalkRouteRequest(origin=_ORIGIN, mode="circular_random")
     assert circular.target_km is None
@@ -124,6 +134,16 @@ def test_직접_경로_OpenAPI_스키마에_거리_범위가_드러난다():
     ],
 )
 def test_챗봇_거리_모델은_공용_하한_유한성_boolean_검증을_사용한다(model, value):
+    with pytest.raises(ValidationError):
+        model(target_km=value)
+
+
+@pytest.mark.parametrize(
+    "model",
+    [CircularPreference, OnewayPreference, GPSArtPreference, WaypointLegPreference],
+)
+@pytest.mark.parametrize("value", [10**400, -(10**400), "1e400", "-1e400"])
+def test_챗봇_거리_모델은_float_변환_범위를_넘는_값을_검증_오류로_거절한다(model, value):
     with pytest.raises(ValidationError):
         model(target_km=value)
 

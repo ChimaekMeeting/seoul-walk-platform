@@ -6,7 +6,7 @@ src/interfaces/schema/survey_schema.py
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DistanceOption(str, Enum):
@@ -37,8 +37,21 @@ class SurveyRequest(BaseModel):
         초기값도 이 공식 하나로 통일했다). 제출한 원래 표현은 selected_tags에 그대로 저장됨.
     distance: 선호 산책 거리 선택지 (선택 안 하면 null)
     """
-    tags: List[str] = Field(default_factory=list)
-    distance: Optional[DistanceOption] = None
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"tags": ["안전한 길", "편안한 길"], "distance": "normal"}}
+    )
+
+    tags: List[str] = Field(
+        default_factory=list,
+        description=(
+            "온보딩 선택 태그. 안전/안전한 길, 편안/편안한 길 별칭을 지원하며 "
+            "알 수 없는 태그는 선호 가중치에 반영하지 않습니다."
+        ),
+    )
+    distance: Optional[DistanceOption] = Field(
+        default=None,
+        description="선호 거리: slow(~2km), normal(2~4km), fast(4km 이상)",
+    )
 
 
 class SurveyResponse(BaseModel):

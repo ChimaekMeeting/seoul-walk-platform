@@ -1,5 +1,5 @@
 from typing import Literal, Optional
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from enum import Enum
 
 from src.interfaces.validators.coord_validator import (
@@ -21,8 +21,8 @@ from src.interfaces.validators.mode_validator import (
 
 
 class Coordinate(BaseModel):
-    lat: float
-    lon: float
+    lat: float = Field(description="위도. 서울 영역의 유한한 좌표")
+    lon: float = Field(description="경도. 서울 영역의 유한한 좌표")
 
     @field_validator("lat", "lon", mode="before")
     @classmethod
@@ -66,8 +66,22 @@ class WalkRouteStatus(str, Enum):
 
 
 class WalkRouteRequest(BaseModel):
-    origin: Coordinate
-    destination: Optional[Coordinate] = None
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "origin": {"lat": 37.5665, "lon": 126.9780},
+                "destination": None,
+                "target_km": 3.0,
+                "mode": "circular_random",
+            }
+        }
+    )
+
+    origin: Coordinate = Field(description="산책 출발 좌표")
+    destination: Optional[Coordinate] = Field(
+        default=None,
+        description="편도 모드의 도착 좌표. 순환 모드에서는 무시됩니다.",
+    )
     target_km: Optional[float] = Field(
         default=None,
         gt=0.0,
@@ -75,7 +89,7 @@ class WalkRouteRequest(BaseModel):
         allow_inf_nan=False,
         description="목표 산책 거리(km). 숫자 문자열도 허용하며 0 초과 10 이하의 유한한 값이어야 합니다.",
     )
-    mode: WalkMode
+    mode: WalkMode = Field(description="경로 생성 모드")
 
     @field_validator("target_km", mode="before")
     @classmethod
