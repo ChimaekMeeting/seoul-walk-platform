@@ -198,10 +198,17 @@ class GraspConfig:
     pairwise_cache_rows: int = 256       # WaypointPoolGenerator.build_pool(pairwise_cache_rows=...)로 전달
     num_waypoints: int = 2
     # GRASP이 선택하는 경유지 개수(n). 기본값 2는 기존 p2·p3 2개 구성과 완전히 동일한
-    # 동작을 보장하는 하위 호환 기본값이다(2026-09-02 "GRASP 경유지 개수를 임의 n으로
-    # 확장" 이슈). CircularRouteInput이나 각 엔진 생성자는 아직 이 값을 외부로 노출하지
-    # 않는다 — API 연동은 이번 작업 범위 밖이며, 필요하면 GraspConfig(num_waypoints=n)을
-    # 직접 만들어 엔진에 전달해야 한다.
+    # 동작을 보장하는 하위 호환 기본값으로 도입됐다(2026-09-02 "GRASP 경유지 개수를 임의
+    # n으로 확장" 이슈). 이후 N=2/3/4 비교(2026-09-20, 이슈 #489, grasp-wp-alns 기준
+    # 출발지 4 × 거리 1/3/5km × 시드 10 = 360회)에서 N=4가 N=2보다 평균 53%·최대 81%
+    # 더 느린데 품질 이득은 없어(짝지은 순열검정, Bonferroni 보정 후 유의한 차이는
+    # 재통행률 N2 vs N4 하나뿐) N=2를 운영 기본값으로 유지하기로 확정했다 — 더 이상
+    # 단순 하위 호환값이 아니라 실측으로 뒷받침된 값이다. API 상한(target_km<=10km,
+    # VAL-DIST-002)까지 커버하도록 7·9km에서 N=2만 추가 검증(같은 이슈, 4출발지 × 시드
+    # 10 = 80회)했고, 게이트통과율 1.000(거리편차 0.04km대, 재통행률 0.004~0.007)으로
+    # 서비스 거리 전 구간(1~9km)에서 안정적이다. CircularRouteInput이나 각
+    # 엔진 생성자는 아직 이 값을 외부로 노출하지 않는다 — API 연동은 이번 작업 범위
+    # 밖이며, 필요하면 GraspConfig(num_waypoints=n)을 직접 만들어 엔진에 전달해야 한다.
     angle_diversity_weight_m: float = 1500.0
     # 다음 경유지 랭킹(_rank_next_waypoint_candidates)에서 "후보가 p1 기준으로 직전
     # 경유지(prev)와 같은 방향이거나 정반대 방향"일 때 더해지는 최대 가상 거리 오차(m).
