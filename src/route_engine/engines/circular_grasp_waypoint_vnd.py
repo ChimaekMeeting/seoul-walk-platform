@@ -21,6 +21,7 @@ from src.route_engine.engines.grasp_waypoint_common import DEFAULT_CONFIG, Grasp
 from src.route_engine.engines.waypoint_engine_assembly import WaypointEngine
 from src.route_engine.engines.waypoint_pool import WaypointPoolResult
 from src.route_engine.engines.waypoint_refinement import vnd as _vnd
+from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
 from src.schema.route_schema import CircularRouteInput
 
 _SEED = 42
@@ -35,10 +36,11 @@ class CircularGraspWaypointVndEngine(WaypointEngine):
         seed: int = _SEED,
         config: GraspConfig = DEFAULT_CONFIG,
         num_waypoints: Optional[int] = None,
+        cost_context: Optional[WeightedEdgeCost] = None,
     ):
         super().__init__(
             inp, G, mode=mode, seed=seed, config=config, num_waypoints=num_waypoints,
-            construction="grasp", refinement="vnd",
+            construction="grasp", refinement="vnd", cost_context=cost_context,
         )
 
     def vnd(self, route: Route, pool_result: WaypointPoolResult, start_node: int, target_m: float) -> Route:

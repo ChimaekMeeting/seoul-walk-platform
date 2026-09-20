@@ -65,6 +65,7 @@ class _BeamWaypointRefinementSolver(BasePathSolver):
             inp=inp, G=graph, mode="distance", seed=seed, config=config,
             construction="beam", refinement=self.refinement,
             refinement_options=_refinement_options_from_params(self.refinement, params),
+            cost_context=params.get("cost_context"),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 

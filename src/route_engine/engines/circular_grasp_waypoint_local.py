@@ -16,6 +16,7 @@ import networkx as nx
 
 from src.route_engine.engines.grasp_waypoint_common import DEFAULT_CONFIG, GraspConfig
 from src.route_engine.engines.waypoint_engine_assembly import WaypointEngine
+from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
 from src.schema.route_schema import CircularRouteInput
 
 _SEED = 42
@@ -30,8 +31,9 @@ class CircularGraspWaypointLocalEngine(WaypointEngine):
         seed: int = _SEED,
         config: GraspConfig = DEFAULT_CONFIG,
         num_waypoints: Optional[int] = None,
+        cost_context: Optional[WeightedEdgeCost] = None,
     ):
         super().__init__(
             inp, G, mode=mode, seed=seed, config=config, num_waypoints=num_waypoints,
-            construction="grasp", refinement="local",
+            construction="grasp", refinement="local", cost_context=cost_context,
         )

@@ -77,6 +77,7 @@ solver 자기 신고이며 알고리즘 간 비교에 쓰면 안 되는 컬럼:
     python -m benchmarks.benchmark --algo beam-wp grasp-wp-local   # 여러 개 선택 실행
     python -m benchmarks.benchmark --algo all               # 전체 실행 (기본값)
     python -m benchmarks.benchmark --timeout 10             # solver별 제한시간(초) 조정
+    python -m benchmarks.benchmark --safety 0.5 --comfort 0.3  # 안전/편안 가중 비용 반영(#476)
 """
 
 import argparse
@@ -113,6 +114,11 @@ from benchmarks.solvers.beam_waypoint_refinement_solver import (
 from src.config.settings import settings
 from src.repository.network.graph_artifact_repository import GraphArtifactRepository
 from src.route_engine.scoring.scoring_engine import precompute_scoring_features
+from src.route_engine.weighted_cost_runtime import (
+    attach_weighted_cost,
+    build_request_cost_context,
+    prepare_weighted_cost,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -374,8 +380,68 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="GRASP/Beam이 선택할 경유지 개수(N). 미지정 시 엔진 기본값(2) 사용 — "
              "grasp-wp-*/beam-wp-* solver만 반영하며 removal_fraction 튜닝용 실험 축이다.",
     )
+    parser.add_argument(
+        "--safety",
+        type=float,
+        default=0.0,
+        help="안전 선호도(0~1). 기본값 0.0 — --comfort와 함께 0이면 거리 전용과 결과가 "
+             "완전히 같다(route_service._build_cost_context()와 같은 build_request_cost_context() "
+             "경로). WaypointEngine 기반 solver(grasp-wp-*/beam-wp-local/vnd/vns/alns)만 반영하며, "
+             "구간이 없는 beam-wp(맨몸)에 지정하면 실패 처리된다.",
+    )
+    parser.add_argument(
+        "--comfort",
+        type=float,
+        default=0.0,
+        help="편안(경사) 선호도(0~1, slope_preference). 그 외 규칙은 --safety와 동일.",
+    )
     _add_refinement_knob_args(parser)
     return parser.parse_args(argv)
+
+
+def _build_cost_context(graph: nx.Graph | None, safety: float, comfort: float):
+    """--safety/--comfort로 요청한 가중 비용 객체. 둘 다 0.0이면 None(거리 전용, 기존과 동일).
+
+    커버리지 게이트(WeightedEdgeCost.check_coverage, O(E))는 선호도를 실제로 요청한
+    실행에서만 돈다 — 매 실행마다 무조건 돌리면 이 그래프를 쓰는 풀 기반 러너의
+    prepare_weighted_cost()와 순회가 중복된다(#476).
+
+    route_service._build_cost_context()와 달리, 커버리지 미달을 조용히 거리 전용으로
+    폴백시키지 않는다. 벤치마크에서 선호도를 켰는데 실제로는 아무 효과가 없었다면
+    "선호도가 경로 선택에 영향을 주지 않는다"는 결론과 "커버리지가 꺼져 있었다"는
+    사실을 구분할 수 없게 되므로, 미달이면 그 자리에서 실행을 멈춘다.
+    """
+    if not safety and not comfort:
+        return None
+    if graph is None:
+        raise SystemExit("--safety/--comfort를 지정했지만 그래프가 없어 선호도를 반영할 수 없습니다.")
+
+    report = prepare_weighted_cost(graph, enabled=True, coverage_min_ratio=settings.WALK_SCORE_COVERAGE_MIN)
+    attach_weighted_cost(graph, report)
+    if report is None or not report.ok:
+        missing = report.missing_attrs() if report is not None else "전체"
+        raise SystemExit(
+            f"--safety/--comfort를 지정했지만 점수 커버리지가 기준(min_ratio="
+            f"{settings.WALK_SCORE_COVERAGE_MIN})에 못 미쳐 선호도를 반영할 수 없습니다 "
+            f"(미달 속성: {missing}). 그래프 원본(artifact)의 점수 적재 상태를 먼저 확인하세요."
+        )
+
+    cost_context = build_request_cost_context(
+        graph,
+        safety_preference=safety,
+        slope_preference=comfort,
+        weight_limit=settings.WALK_WEIGHT_LIMIT,
+        accident_ratio=settings.WALK_UNSAFE_ACCIDENT_RATIO,
+    )
+    if cost_context is None:
+        # 커버리지는 위에서 이미 통과했으므로, 여기 도달하면 정규화 후 alpha=beta=0.0인
+        # 경우다(예: 매우 작은 선호도가 weight_limit 축소로 0에 수렴) — 사용자가 --safety/
+        # --comfort를 켰다는 사실 자체는 유지해야 하므로 조용히 거리 전용으로 넘어가지 않는다.
+        raise SystemExit(
+            "--safety/--comfort를 지정했지만 정규화 후 비용 계수가 0이 되어 선호도가 "
+            "반영되지 않습니다. 값을 조정하세요."
+        )
+    return cost_context
 
 
 def _load_default_graph() -> nx.Graph | None:
@@ -461,6 +527,9 @@ def main():
         logger.info("스코어링 feature 캐시 전처리 중...")
         precompute_scoring_features(graph)
 
+    cost_context = _build_cost_context(graph, args.safety, args.comfort)
+    params["cost_context"] = cost_context
+
     result_df = run_benchmark(solvers, graph, start_node, target_node, params, timeout_sec=args.timeout)
 
     print(result_df.to_string(index=False))
@@ -468,6 +537,19 @@ def main():
     out_path = BENCH_DIR / "benchmark_results.csv"
     result_df.to_csv(out_path, index=False)
     print(f"\n결과 저장 완료: {out_path}")
+
+    if cost_context is not None:
+        # 선호도를 반영한 실행만 메타데이터를 남긴다 — 기본(거리 전용) 실행은 지금까지와
+        # 산출물이 완전히 같아야 하므로 파일을 추가로 만들지 않는다.
+        from benchmarks.run_metadata import save_run_metadata
+
+        metadata_path = save_run_metadata(
+            out_path, "benchmark",
+            algo=args.algo, target_km=args.target_km, timeout_sec=args.timeout,
+            seed=args.seed, num_waypoints=args.num_waypoints,
+            safety_preference=args.safety, comfort_preference=args.comfort,
+        )
+        print(f"메타데이터 저장 완료: {metadata_path}")
 
 
 if __name__ == "__main__":
