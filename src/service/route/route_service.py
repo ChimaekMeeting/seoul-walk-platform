@@ -163,6 +163,7 @@ class RouteService:
             # 편도 우회는 preference가 실제 cost context로 만들어졌는지를
             # 응답에도 남긴다. 챗봇과 직접 API의 경로 품질을 구분할 수 있어야 한다.
             weighted = bool(getattr(getattr(engine, "cost_cache", None), "cost_context", None))
+            cost_context = getattr(getattr(engine, "cost_cache", None), "cost_context", None)
             skipped_reason = None
             if not weighted:
                 if preference is None:
@@ -174,6 +175,9 @@ class RouteService:
             for result in results:
                 result.preference_applied = weighted
                 result.preference_skipped_reason = skipped_reason
+                if cost_context is not None:
+                    result.cost_alpha = cost_context.alpha
+                    result.cost_beta = cost_context.beta
         # circular_random/oneway_random은 이제 최대 3개까지 다양화한 후보를 반환한다(results[0]이 대표 후보).
         # POI는 성공한 후보 전부에 붙이고, RouteHistory는 아직 대표 후보 1개만 저장한다
         # — 사용자가 실제로 어떤 후보를 골랐는지는 아직 API로 전달받지 않기 때문이다.
@@ -313,7 +317,7 @@ class RouteService:
             return self.base_engines[mode](
                 inp, self.G, cost_context=cost_context,
                 seed=seed if seed is not None else 42,
-                time_budget_sec=settings.WALK_ROUTE_TIME_BUDGET_SEC,
+                time_budget_sec=settings.WALK_CIRCULAR_TIME_BUDGET_SEC,
             )
 
         if mode == WalkMode.GPS_ART:
@@ -386,7 +390,7 @@ class RouteService:
             return self.base_engines[mode](
                 inp, self.G, cost_context=cost_context,
                 seed=seed if seed is not None else 42,
-                time_budget_sec=settings.WALK_ROUTE_TIME_BUDGET_SEC,
+                time_budget_sec=settings.WALK_ONEWAY_TIME_BUDGET_SEC,
             )
 
         if destination is None:

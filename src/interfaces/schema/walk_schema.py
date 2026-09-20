@@ -197,6 +197,10 @@ class WalkRouteResponse(BaseModel):
     #   partial_route       일부 구간 실패로 선호가 적용된 전체 경로를 반환하지 못함
     #   detour_cap_exceeded / baseline_failed는 보존한 실험 정책 전용이다.
     preference_skipped_reason: Optional[PreferenceSkippedReason] = None
+    # 가중 탐색 진단: 실제 cost context 계수. API/벤치마크에서 거리 전용과
+    # 안전·편안 조건을 구분할 수 있도록 노출한다.
+    cost_alpha: Optional[float] = None
+    cost_beta: Optional[float] = None
     # 편도 우회 품질 진단값. 기존 호출자는 기본값으로 하위 호환된다.
     selection_status: Optional[str] = None
     target_distance_error_km: Optional[float] = None
