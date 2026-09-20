@@ -1,0 +1,51 @@
+""""서로 다른 경로 수" 집계 유틸.
+
+benchmarks/results.py::RESULT_COLUMNS에는 노드열 자체가 없다(build_result_row가
+paths를 지표로만 요약하고 버린다). "[TEST] 가중치 반영 후 GRASP+ALNS 검증"(#495) 이슈의
+To-Do("서로 다른 경로 수")를 재려면 solver.solve()가 반환하는 raw_result["paths"]를 직접
+받아야 하므로, 이 지표가 필요한 러너는 run_benchmark()의 멀티프로세스 격리 대신
+solver.solve()를 직접 호출해 raw paths를 확보해야 한다(run_grasp_alns_weighted_check.py
+참고).
+
+경로 동일성 기준: 순환 경로는 시작점 회전(rotation)이나 진행 방향이 달라도 사람이
+보기엔 "같은 경로"이므로, 무방향 간선 집합(edge set)이 같으면 같은 경로로 센다.
+간선 집합이 아니라 노드열 자체를 기준으로 하면 회전·방향만 다른 동일 경로를 서로
+다른 경로로 잘못 셀 수 있다.
+"""
+from __future__ import annotations
+
+
+def canonical_route_key(path: list) -> frozenset:
+    """노드열 하나를 회전·방향 무관 간선 집합으로 정규화한다.
+
+    path는 닫힌 순환 경로(path[0] == path[-1])를 가정한다. 무방향 간선을
+    frozenset({u, v})로 만들어 방향을 지우고, 그 간선들의 frozenset으로 시작점
+    회전도 지운다.
+    """
+    edges = frozenset(
+        frozenset((u, v)) for u, v in zip(path, path[1:])
+    )
+    return edges
+
+
+def count_distinct_routes(paths: list[list]) -> int:
+    """path 목록(각 path는 노드 id 리스트) 중 서로 다른 경로의 개수."""
+    return len({canonical_route_key(p) for p in paths})
+
+
+def distinct_route_report(paths: list[list]) -> dict:
+    """개수뿐 아니라 각 고유 경로가 몇 번 나왔는지(빈도)까지 반환.
+
+    "5개 미만이면 되돌아간다" 기준 판단에, 단순 개수 말고 "한 경로가 압도적으로
+    자주 나오는가"도 같이 보고 싶을 때 쓴다.
+    """
+    keys = [canonical_route_key(p) for p in paths]
+    counts: dict[frozenset, int] = {}
+    for k in keys:
+        counts[k] = counts.get(k, 0) + 1
+    return {
+        "n_routes_total": len(paths),
+        "n_distinct_routes": len(counts),
+        "frequency_of_most_common": max(counts.values()) if counts else 0,
+        "distinct_route_sizes": sorted(counts.values(), reverse=True),
+    }

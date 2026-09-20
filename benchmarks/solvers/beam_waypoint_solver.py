@@ -13,7 +13,7 @@ solver가 다음 순서로 조각을 직접 엮는다:
   2) waypoint_pool_beam_adapter.py — 위 풀을 beam_search가 요구하는
      candidates/cost 형태로 변환
   3) beam_search() — 추상적인 경유지 순서 조합만 beam_width개까지 탐색
-  4) build_cycle_route() — 각 조합을 실제 A*로 연결(distance 전용
+  4) build_route() — 각 조합을 실제 A*로 연결(distance 전용
      DistancePathFinder — GraspConfig/EdgeCost와 무관, waypoint_route_builder.py)
   5) evaluate_route()/better() — GRASP과 동일한 사전식 비교로 beam_width개 조합 중
      최선 선택
@@ -44,7 +44,7 @@ from src.route_engine.waypoint_pool_beam_adapter import (
     waypoint_pool_cost_function,
     waypoint_pool_to_beam_candidates,
 )
-from src.route_engine.waypoint_route_builder import DistancePathFinder, build_cycle_route
+from src.route_engine.waypoint_route_builder import DistancePathFinder, build_route
 
 _DEFAULT_TARGET_KM = 3.0
 _DEFAULT_SEED = 42
@@ -104,6 +104,15 @@ class CircularBeamWaypointSolver(BasePathSolver):
         self.seed = seed
 
     def solve(self, graph, start_node, target_node, params: dict) -> dict:
+        if params.get("cost_context") is not None:
+            # 이 solver는 WaypointEngine을 쓰지 않고 DistancePathFinder(순수 거리)로
+            # 직접 구간을 잇는다(모듈 docstring 참고) — cost_context를 조용히 무시하면
+            # "선호도를 켰는데 거리 전용과 똑같이 나온다"는 오해를 낳는다. 안전/편안
+            # 선호도가 필요하면 beam-wp-local/vnd/vns/alns(WaypointEngine 기반)를 쓸 것.
+            raise ValueError(
+                "beam-wp는 안전/편안 가중 비용(cost_context)을 지원하지 않습니다. "
+                "beam-wp-local/vnd/vns/alns 중 하나를 쓰세요."
+            )
         target_km = params.get("target_km") or _DEFAULT_TARGET_KM
         target_m = target_km * 1000
         num_waypoints = params.get("num_waypoints", _DEFAULT_NUM_WAYPOINTS)
@@ -146,7 +155,7 @@ class CircularBeamWaypointSolver(BasePathSolver):
 
         best_route, best_obj = None, _INFEASIBLE
         for order in result.orders:
-            route = build_cycle_route(graph, path_finder.astar_path, start_node, order.waypoint_ids)
+            route = build_route(graph, path_finder.astar_path, start_node, order.waypoint_ids)
             if route is None:
                 continue
             obj = evaluate_route(route, target_m, target_m * distance_tolerance_ratio)

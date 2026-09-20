@@ -1,7 +1,7 @@
 # 경로 생성 엔진
 
 > 상태: Current
-> 기준일: 2026-09-19
+> 기준일: 2026-09-20
 > 관련 코드: `src/route_engine/`
 
 경로 생성 엔진은 외부 API나 챗봇 처리와 분리된 경로 계산 영역입니다.
@@ -396,7 +396,7 @@ Feature·rollout·ALNS 뒤의 별도 지역 탐색은 구현하지 않았다.
 self.base_engines: dict = {
     WalkMode.CIRCULAR_RANDOM: CircularGraspWaypointAlnsEngine,
     WalkMode.ONEWAY_SHORTEST: OnewayAstarEngine,
-    WalkMode.ONEWAY_RANDOM:   OnewayAstarEngine,
+    WalkMode.ONEWAY_RANDOM:   OnewayGraspWaypointAlnsEngine,
     WalkMode.GPS_ART:         GpsArtEngine,
     WalkMode.WAYPOINT:        WaypointComposerEngine,
 }
@@ -408,36 +408,41 @@ self.base_engines: dict = {
 만든 `WeightedEdgeCost`를 엔진 생성자에 넘기면 GRASP 구축 반복과 ALNS 최종 재연결의
 A*(`BuildCycleRoute`)가 그 가중 비용으로 구간을 잇는다 — 단, ALNS 자체의 경유지 선택
 (`alns_search`, destroy-repair)은 `WaypointPoolResult.distance()`(순수 거리)만 보므로 어떤 노드를
-경유지로 쓸지·몇 번째로 방문할지는 여전히 거리 기준이다. `ONEWAY_RANDOM`은 지금은
-`ONEWAY_SHORTEST`와 완전히 같은 `OnewayAstarEngine`을 쓴다(우회 로직이 아직 없는 임시 상태) —
-다만 나중에 갈라칠 수 있도록 `_build_engine()`에서 `ONEWAY_SHORTEST`와 분기를 합치지 않고
-별도 `if`로 남겨 뒀다. `oneway_random`은 여전히 안전·편안 가중치가 걸리지 않는 거리 전용
-비용으로 탐색한다 — 예전 Beam 계열이 하던, "안전·자연 등을 블렌딩한 스칼라 비용으로 고른
-대표 1개 + 벡터로 다양화한 나머지"라는 다양화 메커니즘(`select_diverse_paths` 직접 호출)은
-`circular_random`·`oneway_random` 어느 쪽에서도 더 이상 쓰이지 않는다(그 메커니즘 자체는
-`WaypointComposerEngine`의 leg 조합에만 남아 있다 — 아래 "후보 다양화" 절 참고). **반환 후보
-개수는 별개다** — `oneway_random`(`OnewayAstarEngine`)은 항상 1개뿐이지만, `circular_random`
-(`CircularGraspWaypointAlnsEngine`)은 아래 `WaypointEngine`의 `grasp+alns` 다중 후보 규칙을
-그대로 물려받아 여전히 3개를 반환한다 — 자세한 내용은 바로 아래 문단 참고.
+경유지로 쓸지·몇 번째로 방문할지는 여전히 거리 기준이다. `ONEWAY_RANDOM`은 2026-09-20(#498
+확장)부터 `CircularGraspWaypointAlnsEngine`과 대칭인 `OnewayGraspWaypointAlnsEngine`을 쓴다
+(`WaypointEngine`을 `OnewayRouteInput`으로 생성하면 `end_lat`/`end_lon` 존재만으로 자동
+편도 판별) — 이전에는 `ONEWAY_SHORTEST`와 완전히 같은 `OnewayAstarEngine`으로 대체하던
+임시 상태였다. `_build_engine()`이 `ONEWAY_SHORTEST`와 분기를 합치지 않고 별도 `if`로 둔
+덕에 우회 엔진만 이렇게 갈아 끼울 수 있었다. `oneway_random`도 `circular_random`과 동일하게
+`cost_context`(안전·편안 가중치)를 받는다 — 더 이상 거리 전용이 아니다. 예전 Beam 계열이
+하던, "안전·자연 등을 블렌딩한 스칼라 비용으로 고른 대표 1개 + 벡터로 다양화한 나머지"라는
+다양화 메커니즘(`select_diverse_paths` 직접 호출)은 `circular_random`·`oneway_random` 어느
+쪽에서도 쓰이지 않는다(그 메커니즘 자체는 `WaypointComposerEngine`의 leg 조합에만 남아
+있다 — 아래 "후보 다양화" 절 참고). **반환 후보 개수도 이제 순환과 같다** — `oneway_random`
+(`OnewayGraspWaypointAlnsEngine`)도 `("grasp", "alns")` 고정이라 `MULTI_CANDIDATE_COMBOS`에
+속해 `circular_random`과 마찬가지로 3개(최종 경로 1개 + 후보 2개)를 반환한다. 자세한 내용은
+바로 아래 문단 참고.
 
-- `src/route_engine/engines/`의 남은 엔진(`OnewayAstarEngine`·`GpsArtEngine`·
-  `WaypointComposerEngine`, 그리고 route_service가 직접 잡는 `CircularGraspWaypointAlnsEngine`)의
-  `run()`은 모두 `List[WalkRouteResponse]`를 반환한다(2026-08-23 통일된 계약, 삭제된 엔진들도
-  삭제 전까지는 이 계약을 따랐다).
+- `src/route_engine/engines/`의 남은 엔진(`OnewayAstarEngine`은 이제 `ONEWAY_SHORTEST`
+  전용·`GpsArtEngine`·`WaypointComposerEngine`, 그리고 route_service가 직접 잡는
+  `CircularGraspWaypointAlnsEngine`)의 `run()`은 모두 `List[WalkRouteResponse]`를
+  반환한다(2026-08-23 통일된 계약, 삭제된 엔진들도 삭제 전까지는 이 계약을 따랐다).
 - `oneway_astar`의 `find_path()`는 노드ID 경로 후보를 `list[list[int]]`로 감싸서 반환한다.
   `gps_art`·`waypoint`는 자체 `find_path()`가 없다 — 대신 다른 엔진들의 `run()` 결과를
   조합(`WaypointComposerEngine`)하거나 그 조합에 위임(`GpsArtEngine`)해서 최종 경로를 만든다.
-- 경유지 선택 계열(`waypoint_engine_assembly.py::WaypointEngine`과 그 얇은 래퍼 5종 —
-  `circular_grasp_waypoint_{alns,local,vnd,vns}.py`·`circular_beam_waypoint_vns.py`)의 `run()`도
-  같은 계약(`list[WalkRouteResponse]`)이며, 2026-09-17부터 `MULTI_CANDIDATE_COMBOS`에 속한
-  조합에서만 **최종 경로 1개 + 후보 2개**, 합계 `CANDIDATE_COUNT`(=3)개를 반환한다. 현재 그
-  집합은 `grasp+local`·`grasp+alns` 둘이고, 나머지 조합(`grasp+vnd`·`grasp+vns`·`beam+*`)과
-  실패 상태(`NO_PATH`·`NO_NEAREST_START_NODE`)는 1개만 반환한다. `CircularGraspWaypointAlnsEngine`은
-  `(construction, refinement)`을 오버라이드하지 않는 `("grasp", "alns")` 고정 래퍼이므로 이
-  `grasp+alns` 규칙을 그대로 물려받는다 — `route_service.py`를 통한 `circular_random` 요청도
-  실제로 후보 3개를 반환한다(2026-09-19, 실제 엔진으로 재확인). 단 `select_diverse_paths`
-  기반 벡터 다양화는 쓰지 않는다(`mode="distance"` 전용) — 후보 3개는 순수하게 구축·정제
-  반복이 만들어낸 서로 다른 경로들이다.
+- 경유지 선택 계열(`waypoint_engine_assembly.py::WaypointEngine`과 그 얇은 래퍼 6종 —
+  `circular_grasp_waypoint_{alns,local,vnd,vns}.py`·`circular_beam_waypoint_vns.py`·
+  `oneway_grasp_waypoint_alns.py`)의 `run()`도 같은 계약(`list[WalkRouteResponse]`)이며,
+  2026-09-17부터 `MULTI_CANDIDATE_COMBOS`에 속한 조합에서만 **최종 경로 1개 + 후보 2개**,
+  합계 `CANDIDATE_COUNT`(=3)개를 반환한다. 현재 그 집합은 `grasp+local`·`grasp+alns`
+  둘이고, 나머지 조합(`grasp+vnd`·`grasp+vns`·`beam+*`)과 실패 상태(`NO_PATH`·
+  `NO_NEAREST_START_NODE`·`NO_NEAREST_END_NODE`)는 1개만 반환한다.
+  `CircularGraspWaypointAlnsEngine`·`OnewayGraspWaypointAlnsEngine` 둘 다
+  `(construction, refinement)`을 오버라이드하지 않는 `("grasp", "alns")` 고정 래퍼이므로
+  이 `grasp+alns` 규칙을 그대로 물려받는다 — `route_service.py`를 통한 `circular_random`·
+  `oneway_random` 요청 모두 실제로 후보 3개를 반환한다(2026-09-19/2026-09-20, 실제 엔진으로
+  재확인). 단 `select_diverse_paths` 기반 벡터 다양화는 쓰지 않는다(`mode="distance"`
+  전용) — 후보 3개는 순수하게 구축·정제 반복이 만들어낸 서로 다른 경로들이다.
 - 조합을 가른 근거는 실측이다(2026-09-17, seed 42, 벤치 fixture 160,328노드/223,927엣지, `target_km=3.0`·N=2에서 정제 후 서로 다른 경로 수): `grasp+alns` 18~21개, `grasp+local` 2~8개, `grasp+vnd` 1~2개, `grasp+vns` 2~7개, `beam+*` 1개. VND·VNS는 결정적 단조 하강이라 서로 다른 구축 결과 24개가 같은 지역 최적해로 수렴하고, `beam_construction()`은 애초에 `ConstructionResult`를 1개만 yield한다. 재현 기준은 구축×정제 루프를 그대로 돌면서 매 반복의 `Route`를 모아 `node_ids` 기준 중복을 제거하는 것이다.
 - `WaypointEngine.find_path()`는 위 조합에서도 **최종 경로 노드열 하나**(`list[int]`)만 반환한다 — `circular_beam`·`oneway_beam`·`oneway_astar`가 `list[list[int]]`를 반환하는 것과 다르다. 후보는 `last_alternative_routes` 속성으로만 나간다. 그래서 이 함수를 쓰는 벤치마크 어댑터(`benchmarks/solvers/_circular_engine_common.py::run_circular_engine_distance_only`)와 CSV 지표는 이 변경으로 바뀌지 않는다. `benchmarks/results.py`의 `route_distance_km()`이 `paths` 전체를 합산하므로, 후보를 `paths`에 넣었다면 거리·게이트 지표가 전부 어긋났을 것이다.
 - 후보 선별은 `evaluate_route`/`better`의 사전식 키(`RouteObjective.sort_key()`)로 **안정 정렬**한 뒤 `node_ids` 완전 일치 중복만 제거하고, 그래도 2개를 못 채우면 최종 경로를 복제해 채운다. 최선해 추적(`better` 순차 갱신)은 그대로 두고 후보 수집만 옆에 붙였으므로, 같은 seed에서 최종 경로는 이 변경 전과 동일하다(실측 9조건에서 `|cost - target_m|`이 소수점까지 일치, 2026-09-17).
@@ -558,7 +563,7 @@ discomfort = 1 - slope_score
 | `waypoint`의 `oneway_shortest` leg | 새 선호 가중치 미적용. 기존 재방문 페널티는 유지 |
 | `oneway_shortest` | 거리 기준 최단 유지 |
 | `gps_art` | 새 선호 가중치 미적용. 기존 경유지 연결 방식 유지 |
-| `oneway_random` | `custom_score`가 아니라 **거리 전용**. `OnewayAstarEngine`(=`oneway_shortest`와 동일, 임시 상태)을 쓰고, 안전·편안 가중 로직이 아직 없다 |
+| `oneway_random`(최상위 `WalkMode`) | (2026-09-20 갱신, #498 확장) **가중** — `OnewayGraspWaypointAlnsEngine`(`mode="distance"` 고정)이 `cost_context`를 받아 GRASP 구축·ALNS 최종 재연결의 A*(`BuildCycleRoute`)에 쓴다. `circular_random`과 동일한 구조·제약(ALNS의 경유지 선택 자체는 거리 기준 그대로)이다. `waypoint`의 개별 leg에 쓰이는 `"oneway_random"` 문자열(아래 leg 규칙)과는 다른 것이다 — leg는 여전히 `OnewayAstarEngine`(거리 전용)을 쓴다 |
 | `circular_random` | (2026-09-19 갱신, #462) **가중** — `CircularGraspWaypointAlnsEngine`(`mode="distance"` 고정)이 `cost_context`를 받아 GRASP 구축·ALNS 최종 재연결의 A*(`BuildCycleRoute`)에 쓴다. ALNS의 경유지 선택 자체(`alns_search`)는 거리 기준 그대로다 |
 
 (2026-09-19 갱신, #467) #462는 `cost_context`가 A* 구간 연결 비용에만 영향을 줬고, 후보들 중 **어느 것을 채택할지**(`RouteObjective.sort_key()`/`evaluate_route`)는 여전히 거리·재통행 비율만 봤다 — 가중치를 켜도 "더 안전한 경로"가 "더 안전하지 않지만 거리가 더 정확한 경로"에 밀릴 수 있었다. `Route.weighted_cost_m`(`build_cycle_route`가 `cost_context`로 함께 합산)과 `RouteObjective.preference_penalty_ratio`(`= weighted_cost_m/distance_m - 1`, 범위 `[0, k]`)를 추가해 최종 채택·후보 선별(`_collect_alternatives`, #443)까지 선호도를 반영하도록 확장했다. `sort_key()`는 `feasible=True`일 때 `(0, repeated_edge_ratio, preference_penalty_ratio, distance_error_m)`, `feasible=False`일 때 `(1, distance_error_m, repeated_edge_ratio, preference_penalty_ratio)`다 — 두 경우 모두 왕복 퇴화 방지(`repeated_edge_ratio`)가 선호도보다 우선한다. `cost_context`가 없거나 비활성이면 `weighted_cost_m == distance_m`이라 `preference_penalty_ratio`는 항상 0.0이므로 가중치 미적용 모드의 기존 선택 결과는 바뀌지 않는다.
@@ -769,8 +774,8 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
   전환했다. `distance(u, v)` 호출 시점에 u를 소스로 하는 cutoff=r_max SSSP를 1회
   계산해 그 행(row) 전체를 캐시하고, 이후 같은 u 조회는 캐시를 그대로 쓴다. 무방향
   그래프라 반대 방향(v가 소스인 행)이 이미 캐시돼 있으면 그것도 재사용한다. 캐시 행
-  개수 상한(`_DEFAULT_PAIRWISE_CACHE_ROWS=256`)은 논문 근거 없는 임의값이며, 조합
-  단계(별도 이슈)에서 실제 접근 패턴을 보고 재튜닝이 필요하다.
+  개수 상한(`_DEFAULT_PAIRWISE_CACHE_ROWS=256`)은 도입 당시엔 논문 근거 없는 임의값이었다 —
+  재튜닝 결과는 아래 "캐시 행 개수 상한 재튜닝" 항목 참고.
 - lazy+캐시 전환 근거: Lewis & Corcoran(SN Comp Sci, 2024)의 Pareto 지역탐색
   (Algorithm 3/4)도 매 이웃 연산마다 선택된 노드 기준으로 그때그때 도달 트리를
   계산하지, 전체 쌍을 사전에 다 계산해두지 않는다 — 같은 계보의 2023년 논문
@@ -784,9 +789,109 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
   무관하게 320~770ms 수준으로 일정함(이전 전량계산 버전은 target_km이 클수록 88~385초까지
   늘어졌었음). 다만 `distance()` 조회 속도는 여전히 pool 크기에 비례해 늘어난다 —
   완전 무작위 균등 샘플링(캐시 히트가 거의 없는 최악 케이스)으로 500쌍 조회 시 pool
-  1.4만개 시나리오(target_km=8)에서 약 31초 소요. 실제 조합 단계는 소수의 활성 후보를
-  반복 접근하는 구조라 캐시 히트율이 이보다 높을 가능성이 크지만, 조합 단계가 나와야
-  실측 확인 가능하다(`benchmarks/runner/waypoint_pool_benchmark.py`로 재현 가능).
+  1.4만개 시나리오(target_km=8)에서 약 31초 소요(`benchmarks/runner/waypoint_pool_benchmark.py`로
+  재현 가능). 실제 조합 단계(GRASP/ALNS)의 접근 패턴으로는 아래 항목 참고.
+- **캐시 행 개수 상한 재튜닝(2026-09-20, #489)**: 조합 단계(`CircularGraspWaypointAlnsEngine`)가
+  실제로 붙은 뒤 접근 패턴으로 재튜닝하라는 TODO가 있었다. 프로덕션 확정 조건
+  (`grasp-wp-alns`, `num_waypoints=2` — N=2/3/4 비교 이슈 #489에서 N=2 확정)·target_km 3.0/8.0에서
+  cache_rows 64/128/256/512/1024/2048을 스윕한 결과, 히트율이 0.9970~0.9972로 전 구간
+  사실상 무차이였고(미스 차이 최대 7.5회) elapsed_sec도 15~17초대에서 노이즈 수준으로만
+  흔들렸다. 즉 256이 부족해서 문제가 되는 것도, 더 키워서 빨라지는 것도 아니다 — 현재
+  값(256)을 그대로 유지한다(재현: `benchmarks/run_cache_rows_tuning.py`, 결과:
+  `benchmarks/results/waypoint_pool/cache_rows_tuning.csv`). num_waypoints를 6~8까지
+  넓힌 부가 실험에서는 `candidate_limit=2`가 N≥6부터 ALNS 제거 단계를 실패시키는 현상도
+  확인됐으나, N=2가 운영값으로 확정되어 있어 당장 조치 대상은 아니다
+  (`circular_grasp_waypoint_alns.py`의 `candidate_limit=2` 주석 참고).
+- **경유지 개수(N) 기본값 확정(2026-09-20, #489)**: `GraspConfig.num_waypoints=2`가
+  단순 하위 호환값이던 것을 실측으로 확정했다. `grasp-wp-alns` 기준 출발지 4곳(밀도
+  4계층 대표) × 거리 1/3/5km(설문 기본값) × N 2/3/4 × 시드 10개(360회)에서 N=4가
+  N=2보다 평균 53%·최대 81% 더 느린데 품질 이득은 없었다(짝지은 순열검정, 조건 12개,
+  Bonferroni 보정 후 유의한 차이는 재통행률 N2 vs N4 하나뿐). 이어서 실제 API 상한
+  (`target_km<=10km`, `VAL-DIST-002`)을 커버하도록 7·9km에서 N=2만 추가 검증(같은
+  4출발지 × 시드 10 = 80회)한 결과 게이트통과율 1.000(거리편차 0.04km대, 재통행률
+  0.004~0.007)으로 서비스 거리 전 구간(1~9km)에서 안정적이었다 — N=2를 그대로
+  유지한다(재현: `benchmarks/run_n_waypoint_comparison.py`, 결과:
+  `benchmarks/n_waypoint_comparison_results.csv`, 둘 다 미커밋 애드혹 산출물).
+
+## 경유지 후보 풀(편도): 두-소스 타원 cutoff (2026-09-20)
+
+- 진입점은 [waypoint_pool.py](../../src/route_engine/engines/waypoint_pool.py)의
+  `WaypointPoolGenerator.build_pool_two_point()`/`WaypointPoolResultTwoPoint`다. 위
+  섹션의 왕복 전용 `build_pool()`(수정하지 않음)이 p1=p2인 퇴화 케이스로 보고, 서로
+  다른 두 지점(p1=출발지, p2=목적지)으로 일반화한 편도 전용 함수다.
+- 채택 조건은 `dist(p1,v) + dist(v,p2) <= budget_m` — p1·p2를 초점으로 하는 타원
+  조건이다. 각 소스에서 `cutoff=budget_m` SSSP를 1회씩(총 2회) 수행해 후보 도메인을
+  좁힌 뒤, 실제 채택은 이 합 조건 하나로만 판단한다. "두 cutoff 영역이 겹치는가"는
+  판단 기준이 아니다(두 영역은 `budget_m >= dist(p1,p2)/2`부터 겹치기 시작하지만, 그
+  안의 노드가 합 조건까지 만족한다는 보장은 없다). 왕복 `r_max=target_m/2` 원과
+  달리, 편도는 한쪽 구간이 0에 가까우면 다른 쪽이 예산 전체를 써야 하므로 각 소스의
+  cutoff 자체가 (거의) `budget_m` 전체여야 한다.
+- **target_m 클램프**: 사용자가 요청한 `target_km*1000`이 `dist(p1,p2)`(직선
+  최단거리)보다 짧으면 — 물리적으로 불가능한 요청이므로 — `target_m`을
+  `dist(p1,p2)`로 보정하고 경고 로그만 남긴 채 계속 진행한다. `None`을 반환하는
+  경우는 p1·p2의 최근접 노드를 못 찾거나, p1-p2 사이에 경로 자체가 없는 경우(그래프가
+  끊어짐, `NetworkXNoPath`)뿐이다 — "target이 짧아서" `None`이 되는 경우는 없다.
+- `dist(p1,p2)`는 `target=p2`를 지정한 조기 종료 다익스트라(`nx.single_source_dijkstra`)로
+  먼저 구한다. 이 값 하나로 클램프·`budget_m` 계산·(경로 자체가 없는 경우의) infeasible
+  조기 판정을 전부 해결하며, `budget_m` cutoff SSSP 2회보다 훨씬 싸다(아래 실측 참고).
+- `budget_m = target_m + slack_ratio * dist(p1,p2)`. `slack_ratio` 기본값은
+  5%(`_DEFAULT_SLACK_RATIO`)이며 **실험값/미튜닝**이다 — 실제 그래프 25개 편도
+  시나리오 실측(풀 크기라는 대리 지표)에만 근거했고, 이 풀을 실제로 소비할 편도 다중
+  경유지 조합 엔진이 아직 없어 완성된 경로 품질로는 검증하지 못했다. 그 엔진이 생기고
+  나면 실측 경로 품질 기준으로 재검토한다.
+- slack을 절대 m(고정값)이 아니라 `dist(p1,p2)` 비율로 둔 이유: 1차 실측(5개 표본,
+  절대 m {0,100,300})에서 여유가 빠듯한 실제 요청(부족분이 직선거리의 10%를 넘는
+  경우)을 절대 m 슬랙이 못 구하는 사례가 나왔다 — 25개 시나리오 재표본에서는 클램프
+  도입 전 기준으로 24%(6/25)가 클램프 없이는 target이 직선거리보다 짧은 요청이었다.
+- **실제 그래프 규모 벤치마크(2026-09-20, clamp+slack_ratio 적용 후)**: 편도 시나리오
+  25개 × {데이터셋 target_km, 경계근접(직선거리×1.02)} × `slack_ratio` {0/5/10/20%} =
+  200건 전부 성공(`feasible=True`), MemoryError 재현 안 됨. 호출당 평균 834ms(중앙값
+  719ms, 최대 2259ms) — `dist(p1,p2)` 조기종료 조회를 앞에 넣었는데도 `budget_m`
+  cutoff SSSP 2회가 여전히 대부분을 차지한다. `slack_ratio=0`으로 두면 클램프된
+  케이스(요청 `target_km`이 직선거리보다 짧아 `dist(p1,p2)`로 보정된 경우) 중
+  최솟값이 풀 크기 1개(`oneway_02`, `dist(p1,p2)`=2136m)까지 떨어진다 — 기본값
+  `slack_ratio=5%`는 이 경우를 84개로 되살린다(84배). 순환 대비 풀 크기 비율은
+  데이터셋 조건에서 `slack_ratio` 0%→20% 구간 중앙값 0.43배→1.03배, 경계근접
+  조건에서는 0.13배→0.66배로, 어느 조건도 순환보다 극단적으로 커지지는 않는다.
+- **구축 단계 연결(2026-09-20, feat/496)**: `engines/grasp_waypoint_common.py::
+  construct_initial_route()`와 `waypoint_route_builder.py::build_route()`(2026-09-20,
+  #498 리네이밍 전 `build_cycle_route()`)가 `end_node` 파라미터로 이 풀의
+  `dist_from_p2`와 `_rank_next_waypoint_candidates()`의 `p2`(커밋 79a3515)를 받아 실제
+  경로를 연결할 수 있게 됐다 — `end_node=None`(기본값)이면 두 함수 모두 기존 순환
+  동작과 완전히 동일하다.
+- **정제·조립·서비스 연결 완료(2026-09-20, #498 확장)**: 정제 단계(local/VND/VNS/ALNS,
+  `waypoint_refinement.py`)와 GRASP/Beam 구축 어댑터(`waypoint_construction.py`)까지
+  `end_node`를 전부 흘리도록 확장했고, 조립 계층(`waypoint_engine_assembly.py::
+  WaypointEngine`)이 입력 스키마 모양(`OnewayRouteInput`의 `end_lat`/`end_lon` 존재
+  여부)만으로 순환/편도를 자동 판별해 이 풀(`build_pool_two_point`)을 직접 만들어
+  넘긴다. `engines/oneway_grasp_waypoint_alns.py::OnewayGraspWaypointAlnsEngine`이
+  순환의 `CircularGraspWaypointAlnsEngine`과 대칭인 프로덕션 엔진이며,
+  `route_service.py`가 `WalkMode.ONEWAY_RANDOM`을 이 엔진으로 배선한다(이전에는
+  `OnewayAstarEngine`으로 대체하던 임시 상태였다) — "완성된 편도 다중 경유지 조합
+  엔진"이 이제 존재한다. 위 `slack_ratio` 벤치마크 수치는 여전히 pool 생성 단계
+  기준으로 유효하다. 재현:
+  [waypoint_pool_two_point_benchmark.py](../../benchmarks/runner/waypoint_pool_two_point_benchmark.py),
+  실제 서비스 진입점 검증은
+  [tests/integration/test_oneway_detour_flow.py](../../tests/integration/test_oneway_detour_flow.py).
+
+- **알려진 제약: target_km이 클수록 응답 시간이 나빠짐(2026-09-20 확인, v1은 그대로 감수하기로
+  결정)**. 실제 그래프(160,328노드)·상명대 정문→경복궁역 3번 출입구(직선 3.2km) 기준
+  실측: target_km 3.85 → 7초, 4.81 → 10.5초, 6.41 → 21.5초, 8.01 → 60~85초(3회 반복,
+  변동 있음). 정확도 자체는 문제없다(목표거리 오차 전부 10m 미만).
+  원인은 `pairwise_cache_rows`(위 #489 재튜닝, 256) 부족이 **아니다** — 256을 2048·8192로
+  올려도 시간이 그대로였고(65.7s/73.8s/58.7s), `WaypointPoolResult`의 행 캐시는 세 값
+  전부에서 196개만 채워져 애초에 캐시 용량엔 한 번도 걸리지 않았다(cProfile로 재확인:
+  `single_source_dijkstra_path_length` 196~198회가 전체 시간의 대부분을 차지). #489
+  튜닝은 순환(`CircularGraspWaypointAlnsEngine`, r_max=target_m/2인 원 cutoff) 기준으로만
+  검증됐고, 편도의 타원 cutoff(두 초점 각각에서 budget_m≈target_m 반경)는 같은 target_km에서
+  훨씬 넓은 영역을 본다 — GRASP 24회 독립 반복이 매번 다른 경유지를 골라, 반복마다 "처음
+  보는 출발노드" 기준 `single_source_dijkstra`를 새로 계산해야 하는 횟수(196회)가 반복
+  구조 자체에서 나온다. 캐시를 늘려서 줄일 수 있는 종류의 비용이 아니다.
+  검토했던 대안(전부 미적용, 품질-속도 트레이드오프가 있어 별도 판단 필요할 때 재검토):
+  `grasp_iters`(공유 기본값 24)를 편도만 줄이기, 196회의 개별 Dijkstra를 배치(multi-source)로
+  묶기, 편도 후보 풀 자체를 좁히기(`slack_ratio` 축소). 재현:
+  [scratchpad 검증 스크립트는 세션 로컬이라 저장소에 없음 — `dependencies.route_service.get_route`를
+  `WalkMode.ONEWAY_RANDOM`·큰 target_km으로 반복 호출하면 재현된다].
 
 ## Planar 랜드마크 선택 독립 함수 (2026-08-30)
 
@@ -1500,13 +1605,132 @@ import로 두지 않은 이유는 호출 빈도다(순환 경로는 요청 1건�
   시간(이 실행에서 3.10초)이 붙는데 측정 대상이 요청 시간의 1% 미만이라 얻는 정보가
   없다고 판단했다(2026-09-19). 필요해지면 `90bf83d`(가중 비용)와 같은 방식으로 넣는다.
 
+### 관측: 순환 경로 구간 연결 × 가중 비용 (2026-09-20, #476)
+
+환경: Windows-11, Python 3.12.10(`poetry run python`), networkx 3.6.
+입력: `artifacts/walk_graph_v1.pkl`(`v3-2026-09-19`, 노드 160,197 / 엣지 223,693), 시나리오는
+위와 같은 `circular_01`~`circular_08`, 엔진은 `CircularGraspWaypointAlnsEngine`(N=4).
+선호도: `safety=0.4`, `comfort=0.3`(`WALK_WEIGHT_LIMIT` 기본값 0.7과 합이 같아
+`normalize_preference_weights()`의 축소 없이 그대로 반영됨).
+재현: `python -m benchmarks.run_alt_circular_validation`(#476에서 가중 비용 비교 블록 추가 —
+거리 전용 블록은 위 2026-09-19 관측과 동일한 코드다).
+
+| 지표 | 거리 전용 | 가중 비용 |
+|---|---:|---:|
+| 노드열 완전 일치(Haversine=ALT) | 8/8 | 8/8 |
+| 거리 최대 차이 | 0.000000m | 0.000000m |
+| popped 감소(Haversine/ALT) | 1.78x | 1.39x |
+| A* 시간 단축(Haversine/ALT) | 1.19x | 1.07x |
+| A*가 전체에서 차지하는 비중(Haversine/ALT) | 0.8%/0.7% | 1.5%/1.4% |
+
+**이 입력·이 머신에서의 관측이며 고정 기대값이 아니다.**
+
+- **가중 비용을 켜도 ALT는 여전히 정확하다.** 8개 시나리오 모두 Haversine과 노드열이
+  완전히 같고 거리 차이는 0이다 — `WeightedEdgeCost`가 페널티 전용 모델(`cost >= length`)
+  이라 `weight="length"`로 만든 ALT 거리표가 가중 비용 아래서도 하한으로 유효하다는 설계
+  불변식(`scoring_engine.py::WeightedEdgeCost` docstring)이 실그래프에서 확인됐다.
+- **다만 ALT의 탐색량 절감 효과는 가중 비용 아래서 더 작다**(popped 1.78x → 1.39x, A*시간
+  1.19x → 1.07x). `length` 기준으로만 만든 ALT 랜드마크 하한이, 엣지마다 `unsafe`/
+  `discomfort`가 더해져 울퉁불퉁해진 실제 비용을 상대적으로 덜 타이트하게 근사하는
+  것으로 보인다 — "ALT가 항상 1.78배 줄여준다"로 일반화하면 안 된다.
+- **가중 비용 자체가 경로에 실제로 영향을 준다.** 8개 시나리오 전부 거리 전용과 다른
+  경로가 나왔다(가중 비용 적용 후 경로가 달라진 시나리오: 8/8) — cost_context 배선이
+  실그래프 A*에 실제로 반영되는 것을 확인했다.
+- A*비중이 거리 전용(0.7~0.8%) 대비 가중 비용(1.4~1.5%)에서 거의 2배다 — 엣지마다
+  `_score()`가 두 속성(safety/slope)을 읽고 median 대체 여부를 판단하는 비용이 Haversine/
+  ALT 휴리스틱 계산보다 크기 때문이다. 그래도 전체 요청 시간의 2% 미만이라 "탐색 개선이
+  체감으로 이어지지 않는다"는 2026-09-19 관측의 결론은 가중 비용 아래서도 유지된다.
+
+### 관측: GRASP+ALNS 가중치 3점 검증 (2026-09-20, #495)
+
+환경: Windows-11, Python 3.12.10(`poetry run python`), networkx 3.6.
+입력: `artifacts/walk_graph_v1.pkl`(`v3-2026-09-19`, 노드 160,197 / 엣지 223,693), 최대
+연결요소의 최소 id를 시작점으로 고정, `target_km=3.0`, 서비스 확정 엔진
+`grasp-wp-alns`(`CircularGraspWaypointAlnsEngine`) 단독.
+재현: `python -m benchmarks.run_grasp_alns_weighted_check --n-baseline 120 --n-weighted 120`.
+`--safety`/`--comfort` 입력값 기준 세 지점(0/0, 0.25/0.15, 0.45/0.3)에서 각 120회(seed
+0~119)씩, 총 360회 순차 실행(`run_benchmark()`의 멀티프로세스 격리 없이 `solver.solve()`
+직접 반복 호출 — "서로 다른 경로 수" 집계에 필요한 raw 노드열을 얻기 위함, 위 문단들과
+측정 방식이 다르다).
+
+| 지점 | alpha/beta(유효값) | 게이트 통과율 | elapsed_sec(평균/p95/최악) | 거리편차 평균 | 재통행 평균 | 서로 다른 경로 수 |
+|---|---|---:|---:|---:|---:|---:|
+| baseline | 0.0/0.0 | 120/120 | 1.57/2.18/2.74s | 0.020km | 0.0188 | 25/120 |
+| mid | 0.25/0.15 | 120/120 | 2.03/2.86/3.28s | 0.026km | 0.0173 | 24/120 |
+| upper | 0.45/0.3 → 0.42/0.28(비례 축소) | 120/120 | 2.54/3.86/5.98s | 0.028km | 0.0105 | 24/120 |
+
+**이 입력·이 머신에서의 관측이며 고정 기대값이 아니다.**
+
+- **세 지점 모두 이슈가 정한 "되돌아갈 기준"을 통과했다 — 단, 이 결론은 출발지 하나
+  (node=1, 최대 연결요소의 최소 id)에 한정된다.** 서로 다른 경로 수(5개 미만이면
+  조정)는 24~25/120로 여유가 있고, 게이트 통과율(61/72 대비 유의한 하락이면 보정)은
+  세 지점 다 100%로 하락이 없다. 동시 3건 최악값 40초 초과 기준도 개별 worst
+  2.7~6.0초로 크게 못 미친다 — 다만 이 실행은 순차 단일 프로세스라 "동시 3건"이 뜻하는
+  동시성 부하 자체를 잰 것은 아니다. **밀도가 다른 지역까지 일반화한 결론은 아래
+  "밀도 티어 검증" 절을 함께 봐야 한다 — 저밀도(rural) 지역은 같은 게이트 통과율
+  기준에 걸리지만, baseline 대조 결과 가중치 때문은 아니고 #495 범위 밖의 별개
+  현상이다.**
+- **`upper` 지점에서 `normalize_preference_weights()`의 비례 축소가 실측으로 확인됐다.**
+  `safety+comfort=0.75`가 `WALK_WEIGHT_LIMIT`(0.7)을 넘어 실제 `alpha/beta`는
+  `0.42/0.28`로 줄어든 채 CSV에 기록됐다 — "선호도 입력값과 alpha/beta는 다르다"(위
+  #445 절 참고)는 설계 그대로다.
+- **1회짜리 관측은 신뢰할 수 없다는 것도 이번에 확인됐다.** 본 실행 전 지점당 1회만 돈
+  스모크에서는 elapsed_sec이 1.46→1.69→3.37s로 가중치와 함께 느는 것처럼 보였는데,
+  지점당 15회 이상으로 늘리자 그 추세가 사라졌다(3.52→3.14→2.67s, 오히려 감소) —
+  단일 seed 비교로 시간 추세를 판단하면 안 된다.
+- **회귀 비교(이슈 To-Do 1번, "alpha=beta=0 회귀 — 기존 CSV와 완전 일치 확인")는 수행하지
+  않았다.** 저장소에 남아 있던 grasp-alns 관련 CSV(`alns_sweep_results.csv` 등, 전부
+  2026-09-11~16 생성)는 모두 #474(그래프 원본을 artifact 하나로 통일) 이전, 즉 별도
+  parquet fixture(160,328노드/223,927엣지)로 만든 결과라 지금 쓰는 통일된 artifact와
+  노드 ID 자체가 달라 완전 일치 비교 대상이 될 수 없었다. 이번 baseline 120회 결과가
+  #474 이후 첫 기준선이므로, 다음번 관련 코드 변경 뒤에는 이 CSV(`benchmarks/results/
+  grasp_alns_weighted_check_raw.csv`, git 미추적)와 비교하면 된다.
+
+### 관측: GRASP+ALNS 가중치 밀도 티어 검증 (2026-09-20)
+
+바로 위 절의 "조정 불필요" 결론이 출발지 하나(node=1)에서만 확인된 것이라, 이
+저장소에 이미 있는 선례(`grasp_alns_candidate_limit_check`: 7km·N=4 단일 조건은
+"채택 0/60"이었으나 전 조건 스윕에서는 11.8%로 결론이 뒤집힘 — 아래 "GRASP+ALNS
+candidate_limit" 절 참고)를 감안해 밀도가 다른 지역에서도 같은 결론이 나오는지
+보완 확인했다.
+
+환경: Windows-11, Python 3.12.10(`poetry run python`), networkx 3.6.
+입력: `artifacts/walk_graph_v1.pkl`(`v3-2026-09-19`, 노드 160,197 / 엣지 223,693),
+`benchmarks/datasets/circular_density_stratified.json`의 4개 밀도 티어(dense/medium/
+sparse/rural) 중 시간 제약으로 3개(각 티어 대표 지점 1곳)만, `target_km=3.0`, 가장
+스트레스가 큰 지점(`safety=0.45`/`comfort=0.3`, 위 절의 "upper")에서만.
+재현: `python -m benchmarks.run_grasp_alns_weighted_check_density`.
+
+| 티어 | 대표 지점 | 노드 | 게이트 통과율 | elapsed_sec(평균/최악) | 서로 다른 경로 수 |
+|---|---|---:|---:|---:|---:|
+| dense | 목동 아파트 | 125636 | 120/120 (100%) | 3.07/8.99s | 27/120 |
+| sparse | 잠실 아파트 | 196450 | 119/120 (99.2%) | 1.91/4.23s | 36/120 |
+| rural | 은평 뉴타운 | 107890 | 93/120 (77.5%) | 1.28/2.57s | 32/120 |
+
+**추가로 rural만 baseline(safety=0/comfort=0, 가중치 없음)도 같은 조건(node=107890,
+target_km=3.0, seed 0~119)으로 확인했다: 97/120(80.8%), 실패 23건 전부
+`spike_count`.**
+
+**이 입력·이 머신에서의 관측이며 고정 기대값이 아니다.**
+
+- **rural 티어의 낮은 게이트 통과율은 가중치 때문이 아니다.** baseline 80.8% vs
+  upper 77.5% — 차이(3.3%p)가 seed 노이즈 범위 안이라, `--safety`/`--comfort`를
+  켜고 끄고와 무관하게 rural 지역은 원래도 통과율이 낮다. "가중치가 유도한 우회가
+  급회전을 만든다"는 처음 가설은 이 baseline 대조로 기각됐다.
+- **즉 이건 #495(가중치 검증)의 범위 밖이다.** rural(저밀도) 지역에서 `spike_count`
+  게이트 통과율이 기준값(61/72≈84.7%)보다 낮은 것은 가중 비용 배선과 무관하게
+  이전부터 있던 현상이며, `grasp-wp-alns`의 구축·정제 단계가 성긴 도로망에서
+  급회전을 얼마나 잘 피하는지에 관한 별도 문제다. dense/sparse는 baseline 대조를
+  하지 않았다 — upper에서 이미 99~100%로 충분히 높아, 대조해도 결론이 바뀔
+  가능성이 낮다고 보고 시간을 아꼈다.
+- 서로 다른 경로 수(5개 미만이면 조정)와 응답 시간(동시 3건 40초 초과)은 세 티어
+  모두 여유 있게 통과한다 — 가중치 관련 기준에는 걸리는 게 없다.
+- **원인 규명(구축 단계가 급회전을 만드는지, ALNS repair가 급회전을 못 없애는지)과
+  대응 여부는 이 관측의 범위 밖이다.** 저밀도 지역 `spike_count` 통과율 문제는
+  별도 이슈로 분리해서 다뤄야 한다.
+
 ### 미확인
 
-- **가중 비용을 켠 상태의 순환 경로는 실그래프로 확인하지 못했다.** fixture 엣지에
-  `accident_score`·`slope_score` 컬럼이 없어(2026-09-19 확인) 커버리지 게이트가 가중
-  모드를 끄므로, 위 관측은 전부 거리 전용 경로다. 가중 비용 × ALT 조합은 합성 그래프
-  단위 테스트(`tests/unit/test_grasp_waypoint_common.py`)만 덮고 있다 — 점수 적재와
-  artifact 재빌드 이후 같은 러너로 다시 확인할 것.
 - **실제 서버를 띄워 HTTP로 확인하지는 못했다.** Docker/PostgreSQL이 떠 있지 않아
   `src.main`의 lifespan(`init_db()`)을 통과하는 기동을 할 수 없었다. 위 on/off 비교는
   `RouteService`를 직접 만들고 인증을 스텁으로 대체해서 잰 것이다.
@@ -1523,7 +1747,7 @@ import로 두지 않은 이유는 호출 빈도다(순환 경로는 요청 1건�
 
 ## Waypoint(경유지) 조합 엔진
 
-- `waypoint.py`(`WaypointComposerEngine`)는 출발지 → 경유지들 → 목적지를 구간(leg)별로 나눠, 각 leg에 지정된 모드의 편도 엔진을 순차 호출해 하나의 경로로 이어 붙인다. 새 탐색 알고리즘은 추가하지 않고 기존 엔진을 조합만 한다. (2026-09-19 갱신) `_LEG_ENGINES`의 세 키(`oneway_shortest`/`oneway_random`/`oneway_preferred`)가 지금은 전부 `OnewayAstarEngine`이다 — `OnewayBeamEngine`은 삭제됐고, `oneway_random`이 임시로 `oneway_shortest`와 같은 엔진을 쓰는 동안은 셋 다 사실상 같은 동작이다(다만 나중에 갈라칠 수 있도록 분기는 합치지 않고 남겨 뒀다).
+- `waypoint.py`(`WaypointComposerEngine`)는 출발지 → 경유지들 → 목적지를 구간(leg)별로 나눠, 각 leg에 지정된 모드의 편도 엔진을 순차 호출해 하나의 경로로 이어 붙인다. 새 탐색 알고리즘은 추가하지 않고 기존 엔진을 조합만 한다. `_LEG_ENGINES`의 세 키(`oneway_shortest`/`oneway_random`/`oneway_preferred`)는 지금도 전부 `OnewayAstarEngine`이다 — `OnewayBeamEngine`은 삭제됐고 셋 다 사실상 같은 동작이다(다만 나중에 갈라칠 수 있도록 분기는 합치지 않고 남겨 뒀다). **주의**: 이 `"oneway_random"`은 leg 문자열일 뿐이며, 최상위 `WalkMode.ONEWAY_RANDOM`(2026-09-20부터 `OnewayGraspWaypointAlnsEngine`, 위 "Engine 반환 계약" 절 참고)과는 다른 것이다 — 다중 경유지 요청의 개별 leg까지 GRASP+ALNS로 바꾸면 구간 수만큼 반복이 늘어 응답 시간이 나빠지는 트레이드오프가 있어(route_service.py::`_resolve_fill_leg_mode` 참고) 의도적으로 갈라 뒀다.
 - 입력은 `WaypointRouteInput`(`src/schema/route_schema.py`)이며 `waypoints`(경유지 좌표 리스트), `leg_modes`(leg별 모드), `leg_target_km`(leg별 목표 거리, `oneway_random` leg만 필수)로 구성된다. `len(leg_modes) == len(waypoints) + 1`이어야 한다.
 - `leg_modes`/`leg_target_km`은 `WalkMode`/`Coordinate`를 그대로 쓰지 않고 `route_schema.py` 안에 로컬로 정의한 `WaypointLegMode`와 `WaypointCoordinate`를 쓴다. (2026-09-19 갱신) `WaypointLegMode`는 지금 `Literal["oneway_shortest", "oneway_random", "oneway_preferred"]`(3개 값, #445에서 `oneway_preferred` 추가)다. 로컬 재정의 이유로 적혀 있던 `route_schema.py -> walk_schema.py -> route_engine.profiles -> route_schema.py` 순환 임포트는 더 이상 사실이 아니다 — `profiles.py`가 삭제되면서 그 순환 고리 자체가 없어졌고, 실제로 지금 `route_schema.py`는 `src.*` 모듈을 전혀 import하지 않는다(`typing`/`pydantic`만 사용). 그래도 `walk_schema.py`는 여전히 import하지 않는데, 이는 `route_schema.py`가 route_engine 계층 스키마로서 API/챗봇 계층 스키마(`walk_schema.py`)에 의존하지 않는 편이 계층 경계상 낫다는 판단으로 남아 있는 것으로 보인다(재검증 필요 — 원래의 순환 임포트 근거는 더 이상 유효하지 않다).
 - `WaypointComposerEngine`은 그래프를 직접 mutate하지 않고 leg 엔진에 그대로 넘기기만 하므로 `G.copy()`를 하지 않는다(`self.G = G`). 실제 mutation은 그걸 하는 leg 엔진이 자체적으로 격리한다. 인접 leg의 경계 좌표는 동일한 `(lat, lon)` 값을 그대로 재사용해 노드 스냅 불일치를 방지한다.

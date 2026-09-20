@@ -25,6 +25,7 @@ from src.route_engine.engines.grasp_waypoint_common import DEFAULT_CONFIG, Grasp
 from src.route_engine.engines.waypoint_engine_assembly import WaypointEngine
 from src.route_engine.engines.waypoint_pool import WaypointPoolResult
 from src.route_engine.engines.waypoint_refinement import vnd as _vnd, vns_loop as _vns_loop_fn
+from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
 from src.schema.route_schema import CircularRouteInput
 
 _SEED = 42
@@ -40,6 +41,7 @@ class CircularGraspWaypointVnsEngine(WaypointEngine):
         config: GraspConfig = DEFAULT_CONFIG,
         num_waypoints: Optional[int] = None,
         vns_options: Optional[Mapping[str, Any]] = None,
+        cost_context: Optional[WeightedEdgeCost] = None,
     ):
         """vns_options는 {"max_shake_level": N, "max_iterations": N} 형태의 정제 설정
         주입구다(기본값은 waypoint_refinement.py의 _MAX_SHAKE_LEVEL·_MAX_ITERATIONS). 하이퍼파라미터 스윕 전용이며 서비스
@@ -47,6 +49,7 @@ class CircularGraspWaypointVnsEngine(WaypointEngine):
         super().__init__(
             inp, G, mode=mode, seed=seed, config=config, num_waypoints=num_waypoints,
             construction="grasp", refinement="vns", refinement_options=vns_options,
+            cost_context=cost_context,
         )
         self._vnd_engine = self  # 하위 호환: engine._vnd_engine.vnd(...) 호출부용
 

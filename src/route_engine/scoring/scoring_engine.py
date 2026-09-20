@@ -52,6 +52,14 @@ def _build_feature_cache(
     (ratio는 안전시설 부족 쪽에 곱해진다 — 이름과 달리 accident_score에 곱해지는 값이 아니다.)
     데이터가 없는 엣지는 위 두 캐시 배열과 같이 0.0으로 읽는다(적재율 게이트를 통과한 그래프에서는
     발생하지 않는다).
+
+
+    결측(None) safety_score/slope_score는 중앙값으로 대체한다 — WeightedEdgeCost._score()와
+    같은 규칙이다. 예전에는 `or 0.0`으로 대체해 "점수 없는 도로 = 안전/편안 최악"이 됐는데,
+    graph_repository.py가 명시한 "None을 0.0으로 바꾸지 않는다"는 계약과 어긋났고, 이 캐시로
+    계산하는 path_feature_averages()가 longterm_profile_service의 SGD 대조값(X_R)에 그대로
+    들어가 데이터 희박 지역의 점수를 체계적으로 낮게 왜곡시켰다(#476). 값이 하나도 없는
+    속성은 중앙값도 없으므로 그때만 0.0으로 남긴다.
     """
     if not 0.0 <= unsafe_accident_ratio <= 1.0:
         raise ValueError(f"unsafe_accident_ratio는 0~1이어야 합니다: {unsafe_accident_ratio!r}")
@@ -65,11 +73,20 @@ def _build_feature_cache(
     accident_raw = np.empty(n, dtype=np.float64)
     slope_raw = np.empty(n, dtype=np.float64)
 
+    safety_present = [data.get("safety_score") for _, _, data in edges if data.get("safety_score") is not None]
+    slope_present = [data.get("slope_score") for _, _, data in edges if data.get("slope_score") is not None]
+    safety_median = statistics.median(safety_present) if safety_present else 0.0
+    slope_median = statistics.median(slope_present) if slope_present else 0.0
+    accident_median = statistics.median(accident_present) if accident_present else 0.0
+
     for i, (_, _, data) in enumerate(edges):
         length_raw[i] = max(1.0, float(data.get("length", 1.0) or 1.0))
-        safety_raw[i] = data.get("safety_score") or 0.0
-        accident_raw[i] = data.get("accident_score") or 0.0
-        slope_raw[i] = data.get("slope_score") or 0.0
+        safety_value = data.get("safety_score")
+        safety_raw[i] = safety_value if safety_value is not None else safety_median
+        slope_value = data.get("slope_score")
+        slope_raw[i] = slope_value if slope_value is not None else slope_median
+        accident_value = data.get("accident_score")                                      
+        accident_raw[i] = accident_value if accident_value is not None else accident_median
 
     safety = _clamp_score_arr(safety_raw)
     accident = _clamp_score_arr(accident_raw)
@@ -221,8 +238,14 @@ def path_feature_averages(
 # 이 모델은 어디서 쓰이는가
 # -------------------------
 # oneway_astar.py(OnewayAstarEngine)와 그걸 leg 엔진으로 쓰는 waypoint.py
-# (WaypointComposerEngine의 oneway_preferred leg)뿐이다. oneway_shortest·oneway_random은
-# cost_context를 안 넘기므로 순수 거리로 돈다.
+# (WaypointComposerEngine의 oneway_preferred leg)뿐이다. OnewayAstarEngine을 쓰는 나머지
+# 두 leg(oneway_shortest·oneway_random)는 cost_context를 안 넘기므로 순수 거리로 돈다.
+#
+# 주의(2026-09-20, #498 확장): 이건 WaypointComposerEngine의 leg 모드 문자열 얘기다.
+# route_service.py의 최상위 WalkMode.ONEWAY_RANDOM은 더 이상 OnewayAstarEngine이
+# 아니다(OnewayGraspWaypointAlnsEngine, GRASP+ALNS) — 이 엔진은 cost_context를 받지만
+# 이 파일의 WeightedEdgeCost 모델을 그대로 재사용할 뿐, 경로 조립 방식 자체가
+# 완전히 다르므로 위 "어디서 쓰이는가" 목록에는 넣지 않았다.
 #
 # 책임 경계
 # ---------

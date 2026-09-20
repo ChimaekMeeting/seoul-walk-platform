@@ -16,12 +16,16 @@ benchmarks/run_alt_circular_validation.py
 
 계측은 `benchmarks/runner/_astar_instrumented.py`의 복제판 A*로 한다. 휴리스틱 선택
 로직은 건드리지 않는다 — `PathUtils._search_heuristic()`이 고른 것을 그대로 계측판에
-넘기므로, 두 모드 사이의 유일한 차이는 ALT 부착 여부다.
+넘기므로, 같은 비용 모드 안에서 두 실행 사이의 유일한 차이는 ALT 부착 여부다.
 
-⚠ 이 러너는 `cost_context`를 주입하지 않으므로 지나가는 것은 **거리 전용 경로**뿐이다.
-점수(safety/accident/slope)는 #474부터 이 러너가 읽는 그래프(artifact)에도 실려 있으므로
-데이터가 없어서가 아니라, ALT 부착 여부만을 유일한 차이로 두기 위한 의도적 선택이다.
-가중 비용 분기는 합성 그래프 단위 테스트(tests/unit/test_grasp_waypoint_common.py)가 덮는다.
+거리 전용/가중 비용 두 비용 모드를 각각 따로 비교한다(2026-09-20, #476). cost_context를
+고정한 채 그 안에서만 ALT 유무를 바꾸므로, 위 "유일한 차이" 원칙은 모드 안에서 그대로
+유지된다. 가중 비용 쪽이 admissible한 이유는 `WeightedEdgeCost`가 **페널티 전용 모델**
+(`cost = length * (1 + alpha*unsafe + beta*discomfort) >= length`)이라, `weight="length"`로
+만든 ALT Planar 거리표(`alt_runtime.py`)가 가중치를 얹어도 여전히 하한으로 유효하기
+때문이다(`scoring_engine.py::WeightedEdgeCost` 클래스 docstring 참고) — 이 실험은 그
+설계 불변식을 실그래프로 확인한다. 점수 커버리지가 기준 미달이면 가중 비용 비교는
+건너뛰고 거리 전용 결과만 낸다.
 
 실행:
     python -m benchmarks.run_alt_circular_validation
@@ -33,16 +37,24 @@ from pathlib import Path
 
 from benchmarks.benchmark import _load_default_graph
 from benchmarks.runner._astar_instrumented import astar_path_instrumented
+from src.config.settings import settings
 from src.route_engine.alt_runtime import attach_alt_heuristic, prepare_alt_heuristic
 from src.route_engine.engines import path_utils as pu
 from src.route_engine.engines.circular_grasp_waypoint_alns import CircularGraspWaypointAlnsEngine
 from src.route_engine.engines.path_utils import PathUtils
+from src.route_engine.weighted_cost_runtime import (
+    attach_weighted_cost,
+    build_request_cost_context,
+    prepare_weighted_cost,
+)
 from src.schema.route_schema import CircularRouteInput
 
 DATASET = Path("benchmarks/datasets/route_engine.json")
 SCENARIO_COUNT = 8   # route_engine.json의 circular 시나리오 앞에서부터
 NUM_WAYPOINTS = 4    # 운영 기본값(GRASP+ALNS, N=4)
 ALT_K = 8            # 프로덕션 기본값 WALK_ALT_K
+SAFETY_PREFERENCE = 0.4  # 가중 비용 비교에 쓰는 고정 선호도. 합이 WALK_WEIGHT_LIMIT(기본
+COMFORT_PREFERENCE = 0.3  # 0.7)와 같아 normalize_preference_weights()의 축소 없이 그대로 반영된다.
 
 _STATS = {"calls": 0, "time": 0.0, "popped": 0, "pushed": 0}
 
@@ -65,13 +77,15 @@ def _reset_stats() -> None:
     _STATS.update({"calls": 0, "time": 0.0, "popped": 0, "pushed": 0})
 
 
-def _run_once(G, start_node: int, target_km: float) -> dict:
+def _run_once(G, start_node: int, target_km: float, cost_context=None) -> dict:
     inp = CircularRouteInput(
         start_lat=G.nodes[start_node].get("lat", 0.0),
         start_lon=G.nodes[start_node].get("lon", 0.0),
         target_km=target_km,
     )
-    engine = CircularGraspWaypointAlnsEngine(inp, G, num_waypoints=NUM_WAYPOINTS)
+    engine = CircularGraspWaypointAlnsEngine(
+        inp, G, num_waypoints=NUM_WAYPOINTS, cost_context=cost_context,
+    )
     _reset_stats()
     started = time.perf_counter()
     nodes = engine.find_path(start_node, target_km)
@@ -102,6 +116,50 @@ def _load_cases(G) -> list[tuple[str, int, float]]:
     return cases
 
 
+def _run_mode(G, cases, heuristic, info, cost_context, label: str) -> dict:
+    """label 비용 모드 하나를 Haversine vs ALT로 비교한다. cost_context를 이 모드 내내
+    고정하므로, 모드 안에서는 원래 러너의 "유일한 변수는 ALT 부착 여부" 원칙이 그대로
+    유지된다."""
+    rows = []
+    for case_id, start_node, target_km in cases:
+        attach_alt_heuristic(G, None, None)        # Haversine
+        base = _run_once(G, start_node, target_km, cost_context)
+        attach_alt_heuristic(G, heuristic, info)   # ALT
+        alt = _run_once(G, start_node, target_km, cost_context)
+        attach_alt_heuristic(G, None, None)
+        rows.append((case_id, base, alt))
+
+        print(
+            f"[{label}] {case_id:>14} target={target_km:>4.1f}km  "
+            f"노드열동일={'예' if base['nodes'] == alt['nodes'] else '아니오'}  "
+            f"거리 {base['distance']:>8.1f}/{alt['distance']:>8.1f}m  "
+            f"popped {base['popped']:>7,}/{alt['popped']:>7,} "
+            f"({base['popped'] / max(alt['popped'], 1):.2f}x)  "
+            f"A*시간 {base['astar_time']:>6.3f}/{alt['astar_time']:>6.3f}s  "
+            f"전체 {base['total']:>6.2f}/{alt['total']:>6.2f}s"
+        )
+
+    print(f"\n=== {label} 합계 ===")
+    totals = {}
+    for hlabel, idx in (("Haversine", 1), ("ALT", 2)):
+        totals[hlabel] = {
+            key: sum(row[idx][key] for row in rows)
+            for key in ("calls", "popped", "pushed", "astar_time", "total")
+        }
+        t = totals[hlabel]
+        print(f"{hlabel:>10}: A*호출 {t['calls']:,}  popped {t['popped']:,}  pushed {t['pushed']:,}  "
+              f"A*시간 {t['astar_time']:.2f}s  전체 {t['total']:.2f}s  "
+              f"A*비중 {t['astar_time'] / t['total']:.1%}")
+
+    base_t, alt_t = totals["Haversine"], totals["ALT"]
+    identical = sum(1 for _, base, alt in rows if base["nodes"] == alt["nodes"])
+    max_diff = max((abs(base["distance"] - alt["distance"]) for _, base, alt in rows), default=0.0)
+    print(f"\n[{label}] 노드열 완전 일치: {identical}/{len(rows)}   거리 최대 차이: {max_diff:.6f}m")
+    print(f"[{label}] popped 감소: {base_t['popped'] / max(alt_t['popped'], 1):.2f}x   "
+          f"A* 시간 단축: {base_t['astar_time'] / max(alt_t['astar_time'], 1e-9):.2f}x")
+    return {"rows": rows, "totals": totals}
+
+
 def main() -> int:
     pu.PathUtils.astar_path = _patched_astar_path
 
@@ -121,43 +179,43 @@ def main() -> int:
     print(f"ALT 준비: {time.perf_counter() - started:.2f}s, "
           f"k_actual={info.k_actual}, 거리표 항목={info.table_entries:,}")
 
-    rows = []
-    for case_id, start_node, target_km in _load_cases(G):
-        attach_alt_heuristic(G, None, None)        # Haversine
-        base = _run_once(G, start_node, target_km)
-        attach_alt_heuristic(G, heuristic, info)   # ALT
-        alt = _run_once(G, start_node, target_km)
-        attach_alt_heuristic(G, None, None)
-        rows.append((case_id, base, alt))
+    cases = _load_cases(G)
 
-        print(
-            f"{case_id:>14} target={target_km:>4.1f}km  "
-            f"노드열동일={'예' if base['nodes'] == alt['nodes'] else '아니오'}  "
-            f"거리 {base['distance']:>8.1f}/{alt['distance']:>8.1f}m  "
-            f"popped {base['popped']:>7,}/{alt['popped']:>7,} "
-            f"({base['popped'] / max(alt['popped'], 1):.2f}x)  "
-            f"A*시간 {base['astar_time']:>6.3f}/{alt['astar_time']:>6.3f}s  "
-            f"전체 {base['total']:>6.2f}/{alt['total']:>6.2f}s"
+    print("\n########## 거리 전용 ##########")
+    distance_result = _run_mode(G, cases, heuristic, info, cost_context=None, label="거리 전용")
+
+    coverage = prepare_weighted_cost(G, enabled=True, coverage_min_ratio=settings.WALK_SCORE_COVERAGE_MIN)
+    attach_weighted_cost(G, coverage)
+    cost_context = None
+    if coverage is None or not coverage.ok:
+        missing = coverage.missing_attrs() if coverage is not None else "전체"
+        print(f"\n점수 커버리지가 기준(min_ratio={settings.WALK_SCORE_COVERAGE_MIN})에 "
+              f"못 미쳐(미달 속성: {missing}) 가중 비용 비교를 건너뜁니다.")
+    else:
+        cost_context = build_request_cost_context(
+            G,
+            safety_preference=SAFETY_PREFERENCE,
+            slope_preference=COMFORT_PREFERENCE,
+            weight_limit=settings.WALK_WEIGHT_LIMIT,
+            accident_ratio=settings.WALK_UNSAFE_ACCIDENT_RATIO,
         )
 
-    print("\n=== 합계 ===")
-    totals = {}
-    for label, idx in (("Haversine", 1), ("ALT", 2)):
-        totals[label] = {
-            key: sum(row[idx][key] for row in rows)
-            for key in ("calls", "popped", "pushed", "astar_time", "total")
-        }
-        t = totals[label]
-        print(f"{label:>10}: A*호출 {t['calls']:,}  popped {t['popped']:,}  pushed {t['pushed']:,}  "
-              f"A*시간 {t['astar_time']:.2f}s  전체 {t['total']:.2f}s  "
-              f"A*비중 {t['astar_time'] / t['total']:.1%}")
+    if cost_context is None:
+        return 0
 
-    base_t, alt_t = totals["Haversine"], totals["ALT"]
-    identical = sum(1 for _, base, alt in rows if base["nodes"] == alt["nodes"])
-    max_diff = max((abs(base["distance"] - alt["distance"]) for _, base, alt in rows), default=0.0)
-    print(f"\n노드열 완전 일치: {identical}/{len(rows)}   거리 최대 차이: {max_diff:.6f}m")
-    print(f"popped 감소: {base_t['popped'] / max(alt_t['popped'], 1):.2f}x   "
-          f"A* 시간 단축: {base_t['astar_time'] / max(alt_t['astar_time'], 1e-9):.2f}x")
+    print(f"\n########## 가중 비용(safety={SAFETY_PREFERENCE}, comfort={COMFORT_PREFERENCE}) ##########")
+    weighted_result = _run_mode(G, cases, heuristic, info, cost_context=cost_context, label="가중 비용")
+
+    # 교차 비교: 가중 비용이 켜졌을 때 실제로 다른 경로가 나오는가(ALT 결과 기준).
+    # 위 두 블록은 각각 "ALT 부착 여부"만 변수로 뒀으므로, 여기서는 반대로 비용 모드만
+    # 바꿔 cost_context 자체가 결과에 영향을 주는지를 확인한다.
+    distance_alt_nodes = {row[0]: row[2]["nodes"] for row in distance_result["rows"]}
+    weighted_alt_nodes = {row[0]: row[2]["nodes"] for row in weighted_result["rows"]}
+    changed = sum(
+        1 for case_id, nodes in distance_alt_nodes.items()
+        if nodes != weighted_alt_nodes.get(case_id)
+    )
+    print(f"\n가중 비용 적용 후 경로가 달라진 시나리오(ALT 기준): {changed}/{len(cases)}")
     return 0
 
 

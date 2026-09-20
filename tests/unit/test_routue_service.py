@@ -254,6 +254,36 @@ class TestModeRouting:
         assert result[0].status == WalkRouteStatus.NO_PATH
 
 
+class TestOnewayRandomEngineWiring:
+    """WalkMode.ONEWAY_RANDOM이 GRASP+ALNS 편도 엔진으로 배선됐는지 확인한다
+    (2026-09-20, #498 확장 — 이전에는 OnewayAstarEngine 임시 배선이었다)."""
+
+    def test_기본_엔진_클래스는_OnewayGraspWaypointAlnsEngine이다(self, service):
+        from src.route_engine.engines.oneway_grasp_waypoint_alns import OnewayGraspWaypointAlnsEngine
+
+        assert service.base_engines[WalkMode.ONEWAY_RANDOM] is OnewayGraspWaypointAlnsEngine
+
+    def test_엔진_생성_시_custom_weights_대신_cost_context를_넘긴다(self, service, patched_nodes):
+        """CIRCULAR_RANDOM 분기와 동일한 배선 — 가중 비용은 cost_context로만 전달한다."""
+        mock_engine_instance = MagicMock()
+        mock_engine_instance.run.return_value = [SUCCESS_RESPONSE.model_copy(update={"mode": WalkMode.ONEWAY_RANDOM})]
+        MockEngineClass = MagicMock(return_value=mock_engine_instance)
+        service.base_engines[WalkMode.ONEWAY_RANDOM] = MockEngineClass
+
+        service.get_route(
+            ACCESS_TOKEN,
+            origin=ORIGIN,
+            destination=DEST,
+            target_km=3.0,
+            mode=WalkMode.ONEWAY_RANDOM,
+        )
+
+        MockEngineClass.assert_called_once()
+        _, kwargs = MockEngineClass.call_args
+        assert "cost_context" in kwargs
+        assert "custom_weights" not in kwargs
+
+
 class TestWaypointRouting:
     """RouteService <-> WaypointComposerEngine 연동 검증."""
 

@@ -3,7 +3,8 @@ src/route_engine/engines/grasp_waypoint_common.py
 
 경유지(waypoint) 선택 기반 GRASP 계열 엔진(local/VND/VNS/ALNS, circular_grasp_waypoint_*.py)이
 공유하는 순수 로직. GRASP은 여기서 전체 경로를 직접 만들지 않고 경유지 cfg.num_waypoints개만
-선택하며, 실제 구간 연결(p1→w1→...→w_N→p1)은 NetworkX A*(PathUtils.astar_path 경유)가 담당한다.
+선택하며, 실제 구간 연결(p1→w1→...→w_N→p1, 편도는 p1→w1→...→w_N→end_node)은 NetworkX
+A*(PathUtils.astar_path 경유)가 담당한다.
 
 경유지 개수 n 일반화(2026-09-02, "GRASP 경유지 개수를 임의 n으로 확장" 이슈):
     이전 버전은 경유지가 정확히 2개(p2, p3)라는 전제가 Route 데이터 모델(waypoint2/waypoint3
@@ -50,6 +51,24 @@ cost_context를 받으면 _weight()가 EdgeCost(mode=...) 대신 그쪽을 쓴�
     정책)는 옮기지 않았다. 그건 "조립"이 아니라 "탐색 비용 정책"이라 GRASP 전용으로 남아야
     한다.
 
+구축 단계의 편도(end_node) 지원(2026-09-20, feat/496, "구축 함수 end_node 파라미터 추가"
+이슈): construct_initial_route()에 end_node: Optional[int] = None을 추가했다. None이면
+_rank_next_waypoint_candidates()에 p2=None이 그대로 전달되고 BuildCycleRoute도 start_node로
+복귀해 기존 순환 동작과 완전히 동일하다(기존 4개 순환 엔진 호출부는 이 기본값만 쓴다).
+end_node를 넘기면 매 단계 랭킹의 tail(c) 기준점·방향 다양성 기준선이 p2=end_node 기준으로
+바뀌고(_rank_next_waypoint_candidates의 p2 파라미터 자체는 커밋 79a3515에서 먼저 도입됐다),
+마지막 구간 연결도 waypoint_route_builder.py::build_route()의 같은 이름 파라미터로
+end_node까지 이어진다. end_node를 실제로 start_node와 다른 값으로 쓰려면 pool_result가
+dist_from_p2를 가진 WaypointPoolResultTwoPoint(waypoint_pool.py::build_pool_two_point 결과)
+여야 한다 — 이 함수는 그 전제를 강제하지 않으므로 호출부가 맞춰야 한다. 정제 단계
+(local/VND/VNS/ALNS, waypoint_refinement.py)와 조립 계층(waypoint_engine_assembly.py)까지
+end_node를 넓히는 작업, 그리고 이 풀을 실제로 소비하는 조합 엔진 자체는 아직 없다 — 별도
+이슈로 남겨뒀다.
+
+BuildCycleRoute 심볼명(2026-09-20, #498): waypoint_route_builder.py의 실제 함수명은
+build_cycle_route에서 build_route로 바뀌었지만, 이 파일의 재-export 이름(BuildCycleRoute)은
+하위 호환을 위해 그대로 유지한다 — import 대상만 build_route로 갱신했다.
+
 """
 
 from __future__ import annotations
@@ -69,7 +88,7 @@ from src.route_engine.waypoint_route_builder import (
     PathFinder,
     Route,
     _LENGTH_ATTR,
-    build_cycle_route as BuildCycleRoute,
+    build_route as BuildCycleRoute,
     edge_overlap_ratio as _edge_overlap_ratio,
     sum_edge_length as _sum_edge_length,
     sum_weighted_cost as _sum_weighted_cost,
@@ -198,10 +217,17 @@ class GraspConfig:
     pairwise_cache_rows: int = 256       # WaypointPoolGenerator.build_pool(pairwise_cache_rows=...)로 전달
     num_waypoints: int = 2
     # GRASP이 선택하는 경유지 개수(n). 기본값 2는 기존 p2·p3 2개 구성과 완전히 동일한
-    # 동작을 보장하는 하위 호환 기본값이다(2026-09-02 "GRASP 경유지 개수를 임의 n으로
-    # 확장" 이슈). CircularRouteInput이나 각 엔진 생성자는 아직 이 값을 외부로 노출하지
-    # 않는다 — API 연동은 이번 작업 범위 밖이며, 필요하면 GraspConfig(num_waypoints=n)을
-    # 직접 만들어 엔진에 전달해야 한다.
+    # 동작을 보장하는 하위 호환 기본값으로 도입됐다(2026-09-02 "GRASP 경유지 개수를 임의
+    # n으로 확장" 이슈). 이후 N=2/3/4 비교(2026-09-20, 이슈 #489, grasp-wp-alns 기준
+    # 출발지 4 × 거리 1/3/5km × 시드 10 = 360회)에서 N=4가 N=2보다 평균 53%·최대 81%
+    # 더 느린데 품질 이득은 없어(짝지은 순열검정, Bonferroni 보정 후 유의한 차이는
+    # 재통행률 N2 vs N4 하나뿐) N=2를 운영 기본값으로 유지하기로 확정했다 — 더 이상
+    # 단순 하위 호환값이 아니라 실측으로 뒷받침된 값이다. API 상한(target_km<=10km,
+    # VAL-DIST-002)까지 커버하도록 7·9km에서 N=2만 추가 검증(같은 이슈, 4출발지 × 시드
+    # 10 = 80회)했고, 게이트통과율 1.000(거리편차 0.04km대, 재통행률 0.004~0.007)으로
+    # 서비스 거리 전 구간(1~9km)에서 안정적이다. CircularRouteInput이나 각
+    # 엔진 생성자는 아직 이 값을 외부로 노출하지 않는다 — API 연동은 이번 작업 범위
+    # 밖이며, 필요하면 GraspConfig(num_waypoints=n)을 직접 만들어 엔진에 전달해야 한다.
     angle_diversity_weight_m: float = 1500.0
     # 다음 경유지 랭킹(_rank_next_waypoint_candidates)에서 "후보가 p1 기준으로 직전
     # 경유지(prev)와 같은 방향이거나 정반대 방향"일 때 더해지는 최대 가상 거리 오차(m).
@@ -399,23 +425,26 @@ def _remaining_distance_estimate_m(
     remaining_legs: int,
     total_legs: Optional[int],
 ) -> float:
-    """후보 c를 고른 뒤 p1로 돌아갈 때까지 "남은 거리"의 추정값(2026-09-09 버그픽스).
+    """후보 c를 고른 뒤 최종 도착지(순환이면 p1, 편도면 p2)까지 "남은 거리"의
+    추정값(2026-09-09 버그픽스, 2026-09-20 편도 일반화 — 함수 자체는 그때도 수정하지
+    않았다: 아래 논리가 목적지가 p1이든 p2든 무관하게 성립하기 때문이다).
 
-    remaining_legs는 c에서 p1까지 남은 구간 수(c가 마지막 경유지면 1), total_legs는
-    순환 전체 구간 수 N+1이다. tail_lower_bound_m은 dist(c, p1)이며, 남은 경로가 어떤
-    경유지를 더 거치든 삼각부등식상 이보다 짧아질 수 없으므로 항상 하한이다.
+    remaining_legs는 c에서 최종 도착지까지 남은 구간 수(c가 마지막 경유지면 1),
+    total_legs는 전체 구간 수 N+1이다. tail_lower_bound_m은 dist(c, 최종 도착지)이며
+    (호출부가 순환이면 dist_from_p1[c], 편도면 dist_from_p2[c]를 넘긴다), 남은 경로가
+    어떤 경유지를 더 거치든 삼각부등식상 이보다 짧아질 수 없으므로 항상 하한이다.
 
     예전에는 이 하한을 그대로 추정값으로 썼다 — 즉 "지금 고르는 경유지가 마지막"이라고
     가정해 남은 경유지들의 거리를 0으로 본 셈이다. 그 하한을 target_m에 맞추려 하면
-    앞쪽 구간이 예산을 전부 써버린다: 첫 단계에서 식이 |2·dist(p1,c) − target_m|로
-    축약되어 d = target_m/2 = r_max에서 최소가 되는데, 균형 잡힌 순환이라면 첫 구간은
+    앞쪽 구간이 예산을 전부 써버린다: 순환 첫 단계에서 식이 |2·dist(p1,c) − target_m|로
+    축약되어 d = target_m/2 = r_max에서 최소가 되는데, 균형 잡힌 경로라면 첫 구간은
     target_m/(N+1)이어야 하므로 조준점이 (N+1)/2배 어긋난다(N=2에서도 1.5배).
 
-    remaining_legs == 1이면 남은 구간이 c→p1 하나뿐이라 하한이 곧 정확한 값이고 추정할
-    것이 없다 — 이때는 균형 가정값을 쓰지 않는다(정확한 값을 근사로 덮어쓰면 오히려
-    나빠진다). remaining_legs > 1일 때만 균형 순환 가정값(각 구간이 target_m/(N+1)씩
-    쓴다는 가정)을 쓰되, 그 가정값이 실제 하한보다 작아질 수 있으므로 max로 하한을
-    지킨다 — 하한을 깨면 "물리적으로 불가능한 총거리"를 조준하게 된다.
+    remaining_legs == 1이면 남은 구간이 c→최종 도착지 하나뿐이라 하한이 곧 정확한
+    값이고 추정할 것이 없다 — 이때는 균형 가정값을 쓰지 않는다(정확한 값을 근사로
+    덮어쓰면 오히려 나빠진다). remaining_legs > 1일 때만 균형 가정값(각 구간이
+    target_m/(N+1)씩 쓴다는 가정)을 쓰되, 그 가정값이 실제 하한보다 작아질 수 있으므로
+    max로 하한을 지킨다 — 하한을 깨면 "물리적으로 불가능한 총거리"를 조준하게 된다.
     """
     if remaining_legs <= 1 or not total_legs:
         return tail_lower_bound_m
@@ -434,13 +463,30 @@ def _rank_next_waypoint_candidates(
     *,
     remaining_legs: int = 1,
     total_legs: Optional[int] = None,
+    p2: Optional[int] = None,
 ) -> list[int]:
     """다음 경유지 후보를 "직전 경유지(prev) 기준" 결합 점수 오름차순으로 정렬한다
     (기존 _rank_p2_candidates/_rank_p3_candidates를 경유지 n개로 일반화한 단일 함수):
 
-        score = |cumulative_so_far_m + dist(prev,c) + tail(c) − target_m|
-                + (prev != p1인 경우) cfg.angle_diversity_weight_m · |cos(각도차(p1→prev, p1→c))|
-        tail(c) = _remaining_distance_estimate_m(dist(p1,c), target_m, remaining_legs, total_legs)
+        score = |cumulative_so_far_m + dist(prev,c) + tail(c) − target_m| + diversity_penalty(c)
+        tail(c) = _remaining_distance_estimate_m(tail_lower_bound_m, target_m, remaining_legs, total_legs)
+        tail_lower_bound_m = dist(p1,c)(p2 없음, 순환) 또는 dist(c,p2)(p2 있음, 편도)
+
+    p2(편도 지원, 2026-09-20 추가): 기본값 None이면 기존 순환 동작과 완전히 동일하다
+    (호출부 3곳은 모두 p2를 넘기지 않는다). p2를 넘기면 "최종적으로 돌아갈 지점"이 p1이
+    아니라 p2가 된다 — tail(c)의 하한이 dist(p1,c) 대신 dist(c,p2)(pool_result가
+    WaypointPoolResultTwoPoint일 때만 있는 dist_from_p2)로 바뀐다. _remaining_distance_estimate_m
+    자체는 "c에서 목적지까지"라는 의미로 이미 일반적이라 이 함수는 수정하지 않는다.
+
+    diversity_penalty(c)도 p2 유무로 갈린다:
+      - p2 없음(순환): (prev != p1인 경우) cfg.angle_diversity_weight_m · |cos(각도차(p1→prev, p1→c))|
+        — "왕복처럼 보이는 정도"를 벌점 준다. prev==p1(첫 경유지 선택)이면 비교할 '직전 방향'이
+        없어 페널티를 적용하지 않는다.
+      - p2 있음(편도): cfg.angle_diversity_weight_m · |cos(각도차(p1→p2, p1→c))| — 기준선이
+        p1→p2로 고정이라 prev와 무관하게 매 단계 동일한 공식을 쓴다(첫 경유지 선택 단계도
+        포함). "p1→p2 직선에서 벗어나지 않는 정도(=우회가 없는 정도)"를 벌점 줘, 그냥
+        직진하는 경로 대신 옆으로 벗어나는 경유지를 선호하게 한다. num_waypoints가 커져도
+        기준선은 고정이며, 그 경우의 지역 적응형(prev 기준) 대안은 범위 밖이다.
 
     cumulative_so_far_m은 p1에서 prev까지 이미 확정된 경유지들을 실제로 거쳐온 누적
     거리(m) — 호출부(construct_initial_route 등)가 매 단계 재계산해 넘긴다. 매 단계
@@ -462,8 +508,9 @@ def _rank_next_waypoint_candidates(
 
     prev==p1(첫 경유지를 고르는 단계)이고 remaining_legs==1이면 cumulative_so_far_m=0,
     dist(prev,c)==dist(p1,c)이므로 score의 첫 항이 |2·dist(p1,c) − target_m|로 축약된다 —
-    경유지가 1개뿐인 순환의 정확한 기준이다. 이 단계에서는 비교할 '직전 방향'이 없으므로
-    각도 다양성 페널티를 적용하지 않는다(bearing_prev가 정의되지 않음).
+    경유지가 1개뿐인 순환의 정확한 기준이다. p2가 없으면(순환) 이 단계에서 비교할 '직전
+    방향'이 없으므로 각도 다양성 페널티를 적용하지 않는다(reference_bearing이 정의되지
+    않음). p2가 있으면(편도) 기준선이 p1→p2로 고정이라 이 단계에도 그대로 적용된다.
 
     cfg.min_waypoint_separation_ratio > 0이고 prev != p1이면, prev-c 실제 A* 거리
     (WaypointPoolResult.distance — 직선거리 아님)가 target_m * cfg.min_waypoint_separation_ratio
@@ -478,10 +525,14 @@ def _rank_next_waypoint_candidates(
     다른 후보 조회는 캐시를 그대로 쓴다 — 후보 하나하나에 실제 경로 탐색을 부르지 않는다."""
     p1_data = G.nodes[p1]
 
-    bearing_prev = None
-    if prev != p1 and cfg.angle_diversity_weight_m:
-        prev_data = G.nodes[prev]
-        bearing_prev = _bearing_rad(p1_data["lat"], p1_data["lon"], prev_data["lat"], prev_data["lon"])
+    reference_bearing = None
+    if cfg.angle_diversity_weight_m:
+        if p2 is not None:
+            p2_data = G.nodes[p2]
+            reference_bearing = _bearing_rad(p1_data["lat"], p1_data["lon"], p2_data["lat"], p2_data["lon"])
+        elif prev != p1:
+            prev_data = G.nodes[prev]
+            reference_bearing = _bearing_rad(p1_data["lat"], p1_data["lon"], prev_data["lat"], prev_data["lon"])
 
     ranked = []
     for c in pool_result.pool_nodes:
@@ -495,16 +546,17 @@ def _rank_next_waypoint_candidates(
         if prev != p1 and cfg.min_waypoint_separation_ratio and not is_waypoint_pair_separated(d_prev_c, target_m, cfg):
             continue  # 직전 경유지와 후보가 실제 도보상 너무 가까움 — 왕복 퇴화 위험이 있는 조합이라 제외
 
+        tail_lower_bound_m = pool_result.dist_from_p1[c] if p2 is None else pool_result.dist_from_p2[c]
         tail_m = _remaining_distance_estimate_m(
-            pool_result.dist_from_p1[c], target_m, remaining_legs, total_legs,
+            tail_lower_bound_m, target_m, remaining_legs, total_legs,
         )
         total = cumulative_so_far_m + d_prev_c + tail_m
         distance_error = abs(total - target_m)
 
-        if bearing_prev is not None:
+        if reference_bearing is not None:
             c_data = G.nodes[c]
             bearing_c = _bearing_rad(p1_data["lat"], p1_data["lon"], c_data["lat"], c_data["lon"])
-            separation = _angular_separation_rad(bearing_prev, bearing_c)
+            separation = _angular_separation_rad(reference_bearing, bearing_c)
             diversity_penalty = cfg.angle_diversity_weight_m * abs(math.cos(separation))
         else:
             diversity_penalty = 0.0
@@ -825,24 +877,38 @@ def construct_initial_route(
     target_m: float,
     rng: random.Random,
     cfg: GraspConfig,
+    end_node: Optional[int] = None,
 ) -> ConstructionResult:
     """GRASP 구축 단계 — 4개 엔진(local/VND/VNS/ALNS)이 동일하게 사용한다. cfg.num_waypoints개의
     경유지를 직전 경유지 기준 적응적 랭킹으로 하나씩 순서대로 뽑는다 — 각 단계 그리디
     점수는 항상 이전 단계까지의 실제 누적 거리를 반영해 다시 계산되므로, 경유지가
-    늘어나도 서로 독립적인 샘플링이 되지 않는다(GRASP의 적응성 유지)."""
+    늘어나도 서로 독립적인 샘플링이 되지 않는다(GRASP의 적응성 유지).
+
+    end_node(편도 지원, 2026-09-20 추가, feat/496): 기본값 None이면 최종 도착지가
+    start_node로 취급되어 기존 순환 동작과 완전히 동일하다(기존 4개 순환 엔진 호출부는
+    전부 이 기본값을 쓴다). end_node를 넘기면 _rank_next_waypoint_candidates에
+    p2=end_node로 그대로 전달해(각 단계 tail(c) 하한이 dist(p1,c) 대신 dist(c,end_node),
+    방향 다양성 기준선이 p1→end_node 고정으로 바뀐다 — 함수 docstring 참고) 랭킹을
+    목적지 기준으로 맞추고, 마지막 BuildCycleRoute 호출에도 같은 end_node를 넘겨 실제
+    구간 연결이 start_node가 아니라 end_node로 돌아가게 한다. p2를 실제로 start_node와
+    다른 값으로 넘기려면 pool_result가 dist_from_p2를 가진 WaypointPoolResultTwoPoint여야
+    한다(waypoint_pool.py::build_pool_two_point 결과) — 베이스 WaypointPoolResult에는
+    이 속성이 없어 AttributeError가 난다. 이 함수는 그 전제를 강제하지 않으므로(어떤
+    pool_result를 만들지는 호출부의 책임) 호출부가 맞춰줘야 한다."""
     waypoints: list[int] = []
     prev = start_node
     cumulative_m = 0.0
     n = cfg.num_waypoints
-    total_legs = n + 1  # p1→w1, w1→w2, ..., w_N→p1
+    total_legs = n + 1  # p1→w1, w1→w2, ..., w_N→(end_node 또는 p1)
 
     for i in range(n):
-        # i번째(0-based) 경유지를 고르면 그 뒤로 남는 구간은 w_i→w_{i+1} ... w_N→p1의
-        # n - i개다. 마지막 단계(i == n-1)에서는 1이 되어 추정 없이 정확한 dist(c,p1)를 쓴다.
+        # i번째(0-based) 경유지를 고르면 그 뒤로 남는 구간은 w_i→w_{i+1} ... w_N→목적지의
+        # n - i개다. 마지막 단계(i == n-1)에서는 1이 되어 추정 없이 정확한 dist(c,목적지)를 쓴다.
         rcl = _rank_next_waypoint_candidates(
             G, pool_result, start_node, prev, cumulative_m, target_m, cfg,
             exclude=frozenset(waypoints),
             remaining_legs=n - i, total_legs=total_legs,
+            p2=end_node,
         )[: cfg.rcl_size]
         if not rcl:
             return ConstructionResult(route=None, had_valid_waypoint_pair=False)
@@ -853,7 +919,10 @@ def construct_initial_route(
         waypoints.append(chosen)
         prev = chosen
 
-    route = BuildCycleRoute(G, cost_cache.astar_path, start_node, waypoints, cost_context=cost_cache.cost_context)
+    route = BuildCycleRoute(
+        G, cost_cache.astar_path, start_node, waypoints,
+        cost_context=cost_cache.cost_context, end_node=end_node,
+    )
     return ConstructionResult(route=route, had_valid_waypoint_pair=True)
 
 
@@ -867,6 +936,7 @@ def waypoint_replacement_neighbors(
     route: Route,
     target_m: float,
     cfg: GraspConfig,
+    end_node=None,
 ):
     """WaypointReplacement 이웃: 경유지를 한 번에 하나씩(위치별로) 다른 풀 후보로
     교체한다. 각 위치는 그 직전 경유지(prev)와 거기까지의 실제 누적 거리를 기준으로
@@ -879,7 +949,11 @@ def waypoint_replacement_neighbors(
     그 자리까지의 누적 거리를 구할 수 없는 위치(_prefix_distances_m이 None을 준 위치 — 앞
     구간 중 하나가 r_max를 넘어 도달 불가)는 랭킹 기준 자체가 없으므로 이웃을 만들지
     않는다. 위치 0·1은 구조적으로 항상 누적 거리가 정의되므로 이웃 집합이 통째로 비지는
-    않는다(_prefix_distances_m 참고)."""
+    않는다(_prefix_distances_m 참고).
+
+    end_node(편도 지원, 2026-09-20, #498 확장): None이면(기본값) 기존 순환 동작과
+    동일하다. 그대로 _rank_next_waypoint_candidates(p2=end_node)와
+    BuildCycleRoute(end_node=end_node)에 흘려보낸다."""
     waypoints = route.waypoints
     cum = _prefix_distances_m(pool_result, start_node, waypoints)
     fixed_exclude_all = frozenset(waypoints)
@@ -895,11 +969,13 @@ def waypoint_replacement_neighbors(
             G, pool_result, start_node, prev, cumulative_m, target_m, cfg,
             exclude=fixed_exclude_all,
             remaining_legs=n - i, total_legs=total_legs,
+            p2=end_node,
         )[: cfg.rcl_size]:
             new_waypoints = list(waypoints)
             new_waypoints[i] = c
             candidate = BuildCycleRoute(
                 G, cost_cache.astar_path, start_node, new_waypoints, cost_context=cost_cache.cost_context,
+                end_node=end_node,
             )
             if candidate is not None:
                 yield candidate
@@ -913,6 +989,7 @@ def waypoint_pair_replacement_neighbors(
     route: Route,
     target_m: float,
     cfg: GraspConfig,
+    end_node=None,
 ):
     """WaypointPairReplacement 이웃: 인접한 경유지 두 자리(위치 i, i+1)를 함께 바꾼다.
     N=2(경유지 2개)일 때는 유일한 인접 쌍이 곧 waypoint2·waypoint3라 기존 동작과 완전히
@@ -921,7 +998,11 @@ def waypoint_pair_replacement_neighbors(
     탐색은 기존과 동일하게 양쪽 rcl_size로 제한한 O(rcl×rcl)로 유지한다.
 
     누적 거리를 구할 수 없는 쌍(_prefix_distances_m이 None을 준 위치 i)은 건너뛴다 —
-    waypoint_replacement_neighbors와 같은 이유다."""
+    waypoint_replacement_neighbors와 같은 이유다.
+
+    end_node(편도 지원, 2026-09-20, #498 확장): waypoint_replacement_neighbors와 동일 —
+    None이면 기존 순환 동작과 같고, 그대로 _rank_next_waypoint_candidates(p2=end_node)와
+    BuildCycleRoute(end_node=end_node)에 흘려보낸다."""
     waypoints = route.waypoints
     cum = _prefix_distances_m(pool_result, start_node, waypoints)
     n = len(waypoints)
@@ -937,6 +1018,7 @@ def waypoint_pair_replacement_neighbors(
         for a in _rank_next_waypoint_candidates(
             G, pool_result, start_node, prev, cumulative_m, target_m, cfg, exclude=fixed_exclude,
             remaining_legs=n - i, total_legs=total_legs,
+            p2=end_node,
         )[: cfg.rcl_size]:
             # a는 방금 랭킹을 통과한 후보라 prev와의 거리가 None일 수 없다
             # (prev == start_node면 dist_from_p1, 아니면 랭킹이 None 후보를 이미 제외).
@@ -947,6 +1029,7 @@ def waypoint_pair_replacement_neighbors(
                 G, pool_result, start_node, a, cum_a, target_m, cfg,
                 exclude=fixed_exclude | {a},
                 remaining_legs=n - i - 1, total_legs=total_legs,
+                p2=end_node,
             )[: cfg.rcl_size]:
                 if a == waypoints[i] and b == waypoints[i + 1]:
                     continue
@@ -954,6 +1037,7 @@ def waypoint_pair_replacement_neighbors(
                 new_waypoints[i], new_waypoints[i + 1] = a, b
                 candidate = BuildCycleRoute(
                     G, cost_cache.astar_path, start_node, new_waypoints, cost_context=cost_cache.cost_context,
+                    end_node=end_node,
                 )
                 if candidate is not None:
                     yield candidate

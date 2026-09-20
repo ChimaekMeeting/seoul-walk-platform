@@ -166,6 +166,7 @@ class CircularGraspWaypointLocalSolver(BasePathSolver):
             inp=inp, G=graph, mode="distance", seed=seed,
             num_waypoints=params.get("num_waypoints"),
             config=_grasp_config_from_params(params),
+            cost_context=params.get("cost_context"),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 
@@ -192,6 +193,7 @@ class CircularGraspWaypointVndSolver(BasePathSolver):
             inp=inp, G=graph, mode="distance", seed=seed,
             num_waypoints=params.get("num_waypoints"),
             config=_grasp_config_from_params(params),
+            cost_context=params.get("cost_context"),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 
@@ -219,6 +221,7 @@ class CircularGraspWaypointVnsSolver(BasePathSolver):
             num_waypoints=params.get("num_waypoints"),
             config=_grasp_config_from_params(params),
             vns_options=_refinement_options_from_params("vns", params),
+            cost_context=params.get("cost_context"),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 
@@ -247,6 +250,7 @@ class CircularGraspWaypointAlnsSolver(BasePathSolver):
             config=_grasp_config_from_params(params, base=GRASP_ALNS_CONFIG),
             # 엔진이 GRASP_ALNS_OPTIONS 위에 덮어쓰므로 params에 없는 ALNS 노브는 확정값이 된다.
             alns_options=_refinement_options_from_params("alns", params),
+            cost_context=params.get("cost_context"),
         )
         path, cost = run_circular_engine_distance_only(engine, start_node, target_km)
 

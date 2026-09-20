@@ -17,7 +17,7 @@ from src.route_engine.waypoint_route_builder import (
     DistancePathFinder,
     MissingEdgeAttributeError,
     Route,
-    build_cycle_route,
+    build_route,
     surviving_waypoints,
 )
 
@@ -117,13 +117,13 @@ def test_astar_path_missing_length_attribute_raises(grid_graph):
         finder.astar_path(a, _node_id(2, 2))
 
 
-def test_distance_path_finder_works_as_build_cycle_route_path_finder(grid_graph):
-    """GraspConfig/EdgeCost 없이도 build_cycle_route와 바로 조합되는지 확인한다
+def test_distance_path_finder_works_as_build_route_path_finder(grid_graph):
+    """GraspConfig/EdgeCost 없이도 build_route와 바로 조합되는지 확인한다
     (_CostCache.astar_path를 넘기던 자리를 그대로 대체할 수 있어야 한다)."""
     finder = DistancePathFinder(grid_graph)
     start, p2, p3 = _node_id(0, 0), _node_id(0, 2), _node_id(2, 2)
 
-    route = build_cycle_route(grid_graph, finder.astar_path, start, [p2, p3])
+    route = build_route(grid_graph, finder.astar_path, start, [p2, p3])
     assert route is not None
     assert route.node_ids[0] == start
     assert route.node_ids[-1] == start
@@ -131,7 +131,7 @@ def test_distance_path_finder_works_as_build_cycle_route_path_finder(grid_graph)
 
 class _StubCostContext:
     """WeightedEdgeCost 규격(weight(u, v, edge_data))만 흉내 낸 테스트 전용 더미 —
-    실제 안전·경사 점수 커버리지 없이도 build_cycle_route의 가중 비용 배선만 검증한다."""
+    실제 안전·경사 점수 커버리지 없이도 build_route의 가중 비용 배선만 검증한다."""
 
     def __init__(self, multiplier: float):
         self.multiplier = multiplier
@@ -140,27 +140,52 @@ class _StubCostContext:
         return edge_data["length"] * self.multiplier
 
 
-def test_build_cycle_route_without_cost_context_sets_weighted_cost_equal_to_distance(grid_graph):
+def test_build_route_without_cost_context_sets_weighted_cost_equal_to_distance(grid_graph):
     """cost_context를 안 주면(Beam 등) weighted_cost_m이 distance_m과 같아져
     preference_penalty_ratio가 자연히 0.0이 된다(#467)."""
     finder = DistancePathFinder(grid_graph)
     start, p2, p3 = _node_id(0, 0), _node_id(0, 2), _node_id(2, 2)
 
-    route = build_cycle_route(grid_graph, finder.astar_path, start, [p2, p3])
+    route = build_route(grid_graph, finder.astar_path, start, [p2, p3])
     assert route is not None
     assert route.weighted_cost_m == route.distance_m
 
 
-def test_build_cycle_route_with_cost_context_sums_weighted_cost(grid_graph):
+def test_build_route_with_cost_context_sums_weighted_cost(grid_graph):
     """cost_context를 주면 Route.weighted_cost_m이 그 가중치 합으로 채워진다 —
     RouteObjective.preference_penalty_ratio 계산의 입력이다(#467)."""
     finder = DistancePathFinder(grid_graph)
     start, p2, p3 = _node_id(0, 0), _node_id(0, 2), _node_id(2, 2)
     cost_context = _StubCostContext(multiplier=1.5)
 
-    route = build_cycle_route(grid_graph, finder.astar_path, start, [p2, p3], cost_context=cost_context)
+    route = build_route(grid_graph, finder.astar_path, start, [p2, p3], cost_context=cost_context)
     assert route is not None
     assert route.weighted_cost_m == pytest.approx(route.distance_m * 1.5)
+
+
+def test_build_route_end_node_defaults_to_start_node(grid_graph):
+    """end_node를 생략하면(기본값 None) 마지막 구간이 여전히 waypoints[-1]→start_node라
+    기존 순환 동작과 완전히 동일하다(2026-09-20, "구축 함수 end_node 파라미터 추가" 이슈,
+    feat/496)."""
+    finder = DistancePathFinder(grid_graph)
+    start, p2, p3 = _node_id(0, 0), _node_id(0, 2), _node_id(2, 2)
+
+    route = build_route(grid_graph, finder.astar_path, start, [p2, p3], end_node=start)
+    assert route is not None
+    assert route.node_ids[0] == start
+    assert route.node_ids[-1] == start
+
+
+def test_build_route_end_node_routes_final_leg_to_end_node(grid_graph):
+    """end_node를 넘기면 마지막 구간이 waypoints[-1]→start_node가 아니라
+    waypoints[-1]→end_node가 된다(편도)."""
+    finder = DistancePathFinder(grid_graph)
+    start, p2, end = _node_id(0, 0), _node_id(0, 2), _node_id(4, 4)
+
+    route = build_route(grid_graph, finder.astar_path, start, [p2], end_node=end)
+    assert route is not None
+    assert route.node_ids[0] == start
+    assert route.node_ids[-1] == end
 
 
 def test_compute_route_geometry_metrics_accepts_distance_path_finder(grid_graph):
@@ -169,7 +194,7 @@ def test_compute_route_geometry_metrics_accepts_distance_path_finder(grid_graph)
     finder = DistancePathFinder(grid_graph)
     start, p2, p3 = _node_id(0, 0), _node_id(0, 2), _node_id(2, 2)
 
-    route = build_cycle_route(grid_graph, finder.astar_path, start, [p2, p3])
+    route = build_route(grid_graph, finder.astar_path, start, [p2, p3])
     assert route is not None
 
     metrics = compute_route_geometry_metrics(grid_graph, finder.astar_path, start, route, target_m=1000.0)
@@ -179,7 +204,7 @@ def test_compute_route_geometry_metrics_accepts_distance_path_finder(grid_graph)
 
 # ── 실효 경유지(pruning 이후 실제로 지난 경유지) ─────────────────────────
 #
-# build_cycle_route는 왕복 가지를 prune_dead_ends로 걷어내는데, 그 가지가 곧 어떤 경유지로
+# build_route는 왕복 가지를 prune_dead_ends로 걷어내는데, 그 가지가 곧 어떤 경유지로
 # 들어갔다 나오는 구간이면 경유지 노드 자체가 node_ids에서 사라진다. 그런데도 waypoints는
 # 선언값 그대로 남아, "경유지 N개를 지난다"고 기록하면서 실제로는 그보다 적게 지나는
 # Route가 정상 해로 채택됐다(2026-09-09 버그픽스).
@@ -198,7 +223,7 @@ def test_route_fills_effective_waypoints_from_node_ids_by_default():
     assert route.effective_waypoint_count == 2
 
 
-def test_build_cycle_route_reports_waypoint_erased_by_pruning(grid_graph):
+def test_build_route_reports_waypoint_erased_by_pruning(grid_graph):
     """막다른 가지 끝에 있는 경유지는 prune_dead_ends로 node_ids에서 사라지지만,
     waypoints는 선언값 그대로 남고 effective_waypoints만 줄어든다(탐색 입력은 보존,
     관측값만 정정)."""
@@ -211,7 +236,7 @@ def test_build_cycle_route_reports_waypoint_erased_by_pruning(grid_graph):
     finder = DistancePathFinder(grid_graph)
     start, far = _node_id(2, 2), _node_id(4, 4)
 
-    route = build_cycle_route(grid_graph, finder.astar_path, start, [dead_end, far])
+    route = build_route(grid_graph, finder.astar_path, start, [dead_end, far])
     assert route is not None
     assert route.waypoints == [dead_end, far]  # 선언값은 그대로 — 탐색 입력이라 건드리지 않는다
     assert dead_end not in route.node_ids  # 왕복 가지째 잘려나감
@@ -226,7 +251,7 @@ def test_geometry_metrics_expose_effective_waypoint_count(grid_graph):
     finder = DistancePathFinder(grid_graph)
     start, p2, p3 = _node_id(0, 0), _node_id(0, 2), _node_id(2, 2)
 
-    route = build_cycle_route(grid_graph, finder.astar_path, start, [p2, p3])
+    route = build_route(grid_graph, finder.astar_path, start, [p2, p3])
     assert route is not None
 
     metrics = compute_route_geometry_metrics(grid_graph, finder.astar_path, start, route, target_m=1000.0)
@@ -248,7 +273,7 @@ def test_prune_diagnostics_attribute_lost_waypoints_to_branch_type(grid_graph):
 
     finder = DistancePathFinder(grid_graph)
     start, far = _node_id(2, 2), _node_id(4, 4)
-    route = build_cycle_route(grid_graph, finder.astar_path, start, [dead_end, far])
+    route = build_route(grid_graph, finder.astar_path, start, [dead_end, far])
     assert route is not None
 
     metrics = compute_route_geometry_metrics(
