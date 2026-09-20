@@ -163,6 +163,31 @@ def test_build_cycle_route_with_cost_context_sums_weighted_cost(grid_graph):
     assert route.weighted_cost_m == pytest.approx(route.distance_m * 1.5)
 
 
+def test_build_cycle_route_end_node_defaults_to_start_node(grid_graph):
+    """end_node를 생략하면(기본값 None) 마지막 구간이 여전히 waypoints[-1]→start_node라
+    기존 순환 동작과 완전히 동일하다(2026-09-20, "구축 함수 end_node 파라미터 추가" 이슈,
+    feat/496)."""
+    finder = DistancePathFinder(grid_graph)
+    start, p2, p3 = _node_id(0, 0), _node_id(0, 2), _node_id(2, 2)
+
+    route = build_cycle_route(grid_graph, finder.astar_path, start, [p2, p3], end_node=start)
+    assert route is not None
+    assert route.node_ids[0] == start
+    assert route.node_ids[-1] == start
+
+
+def test_build_cycle_route_end_node_routes_final_leg_to_end_node(grid_graph):
+    """end_node를 넘기면 마지막 구간이 waypoints[-1]→start_node가 아니라
+    waypoints[-1]→end_node가 된다(편도)."""
+    finder = DistancePathFinder(grid_graph)
+    start, p2, end = _node_id(0, 0), _node_id(0, 2), _node_id(4, 4)
+
+    route = build_cycle_route(grid_graph, finder.astar_path, start, [p2], end_node=end)
+    assert route is not None
+    assert route.node_ids[0] == start
+    assert route.node_ids[-1] == end
+
+
 def test_compute_route_geometry_metrics_accepts_distance_path_finder(grid_graph):
     """일반화 이후 compute_route_geometry_metrics가 GRASP _CostCache 없이 임의의
     PathFinder 콜러블만으로 동작하는지 확인한다."""

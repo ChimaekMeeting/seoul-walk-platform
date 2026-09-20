@@ -574,7 +574,7 @@ def test_construct_initial_route_passes_decreasing_remaining_legs(monkeypatch):
     calls: list[tuple] = []
 
     def fake_rank(G, pool_result, p1, prev, cumulative_so_far_m, target_m, cfg,
-                  exclude=frozenset(), *, remaining_legs=1, total_legs=None):
+                  exclude=frozenset(), *, remaining_legs=1, total_legs=None, p2=None):
         calls.append((remaining_legs, total_legs))
         return [11 + len(calls) - 1]
 
@@ -592,6 +592,47 @@ def test_construct_initial_route_passes_decreasing_remaining_legs(monkeypatch):
         GraspConfig(num_waypoints=3),
     )
     assert calls == [(3, 4), (2, 4), (1, 4)]
+
+
+def test_construct_initial_route_forwards_end_node_to_ranking_and_build(monkeypatch):
+    """end_node를 넘기면 _rank_next_waypoint_candidates에는 매 단계 p2=end_node로,
+    마지막 BuildCycleRoute 호출에는 end_node=end_node로 그대로 전달돼야 한다(2026-09-20,
+    "구축 함수 end_node 파라미터 추가" 이슈). end_node를 생략하면(기본값 None) 두 호출
+    모두 None이 그대로 유지돼 기존 순환 동작과 완전히 동일하다."""
+    rank_calls: list = []
+    build_calls: list = []
+
+    def fake_rank(G, pool_result, p1, prev, cumulative_so_far_m, target_m, cfg,
+                  exclude=frozenset(), *, remaining_legs=1, total_legs=None, p2=None):
+        rank_calls.append(p2)
+        return [11 + len(rank_calls) - 1]
+
+    def fake_build(G, path_finder, start_node, waypoints, cost_context=None, end_node=None):
+        build_calls.append(end_node)
+        return None
+
+    monkeypatch.setattr(_gwc, "_rank_next_waypoint_candidates", fake_rank)
+    monkeypatch.setattr(_gwc, "BuildCycleRoute", fake_build)
+
+    pool = _FakePoolResult(
+        pool_nodes=[11, 12],
+        dist_from_p1={11: 500.0, 12: 500.0},
+        pairwise={(11, 12): 500.0},
+    )
+    stub_cost_cache = SimpleNamespace(astar_path=lambda a, b: None, cost_context=None)
+    cfg = GraspConfig(num_waypoints=2)
+
+    _gwc.construct_initial_route(nx.Graph(), stub_cost_cache, pool, 1, 3000.0, random.Random(0), cfg)
+    assert rank_calls == [None, None]  # end_node 생략 → 기존 순환과 동일
+    assert build_calls == [None]
+
+    rank_calls.clear()
+    build_calls.clear()
+    _gwc.construct_initial_route(
+        nx.Graph(), stub_cost_cache, pool, 1, 3000.0, random.Random(0), cfg, end_node=99,
+    )
+    assert rank_calls == [99, 99]
+    assert build_calls == [99]
 
 
 def test_waypoint_replacement_neighbors_passes_position_aware_remaining_legs(monkeypatch, grid_graph):

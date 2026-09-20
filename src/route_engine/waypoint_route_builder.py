@@ -153,10 +153,20 @@ def build_cycle_route(
     start_node: int,
     waypoints: Sequence[int],
     cost_context: Optional[WeightedEdgeCost] = None,
+    end_node: Optional[int] = None,
 ) -> Optional[Route]:
-    """start_node→waypoints[0]→...→waypoints[-1]→start_node 구간을 순서대로
-    path_finder로 실제 연결한다. waypoints는 최소 1개 이상이어야 한다. 구간 중 하나라도
-    실패(path_finder가 None 반환)하면 None(FAIL).
+    """start_node→waypoints[0]→...→waypoints[-1]→(end_node 또는 start_node) 구간을
+    순서대로 path_finder로 실제 연결한다. waypoints는 최소 1개 이상이어야 한다. 구간
+    중 하나라도 실패(path_finder가 None 반환)하면 None(FAIL).
+
+    end_node(편도 지원, 2026-09-20 추가, feat/496): 기본값 None이면 마지막 구간이
+    waypoints[-1]→start_node가 되어 기존 순환 동작과 완전히 동일하다(호출부는 전부
+    이 기본값을 쓴다). end_node를 넘기면 마지막 구간이 waypoints[-1]→end_node로
+    바뀐다 — 경유지 선택 단계(engines/grasp_waypoint_common.py::construct_initial_route)가
+    같은 end_node를 _rank_next_waypoint_candidates(p2=end_node)에 넘겨 tail(c) 기준점과
+    방향 다양성 기준선을 이미 목적지 기준으로 맞춘 뒤이므로, 여기서도 실제 연결이
+    같은 목적지로 향해야 앞뒤가 맞는다. 함수 이름(build_cycle_route)은 "순환"을 뜻하지만
+    이번 변경 범위는 이 파라미터 도입까지이며, 이름 자체의 정리는 범위 밖이다.
 
     cost_context(WeightedEdgeCost)를 주면 Route.weighted_cost_m을 그 가중치 합으로 채운다
     (#467, RouteObjective.preference_penalty_ratio 계산에 쓰임). 주지 않으면 weighted_cost_m은
@@ -170,7 +180,9 @@ def build_cycle_route(
     "잠깐 나갔다가 그대로 되돌아오는" 구간이 raw 거리 합산에는 그대로 두 번 반영되어
     목표거리에 가까운 것처럼 보이지만, 실제로는 최종 표시 단계에서 똑같이 pruning되어
     거리가 크게 줄어드는 경로를 잘못 선택하게 된다. distance_m/repeated_edge_ratio를
-    pruning 이후 기준으로 통일해 이 불일치를 없앤다.
+    pruning 이후 기준으로 통일해 이 불일치를 없앤다. prune_dead_ends 자체는 노드열이
+    닫힌 순환인지 여부를 전혀 가정하지 않으므로(단순히 재등장 노드 사이 짧은 구간을
+    지움) end_node가 start_node와 달라도 그대로 적용할 수 있다.
 
     pruning이 경유지 노드 자체를 지울 수 있다는 점에 주의한다 — 그 경우에도 waypoints는
     선언값 그대로 두고, 실제 생존분은 Route.effective_waypoints에 따로 기록한다
@@ -179,7 +191,8 @@ def build_cycle_route(
     if not waypoints:
         raise ValueError("waypoints는 최소 1개 이상이어야 합니다")
 
-    stops = [start_node, *waypoints, start_node]
+    final_node = start_node if end_node is None else end_node
+    stops = [start_node, *waypoints, final_node]
     node_ids: list[int] = []
     for a, b in zip(stops, stops[1:]):
         leg = path_finder(a, b)
