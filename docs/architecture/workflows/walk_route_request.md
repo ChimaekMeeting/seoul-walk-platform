@@ -1,7 +1,7 @@
 # 직접 경로 추천 Workflow
 
 > 상태: Current
-> 기준일: 2026-07-30
+> 기준일: 2026-09-20
 > 관련 코드: `src/interfaces/api/walk_router.py`, `src/service/route/route_service.py`, `src/route_engine/`
 > 검증 상태: 단위 테스트·개발 DB 실제 경로·POI·이력 확인, 모바일 미확인
 
@@ -22,6 +22,11 @@
 | `circular_random` | `origin`, `mode` |
 | `oneway_shortest` | `origin`, `destination`, `mode` |
 | `oneway_random` | `origin`, `destination`, `target_km`, `mode` |
+
+`target_km`을 보내는 경우 숫자 또는 숫자 문자열을 허용하며, 숫자로 변환한 값이 유한하고
+`0 < target_km <= 10`이어야 한다. `NaN`·양/음의 무한대·boolean·범위 밖 값은 요청 schema
+단계에서 HTTP 422로 거절한다. `target_km` 생략·`None`은 기존처럼 허용하지만
+`oneway_random`에서는 필수다. 10km 상한은 이 직접 경로 요청 계약에만 적용한다.
 
 프로필은 `default`, `nature`, `safe`, `flat`, `running`, `landmark`, `child`, `convenient`, `accessible`을 지원한다.
 

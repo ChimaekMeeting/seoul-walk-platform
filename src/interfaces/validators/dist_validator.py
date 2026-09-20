@@ -1,4 +1,20 @@
-from math import asin, cos, radians, sin, sqrt
+from math import asin, cos, isfinite, radians, sin, sqrt
+
+
+def _coerce_finite_target_km(value: object) -> object:
+    """숫자와 숫자 문자열을 유한한 float로 변환하고 boolean은 거절합니다."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("목표 산책 거리는 숫자로 입력해주세요.")
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        # 숫자가 아닌 입력의 형식 오류는 뒤이은 Pydantic float 검증이 보고한다.
+        return value
+    if not isfinite(number):
+        raise ValueError("목표 산책 거리는 유한한 숫자로 입력해주세요.")
+    return number
 
 
 def validate_target_km_positive(value: object) -> object:
@@ -6,7 +22,8 @@ def validate_target_km_positive(value: object) -> object:
     VAL-DIST-001: target_km > 0 검증 (field_validator mode='before')
     None이면 통과 (Optional 필드이므로 Pydantic에 위임)
     """
-    if value is None or not isinstance(value, (int, float)):
+    value = _coerce_finite_target_km(value)
+    if value is None or not isinstance(value, float):
         return value
     if value <= 0.0:
         raise ValueError("목표 산책 거리는 0 이하로 설정할 수 없습니다.")
@@ -18,7 +35,8 @@ def validate_target_km_max(value: object) -> object:
     VAL-DIST-002: target_km <= 10.0 검증 (field_validator mode='before')
     None이면 통과 (Optional 필드이므로 Pydantic에 위임)
     """
-    if value is None or not isinstance(value, (int, float)):
+    value = _coerce_finite_target_km(value)
+    if value is None or not isinstance(value, float):
         return value
     if value > 10.0:
         raise ValueError("목표 산책 거리가 너무 깁니다. 최대 10km 이하로 설정해주세요.")

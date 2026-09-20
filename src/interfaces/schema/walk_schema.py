@@ -68,7 +68,13 @@ class WalkRouteStatus(str, Enum):
 class WalkRouteRequest(BaseModel):
     origin: Coordinate
     destination: Optional[Coordinate] = None
-    target_km: Optional[float] = None
+    target_km: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        le=10.0,
+        allow_inf_nan=False,
+        description="목표 산책 거리(km). 숫자 문자열도 허용하며 0 초과 10 이하의 유한한 값이어야 합니다.",
+    )
     mode: WalkMode
 
     @field_validator("target_km", mode="before")

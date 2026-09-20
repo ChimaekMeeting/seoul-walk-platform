@@ -197,6 +197,25 @@ class TestWalkRouteAPI:
             )
         assert response.status_code == 500
 
+    @pytest.mark.parametrize(
+        "target_km",
+        ["0", "-1", "11", "NaN", "Infinity", "-Infinity", True, False],
+    )
+    def test_잘못된_목표_거리는_서비스_호출_전_422로_거절한다(self, client, target_km):
+        mock_service = MagicMock()
+        with patch("src.interfaces.dependencies.route_service", mock_service):
+            response = client.post(
+                "/api/walk/route",
+                json={
+                    "origin": {"lat": 37.5, "lon": 127.0},
+                    "mode": "circular_random",
+                    "target_km": target_km,
+                },
+            )
+
+        assert response.status_code == 422
+        mock_service.get_route.assert_not_called()
+
 
 # ── GET /api/auth/check/access_token ─────────────────────────────────────────
 

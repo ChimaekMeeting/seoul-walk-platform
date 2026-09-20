@@ -19,14 +19,22 @@ from src.interfaces.schema.survey_schema import (
     SurveyStatusResponse,
 )
 
-# 2026-09-17: 온보딩/챗봇 테마 태그가 "안전"/"편안" 둘로 통일되면서, 여러 키워드가
+# 2026-09-17: 서버의 온보딩/챗봇 의미 축이 "안전"/"편안" 둘로 통일되면서, 여러 키워드가
 # 각자 델타를 더하던 예전 방식(나무 많은/유모차/활기찬 등 20여 개 태그)을 걷어냈다.
 # extractor.py(대화에서 테마 태그 추출)/route_executor.py(태그별 가중치 EMA 블렌딩)도
 # 이 딕셔너리 키 집합을 그대로 참조하므로 두 축만 남는다.
 TAG_WEIGHT_MAP: dict[str, dict[str, float]] = {
-
     "안전": {"safety":  +0.2},
     "편안": {"comfort": +0.2},
+}
+
+# 설문 입력 경계에서만 쓰는 명시적 별칭 매핑. 계산에는 정규화된 의미 집합을 쓰되,
+# selected_tags에는 사용자가 제출한 표현을 그대로 저장해 앱의 선택 복원을 보존한다.
+_SURVEY_TAG_ALIASES: dict[str, str] = {
+    "안전": "안전",
+    "안전한 길": "안전",
+    "편안": "편안",
+    "편안한 길": "편안",
 }
 
 DISTANCE_MAP: dict[DistanceOption, float] = {
@@ -68,7 +76,12 @@ def _safety_comfort_deltas(selected_safety: bool, selected_comfort: bool) -> tup
         return d, r + d
     return d, d
 
-# 온보딩 설문 UI에 노출할 태그 목록. TAG_WEIGHT_MAP과 동일(안전/편안 둘뿐).
+
+def _normalize_survey_tags(tags: list[str]) -> set[str]:
+    """알려진 설문 태그만 의미 단위로 정규화하고 중복을 제거합니다."""
+    return {_SURVEY_TAG_ALIASES[tag] for tag in tags if tag in _SURVEY_TAG_ALIASES}
+
+# 서버 내부 온보딩 태그 목록. 앱 표시·전송 표현은 _SURVEY_TAG_ALIASES가 호환한다.
 SURVEY_TAGS: list[str] = ["안전", "편안"]
 
 
@@ -87,7 +100,8 @@ class SurveyService:
         설문 결과를 장기 프로필(weights_safety/weights_comfort)의 초기값으로 변환해
         UserPreference에 저장합니다.
 
-        두 축 다 request.tags에 "안전"/"편안"이 포함됐는지로 _safety_comfort_deltas()가
+        request.tags의 명시적 별칭을 "안전"/"편안" 의미로 정규화한 뒤
+        _safety_comfort_deltas()가
         계산한 (γ_안전, β_편안) 델타를 각각의 baseline(안전 0.5, 편안 0.0)에 더해
         정합니다 — TAG_WEIGHT_MAP은 안전/편안 +0.2 델타만 갖고 있을 뿐 이 계산에는
         쓰이지 않습니다(장기 프로필 초기값은 이 공식 하나로만 정해짐). tags는
@@ -107,9 +121,10 @@ class SurveyService:
         if user is None:
             return SurveyResponse(status=SurveyStatus.USER_NOT_FOUND)
 
+        normalized_tags = _normalize_survey_tags(request.tags)
         safety_delta, comfort_delta = _safety_comfort_deltas(
-            selected_safety="안전" in request.tags,
-            selected_comfort="편안" in request.tags,
+            selected_safety="안전" in normalized_tags,
+            selected_comfort="편안" in normalized_tags,
         )
         weights_safety = max(0.0, min(1.0, BASE_WEIGHTS["safety"] + safety_delta))
         weights_comfort = max(0.0, min(1.0, BASE_COMFORT + comfort_delta))
