@@ -38,6 +38,9 @@ solver 자기 신고이며 알고리즘 간 비교에 쓰면 안 되는 컬럼:
   - baseline_shortest_overlap_ratio
                         : 물리 거리 최단경로와의 겹침 비율로 편도 전용이다. 가중치와
                           무관한 ``length`` 기준선이므로 우회 정도를 비교할 수 있다.
+  - baseline_shortest_km / detour_ratio
+                        : 같은 기준선의 길이와, 최종 경로가 그보다 얼마나 긴지
+                          (distance_km / baseline_shortest_km - 1)다.
 
 알고리즘 하나가 예외를 던지거나 타임아웃되어도 나머지 알고리즘 실행과 CSV 저장은
 계속 진행된다 (status/error 컬럼에 실패 사유가 기록됨). 타임아웃된 알고리즘은

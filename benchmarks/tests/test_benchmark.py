@@ -345,7 +345,7 @@ def test_r9c_baseline_overlap_uses_physical_shortest_path_not_engine_weight():
     """선호 가중치가 켜져도 기준선은 항상 length 최단경로여야 한다."""
     from types import SimpleNamespace
 
-    from benchmarks.solvers._oneway_engine_common import baseline_shortest_overlap_ratio
+    from benchmarks.solvers._oneway_engine_common import baseline_shortest_metrics
 
     graph = nx.Graph()
     graph.add_edge("A", "B", length=10)
@@ -355,7 +355,22 @@ def test_r9c_baseline_overlap_uses_physical_shortest_path_not_engine_weight():
     # 과거 구현은 이 가중치를 기준선에 사용해 A-B-D를 기준 최단으로 오판했다.
     engine = SimpleNamespace(G=graph, _weight_fn=lambda u, v, data: 1 if "B" in (u, v) else 100)
 
-    assert baseline_shortest_overlap_ratio(engine, ["A", "B", "D"], "A", "D") == 0.0
+    assert baseline_shortest_metrics(engine, ["A", "B", "D"], "A", "D") == (0.01, 0.0)
+
+
+def test_r9d_detour_ratio_uses_final_distance_and_baseline_shortest_km():
+    """우회율은 solver cost가 아니라 하네스가 합산한 실제 거리로 계산한다."""
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=1000)
+    graph.add_edge("B", "D", length=1000)
+
+    row = bm_results.build_result_row(
+        "detour", graph, {}, 0.1,
+        {"paths": [["A", "B", "D"]], "cost": 1.0, "baseline_shortest_km": 1.0},
+    )
+
+    assert row["distance_km"] == 2.0
+    assert row["detour_ratio"] == 1.0
 
 
 def test_r9b_repeated_edge_ratio_needs_graph_and_is_none_without_it():

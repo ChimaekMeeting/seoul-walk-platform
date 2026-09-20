@@ -2217,6 +2217,8 @@ GRASP 반복 24번      ALNS 반복 200번      RCSP 쪽지 상한 4장
 | 쪽지 | 라벨(label) | RCSP가 지점에 붙이는 (비용, 거리) 기록 |
 | 씨앗값 | 시드(seed) | 난수를 고정하는 값. 우리는 42 |
 | 자기 재통행 비율 | `repeated_edge_ratio` (`overlap_ratio` 호환 alias) | 같은 간선을 두 번째 이후 통행한 거리 / 전체 거리 |
+| 기준 최단거리 | `baseline_shortest_km` | 편도 출발·도착 사이 물리 거리(`length`) 최단경로 길이 |
+| 우회율 | `detour_ratio` | `(실제 경로 거리 / 기준 최단거리) - 1` |
 | 기준 최단경로 중첩 비율 | `baseline_shortest_overlap_ratio` | 편도 경로가 물리 거리(`length`) 최단경로와 겹치는 통행 거리 비율 |
 | 잔가시 | spike | A→B→A처럼 갔다가 바로 돌아온 구간 |
 

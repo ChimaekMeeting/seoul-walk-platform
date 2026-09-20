@@ -41,7 +41,7 @@ RESULT_COLUMNS = [
     # --- 1계층: 최종 경로에서 직접 관측되는 값 (합격 게이트가 쓰는 지표) ---
     # 경유지 분해에 의존하지 않으므로, pruning이 경유지를 지웠는지와 무관하게
     # "사용자에게 실제로 전달되는 경로"를 서술한다.
-    "distance_km", "target_km", "distance_deviation_km",
+    "distance_km", "target_km", "distance_deviation_km", "baseline_shortest_km", "detour_ratio",
     # overlap_ratio는 repeated_edge_ratio의 하위 호환 alias다. 새 소비자는 의미가
     # 명확한 repeated_edge_ratio를 사용한다.
     "is_closed_loop", "spike_count", "repeated_edge_ratio", "overlap_ratio", "circularity_q",
@@ -93,7 +93,7 @@ _OPTIONAL_INT_KEYS = (
     "waypoints_lost_clean", "waypoints_lost_repeated",
 )
 _OPTIONAL_FLOAT_KEYS = (
-    "find_path_sec", "baseline_shortest_overlap_ratio",
+    "find_path_sec", "baseline_shortest_km", "baseline_shortest_overlap_ratio",
     "waypoint_separation_m", "min_waypoint_separation_m",
     "repeated_edge_ratio", "waypoint_angle_diff_deg", "segment_balance_ratio",
     "prune_branch_length_m", "prune_clean_branch_length_m",
@@ -404,6 +404,11 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
         "distance_deviation_km": (
             round(abs(distance_km - target_km), 4)
             if distance_km is not None and target_km is not None else None
+        ),
+        "baseline_shortest_km": result.get("baseline_shortest_km"),
+        "detour_ratio": (
+            round(distance_km / result["baseline_shortest_km"] - 1, 4)
+            if distance_km is not None and result.get("baseline_shortest_km") not in (None, 0) else None
         ),
         "is_closed_loop": is_closed_loop(paths),
         "spike_count": count_spikes(paths),
