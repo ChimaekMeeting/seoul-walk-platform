@@ -14,18 +14,45 @@ logger = logging.getLogger(__name__)
 
 FEATURE_DIMENSIONS = ("safety", "comfort")
 
+# 장기 프로필 SGD의 안전 특성값을 엔진 비용식의 unsafe와 같은 지표(1 - unsafe)로 만들 때 쓰는
+# 안전시설 부족 vs 사고위험 결합 비율의 기본값이다. settings.WALK_UNSAFE_ACCIDENT_RATIO의
+# 기본값과 같아야 하며 tests/unit/test_path_feature_averages.py가 그 일치를 검증한다.
+# route_engine은 settings를 직접 읽지 않으므로 운영 값은 기동 시점(dependencies.
+# init_route_service)에서 precompute_scoring_features()로 넘긴다 — 다른 호출부(벤치마크 등)는
+# 이 기본값을 쓴다.
+DEFAULT_UNSAFE_ACCIDENT_RATIO = 0.5
+
 _FEATURE_CACHE_KEY = "_scoring_feature_cache"
+
+# path_feature_averages()가 특성 차원별로 읽는 캐시 키. safety만 "safety"(= safety_score 그대로,
+# compute_score_vector()가 경로 생성에 쓰는 값)가 아니라 1 - unsafe를 읽는다. 목록에 없는
+# 차원은 캐시의 같은 이름 키를 그대로 읽는다.
+_SAFETY_ALIGNED_KEY = "safety_aligned"
+_PATH_FEATURE_KEYS = {"safety": _SAFETY_ALIGNED_KEY}
 
 
 def _clamp_score_arr(arr: np.ndarray) -> np.ndarray:
     return np.clip(np.nan_to_num(arr, nan=0.0), 0.0, 1.0)
 
 
-def _build_feature_cache(graph: nx.Graph) -> dict:
+def _build_feature_cache(
+    graph: nx.Graph,
+    unsafe_accident_ratio: float = DEFAULT_UNSAFE_ACCIDENT_RATIO,
+) -> dict:
     """
     comfort는 slope_score(클수록 평탄, 0~1)를 데이터 소스로 쓴다 — tags 기반
     comfort_penalty는 graph_contract.md 기준 tags가 실제로 전달되지 않아 제거했다
     (이 파일의 WeightedEdgeCost가 이미 slope_score를 comfort 선호로 쓰는 것과 같은 매핑).
+    discomfort = 1 - slope_score이므로 comfort 특성값이 곧 1 - discomfort다.
+
+    "safety"는 safety_score 그대로이며 compute_score_vector()(경로 생성)가 읽는다 — 바꾸지
+    않는다. 장기 프로필 SGD용 안전 특성값은 별도 키 "safety_aligned"(= 1 - unsafe)에 둔다.
+    unsafe는 WeightedEdgeCost.unsafe()와 같은 식이다:
+        unsafe = ratio * (1 - safety_score) + (1 - ratio) * accident_score
+    (ratio는 안전시설 부족 쪽에 곱해진다 — 이름과 달리 accident_score에 곱해지는 값이 아니다.)
+    데이터가 없는 엣지는 위 두 캐시 배열과 같이 0.0으로 읽는다(적재율 게이트를 통과한 그래프에서는
+    발생하지 않는다).
+
 
     결측(None) safety_score/slope_score는 중앙값으로 대체한다 — WeightedEdgeCost._score()와
     같은 규칙이다. 예전에는 `or 0.0`으로 대체해 "점수 없는 도로 = 안전/편안 최악"이 됐는데,
@@ -34,18 +61,23 @@ def _build_feature_cache(graph: nx.Graph) -> dict:
     들어가 데이터 희박 지역의 점수를 체계적으로 낮게 왜곡시켰다(#476). 값이 하나도 없는
     속성은 중앙값도 없으므로 그때만 0.0으로 남긴다.
     """
+    if not 0.0 <= unsafe_accident_ratio <= 1.0:
+        raise ValueError(f"unsafe_accident_ratio는 0~1이어야 합니다: {unsafe_accident_ratio!r}")
+
     edges = list(graph.edges(data=True))
     n = len(edges)
 
     edge_keys = [(u, v) for u, v, _ in edges]
     length_raw = np.empty(n, dtype=np.float64)
     safety_raw = np.empty(n, dtype=np.float64)
+    accident_raw = np.empty(n, dtype=np.float64)
     slope_raw = np.empty(n, dtype=np.float64)
 
     safety_present = [data.get("safety_score") for _, _, data in edges if data.get("safety_score") is not None]
     slope_present = [data.get("slope_score") for _, _, data in edges if data.get("slope_score") is not None]
     safety_median = statistics.median(safety_present) if safety_present else 0.0
     slope_median = statistics.median(slope_present) if slope_present else 0.0
+    accident_median = statistics.median(accident_present) if accident_present else 0.0
 
     for i, (_, _, data) in enumerate(edges):
         length_raw[i] = max(1.0, float(data.get("length", 1.0) or 1.0))
@@ -53,23 +85,36 @@ def _build_feature_cache(graph: nx.Graph) -> dict:
         safety_raw[i] = safety_value if safety_value is not None else safety_median
         slope_value = data.get("slope_score")
         slope_raw[i] = slope_value if slope_value is not None else slope_median
+        accident_value = data.get("accident_score")                                      
+        accident_raw[i] = accident_value if accident_value is not None else accident_median
+
+    safety = _clamp_score_arr(safety_raw)
+    accident = _clamp_score_arr(accident_raw)
+    unsafe = unsafe_accident_ratio * (1.0 - safety) + (1.0 - unsafe_accident_ratio) * accident
 
     return {
         "edge_keys": edge_keys,
         "length": length_raw,
-        "safety": _clamp_score_arr(safety_raw),
+        "safety": safety,
         "comfort": _clamp_score_arr(slope_raw),
+        _SAFETY_ALIGNED_KEY: 1.0 - unsafe,
+        "unsafe_accident_ratio": unsafe_accident_ratio,
     }
 
 
-def precompute_scoring_features(graph: nx.Graph) -> None:
-    graph.graph[_FEATURE_CACHE_KEY] = _build_feature_cache(graph)
+def precompute_scoring_features(
+    graph: nx.Graph,
+    unsafe_accident_ratio: float = DEFAULT_UNSAFE_ACCIDENT_RATIO,
+) -> None:
+    graph.graph[_FEATURE_CACHE_KEY] = _build_feature_cache(graph, unsafe_accident_ratio)
 
 
 def _get_feature_cache(graph: nx.Graph) -> dict:
     cache = graph.graph.get(_FEATURE_CACHE_KEY)
     if cache is None or len(cache["edge_keys"]) != graph.number_of_edges():
-        cache = _build_feature_cache(graph)
+        # 재구축할 때도 기동 때 넘긴 비율을 유지한다(없으면 기본값).
+        ratio = cache["unsafe_accident_ratio"] if cache is not None else DEFAULT_UNSAFE_ACCIDENT_RATIO
+        cache = _build_feature_cache(graph, ratio)
         graph.graph[_FEATURE_CACHE_KEY] = cache
     return cache
 
@@ -128,12 +173,21 @@ def path_feature_averages(
     dims: tuple[str, ...] = FEATURE_DIMENSIONS,
 ) -> dict[str, float]:
     """
-    경로(path_nodes)를 따라 dims의 각 raw 0~1 feature를 length-가중 평균으로 계산합니다.
+    경로(path_nodes)를 따라 dims의 각 0~1 feature를 length-가중 평균으로 계산합니다.
 
     compute_score_vector()의 "length * (1-feature)" 비용 합산과 달리, 여기서는
-    0~1 원점수 자체의 평균을 반환한다 — 장기 프로필 SGD의 X_R(후보 경로 특성값)로
+    0~1 점수 자체의 평균을 반환한다 — 장기 프로필 SGD의 X_R(후보 경로 특성값)로
     쓰기 위함이며, 별점(정규화 시 0~1)과 같은 스케일이어야 대조값(contrast) 계산이
     의미를 가진다(longterm_profile_service 참고).
+
+    각 특성값은 엔진의 탐색 비용식(WeightedEdgeCost)과 같은 지표다 — SGD가 학습한 가중치가
+    비용식에서 alpha * unsafe, beta * discomfort로 쓰이므로 입력도 같은 지표여야 한다.
+      - safety : 1 - unsafe = 1 - (ratio * (1 - safety_score) + (1 - ratio) * accident_score)
+                 (ratio는 기동 시 precompute_scoring_features()로 받은 값)
+      - comfort: slope_score = 1 - discomfort
+    이전에는 safety가 safety_score만 평균한 값이었다. 그 정의로 저장된 기존
+    RouteHistory.candidate_features와는 정의가 달라 섞이지만, 대조값은 한 요청의 후보끼리
+    빼서 쓰므로(같은 행 안에서는 정의가 일관) 갱신 계산은 행 단위로 유효하다.
 
     path_nodes가 2개 미만(엣지가 없음)이면 모든 차원을 0.0으로 반환한다.
     """
@@ -141,6 +195,7 @@ def path_feature_averages(
         return {dim: 0.0 for dim in dims}
 
     cache = _get_feature_cache(graph)
+    keys = {dim: _PATH_FEATURE_KEYS.get(dim, dim) for dim in dims}
     edge_index = {key: i for i, key in enumerate(cache["edge_keys"])}
     # 무방향 그래프이므로 역방향도 같은 인덱스를 찾을 수 있게 보강한다.
     for (u, v), i in list(edge_index.items()):
@@ -155,7 +210,7 @@ def path_feature_averages(
         length = float(cache["length"][i])
         total_length += length
         for dim in dims:
-            totals[dim] += length * float(cache[dim][i])
+            totals[dim] += length * float(cache[keys[dim]][i])
 
     if total_length <= 0.0:
         return {dim: 0.0 for dim in dims}
