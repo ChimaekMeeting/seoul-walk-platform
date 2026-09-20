@@ -1500,13 +1500,44 @@ import로 두지 않은 이유는 호출 빈도다(순환 경로는 요청 1건�
   시간(이 실행에서 3.10초)이 붙는데 측정 대상이 요청 시간의 1% 미만이라 얻는 정보가
   없다고 판단했다(2026-09-19). 필요해지면 `90bf83d`(가중 비용)와 같은 방식으로 넣는다.
 
+### 관측: 순환 경로 구간 연결 × 가중 비용 (2026-09-20, #476)
+
+환경: Windows-11, Python 3.12.10(`poetry run python`), networkx 3.6.
+입력: `artifacts/walk_graph_v1.pkl`(`v3-2026-09-19`, 노드 160,197 / 엣지 223,693), 시나리오는
+위와 같은 `circular_01`~`circular_08`, 엔진은 `CircularGraspWaypointAlnsEngine`(N=4).
+선호도: `safety=0.4`, `comfort=0.3`(`WALK_WEIGHT_LIMIT` 기본값 0.7과 합이 같아
+`normalize_preference_weights()`의 축소 없이 그대로 반영됨).
+재현: `python -m benchmarks.run_alt_circular_validation`(#476에서 가중 비용 비교 블록 추가 —
+거리 전용 블록은 위 2026-09-19 관측과 동일한 코드다).
+
+| 지표 | 거리 전용 | 가중 비용 |
+|---|---:|---:|
+| 노드열 완전 일치(Haversine=ALT) | 8/8 | 8/8 |
+| 거리 최대 차이 | 0.000000m | 0.000000m |
+| popped 감소(Haversine/ALT) | 1.78x | 1.39x |
+| A* 시간 단축(Haversine/ALT) | 1.19x | 1.07x |
+| A*가 전체에서 차지하는 비중(Haversine/ALT) | 0.8%/0.7% | 1.5%/1.4% |
+
+**이 입력·이 머신에서의 관측이며 고정 기대값이 아니다.**
+
+- **가중 비용을 켜도 ALT는 여전히 정확하다.** 8개 시나리오 모두 Haversine과 노드열이
+  완전히 같고 거리 차이는 0이다 — `WeightedEdgeCost`가 페널티 전용 모델(`cost >= length`)
+  이라 `weight="length"`로 만든 ALT 거리표가 가중 비용 아래서도 하한으로 유효하다는 설계
+  불변식(`scoring_engine.py::WeightedEdgeCost` docstring)이 실그래프에서 확인됐다.
+- **다만 ALT의 탐색량 절감 효과는 가중 비용 아래서 더 작다**(popped 1.78x → 1.39x, A*시간
+  1.19x → 1.07x). `length` 기준으로만 만든 ALT 랜드마크 하한이, 엣지마다 `unsafe`/
+  `discomfort`가 더해져 울퉁불퉁해진 실제 비용을 상대적으로 덜 타이트하게 근사하는
+  것으로 보인다 — "ALT가 항상 1.78배 줄여준다"로 일반화하면 안 된다.
+- **가중 비용 자체가 경로에 실제로 영향을 준다.** 8개 시나리오 전부 거리 전용과 다른
+  경로가 나왔다(가중 비용 적용 후 경로가 달라진 시나리오: 8/8) — cost_context 배선이
+  실그래프 A*에 실제로 반영되는 것을 확인했다.
+- A*비중이 거리 전용(0.7~0.8%) 대비 가중 비용(1.4~1.5%)에서 거의 2배다 — 엣지마다
+  `_score()`가 두 속성(safety/slope)을 읽고 median 대체 여부를 판단하는 비용이 Haversine/
+  ALT 휴리스틱 계산보다 크기 때문이다. 그래도 전체 요청 시간의 2% 미만이라 "탐색 개선이
+  체감으로 이어지지 않는다"는 2026-09-19 관측의 결론은 가중 비용 아래서도 유지된다.
+
 ### 미확인
 
-- **가중 비용을 켠 상태의 순환 경로는 실그래프로 확인하지 못했다.** fixture 엣지에
-  `accident_score`·`slope_score` 컬럼이 없어(2026-09-19 확인) 커버리지 게이트가 가중
-  모드를 끄므로, 위 관측은 전부 거리 전용 경로다. 가중 비용 × ALT 조합은 합성 그래프
-  단위 테스트(`tests/unit/test_grasp_waypoint_common.py`)만 덮고 있다 — 점수 적재와
-  artifact 재빌드 이후 같은 러너로 다시 확인할 것.
 - **실제 서버를 띄워 HTTP로 확인하지는 못했다.** Docker/PostgreSQL이 떠 있지 않아
   `src.main`의 lifespan(`init_db()`)을 통과하는 기동을 할 수 없었다. 위 on/off 비교는
   `RouteService`를 직접 만들고 인증을 스텁으로 대체해서 잰 것이다.
