@@ -290,11 +290,13 @@ def test_final_route_is_unchanged_by_candidate_collection(grid_graph, monkeypatc
 # ── candidate_feature_vectors: 장기 프로필 SGD 스냅샷 ──────────────────────
 #
 # run()이 반환하는 각 응답과 같은 순서로 {"safety", "comfort"} 평균을 채운다.
-# grid_graph는 safety_score/slope_score를 설정하지 않으므로
-# scoring_engine._build_feature_cache()의 기본값(둘 다 데이터 없으면 0.0)이
-# 그대로 나와야 한다 — 값 자체보다 "채워지는지·순서가 맞는지·새지 않는지"가 검증 대상이다.
+# grid_graph는 safety_score/accident_score/slope_score를 설정하지 않으므로
+# scoring_engine._build_feature_cache()의 기본값(점수 데이터 없으면 0.0)이 그대로 나와야 한다.
+# safety는 1 - unsafe라서 안전점수 0·사고 0이면 1 - ratio, comfort는 slope_score 0이면 0.0이다.
+# 값 자체보다 "채워지는지·순서가 맞는지·새지 않는지"가 검증 대상이다.
+from src.route_engine.scoring.scoring_engine import DEFAULT_UNSAFE_ACCIDENT_RATIO  # noqa: E402
 
-_NO_FEATURE_DATA = {"safety": 0.0, "comfort": 0.0}
+_NO_FEATURE_DATA = {"safety": 1.0 - DEFAULT_UNSAFE_ACCIDENT_RATIO, "comfort": 0.0}
 
 
 @pytest.mark.parametrize("combo", sorted(MULTI_CANDIDATE_COMBOS))
