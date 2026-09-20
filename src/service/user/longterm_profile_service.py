@@ -36,6 +36,12 @@ src/service/user/longterm_profile_service.py
 
 적응형 학습률: 서비스 초기(feedback_count 적음)에는 η를 크게, 누적될수록 줄여
     한두 번의 특이 평가로 프로필이 급변하지 않게 한다.
+
+갱신 폭 상한(#487): X_contrast를 ±_CONTRAST_CAP으로 제한한다(부호는 유지, 크기만 제한).
+    한 번의 피드백이 가중치를 크게 흔들지 못하게 하려는 안전장치다.
+
+온보딩 초기값 하한(#487): 갱신된 가중치는 온보딩 설문이 정한 초기값 아래로 내려가지 않는다
+    (_onboarding_initial_weights). 설문을 안 한 사용자는 기본값(safety=0.5, comfort=0.0)이 하한이다.
 """
 import logging
 
@@ -54,7 +60,7 @@ from src.repository.user.user_repository import UserRepository
 from src.route_engine.scoring.scoring_engine import FEATURE_DIMENSIONS
 from src.service.route.route_service import MIN_CANDIDATES_FOR_PROFILE
 from src.service.user.auth_service import AuthService
-from src.service.user.survey_service import BASE_COMFORT, BASE_WEIGHTS
+from src.service.user.survey_service import BASE_COMFORT, BASE_WEIGHTS, _safety_comfort_deltas
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +69,9 @@ INITIAL_LR = 0.5
 DECAY_RATE = 0.5
 MIN_LR = 0.05
 
-# 갱신 폭 상한의 기준값 (#487, 팀 결정 대기 — 미확정이라 비활성). 활성화 절차는 _apply_sgd_update 참고.
-# 기준값은 "한 번의 피드백에서 가중치를 최대 얼마나 움직이게 할지"로 정한다
-# (0.1이면 첫 피드백 기준 최대 약 ±0.055, 피드백이 쌓일수록 η가 줄어 더 작아진다).
-# _CONTRAST_CAP = 0.1
+# X_contrast의 크기 상한(#487). "한 번의 피드백에서 가중치를 최대 얼마나 움직이게 할지"로 정한 값이며
+# 0.1이면 첫 피드백 기준 최대 약 ±0.055다(피드백이 쌓일수록 η가 줄어 더 작아진다).
+_CONTRAST_CAP = 0.1
 
 _NEUTRAL_PREDICTION = 0.5  # ŷ의 중심값 — X_contrast=0(모든 후보가 특성상 동일)이면 예측은 "평범"
 
@@ -78,6 +83,27 @@ def _normalize_rating(rating: int) -> float:
 
 def _adaptive_learning_rate(feedback_count: int) -> float:
     return max(MIN_LR, INITIAL_LR / (1 + DECAY_RATE * feedback_count))
+
+
+def _onboarding_initial_weights(preference) -> dict[str, float]:
+    """온보딩 설문이 정한 가중치 초기값 — SGD 갱신 결과의 하한이다(#487).
+
+    survey_service.submit()과 같은 식으로 selected_tags("안전"/"편안" 선택 조합)에서 다시 계산한다.
+    설문을 하지 않은 사용자(행이 없거나 survey_completed가 아님)는 기본값(safety=0.5, comfort=0.0)이다.
+    selected_tags가 없는 설문 완료 행은 "둘 다 미선택"으로 본다.
+    """
+    if preference is None or getattr(preference, "survey_completed", False) is not True:
+        return {"safety": BASE_WEIGHTS["safety"], "comfort": BASE_COMFORT}
+
+    tags = preference.selected_tags or []
+    safety_delta, comfort_delta = _safety_comfort_deltas(
+        selected_safety="안전" in tags,
+        selected_comfort="편안" in tags,
+    )
+    return {
+        "safety": max(0.0, min(1.0, BASE_WEIGHTS["safety"] + safety_delta)),
+        "comfort": max(0.0, min(1.0, BASE_COMFORT + comfort_delta)),
+    }
 
 
 def _contrast_vector(candidate_features: list[dict[str, float]]) -> dict[str, float]:
@@ -177,19 +203,8 @@ class LongTermProfileService:
         )
 
         x_contrast = _contrast_vector(candidate_features)
-
-        # --- 갱신 폭 상한 (#487, 팀 결정 대기 — 미확정이라 비활성) --------------------------
-        # 대표 후보 선정이 겹침 우선이라 대조값이 크게 음수로 나오는 요청이 있고, 그때 높은 별점이
-        # 안전 가중치를 한 번에 크게 내릴 수 있다. x_contrast를 제한해 한 번의 피드백 영향을 묶는다.
-        # 결정되면 모듈 상단의 _CONTRAST_CAP 주석을 풀고 아래 방식 중 하나만 주석을 해제한다.
-        # 음수만 자르거나 0으로 만드는 방식은 쓰지 않는다 — 높은 별점이 항상 가중치를 올리는
-        # 편향이 생긴다(크기만 제한하고 부호는 유지한다).
-        #   [방식 1] 음수만 제한:
-        # x_contrast = {dim: max(-_CONTRAST_CAP, v) for dim, v in x_contrast.items()}
-        #   [방식 2] 양쪽 제한:
-        # x_contrast = {dim: max(-_CONTRAST_CAP, min(_CONTRAST_CAP, v)) for dim, v in x_contrast.items()}
-        # 적용 축(안전만 / 안전+편안)도 함께 정한다. 안전만이면 dim == "safety"일 때만 제한한다.
-        # 활성화하면 tests/unit/test_longterm_profile_service.py의 TestContrastCap(skip) 해제.
+        # 갱신 폭 상한(#487): 부호는 유지하고 크기만 ±_CONTRAST_CAP으로 제한한다.
+        x_contrast = {dim: max(-_CONTRAST_CAP, min(_CONTRAST_CAP, v)) for dim, v in x_contrast.items()}
 
         eta = _adaptive_learning_rate(feedback_count)
 
@@ -212,7 +227,9 @@ class LongTermProfileService:
         for dim in FEATURE_DIMENSIONS:
             weights[dim] += eta * overall_error * x_contrast[dim]
 
-        weights = {dim: max(0.0, min(1.0, value)) for dim, value in weights.items()}
+        # 온보딩 초기값 하한(#487): 상한은 1.0, 하한은 온보딩 초기값(0.0 이상)이다.
+        initial = _onboarding_initial_weights(preference)
+        weights = {dim: max(initial[dim], min(1.0, value)) for dim, value in weights.items()}
 
         updated = UserPreferenceRepository.upsert(
             user_id=user_id,
