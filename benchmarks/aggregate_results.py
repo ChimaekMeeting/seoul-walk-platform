@@ -155,13 +155,34 @@ PROXY_METRICS = (
     Metric("segment_balance_ratio", higher_is_better=True),
 )
 
+# 안전·편안 비용식이 실제 경로에 만든 결과와 결측 데이터 대체량. 비용 계수는 실행
+# 조건으로 아래 _CONDITION_CANDIDATES에 넣어 두었으므로, 서로 다른 alpha/beta를 평균내지
+# 않는다. 이 지표들은 아직 사람 라벨 기반의 절대 품질 기준이 없어 순위·게이트에 넣지
+# 않고 조건별/알고리즘별 관측값으로만 낸다.
+PREFERENCE_METRICS = (
+    Metric("safety_exposure_ratio", higher_is_better=False),
+    Metric("comfort_exposure_ratio", higher_is_better=False),
+    Metric("safety_penalty_ratio", higher_is_better=False),
+    Metric("comfort_penalty_ratio", higher_is_better=False),
+    Metric("median_substitutions", higher_is_better=False),
+)
+
+# 편도 우회에서만 정의되는 기준 최단경로 대비 관측값. 순환 게이트·순위와 섞지 않는다.
+ONEWAY_METRICS = (
+    Metric("detour_ratio", higher_is_better=False),
+    Metric("baseline_shortest_overlap_ratio", higher_is_better=False),
+)
+
 # 최종 경로 품질·게이트와 별개로, 사용자에게 함께 보여 준 3후보가 실제로 얼마나 다른지
 # 관측한다. 후보를 하나만 내는 solver/편도 행은 None이므로 순위·게이트에 넣지 않는다.
 CANDIDATE_METRICS = (
     Metric("candidate_pairwise_overlap_ratio", higher_is_better=False),
 )
 
-ALL_METRICS = (*QUALITY_METRICS, *COST_METRICS, *PROXY_METRICS, *CANDIDATE_METRICS)
+ALL_METRICS = (
+    *QUALITY_METRICS, *COST_METRICS, *PROXY_METRICS, *PREFERENCE_METRICS,
+    *ONEWAY_METRICS, *CANDIDATE_METRICS,
+)
 
 # raw CSV에는 없고 add_derived_columns()가 만드는 컬럼. 누락 경고 대상에서 제외한다.
 DERIVED_COLUMNS = frozenset({"path_lookups", "search_work", "circularity_q_rel"})
@@ -179,6 +200,9 @@ DERIVED_COLUMNS = frozenset({"path_lookups", "search_work", "circularity_q_rel"}
 # num_waypoints_used는 엔진이 실제로 쓴 값을 기록한 결과 컬럼이라 여기 넣지 않는다.
 _CONDITION_CANDIDATES = (
     "scenario_id", "mode", "start_node", "start_id", "target_km", "num_waypoints",
+    # 원래 안전·편안 입력값 대신 실제 normalize_preference_weights() 출력값을 쓴다.
+    # 상한 비례 축소가 일어난 두 입력을 같은 조건으로 오해하지 않기 위해서다.
+    "cost_alpha", "cost_beta",
 )
 
 # 스윕 러너가 붙이는 노브 컬럼(alns_iterations 등)도 조건의 일부다 — 설정이 다르면
