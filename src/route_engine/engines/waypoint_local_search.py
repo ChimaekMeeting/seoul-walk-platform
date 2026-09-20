@@ -38,10 +38,14 @@ def local_search(
     route: Route,
     target_m: float,
     cfg: GraspConfig,
+    end_node=None,
 ) -> tuple[Route, RouteObjective]:
     """개선이 없어질 때까지 WaypointReplacement 이웃에서 best-improvement를 반복
     채택한다. 원래 circular_grasp_waypoint_local.py::CircularGraspWaypointLocalEngine.
-    _local_search()에 있던 로직을 그대로 옮긴 것 — 동작은 바뀌지 않았다."""
+    _local_search()에 있던 로직을 그대로 옮긴 것 — 동작은 바뀌지 않았다.
+
+    end_node(편도 지원, 2026-09-20, #498 확장): None이면(기본값) 기존 순환 동작과
+    동일하다. 그대로 waypoint_replacement_neighbors()에 흘려보낸다."""
     current = route
     current_obj = evaluate_route(current, target_m, target_m * cfg.distance_tolerance_ratio)
     improved = True
@@ -49,7 +53,7 @@ def local_search(
         improved = False
         best_neighbor, best_neighbor_obj = current, current_obj
         for neighbor in waypoint_replacement_neighbors(
-            G, cost_cache, pool_result, start_node, current, target_m, cfg,
+            G, cost_cache, pool_result, start_node, current, target_m, cfg, end_node=end_node,
         ):
             neighbor_obj = evaluate_route(neighbor, target_m, target_m * cfg.distance_tolerance_ratio)
             if better(neighbor_obj, best_neighbor_obj):

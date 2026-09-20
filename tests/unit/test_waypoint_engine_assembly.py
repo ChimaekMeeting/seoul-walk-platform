@@ -11,7 +11,7 @@ import networkx as nx
 import pytest
 
 import src.route_engine.engines.waypoint_engine_assembly as assembly
-from src.interfaces.schema.walk_schema import WalkRouteStatus
+from src.interfaces.schema.walk_schema import WalkMode, WalkRouteStatus
 from src.route_engine.engines.grasp_waypoint_common import RouteObjective
 from src.route_engine.engines.path_utils import PathUtils
 from src.route_engine.engines.waypoint_engine_assembly import (
@@ -24,7 +24,7 @@ from src.route_engine.engines.waypoint_refinement import (
     REFINEMENT_REGISTRY,
 )
 from src.route_engine.waypoint_route_builder import Route
-from src.schema.route_schema import CircularRouteInput
+from src.schema.route_schema import CircularRouteInput, OnewayRouteInput
 
 _IGNORES_OPTIONS = sorted(set(REFINEMENT_REGISTRY) - OPTIONS_AWARE_REFINEMENTS)
 
@@ -290,11 +290,13 @@ def test_final_route_is_unchanged_by_candidate_collection(grid_graph, monkeypatc
 # ── candidate_feature_vectors: 장기 프로필 SGD 스냅샷 ──────────────────────
 #
 # run()이 반환하는 각 응답과 같은 순서로 {"safety", "comfort"} 평균을 채운다.
-# grid_graph는 safety_score/slope_score를 설정하지 않으므로
-# scoring_engine._build_feature_cache()의 기본값(둘 다 데이터 없으면 0.0)이
-# 그대로 나와야 한다 — 값 자체보다 "채워지는지·순서가 맞는지·새지 않는지"가 검증 대상이다.
+# grid_graph는 safety_score/accident_score/slope_score를 설정하지 않으므로
+# scoring_engine._build_feature_cache()의 기본값(점수 데이터 없으면 0.0)이 그대로 나와야 한다.
+# safety는 1 - unsafe라서 안전점수 0·사고 0이면 1 - ratio, comfort는 slope_score 0이면 0.0이다.
+# 값 자체보다 "채워지는지·순서가 맞는지·새지 않는지"가 검증 대상이다.
+from src.route_engine.scoring.scoring_engine import DEFAULT_UNSAFE_ACCIDENT_RATIO  # noqa: E402
 
-_NO_FEATURE_DATA = {"safety": 0.0, "comfort": 0.0}
+_NO_FEATURE_DATA = {"safety": 1.0 - DEFAULT_UNSAFE_ACCIDENT_RATIO, "comfort": 0.0}
 
 
 @pytest.mark.parametrize("combo", sorted(MULTI_CANDIDATE_COMBOS))
@@ -330,3 +332,81 @@ def test_candidate_feature_vectors_do_not_leak_across_runs(grid_graph):
     second = engine.run()
 
     assert len(engine.candidate_feature_vectors) == len(second) == len(first) == CANDIDATE_COUNT
+
+
+# ── 편도(oneway) 통합 — mock 없이 실제 그래프·실제 엔진 실행(2026-09-20, #498 확장) ──
+#
+# OnewayRouteInput(end_lat/end_lon 보유)을 넘기면 WaypointEngine이 자동으로 편도로
+# 판별해 construction/refinement 전부에 end_node를 흘린다(모듈 docstring 참고). 아래는
+# grasp/beam × 5개 정제 조합 전부가 실제로 목적지에서 끝나는지, 그리고 CircularRouteInput
+# 경로(end_node=None)가 이 변경으로 전혀 달라지지 않는지 확인한다.
+
+_ONEWAY_START = (0, 0)
+_ONEWAY_END = (_GRID - 1, _GRID - 1)
+
+
+def _oneway_inp() -> OnewayRouteInput:
+    start_lat, start_lon = _grid_coords(*_ONEWAY_START)
+    end_lat, end_lon = _grid_coords(*_ONEWAY_END)
+    direct_m = PathUtils._haversine_m(start_lat, start_lon, end_lat, end_lon)
+    return OnewayRouteInput(
+        start_lat=start_lat, start_lon=start_lon, end_lat=end_lat, end_lon=end_lon,
+        target_km=direct_m * 1.5 / 1000,
+    )
+
+
+@pytest.mark.parametrize("construction", ["grasp", "beam"])
+@pytest.mark.parametrize("refinement", sorted(REFINEMENT_REGISTRY))
+def test_oneway_input_produces_route_ending_at_destination(grid_graph, construction, refinement):
+    """construction×refinement 10개 조합 전부, mock 없이 실제 그래프에서 실행해 반환
+    노드열이 실제로 도착지(end_node)에서 끝나는지 확인한다."""
+    engine = WaypointEngine(
+        inp=_oneway_inp(), G=grid_graph, construction=construction, refinement=refinement,
+    )
+    responses = engine.run()
+
+    assert responses[0].status == WalkRouteStatus.SUCCESS
+    assert responses[0].mode == WalkMode.ONEWAY_RANDOM
+    end_node = _ONEWAY_END[0] * _GRID + _ONEWAY_END[1] + 1  # grid_graph의 노드 id 공식과 동일
+    assert engine.last_route is not None
+    assert engine.last_route.node_ids[0] == 1  # (0,0)
+    assert engine.last_route.node_ids[-1] == end_node
+    assert engine.last_route.node_ids[-1] != 1  # 순환으로 퇴화하지 않았다
+
+
+def test_oneway_missing_end_node_reports_no_nearest_end_node(grid_graph, monkeypatch):
+    """도착 노드를 못 찾으면(find_nearest_node가 None) NO_NEAREST_END_NODE로 실패해야
+    한다 — 조용히 순환으로 되돌아가면 안 된다. find_nearest_node(max_dist_m 없이 호출)는
+    실제로는 빈 그래프에서만 None을 주므로(PathUtils.find_nearest_node docstring),
+    출발 노드는 정상 조회되는 상황을 monkeypatch로 재현한다."""
+    engine = WaypointEngine(inp=_oneway_inp(), G=grid_graph, construction="grasp", refinement="alns")
+
+    real_find_nearest_node = PathUtils.find_nearest_node
+    calls = 0
+
+    def fake_find_nearest_node(self, lat, lon, max_dist_m=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return real_find_nearest_node(self, lat, lon, max_dist_m)
+        return None  # 두 번째 호출(도착 노드 조회)만 실패시킨다
+
+    monkeypatch.setattr(PathUtils, "find_nearest_node", fake_find_nearest_node)
+    responses = engine.run()
+
+    assert responses[0].status == WalkRouteStatus.NO_NEAREST_END_NODE
+    assert responses[0].mode == WalkMode.ONEWAY_RANDOM
+
+
+def test_circular_input_is_unaffected_by_oneway_support(grid_graph):
+    """CircularRouteInput(end_lat 없음)로 만든 엔진은 이번 변경 이후에도 end_node=None
+    경로 그대로 순환으로 동작한다 — walk_mode 자동 판별이 편도를 오검출하지 않는지가
+    핵심이다."""
+    engine = WaypointEngine(
+        inp=_grid_inp(), G=grid_graph, construction="grasp", refinement="alns",
+    )
+    responses = engine.run()
+
+    assert responses[0].status == WalkRouteStatus.SUCCESS
+    assert responses[0].mode == WalkMode.CIRCULAR_RANDOM
+    assert engine.last_route.node_ids[0] == engine.last_route.node_ids[-1]  # 순환은 그대로 복귀

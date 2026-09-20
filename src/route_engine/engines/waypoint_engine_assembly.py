@@ -28,7 +28,9 @@ Beam+ALNS가 waypoint_refinement.py::alns() 하나를 공유한다.
 
 candidate_feature_vectors(장기 프로필 SGD 스냅샷):
     run()이 반환하는 각 WalkRouteResponse와 같은 순서로 후보별 {"safety": 0~1, "comfort": 0~1}
-    평균을 채운다. 안전/편안 특성값은 그래프 엣지 데이터로만 계산할 수 있어, 피드백이 들어오는
+    평균을 채운다. 각 값은 탐색 비용식과 같은 지표다 — safety는 1 - unsafe(안전시설 커버리지와
+    사고위험 결합), comfort는 slope_score(= 1 - discomfort)의 길이 가중 평균이다
+    (scoring_engine.path_feature_averages 참고). 안전/편안 특성값은 그래프 엣지 데이터로만 계산할 수 있어, 피드백이 들어오는
     시점(수 분~수 일 뒤)에는 이 요청의 그래프 상태를 재현할 수 없다 — 그래서 후보 생성 시점에
     바로 계산해 route_service가 RouteHistory.candidate_features(JSON)로 그대로 얼려 저장하고,
     피드백 처리 시점(longterm_profile_service)에는 재계산 없이 DB 값만 읽는다.
@@ -40,7 +42,7 @@ import logging
 import random
 from collections.abc import Mapping
 from dataclasses import replace
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import networkx as nx
 
@@ -69,7 +71,7 @@ from src.route_engine.engines.waypoint_refinement import (
     REFINEMENT_REGISTRY,
 )
 from src.route_engine.scoring.scoring_engine import WeightedEdgeCost, path_feature_averages
-from src.schema.route_schema import CircularRouteInput
+from src.schema.route_schema import CircularRouteInput, OnewayRouteInput
 
 logger = logging.getLogger(__name__)
 
@@ -109,11 +111,19 @@ class WaypointEngine:
     조합 하나를 실행하는 조립 엔진. 4개 GRASP-Waypoint 엔진 클래스의 find_path()/run()
     본문에서 서로 완전히 동일했던 부분(출발 노드 탐색, 후보 풀 생성, 최선해 추적, 로그,
     좌표 변환)을 이곳 하나로 통합했다 — construction/refinement별 차이는
-    CONSTRUCTION_REGISTRY/REFINEMENT_REGISTRY의 함수로만 갈린다."""
+    CONSTRUCTION_REGISTRY/REFINEMENT_REGISTRY의 함수로만 갈린다.
+
+    순환/편도 겸용(2026-09-20, #498 확장): inp가 OnewayRouteInput(end_lat/end_lon 보유)이면
+    편도, CircularRouteInput이면 순환으로 자동 판별한다(__init__의 self._walk_mode). 편도는
+    도착 노드를 추가로 찾고, 후보 풀을 build_pool_two_point로 만들고, construction_fn/
+    refine_fn 전부에 end_node를 그대로 흘려보낸다 — construction/refinement 각 함수는
+    end_node=None(기본값)이면 지금까지와 동일하게 동작한다. Circular*Engine 4종과
+    OnewayGraspWaypointAlnsEngine은 각자의 입력 스키마만 넘기는 얇은 래퍼일 뿐, 이 판별
+    로직 자체는 여기 한 곳에만 있다."""
 
     def __init__(
         self,
-        inp: CircularRouteInput,
+        inp: Union[CircularRouteInput, OnewayRouteInput],
         G: nx.Graph,
         mode: str = "distance",
         seed: int = _SEED,
@@ -139,6 +149,12 @@ class WaypointEngine:
             )
 
         self.inp = inp
+        # 편도(OnewayRouteInput) 여부는 end_lat 필드 존재로 판별한다 — CircularRouteInput은
+        # 이 필드가 아예 없다(build_pool_two_point 분기 판별과 같은 방식, 2026-09-20, #498
+        # 확장). 생성자에 별도 walk_mode 인자를 두지 않고 입력 스키마 모양만으로 자동
+        # 판별한다 — Circular*Engine/OnewayGraspWaypointAlnsEngine 래퍼가 각자의 입력
+        # 스키마만 넘기면 나머지는 이 클래스가 알아서 처리한다.
+        self._walk_mode = WalkMode.ONEWAY_RANDOM if getattr(inp, "end_lat", None) is not None else WalkMode.CIRCULAR_RANDOM
         # G.copy() 안 함 — 이 클래스가 부르는 것(grasp_waypoint_common.py/waypoint_pool.py/
         # PathUtils/waypoint_beam.py)은 전부 읽기 전용이다. cost_context(WeightedEdgeCost)도
         # 엣지 속성을 읽기만 하고 그래프에 쓰지 않으므로(#462) 이 전제는 그대로 유지된다.
@@ -225,15 +241,25 @@ class WaypointEngine:
             logger.warning("출발 노드를 찾지 못했습니다.")
             return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_NEAREST_START_NODE,
-                mode=WalkMode.CIRCULAR_RANDOM, coordinates=[], total_km=0.0,
+                mode=self._walk_mode, coordinates=[], total_km=0.0,
             )]
 
-        nodes = self.find_path(start, self.inp.target_km or 3.0)
+        end: Optional[int] = None
+        if self._walk_mode == WalkMode.ONEWAY_RANDOM:
+            end = self.utils.find_nearest_node(self.inp.end_lat, self.inp.end_lon)
+            if end is None:
+                logger.warning("도착 노드를 찾지 못했습니다.")
+                return [WalkRouteResponse(
+                    status=WalkRouteStatus.NO_NEAREST_END_NODE,
+                    mode=self._walk_mode, coordinates=[], total_km=0.0,
+                )]
+
+        nodes = self.find_path(start, self.inp.target_km or 3.0, end_node=end)
         if not nodes or len(nodes) < 2:
             logger.warning("경로가 비어 있습니다.")
             return [WalkRouteResponse(
                 status=WalkRouteStatus.NO_PATH,
-                mode=WalkMode.CIRCULAR_RANDOM, coordinates=[], total_km=0.0,
+                mode=self._walk_mode, coordinates=[], total_km=0.0,
             )]
 
         # 첫 번째가 항상 최종 경로다. 후보가 있는 조합이면 그 뒤에 후보를 붙여
@@ -254,19 +280,31 @@ class WaypointEngine:
         self.candidate_feature_vectors.append(path_feature_averages(self.G, pruned))
         return WalkRouteResponse(
             status=WalkRouteStatus.SUCCESS if coords else WalkRouteStatus.NO_PATH,
-            mode=WalkMode.CIRCULAR_RANDOM, coordinates=coords, total_km=total_km,
+            mode=self._walk_mode, coordinates=coords, total_km=total_km,
         )
 
-    def find_path(self, start_node: int, target_km: float = 3.0) -> list[int]:
+    def find_path(self, start_node: int, target_km: float = 3.0, end_node: Optional[int] = None) -> list[int]:
+        """end_node(편도 지원, 2026-09-20, #498 확장): None이면(기본값) 기존 순환 동작과
+        완전히 동일하다(출발지 중심 build_pool, 구축·정제 전부 start_node로 복귀). end_node를
+        넘기면 출발지·도착지 두 점 기준 풀(build_pool_two_point)을 만들고, 구축·정제 전부에
+        end_node를 그대로 흘려보내 편도 우회 경로를 만든다."""
         target_m = target_km * 1000
         rng = random.Random(self.seed)
         self.last_alternative_routes = []  # 같은 엔진으로 두 번 호출해도 이전 후보가 새지 않게 한다
 
         start_data = self.G.nodes[start_node]
-        pool_result = self.pool_generator.build_pool(
-            start_data.get("lat", 0.0), start_data.get("lon", 0.0), target_km,
-            pairwise_cache_rows=self.config.pairwise_cache_rows,
-        )
+        if end_node is not None:
+            end_data = self.G.nodes[end_node]
+            pool_result = self.pool_generator.build_pool_two_point(
+                start_data.get("lat", 0.0), start_data.get("lon", 0.0),
+                end_data.get("lat", 0.0), end_data.get("lon", 0.0), target_km,
+                pairwise_cache_rows=self.config.pairwise_cache_rows,
+            )
+        else:
+            pool_result = self.pool_generator.build_pool(
+                start_data.get("lat", 0.0), start_data.get("lon", 0.0), target_km,
+                pairwise_cache_rows=self.config.pairwise_cache_rows,
+            )
         self.last_pool_result = pool_result  # None이어도 그대로 저장(풀 생성 실패 표시)
         if pool_result is None or not pool_result.pool_nodes:
             logger.warning("경유지 후보 풀을 만들지 못했습니다.")
@@ -286,6 +324,7 @@ class WaypointEngine:
         had_valid_waypoint_pair = False
         for construction_result in construction_fn(
             self.G, self.cost_cache, pool_result, start_node, target_m, self.config, rng,
+            end_node=end_node,
         ):
             had_valid_waypoint_pair = had_valid_waypoint_pair or construction_result.had_valid_waypoint_pair
             route = construction_result.route
@@ -293,7 +332,7 @@ class WaypointEngine:
                 continue
             route = refine_fn(
                 self.G, self.cost_cache, pool_result, start_node, route, target_m, self.config, rng,
-                stats=alns_stats, options=self.refinement_options,
+                stats=alns_stats, options=self.refinement_options, end_node=end_node,
             )
             obj = evaluate_route(route, target_m, target_m * self.config.distance_tolerance_ratio)
             if collect_candidates:
@@ -332,9 +371,10 @@ class WaypointEngine:
                 pd.waypoints_lost_clean, pd.waypoints_lost_repeated,
             )
         logger.info(
-            "%s 순환 경로 선택: 노드=%d개, 거리오차=%.0fm, 반복률=%.3f, selection_status=%s, "
+            "%s %s 경로 선택: 노드=%d개, 거리오차=%.0fm, 반복률=%.3f, selection_status=%s, "
             "구간거리=%sm, 방위각차=%s도, 균형비=%s, 퇴화의심=%s, 실효경유지=%d/%d",
-            self._label(), len(best_route.node_ids), best_obj.distance_error_m, best_obj.repeated_edge_ratio,
+            self._label(), "편도" if self._walk_mode == WalkMode.ONEWAY_RANDOM else "순환",
+            len(best_route.node_ids), best_obj.distance_error_m, best_obj.repeated_edge_ratio,
             self.last_selection_status,
             format_optional_list(gm.segment_lengths_m), format_optional_list(gm.waypoint_angle_diffs_deg, 2),
             format_optional(gm.segment_balance_ratio, 3), gm.is_degenerate_loop,

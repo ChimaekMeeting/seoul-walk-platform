@@ -308,6 +308,10 @@ class TestCandidateCountDrivesFeedbackOutcome:
         확인한다. 기대값은 _contrast_vector/_adaptive_learning_rate 등 이미 별도로 검증된
         순수 함수를 그대로 이어붙여 계산했다(2026-09-17 로컬 API 실측에서 확인한 것과 같은
         '초기 가중치(safety=0.5, comfort=0.0)에서 feedback_count=0으로 첫 피드백을 받는' 조건).
+
+        #487 반영: 편안 대조값(+0.525)은 상한(±0.1)으로 제한돼 0.1로 계산되고, 안전은 상한 이내(-0.035)라
+        SGD 계산값이 0.4864로 나오지만 설문을 하지 않은 사용자의 하한(기본값 safety=0.5)에 걸려 0.5가 된다.
+        상한·하한이 없던 때의 값은 safety=0.48701998832031257, comfort=0.25573142519531245였다.
         """
         route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(
             2.47, _SUCCESS_CANDIDATE_FEATURES
@@ -319,8 +323,8 @@ class TestCandidateCountDrivesFeedbackOutcome:
         )
 
         assert result.status == RouteFeedbackStatus.SUCCESS
-        assert result.weights_safety == pytest.approx(0.48701998832031257)
-        assert result.weights_comfort == pytest.approx(0.25573142519531245)
+        assert result.weights_safety == pytest.approx(0.5)
+        assert result.weights_comfort == pytest.approx(0.05037090390625)
 
     def test_엔진_클래스와_무관하게_candidate_feature_vectors만_있으면_계약이_성립한다(
         self, route_service, profile_service

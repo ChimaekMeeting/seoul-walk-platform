@@ -68,11 +68,15 @@ def execute(graph, mode, start, end, target_m=None, *, record=True, grasp_iterat
     local = copy.deepcopy(graph)
     fields = {"start_lat": start["lat"], "start_lon": start["lon"],
               "target_km": target_m / 1000 if target_m is not None else None}
-    # route_service.py와 같은 매핑을 쓴다: circular_random -> CircularGraspWaypointAlnsEngine,
-    # oneway_random("detour")는 아직 실제 우회 로직이 없어 oneway_shortest와 똑같이
-    # OnewayAstarEngine으로 돈다(OnewayBeamEngine을 걷어내며 생긴 임시 상태, route_service.py
-    # 참고). 두 엔진 다 custom_score/calculate_custom_score를 쓰지 않으므로 이 함수가 예전에
-    # 하던 distance_score/distance_vector 패치는 더 이상 필요 없다.
+    # circular_random -> CircularGraspWaypointAlnsEngine은 route_service.py와 같은 매핑이다.
+    # "detour"(mode)는 route_service.py의 WalkMode.ONEWAY_RANDOM과 이름이 겹치지만 이 도구
+    # 자신의 의도적 단순화다 — route_service.py는 2026-09-20(#498 확장)부터
+    # OnewayGraspWaypointAlnsEngine(GRASP+ALNS 편도 우회)을 쓰지만, 여기서는 여전히
+    # oneway_shortest와 같은 OnewayAstarEngine(순수 최단경로)으로 돈다. 실제 우회 로직을
+    # 이 시각화 도구까지 끌어오는 작업은 별도 과제로 남겨 뒀다(catalog_modes()의 grasp_*
+    # 계열로 GRASP+ALNS 실행 자체는 이미 볼 수 있다). 두 엔진 다
+    # custom_score/calculate_custom_score를 쓰지 않으므로 이 함수가 예전에 하던
+    # distance_score/distance_vector 패치는 더 이상 필요 없다.
     waypoint = mode.startswith("grasp_") or mode == "circular"
     shortest = mode in SHORTEST_MODES or mode == "detour"
     tolerance = _TOLERANCE_RATIO

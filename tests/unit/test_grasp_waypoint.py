@@ -58,6 +58,8 @@ import src.route_engine.engines.waypoint_refinement as _wr  # monkeypatch 대상
 from src.route_engine.engines.waypoint_refinement import (
     _MAX_ITERATIONS,
     _MAX_SHAKE_LEVEL,
+    alns as _alns_refine,
+    local as _local_refine,
     vnd as _vnd_refine,
     vns as _vns_refine,
     vns_loop as _vns_loop_refine,
@@ -635,13 +637,194 @@ def test_construct_initial_route_forwards_end_node_to_ranking_and_build(monkeypa
     assert build_calls == [99]
 
 
+# ── 실제 엔진/실제 A* 기반 통합 테스트(2026-09-20, #498) ──────────────────
+#
+# 위 두 테스트(test_construct_initial_route_*)는 _rank_next_waypoint_candidates와
+# BuildCycleRoute를 monkeypatch로 대체해 "무엇을 어떤 인자로 호출하는가"만 확인했다.
+# 아래는 mock 없이 실제 그래프·실제 GRASP 랭킹·실제 A*를 그대로 실행한다 — (1) 기존
+# 4개 순환 엔진이 end_node를 전혀 넘기지 않는 기존 경로에서 이번 변경(build_route
+# 리네이밍 + end_node 파라미터 도입)으로 산출값이 달라지지 않는지, (2) end_node를 실제로
+# start_node와 다른 값으로 넘겼을 때 construct_initial_route→BuildCycleRoute(build_route)
+# 전체 경로가 정말 그 지점에서 끝나는지, (3) end_node 관련 경계값(도달 불가·start_node와
+# 동일)이 조용히 잘못된 값을 내지 않고 기존 계약(None/AttributeError)대로 실패하는지 확인한다.
+
+_ONEWAY_START_NODE = _node_id(0, 0)
+_ONEWAY_END_NODE = _node_id(4, 4)
+
+
+def _oneway_target_km(G: nx.Graph) -> float:
+    """start_node→end_node 직선(Haversine) 거리의 1.5배 — build_pool_two_point가
+    budget_m >= dist(p1,p2)를 보장하도록 물리적으로 가능한 target만 쓴다."""
+    lat1, lon1 = G.nodes[_ONEWAY_START_NODE]["lat"], G.nodes[_ONEWAY_START_NODE]["lon"]
+    lat2, lon2 = G.nodes[_ONEWAY_END_NODE]["lat"], G.nodes[_ONEWAY_END_NODE]["lon"]
+    direct_m = PathUtils._haversine_m(lat1, lon1, lat2, lon2)
+    return direct_m * 1.5 / 1000
+
+
+@pytest.mark.parametrize("engine_cls", [
+    CircularGraspWaypointLocalEngine,
+    CircularGraspWaypointVndEngine,
+    CircularGraspWaypointVnsEngine,
+    CircularGraspWaypointAlnsEngine,
+])
+def test_circular_engines_unaffected_by_end_node_support(engine_cls, grid_graph):
+    """end_node 파라미터 추가(construct_initial_route/BuildCycleRoute)와 이번 리네이밍
+    (build_cycle_route→build_route, #498) 이후에도, end_node를 전혀 넘기지 않는 기존 4개
+    순환 엔진 호출 경로(engine.find_path, end_node=None 기본값)의 산출값이 그대로인지
+    확인한다(회귀). 기대값은 이번 변경 이후 코드로 실제 실행해 확인했다(2026-09-20, seed=42,
+    target_km=_ENGINE_TEST_TARGET_KM, start_node=_node_id(2,2), 이 PC 단독 실행) —
+    end_node=None 경로는 이번 변경으로 로직이 전혀 바뀌지 않았으므로(함수 이름만 바뀜)
+    리네이밍 전 동작과 같은 값이어야 한다."""
+    inp = CircularRouteInput(start_lat=_ORIGIN_LAT, start_lon=_ORIGIN_LON, target_km=_ENGINE_TEST_TARGET_KM)
+    engine = engine_cls(inp=inp, G=grid_graph, seed=42)
+    start_node = _node_id(2, 2)
+
+    nodes = engine.find_path(start_node, target_km=_ENGINE_TEST_TARGET_KM)
+    route = engine.last_route
+
+    assert nodes == [13, 14, 9, 8, 7, 6, 11, 12, 13]
+    assert route is not None
+    assert route.distance_m == pytest.approx(1286.298228206078)
+    assert route.repeated_edge_ratio == pytest.approx(0.0)
+
+
+def test_construct_initial_route_end_to_end_ends_at_end_node(grid_graph):
+    """mock 없이 실제 WaypointPoolResultTwoPoint·실제 GRASP 랭킹·실제 A*로
+    construct_initial_route→BuildCycleRoute(build_route) 전체 경로를 실행해, end_node를
+    실제로 start_node와 다른 값으로 넘겼을 때 반환된 경로가 정말 그 지점에서 끝나는지
+    확인한다(2026-09-20, #498 — 지금까지는 monkeypatch로 인자 전달만 확인했다). 편도에서도
+    pruning 이후 기준(effective_waypoints)·재통행률(repeated_edge_ratio) 정의는 순환과
+    동일하게 의미가 유지된다 — 이 경로는 실제로 두 경유지를 그대로 지나 pruning에 안 걸린다."""
+    start_node, end_node = _ONEWAY_START_NODE, _ONEWAY_END_NODE
+    start_lat, start_lon = _coords(0, 0)
+    end_lat, end_lon = _coords(4, 4)
+    target_km = _oneway_target_km(grid_graph)
+
+    pool = WaypointPoolGenerator(grid_graph).build_pool_two_point(
+        start_lat, start_lon, end_lat, end_lon, target_km=target_km,
+    )
+    assert pool is not None
+
+    cost_cache = _CostCache(grid_graph, mode="distance")
+    cfg = GraspConfig(num_waypoints=2)
+    result = construct_initial_route(
+        grid_graph, cost_cache, pool, start_node, target_km * 1000, random.Random(42), cfg,
+        end_node=end_node,
+    )
+    assert result.had_valid_waypoint_pair
+    route = result.route
+    assert route is not None
+    assert route.node_ids[0] == start_node
+    assert route.node_ids[-1] == end_node  # 편도: start_node로 되돌아오지 않는다
+    assert route.distance_m == pytest.approx(1302.330998491148)
+    assert route.repeated_edge_ratio == pytest.approx(0.0)
+    assert route.effective_waypoints == route.waypoints == [3, 5]
+
+
+def test_construct_initial_route_end_node_equal_to_start_node_requires_two_point_pool(grid_graph):
+    """end_node를 start_node와 같은 값으로 넘겨도(퇴화 편도=순환) _rank_next_waypoint_candidates가
+    dist_from_p2를 읽으므로 WaypointPoolResultTwoPoint가 필요하다 — 기본 WaypointPoolResult를
+    그대로 넘기면 AttributeError로 즉시 드러난다(조용히 잘못된 값을 쓰지 않는다,
+    grasp_waypoint_common.py::construct_initial_route docstring의 명시된 전제)."""
+    start_node = _ONEWAY_START_NODE
+    start_lat, start_lon = _coords(0, 0)
+    target_km = _oneway_target_km(grid_graph)
+
+    plain_pool = WaypointPoolGenerator(grid_graph).build_pool(start_lat, start_lon, target_km=target_km)
+    cost_cache = _CostCache(grid_graph, mode="distance")
+    cfg = GraspConfig(num_waypoints=2)
+    with pytest.raises(AttributeError):
+        construct_initial_route(
+            grid_graph, cost_cache, plain_pool, start_node, target_km * 1000, random.Random(42), cfg,
+            end_node=start_node,
+        )
+
+
+def test_construct_initial_route_end_node_equal_to_start_node_can_degenerate_like_round_trip(grid_graph):
+    """end_node==start_node를 (전제대로) WaypointPoolResultTwoPoint(p1=p2)로 올바르게
+    호출해도, 그 결과는 편도가 아니라 순수 왕복과 같은 기하다 — 선택된 경유지가
+    start_node와 일직선이면 prune_dead_ends가 왕복 가지째 걷어내 route가 None이 될 수
+    있다(had_valid_waypoint_pair는 True로 남는다: 경유지 조합 자체는 최소거리 조건을
+    통과해 찾았지만, A* 연결 결과가 pruning 이후 2노드 미만으로 무너진 경우다 —
+    determine_selection_status가 이런 경우를 FALLBACK_DISTANCE로 분류하는 것과 같은
+    실패 경로). seed=42로 재현되는 값을 그대로 검증한다(2026-09-20, 이 PC 단독 실행)."""
+    start_node = _ONEWAY_START_NODE
+    start_lat, start_lon = _coords(0, 0)
+    target_km = _oneway_target_km(grid_graph)
+
+    pool_same = WaypointPoolGenerator(grid_graph).build_pool_two_point(
+        start_lat, start_lon, start_lat, start_lon, target_km=target_km,
+    )
+    assert pool_same is not None
+
+    cost_cache = _CostCache(grid_graph, mode="distance")
+    cfg = GraspConfig(num_waypoints=2)
+    result = construct_initial_route(
+        grid_graph, cost_cache, pool_same, start_node, target_km * 1000, random.Random(42), cfg,
+        end_node=start_node,
+    )
+    assert result.had_valid_waypoint_pair
+    assert result.route is None
+
+
+def test_construct_initial_route_unreachable_end_node_fails_at_pool_generation(grid_graph):
+    """end_node가 그래프에서 도달 불가능하면(최근접 노드 자체를 못 찾을 만큼 멂)
+    construct_initial_route까지 갈 것도 없이 build_pool_two_point 단계에서 이미 None이다
+    — 호출부(엔진)는 이 None을 기존 build_pool()의 None 계약과 동일하게 pool 생성 실패로
+    처리하면 된다(test_pool_generation_fails_gracefully_when_no_node_found 참고)."""
+    isolated_lat, isolated_lon = _ORIGIN_LAT + 10, _ORIGIN_LON + 10  # 격자에서 한참 떨어짐
+    start_lat, start_lon = _coords(0, 0)
+    target_km = _oneway_target_km(grid_graph)
+
+    pool = WaypointPoolGenerator(grid_graph).build_pool_two_point(
+        start_lat, start_lon, isolated_lat, isolated_lon, target_km=target_km,
+    )
+    assert pool is None
+
+
+@pytest.mark.parametrize("refine_fn", [_local_refine, _vnd_refine, _vns_refine, _alns_refine])
+def test_refinement_functions_keep_ending_at_end_node_and_never_worsen(refine_fn, grid_graph):
+    """local()/vnd()/vns()/alns()를 mock 없이 실제 end_node·실제 WaypointPoolResultTwoPoint로
+    직접 호출해, (1) 정제 후에도 여전히 end_node에서 끝나고 (2) 구축 단계 해보다 나빠지지
+    않는지 확인한다(2026-09-20, #498 확장 — 정제 단계 end_node 배선의 실제 실행 검증)."""
+    start_node, end_node = _ONEWAY_START_NODE, _ONEWAY_END_NODE
+    start_lat, start_lon = _coords(0, 0)
+    end_lat, end_lon = _coords(4, 4)
+    target_km = _oneway_target_km(grid_graph)
+    target_m = target_km * 1000
+
+    pool = WaypointPoolGenerator(grid_graph).build_pool_two_point(
+        start_lat, start_lon, end_lat, end_lon, target_km=target_km,
+    )
+    assert pool is not None
+
+    cost_cache = _CostCache(grid_graph, mode="distance")
+    cfg = GraspConfig(num_waypoints=2)
+    construction = construct_initial_route(
+        grid_graph, cost_cache, pool, start_node, target_m, random.Random(42), cfg, end_node=end_node,
+    )
+    assert construction.route is not None
+    initial_route = construction.route
+    initial_obj = evaluate_route(initial_route, target_m, target_m * cfg.distance_tolerance_ratio)
+
+    refined = refine_fn(
+        grid_graph, cost_cache, pool, start_node, initial_route, target_m, cfg, random.Random(7),
+        end_node=end_node,
+    )
+    refined_obj = evaluate_route(refined, target_m, target_m * cfg.distance_tolerance_ratio)
+
+    assert refined.node_ids[0] == start_node
+    assert refined.node_ids[-1] == end_node  # 정제 후에도 편도 목적지 그대로
+    assert not better(initial_obj, refined_obj)  # 정제가 구축 해보다 나빠지지 않았다
+
+
 def test_waypoint_replacement_neighbors_passes_position_aware_remaining_legs(monkeypatch, grid_graph):
     """지역개선의 위치별 이웃 생성도 같은 기준(위치 i → 남은 구간 n-i)을 쓰는지 확인한다 —
     구축과 정제가 다른 조준점을 쓰면 개선이 구축 결과를 도로 밀어낸다."""
     calls: list[tuple] = []
 
     def fake_rank(G, pool_result, p1, prev, cumulative_so_far_m, target_m, cfg,
-                  exclude=frozenset(), *, remaining_legs=1, total_legs=None):
+                  exclude=frozenset(), *, remaining_legs=1, total_legs=None, p2=None):
         calls.append((remaining_legs, total_legs))
         return []
 

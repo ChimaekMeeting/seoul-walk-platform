@@ -193,7 +193,7 @@ WalkRouteRequest
 |---|---|
 | `circular_random` | `CircularGraspWaypointAlnsEngine`(`WaypointEngine`을 `construction="grasp", refinement="alns"`로 고정한 래퍼, `mode="distance"` — 2026-09-19 #462로 `cost_context`를 받아 경유지 연결 A*에만 안전·편안 가중을 적용. 경유지 선택 자체는 거리 기준) |
 | `oneway_shortest` | `OnewayAstarEngine` |
-| `oneway_random` | `OnewayAstarEngine`(임시 상태 — `oneway_shortest`와 동일 엔진, 우회 로직 미구현) |
+| `oneway_random` | (2026-09-20 갱신, #498 확장) `OnewayGraspWaypointAlnsEngine`(`WaypointEngine`을 `OnewayRouteInput`으로 생성해 편도로 자동 판별한 `("grasp","alns")` 고정 래퍼 — `CircularGraspWaypointAlnsEngine`과 동일 구조·`cost_context` 배선). 이전에는 `oneway_shortest`와 동일한 `OnewayAstarEngine`으로 대체하던 임시 상태였다 |
 | `gps_art` | `GpsArtEngine`(내부적으로 `WaypointComposerEngine`·`OnewayAstarEngine` 사용) |
 | `waypoint` | `WaypointComposerEngine`(leg 3종 전부 `OnewayAstarEngine`) |
 
