@@ -14,10 +14,14 @@ from src.route_engine.engines.waypoint_engine_assembly import REFINEMENT_REGISTR
 from visualizations.network_view import EARTH_RADIUS_M, _korean_font, _local_xy, _segments_in_square
 
 
-# 서비스에 연결된 엔진인지(RunConditions.service_use)를 이름에 같이 적는다. 순환·편도
-# Beam은 RouteService.base_engines에 있고, GRASP 계열은 아직 서비스에 연결되지 않았다.
+# 서비스에 연결된 엔진인지(RunConditions.service_use)를 이름에 같이 적는다. 순환은
+# RouteService.base_engines에 있고, GRASP 계열은 아직 서비스에 연결되지 않았다. "detour"는
+# 2026-09-20(#498 확장)부터 route_service.py의 WalkMode.ONEWAY_RANDOM과 더 이상 같지
+# 않다 — 서비스는 OnewayGraspWaypointAlnsEngine(GRASP+ALNS)을 쓰지만, 이 시각화 도구의
+# "detour"는 여전히 route_experiment.py::execute()가 의도적으로 단순화한 OnewayAstarEngine
+# (oneway_shortest와 동일)이다. 그래서 아래 라벨은 "서비스"라고 붙이지 않는다.
 LABELS = {"shortest": "최단거리 · A*", "shortest_alt": "최단거리 · A* + ALT",
-          "detour": "편도 우회 · A*(서비스, oneway_shortest와 동일 — 임시)",
+          "detour": "편도 우회 · A*(이 도구의 단순화, oneway_shortest와 동일 — 서비스와 다름)",
           "circular": "순환 · GRASP+ALNS(서비스)"}
 LABELS.update({f"grasp_{r}": f"GRASP + {r.upper()}(벤치마크)"
                for r in ("none", "local", "vnd", "vns", "alns")})
