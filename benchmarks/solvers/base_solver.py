@@ -34,10 +34,9 @@ class BasePathSolver(ABC):
                                  #   비교에는 쓰지 말 것
                 # 이하 전부 선택 필드. 보고하지 않으면 CSV에 None으로 남는다.
                 # 전체 목록과 타입은 benchmarks/results.py의 _OPTIONAL_*_KEYS 참고.
-                "overlap_ratio": float,  # 베이스 최단경로와 겹치는 거리 비율(편도 전용).
-                                         #   순환 solver는 이 값을 계산하지 않으므로
-                                         #   보고하지 않는다 — 0.0을 넣으면 "겹침 0%"라는
-                                         #   실측값처럼 보인다(2026-09-10 기본값 None으로 변경).
+                "baseline_shortest_overlap_ratio": float,
+                    # 물리 거리 최단경로와 겹치는 통행 거리 비율(편도 전용).
+                    # 자기 재통행은 하네스가 overlap_ratio/repeated_edge_ratio에 공통 계산한다.
             }
         """
         raise NotImplementedError

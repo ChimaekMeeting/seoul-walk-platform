@@ -63,12 +63,11 @@ SHORT_TIMEOUT_SEC = 3.0
 # H. 하네스 필수 안전장치 (압축)
 # ══════════════════════════════════════════════════════════════════════════
 
-def test_h1_valid_result_ok_and_overlap_ratio_is_none_when_omitted():
-    """overlap_ratio를 보고하지 않으면 None으로 남는다(2026-09-10 계약 변경).
-
-    예전 기본값 0.0은, 이 지표를 아예 계산하지 않는 순환 solver의 행을 "겹침 0%"라는
-    실측값처럼 보이게 만들었다. 이제 안 준 것과 0.0으로 측정된 것이 구분된다."""
-    normal = SleepSolver("Normal", sleep_sec=0.0, cost=10.0, overlap_ratio=0.3)
+def test_h1_baseline_overlap_is_optional_and_self_overlap_is_harness_owned():
+    """기준 최단경로 중첩만 solver 선택값이고, overlap_ratio는 자기 재통행 alias다."""
+    normal = SleepSolver(
+        "Normal", sleep_sec=0.0, cost=10.0, baseline_shortest_overlap_ratio=0.3,
+    )
     no_overlap = NoOverlapRatioSolver("NoOverlap")
 
     df = bm.run_benchmark([normal, no_overlap], None, "A", "B", {}, timeout_sec=TEST_TIMEOUT_SEC)
@@ -76,7 +75,10 @@ def test_h1_valid_result_ok_and_overlap_ratio_is_none_when_omitted():
 
     assert by_name.loc["Normal", "status"] == "ok"
     assert by_name.loc["Normal", "cost"] == 10.0
-    assert by_name.loc["Normal", "overlap_ratio"] == 0.3
+    assert by_name.loc["Normal", "baseline_shortest_overlap_ratio"] == 0.3
+    assert pd.isna(by_name.loc["NoOverlap", "baseline_shortest_overlap_ratio"])
+    # graph이 없어 자기 재통행을 계산할 수 없으므로, alias도 None이다.
+    assert pd.isna(by_name.loc["Normal", "overlap_ratio"])
     assert pd.isna(by_name.loc["NoOverlap", "overlap_ratio"])
 
 
@@ -335,6 +337,25 @@ def test_r9_repeated_edge_ratio_is_distance_weighted_like_the_engine():
 
     assert by_name.loc["Clean", "repeated_edge_ratio"] == 0.0
     assert by_name.loc["OutAndBack", "repeated_edge_ratio"] == 0.5
+    assert by_name.loc["Clean", "overlap_ratio"] == 0.0
+    assert by_name.loc["OutAndBack", "overlap_ratio"] == 0.5
+
+
+def test_r9c_baseline_overlap_uses_physical_shortest_path_not_engine_weight():
+    """선호 가중치가 켜져도 기준선은 항상 length 최단경로여야 한다."""
+    from types import SimpleNamespace
+
+    from benchmarks.solvers._oneway_engine_common import baseline_shortest_overlap_ratio
+
+    graph = nx.Graph()
+    graph.add_edge("A", "B", length=10)
+    graph.add_edge("B", "D", length=10)
+    graph.add_edge("A", "C", length=5)
+    graph.add_edge("C", "D", length=5)
+    # 과거 구현은 이 가중치를 기준선에 사용해 A-B-D를 기준 최단으로 오판했다.
+    engine = SimpleNamespace(G=graph, _weight_fn=lambda u, v, data: 1 if "B" in (u, v) else 100)
+
+    assert baseline_shortest_overlap_ratio(engine, ["A", "B", "D"], "A", "D") == 0.0
 
 
 def test_r9b_repeated_edge_ratio_needs_graph_and_is_none_without_it():

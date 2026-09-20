@@ -42,7 +42,9 @@ RESULT_COLUMNS = [
     # 경유지 분해에 의존하지 않으므로, pruning이 경유지를 지웠는지와 무관하게
     # "사용자에게 실제로 전달되는 경로"를 서술한다.
     "distance_km", "target_km", "distance_deviation_km",
-    "is_closed_loop", "spike_count", "repeated_edge_ratio", "circularity_q",
+    # overlap_ratio는 repeated_edge_ratio의 하위 호환 alias다. 새 소비자는 의미가
+    # 명확한 repeated_edge_ratio를 사용한다.
+    "is_closed_loop", "spike_count", "repeated_edge_ratio", "overlap_ratio", "circularity_q",
     # 위 관측값들이 config.py의 임계값을 전부 통과했는지(순환 행만 판정, 편도는 None).
     # gate_failed_on은 떨어진 항목 이름을 쉼표로 묶은 문자열 — 집계에서 "무엇 때문에
     # 떨어졌는가"를 세려면 불리언 하나로는 부족하다. evaluate_gate() 참고.
@@ -51,9 +53,8 @@ RESULT_COLUMNS = [
     # --- solver 자기 신고 (알고리즘 간 비교 금지) ---
     # cost: wp 계열은 거리(m), 레거시 순환 계열은 누적 custom_score라 단위·스케일이 다르다.
     #       같은 알고리즘의 조건 간 비교에만 쓰고, 알고리즘끼리 나란히 비교하지 말 것.
-    # overlap_ratio: "베이스 최단경로와 겹치는 비율"로 repeated_edge_ratio와 개념이 다른
-    #       편도(oneway) 전용 지표다. 순환 solver는 이 값을 아예 보고하지 않으므로 None이다.
-    "cost", "overlap_ratio",
+    # 기준 물리 최단경로와의 겹침은 편도 전용의 별도 baseline_shortest_overlap_ratio다.
+    "cost", "baseline_shortest_overlap_ratio",
 
     # --- 3계층: 비용 ---
     "find_path_sec", "astar_calls", "cache_hits", "pool_cache_hits", "pool_cache_misses",
@@ -92,7 +93,7 @@ _OPTIONAL_INT_KEYS = (
     "waypoints_lost_clean", "waypoints_lost_repeated",
 )
 _OPTIONAL_FLOAT_KEYS = (
-    "find_path_sec", "overlap_ratio",
+    "find_path_sec", "baseline_shortest_overlap_ratio",
     "waypoint_separation_m", "min_waypoint_separation_m",
     "repeated_edge_ratio", "waypoint_angle_diff_deg", "segment_balance_ratio",
     "prune_branch_length_m", "prune_clean_branch_length_m",
@@ -100,7 +101,7 @@ _OPTIONAL_FLOAT_KEYS = (
 _OPTIONAL_BOOL_KEYS = ("feasible", "is_degenerate_loop")
 _OPTIONAL_STR_KEYS = ("selection_status", "alns_operator_stats", "waypoint_bearings_deg")
 
-# overlap_ratio / repeated_edge_ratio는 build_result_row가 별도 규칙으로 채우므로 제외한다.
+# overlap_ratio / repeated_edge_ratio는 build_result_row가 같은 자기 재통행 정의로 채우므로 제외한다.
 _PASSTHROUGH_KEYS = tuple(
     key
     for key in (*_OPTIONAL_INT_KEYS, *_OPTIONAL_FLOAT_KEYS, *_OPTIONAL_BOOL_KEYS, *_OPTIONAL_STR_KEYS)
@@ -253,9 +254,9 @@ def validate_solver_result(result) -> dict:
     선택 필드는 _OPTIONAL_*_KEYS 표만 보고 검증한다 — 필드가 늘어날 때 if 블록을 하나씩
     복붙하던 구조가 컬럼 누락의 원인이었으므로 표 기반으로 바꿨다(2026-09-10).
 
-    overlap_ratio 기본값 변경(2026-09-10): 예전에는 키가 없으면 0.0으로 채웠는데, 그
-    탓에 이 지표를 아예 계산하지 않는 순환 solver의 행이 "겹침 0%"라는 실측값처럼
-    보였다. 이제 없으면 None이다(편도 solver는 계속 실제 계산값을 보고한다).
+    overlap_ratio는 최종 경로의 자기 재통행(repeated_edge_ratio) alias다. solver가
+    반환한 옛 ``overlap_ratio`` 값은 기준 최단경로 중첩이라는 과거 의미일 수 있으므로
+    받아들이지 않는다. 편도 기준선 중첩은 baseline_shortest_overlap_ratio만 사용한다.
     """
     if not isinstance(result, dict):
         raise TypeError(f"solve()는 dict를 반환해야 합니다 (실제 타입: {type(result).__name__})")
@@ -415,9 +416,11 @@ def build_result_row(solver, graph, params: dict, elapsed_sec: float, result: di
         ),
         "circularity_q": circularity_q(graph, paths, perimeter_m),
         "cost": result["cost"],
-        "overlap_ratio": result.get("overlap_ratio"),
+        "baseline_shortest_overlap_ratio": result.get("baseline_shortest_overlap_ratio"),
         "error": "",
     })
+    # overlap_ratio는 기존 CSV 소비자를 위한 별칭이다. 두 지표는 항상 같은 정의·값을 가진다.
+    row["overlap_ratio"] = row["repeated_edge_ratio"]
     row["passed"], row["gate_failed_on"] = evaluate_gate(row, circular)
     return row
 

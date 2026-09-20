@@ -1,4 +1,4 @@
-from benchmarks.solvers._oneway_engine_common import base_shortest_path_overlap_ratio
+from benchmarks.solvers._oneway_engine_common import baseline_shortest_overlap_ratio
 from benchmarks.solvers.base_solver import BasePathSolver
 from src.route_engine.engines.oneway_astar import OnewayAstarEngine
 from src.route_engine.scoring.scoring_engine import compute_distance_only_lookup
@@ -38,5 +38,7 @@ class OnewayAstarSolver(BasePathSolver):
             raise ValueError("경로 생성 실패: 유효한 편도 경로를 찾지 못했습니다 (NO_PATH)")
 
         cost = engine.path_cost(nodes)
-        overlap_ratio = base_shortest_path_overlap_ratio(engine, nodes, start_node, target_node)
-        return {"paths": [nodes], "cost": cost, "overlap_ratio": overlap_ratio, "find_path_sec": round(t3 - t2, 6)}
+        baseline_overlap = baseline_shortest_overlap_ratio(engine, nodes, start_node, target_node)
+        return {"paths": [nodes], "cost": cost,
+                "baseline_shortest_overlap_ratio": baseline_overlap,
+                "find_path_sec": round(t3 - t2, 6)}

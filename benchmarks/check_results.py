@@ -47,7 +47,7 @@ GRASP_POOL_REQUIRED = ("pool_cache_hits", "pool_cache_misses")
 
 # 전 행이 비었을 때 "누가 채웠어야 하는가"를 알려주기 위한 설명.
 EMPTY_COLUMN_OWNERS = {
-    "overlap_ratio": "편도(oneway) solver — 순환 전용 격자라면 비는 것이 정상",
+    "baseline_shortest_overlap_ratio": "편도(oneway) solver — 순환 전용 격자라면 비는 것이 정상",
     "alns_operator_stats": "ALNS 정제 solver(*-wp-alns)",
     "find_path_sec": "이 지표를 보고하는 solver가 아직 없음",
     "pool_cache_hits": "GRASP 경유지 풀 solver(grasp-wp-*)",
@@ -118,7 +118,7 @@ def coverage_by_algorithm(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     tracked = [
         c for c in (*WAYPOINT_SOLVER_REQUIRED, *GRASP_POOL_REQUIRED,
-                    "circularity_q", "passed", "within_time_budget")
+                    "circularity_q", "baseline_shortest_overlap_ratio", "passed", "within_time_budget")
         if c in df.columns
     ]
     if not tracked:

@@ -34,10 +34,10 @@ CSV로 저장한다. 이 프로젝트의 실제 목적("적당한 시간 내에 
 
 solver 자기 신고이며 알고리즘 간 비교에 쓰면 안 되는 컬럼:
   - cost               : wp 계열은 거리(m), 레거시 순환 계열은 누적 custom_score.
-  - overlap_ratio      : 베이스 최단경로와의 겹침 비율(_oneway_engine_common.
-                          base_shortest_path_overlap_ratio)로 편도 전용이다. 모든 oneway
-                          solver가 같은 헬퍼를 쓰므로 그들 사이의 비교 일관성은 유지되고,
-                          순환 solver는 이 값을 보고하지 않으므로 None이다.
+  - overlap_ratio      : repeated_edge_ratio의 하위 호환 alias. 자기 재통행 비율이다.
+  - baseline_shortest_overlap_ratio
+                        : 물리 거리 최단경로와의 겹침 비율로 편도 전용이다. 가중치와
+                          무관한 ``length`` 기준선이므로 우회 정도를 비교할 수 있다.
 
 알고리즘 하나가 예외를 던지거나 타임아웃되어도 나머지 알고리즘 실행과 CSV 저장은
 계속 진행된다 (status/error 컬럼에 실패 사유가 기록됨). 타임아웃된 알고리즘은
