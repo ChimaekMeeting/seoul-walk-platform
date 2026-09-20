@@ -47,6 +47,12 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_PAIRWISE_CACHE_ROWS: int = 256  # 캐시할 최대 소스 노드(행) 개수 — 논문 근거 없는 엔지니어링 기본값
 
+# 편도 풀(build_pool_two_point) 전용 — 실험값/미튜닝(2026-09-20). dist(p1,p2) 대비 비율로
+# budget_m에 여유를 준다. 근거는 실제 그래프 25개 편도 시나리오 실측(풀 크기 대리 지표)
+# 뿐이고, 이 값을 실제로 소비할 편도 다중 경유지 조합 엔진이 아직 없어 완성된 경로 품질로는
+# 검증하지 못했다 — 그 엔진이 생기고 나면 실측 경로 품질 기준으로 재검토할 것.
+_DEFAULT_SLACK_RATIO: float = 0.05
+
 
 class WaypointPoolResult:
     """
@@ -154,9 +160,14 @@ class WaypointPoolResultTwoPoint(WaypointPoolResult):
     pool_nodes에 담는다. 각 소스의 cutoff SSSP(반경 budget_m)는 후보 도메인을 좁히는
     전처리일 뿐이고, 실제 채택 기준은 항상 이 합 조건 하나다 — "두 cutoff 영역이
     겹치는가"는 판단 기준이 아니다(두 영역은 budget_m >= dist(p1,p2)/2부터 겹치기
-    시작하지만, 그 안의 노드가 합 조건까지 만족한다는 보장은 없다 — 실제로 후보가
-    하나라도 존재하려면 budget_m >= dist(p1,p2)가 필요하다. build_pool_two_point()의
-    infeasible 판정 참고).
+    시작하지만, 그 안의 노드가 합 조건까지 만족한다는 보장은 없다).
+
+    target_m은 요청한 target_km*1000과 dist(p1,p2) 중 큰 값이다 — 사용자가 직선
+    최단거리보다 짧은(물리적으로 불가능한) target_km을 요청해도 조용히 dist(p1,p2)로
+    보정한다(build_pool_two_point() 참고). 그래서 budget_m >= dist(p1,p2)가 항상
+    성립하고, p1·p2가 그래프에서 아예 연결돼 있지 않은 경우(dist(p1,p2) 자체가 없음)만
+    build_pool_two_point()가 None을 반환한다 — "target이 짧아서" None이 되는 경우는
+    없다.
 
     순환(WaypointPoolResult)의 r_max=target_m/2 원 조건은 p1=p2인 퇴화 케이스이고,
     편도는 p1≠p2이므로 원 조건을 그대로 전용할 수 없다.
@@ -262,20 +273,24 @@ class WaypointPoolGenerator:
         p2_lat: float,
         p2_lon: float,
         target_km: float,
-        slack_m: float = 0.0,
+        slack_ratio: float = _DEFAULT_SLACK_RATIO,
         pairwise_cache_rows: int = _DEFAULT_PAIRWISE_CACHE_ROWS,
     ) -> WaypointPoolResultTwoPoint | None:
         """
         p1(출발지)·p2(목적지) 좌표와 목표 총 거리(target_km)로 편도 경유지 후보 풀을 만든다.
 
-        dist(p1,v) + dist(v,p2) <= budget_m(=target_km*1000+slack_m)을 만족하는 노드만
-        후보로 남긴다 — p1·p2를 초점으로 하는 타원 조건이며, build_pool()의
-        r_max=target_m/2 원 조건이 p1=p2인 퇴화 케이스임을 일반화한 것이다
-        (WaypointPoolResultTwoPoint 문서 참고).
+        dist(p1,v) + dist(v,p2) <= budget_m을 만족하는 노드만 후보로 남긴다 — p1·p2를
+        초점으로 하는 타원 조건이며, build_pool()의 r_max=target_m/2 원 조건이 p1=p2인
+        퇴화 케이스임을 일반화한 것이다(WaypointPoolResultTwoPoint 문서 참고).
 
-        p1 또는 p2의 최근접 노드를 못 찾거나, budget_m이 dist(p1,p2)(합 조건을 만족하는
-        노드가 하나라도 존재하기 위한 최소 거리)보다 짧아 애초에 실현 불가능하면 None을
-        반환한다. "두 cutoff 영역이 겹치는가"가 아니라 이 최소 거리 하나로만 판단한다.
+        target_km*1000이 dist(p1,p2)(직선 최단거리)보다 짧으면 — 물리적으로 불가능한
+        요청이므로 — target_m을 dist(p1,p2)로 보정한다(경고 로그만 남기고 조용히
+        진행한다). budget_m = target_m + slack_ratio*dist(p1,p2)이며, slack_ratio는
+        실험값(_DEFAULT_SLACK_RATIO 참고)이다.
+
+        p1 또는 p2의 최근접 노드를 못 찾거나, p1·p2 사이에 경로 자체가 없으면(그래프가
+        끊어져 있음) None을 반환한다. "target_km이 짧아서" None이 되는 경우는 없다 —
+        그 경우는 위 보정으로 항상 처리된다.
         """
         p1 = self.utils.find_nearest_node_with_expansion(p1_lat, p1_lon)
         p2 = self.utils.find_nearest_node_with_expansion(p2_lat, p2_lon)
@@ -283,32 +298,42 @@ class WaypointPoolGenerator:
             logger.warning("p1 또는 p2 기준 노드를 찾지 못했습니다.")
             return None
 
-        target_m = target_km * 1000
-        budget_m = target_m + slack_m
         weight = compute_distance_only_lookup(self.G)["weight"]
 
+        # p1→p2 직선 최단거리를 먼저 구한다 — target으로 조기 종료되는 다익스트라라
+        # budget_m 컷오프 SSSP 2회보다 훨씬 싸다(실측 근거: 실제 그래프 25개 시나리오에서
+        # 이 조회는 평균 수십 ms, 아래 컷오프 SSSP 2회는 평균 2000ms대였다). 이 값으로
+        # target_m 보정과 budget_m 계산을 둘 다 해결하므로, 컷오프 SSSP 전에 infeasible을
+        # 미리 걸러낼 수도 있다(경로 자체가 없는 경우).
+        try:
+            dist_p1p2, _ = nx.single_source_dijkstra(self.G, p1, target=p2, weight=weight)
+        except nx.NetworkXNoPath:
+            logger.warning("p1-p2 사이에 경로가 없어 편도 풀을 생성할 수 없습니다.")
+            return None
+
+        requested_target_m = target_km * 1000
+        if requested_target_m < dist_p1p2:
+            # 물리적으로 불가능한 요청(직선 최단거리보다 짧은 target) — dist(p1,p2)로
+            # 보정한다. 이후 budget_m >= dist(p1,p2)가 항상 성립하므로 컷오프 SSSP에서
+            # p2를 못 찾는 경우는 생기지 않는다.
+            logger.warning(
+                "target_km(%.3f)이 p1-p2 최단거리(%.1fm)보다 짧아 target_m을 "
+                "dist(p1,p2)로 보정합니다.",
+                target_km, dist_p1p2,
+            )
+        target_m = max(requested_target_m, dist_p1p2)
+        slack_m = slack_ratio * dist_p1p2
+        budget_m = target_m + slack_m
+
         # cutoff SSSP 2회 — budget_m 밖의 노드는 어느 쪽이든 합 조건을 만족할 수 없으므로
-        # 애초에 순회 안 함. slack_m만큼 사후 필터(budget_m)만 늘리고 cutoff는 target_m에
-        # 묶어두면, slack 덕분에 포함돼야 할 노드가 SSSP 단계에서부터 잘려나간다 — 반드시
-        # 같은 budget_m을 cutoff로 써야 한다. 왕복(r_max=target_m/2)과 달리 편도는 각
-        # 소스의 cutoff 자체가 (거의) target_m 전체여야 한다(클래스 docstring 삼각부등식
-        # 참고).
+        # 애초에 순회 안 함. 왕복(r_max=target_m/2)과 달리 편도는 각 소스의 cutoff
+        # 자체가 (거의) target_m 전체여야 한다(클래스 docstring 삼각부등식 참고).
         dist_from_p1 = nx.single_source_dijkstra_path_length(
             self.G, p1, cutoff=budget_m, weight=weight
         )
         dist_from_p2 = nx.single_source_dijkstra_path_length(
             self.G, p2, cutoff=budget_m, weight=weight
         )
-
-        if p2 not in dist_from_p1:
-            # dist(p1,p2) > budget_m이면 p1→p2 직행조차 budget_m을 넘어, 합 조건을
-            # 만족하는 노드가 하나도 있을 수 없다(최소 실현 가능 target_km = dist(p1,p2) - slack_m/1000).
-            logger.warning(
-                "target_km(+slack_m)이 p1-p2 최단거리보다 짧아 편도 풀을 생성할 수 없습니다: "
-                "budget_m=%.1f",
-                budget_m,
-            )
-            return None
 
         pool_nodes = [
             v for v, d1 in dist_from_p1.items()

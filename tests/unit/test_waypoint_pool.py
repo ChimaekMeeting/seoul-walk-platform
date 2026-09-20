@@ -11,9 +11,11 @@ WaypointPoolGenerator / WaypointPoolResult 단위 테스트
   - p1 최근접 노드를 못 찾으면 None을 반환함
 
 build_pool_two_point (편도) 추가 검증 항목:
-  - dist(p1,v)+dist(v,p2) <= target_m인 노드만 포함되고, p1·p2 자신은 제외됨
-  - target_km이 dist(p1,p2)보다 짧으면(infeasible) None을 반환함
-  - slack_m만큼 합 조건 상한이 완화됨
+  - dist(p1,v)+dist(v,p2) <= budget_m인 노드만 포함되고, p1·p2 자신은 제외됨
+  - target_km이 dist(p1,p2)보다 짧으면(물리적으로 불가능) target_m을 dist(p1,p2)로
+    보정하고 계속 진행함(None을 반환하지 않음)
+  - slack_ratio(기본 5%, dist(p1,p2) 대비 비율)가 클수록 더 넓은 노드까지 포함함
+  - p1·p2 사이에 경로 자체가 없으면(그래프가 끊어짐) None을 반환함
   - distance()가 상속받은 lazy+LRU 캐시 그대로 동작함
 """
 
@@ -102,21 +104,14 @@ class TestBuildPoolTwoPoint:
         assert result.dist_from_p1 == {1: 100, 2: 200, 3: 300}
         assert result.dist_from_p2 == {1: 300, 2: 200, 3: 100}
 
-    def test_target_km이_직선최단거리보다_짧으면_None을_반환한다(self, line_graph):
+    def test_target_km이_직선최단거리보다_짧으면_dist_p1p2로_보정한다(self, line_graph):
         gen = WaypointPoolGenerator(line_graph)
+        # target_m=300 < dist(p1,p2)=400 -> target_m이 400으로 보정돼야 함(None 아님)
         result = gen.build_pool_two_point(
             37.5, 127.0, 37.50004, 127.00004, target_km=0.3
         )
-        assert result is None
-
-    def test_slack_m만큼_합_조건_상한이_완화된다(self, line_graph):
-        gen = WaypointPoolGenerator(line_graph)
-        # target_m=300 < dist(p1,p2)=400이라 slack 없이는 infeasible이지만
-        # slack_m=100으로 budget_m=400을 채우면 다시 실현 가능해야 함
-        result = gen.build_pool_two_point(
-            37.5, 127.0, 37.50004, 127.00004, target_km=0.3, slack_m=100
-        )
         assert result is not None
+        assert result.target_m == 400.0
         assert sorted(result.pool_nodes) == [1, 2, 3]
 
     def test_p1_또는_p2_노드를_찾지_못하면_None을_반환한다(self):
@@ -124,6 +119,18 @@ class TestBuildPoolTwoPoint:
         G.add_node(0, lat=0.0, lon=0.0)
         gen = WaypointPoolGenerator(G)
         assert gen.build_pool_two_point(37.5, 127.0, 37.6, 127.1, target_km=1.0) is None
+
+    def test_p1_p2_사이에_경로가_없으면_None을_반환한다(self):
+        """서로 다른 연결요소에 있는 두 점 — target_m 보정으로도 구할 수 없는 진짜 infeasible."""
+        G = nx.Graph()
+        G.add_node(0, lat=37.5, lon=127.0)
+        G.add_node(1, lat=37.50001, lon=127.00001)
+        G.add_edge(0, 1, length=50, tags=[])
+        G.add_node(10, lat=38.0, lon=128.0)
+        G.add_node(11, lat=38.00001, lon=128.00001)
+        G.add_edge(10, 11, length=50, tags=[])
+        gen = WaypointPoolGenerator(G)
+        assert gen.build_pool_two_point(37.5, 127.0, 38.0, 128.0, target_km=100.0) is None
 
     def test_distance가_상속받은_lazy_캐시로_동작한다(self, line_graph):
         gen = WaypointPoolGenerator(line_graph)
@@ -134,3 +141,33 @@ class TestBuildPoolTwoPoint:
         assert result.cached_row_count == 1
         assert result.distance(3, 1) == 200  # 반대 방향 — 캐시 재사용
         assert result.cached_row_count == 1
+
+
+class TestBuildPoolTwoPointSlackRatio:
+    """line_graph(0--1--2--3--4, dist(p1=0,p2=4)=400m)에 node2에서 60m 가지로 뻗은
+    node5를 추가한 그래프. dist(0,5)+dist(5,4)=260+260=520m로, 직행 경로(0,4) 위에
+    있지 않은 노드다.
+    """
+
+    @pytest.fixture
+    def branching_graph(self, line_graph):
+        line_graph.add_node(5, lat=37.6, lon=127.00002)
+        line_graph.add_edge(2, 5, length=60, tags=[])
+        return line_graph
+
+    def test_기본_slack_ratio로는_직행경로_밖_노드가_제외된다(self, branching_graph):
+        gen = WaypointPoolGenerator(branching_graph)
+        # target_km=0.4 -> target_m=400(=dist(p1,p2), 보정 없음), 기본 slack_ratio=5%
+        # -> budget_m=420 < node5의 520m
+        result = gen.build_pool_two_point(
+            37.5, 127.0, 37.50004, 127.00004, target_km=0.4
+        )
+        assert 5 not in result.pool_nodes
+
+    def test_slack_ratio를_키우면_직행경로_밖_노드도_포함된다(self, branching_graph):
+        gen = WaypointPoolGenerator(branching_graph)
+        # slack_ratio=0.35 -> budget_m=400+140=540 >= node5의 520m
+        result = gen.build_pool_two_point(
+            37.5, 127.0, 37.50004, 127.00004, target_km=0.4, slack_ratio=0.35
+        )
+        assert 5 in result.pool_nodes
