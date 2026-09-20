@@ -769,8 +769,8 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
   전환했다. `distance(u, v)` 호출 시점에 u를 소스로 하는 cutoff=r_max SSSP를 1회
   계산해 그 행(row) 전체를 캐시하고, 이후 같은 u 조회는 캐시를 그대로 쓴다. 무방향
   그래프라 반대 방향(v가 소스인 행)이 이미 캐시돼 있으면 그것도 재사용한다. 캐시 행
-  개수 상한(`_DEFAULT_PAIRWISE_CACHE_ROWS=256`)은 논문 근거 없는 임의값이며, 조합
-  단계(별도 이슈)에서 실제 접근 패턴을 보고 재튜닝이 필요하다.
+  개수 상한(`_DEFAULT_PAIRWISE_CACHE_ROWS=256`)은 도입 당시엔 논문 근거 없는 임의값이었다 —
+  재튜닝 결과는 아래 "캐시 행 개수 상한 재튜닝" 항목 참고.
 - lazy+캐시 전환 근거: Lewis & Corcoran(SN Comp Sci, 2024)의 Pareto 지역탐색
   (Algorithm 3/4)도 매 이웃 연산마다 선택된 노드 기준으로 그때그때 도달 트리를
   계산하지, 전체 쌍을 사전에 다 계산해두지 않는다 — 같은 계보의 2023년 논문
@@ -784,9 +784,29 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
   무관하게 320~770ms 수준으로 일정함(이전 전량계산 버전은 target_km이 클수록 88~385초까지
   늘어졌었음). 다만 `distance()` 조회 속도는 여전히 pool 크기에 비례해 늘어난다 —
   완전 무작위 균등 샘플링(캐시 히트가 거의 없는 최악 케이스)으로 500쌍 조회 시 pool
-  1.4만개 시나리오(target_km=8)에서 약 31초 소요. 실제 조합 단계는 소수의 활성 후보를
-  반복 접근하는 구조라 캐시 히트율이 이보다 높을 가능성이 크지만, 조합 단계가 나와야
-  실측 확인 가능하다(`benchmarks/runner/waypoint_pool_benchmark.py`로 재현 가능).
+  1.4만개 시나리오(target_km=8)에서 약 31초 소요(`benchmarks/runner/waypoint_pool_benchmark.py`로
+  재현 가능). 실제 조합 단계(GRASP/ALNS)의 접근 패턴으로는 아래 항목 참고.
+- **캐시 행 개수 상한 재튜닝(2026-09-20, #489)**: 조합 단계(`CircularGraspWaypointAlnsEngine`)가
+  실제로 붙은 뒤 접근 패턴으로 재튜닝하라는 TODO가 있었다. 프로덕션 확정 조건
+  (`grasp-wp-alns`, `num_waypoints=2` — N=2/3/4 비교 이슈 #489에서 N=2 확정)·target_km 3.0/8.0에서
+  cache_rows 64/128/256/512/1024/2048을 스윕한 결과, 히트율이 0.9970~0.9972로 전 구간
+  사실상 무차이였고(미스 차이 최대 7.5회) elapsed_sec도 15~17초대에서 노이즈 수준으로만
+  흔들렸다. 즉 256이 부족해서 문제가 되는 것도, 더 키워서 빨라지는 것도 아니다 — 현재
+  값(256)을 그대로 유지한다(재현: `benchmarks/run_cache_rows_tuning.py`, 결과:
+  `benchmarks/results/waypoint_pool/cache_rows_tuning.csv`). num_waypoints를 6~8까지
+  넓힌 부가 실험에서는 `candidate_limit=2`가 N≥6부터 ALNS 제거 단계를 실패시키는 현상도
+  확인됐으나, N=2가 운영값으로 확정되어 있어 당장 조치 대상은 아니다
+  (`circular_grasp_waypoint_alns.py`의 `candidate_limit=2` 주석 참고).
+- **경유지 개수(N) 기본값 확정(2026-09-20, #489)**: `GraspConfig.num_waypoints=2`가
+  단순 하위 호환값이던 것을 실측으로 확정했다. `grasp-wp-alns` 기준 출발지 4곳(밀도
+  4계층 대표) × 거리 1/3/5km(설문 기본값) × N 2/3/4 × 시드 10개(360회)에서 N=4가
+  N=2보다 평균 53%·최대 81% 더 느린데 품질 이득은 없었다(짝지은 순열검정, 조건 12개,
+  Bonferroni 보정 후 유의한 차이는 재통행률 N2 vs N4 하나뿐). 이어서 실제 API 상한
+  (`target_km<=10km`, `VAL-DIST-002`)을 커버하도록 7·9km에서 N=2만 추가 검증(같은
+  4출발지 × 시드 10 = 80회)한 결과 게이트통과율 1.000(거리편차 0.04km대, 재통행률
+  0.004~0.007)으로 서비스 거리 전 구간(1~9km)에서 안정적이었다 — N=2를 그대로
+  유지한다(재현: `benchmarks/run_n_waypoint_comparison.py`, 결과:
+  `benchmarks/n_waypoint_comparison_results.csv`, 둘 다 미커밋 애드혹 산출물).
 
 ## 경유지 후보 풀(편도): 두-소스 타원 cutoff (2026-09-20)
 

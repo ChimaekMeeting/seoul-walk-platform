@@ -29,6 +29,15 @@ u_i 기준으로 그때그때 도달 트리(BFS)를 계산하지, 전체 쌍을 
 target_km이 큰 경우(5~8km) pool 크기·pairwise 항목 수가 함께 급증해 MemoryError로
 실패했다(2026-08-30 확인) — 이 문제를 피하기 위해 필요한 쌍만 그때그때 계산한다.
 
+pairwise 캐시 행 개수 상한(_DEFAULT_PAIRWISE_CACHE_ROWS=256) 재튜닝(2026-09-20, #489):
+도입 당시엔 이 상한값 자체가 논문 근거 없는 엔지니어링 기본값이었고, 조합 단계(GRASP/ALNS)가
+실제로 붙은 뒤 접근 패턴으로 재튜닝하라는 TODO만 남아 있었다. 프로덕션 확정 엔진
+(CircularGraspWaypointAlnsEngine, num_waypoints=2 확정 — grasp_waypoint_common.py 참고)·
+target_km 3.0/8.0 조건에서 cache_rows 64/128/256/512/1024/2048을 스윕한 결과, 히트율이
+0.9970~0.9972로 전 구간 사실상 무차이였고(미스 차이 최대 7.5회) elapsed_sec도 15~17초대에서
+노이즈 수준으로만 흔들렸다 — 256이 부족해서 문제가 되는 것도, 더 키워서 빨라지는 것도
+아니다. 현재 값(256)을 그대로 유지한다(재현: benchmarks/run_cache_rows_tuning.py).
+
 참고 논문:
 - Lewis & Corcoran, J. Heuristics (2022) — r_max=k/2 cutoff SSSP 전처리 공식
 - Lewis & Corcoran, SN Comp Sci (2024) — 단일 cutoff 영역에서 n=3~8 candidate pool 생성 검증,
@@ -55,7 +64,7 @@ from src.route_engine.scoring.scoring_engine import compute_distance_only_lookup
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_PAIRWISE_CACHE_ROWS: int = 256  # 캐시할 최대 소스 노드(행) 개수 — 논문 근거 없는 엔지니어링 기본값
+_DEFAULT_PAIRWISE_CACHE_ROWS: int = 256  # 캐시할 최대 소스 노드(행) 개수 — 재튜닝 근거는 위 모듈 docstring(2026-09-20, #489) 참고
 
 # 편도 풀(build_pool_two_point) 전용 — 실험값/미튜닝(2026-09-20). dist(p1,p2) 대비 비율로
 # budget_m에 여유를 준다. 근거는 실제 그래프 25개 편도 시나리오 실측(풀 크기 대리 지표)
