@@ -3,7 +3,6 @@ from typing import Optional
 
 from src.infrastructure.cache.valkey import get_valkey_db
 from src.schema.prewalk_schema import State
-from src.agent.utils.chatbot_utils import PydanticUtils
 
 
 class ChatStateRepository:
@@ -20,7 +19,7 @@ class ChatStateRepository:
         redis = get_valkey_db()
         key = f"chat_state:{thread_id}"
 
-        state = PydanticUtils.dump(state)
+        state = state.model_dump_for_storage()
         json_data = json.dumps(state, ensure_ascii=False)
 
         await redis.set(key, json_data, ex=3600)

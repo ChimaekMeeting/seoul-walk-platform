@@ -5,8 +5,8 @@ SurveyService 단위 테스트
 장기 프로필 범위 축소(2026-09, user_preference.py 참고)로 영속 필드가
 weights_safety/weights_comfort/default_target_km/selected_tags로 줄었다.
 weights_safety/weights_comfort는 둘 다 request.tags에 "안전"/"편안"이 포함됐는지로
-γ(안전)/β(편안) 배분 공식(_safety_comfort_deltas) 하나로만 정해진다 — 지금 프론트가
-보내는 온보딩 태그는 "안전"/"편안" 이 둘뿐이며, 기존 TAG_WEIGHT_MAP의 세부 태그
+γ(안전)/β(편안) 배분 공식(_safety_comfort_deltas) 하나로만 정해진다 — 현재 앱이
+보내는 "안전한 길"/"편안한 길"은 입력 경계에서 같은 의미로 해석하며, 기존 TAG_WEIGHT_MAP의 세부 태그
 델타(±0.2 등)는 더 이상 weights_safety/weights_comfort에 반영되지 않는다(선택한
 태그는 selected_tags 컬럼에 참고용으로만 저장됨). TAG_WEIGHT_MAP 자체는 챗봇
 테마 추출/가중치 블렌딩(extractor.py, route_executor.py)이 여전히 쓰므로 그대로 둔다.
@@ -16,7 +16,8 @@ weights_safety/weights_comfort는 둘 다 request.tags에 "안전"/"편안"이 �
   - 사용자 미존재 시 USER_NOT_FOUND 반환
   - tags에 "안전"/"편안" 포함 조합 → γ/β 배분 공식(_safety_comfort_deltas)
   - 그 외 세부 태그는 더 이상 weights_safety/weights_comfort에 영향을 주지 않음(회귀 가드)
-  - "안전"/"편안" 태그 각각 safety/comfort에 적용
+  - "안전"/"편안"과 앱 표현 "안전한 길"/"편안한 길"을 같은 선택으로 적용
+  - 계산용 별칭을 중복 제거하되 selected_tags 저장·조회 표현은 그대로 보존
   - 동일 태그 누적, 최대값 1.0 클램핑
   - 알 수 없는 태그 무시
   - 거리 선택지 → default_target_km 매핑
@@ -177,6 +178,42 @@ class TestSafetyComfortDeltas:
         assert kwargs["weights_safety"] == pytest.approx(0.65, abs=1e-3)   # 0.5 + k/2
         assert kwargs["weights_comfort"] == pytest.approx(0.15, abs=1e-3)  # 0.0 + k/2
 
+    @pytest.mark.parametrize(
+        ("app_tags", "legacy_tags"),
+        [
+            (["안전한 길"], ["안전"]),
+            (["편안한 길"], ["편안"]),
+            (["안전한 길", "편안한 길"], ["안전", "편안"]),
+        ],
+    )
+    def test_앱_태그와_기존_서버_태그의_계산_결과가_같다(
+        self, service, auth_service, mock_user, mock_preference, app_tags, legacy_tags
+    ):
+        app_kwargs = _get_upsert_kwargs(
+            service, auth_service, mock_user, mock_preference, tags=app_tags,
+        )
+        legacy_kwargs = _get_upsert_kwargs(
+            service, auth_service, mock_user, mock_preference, tags=legacy_tags,
+        )
+        assert app_kwargs["weights_safety"] == pytest.approx(legacy_kwargs["weights_safety"])
+        assert app_kwargs["weights_comfort"] == pytest.approx(legacy_kwargs["weights_comfort"])
+
+    def test_별칭을_혼합해_중복_제출해도_한_번_선택한_결과와_같다(
+        self, service, auth_service, mock_user, mock_preference
+    ):
+        duplicate_kwargs = _get_upsert_kwargs(
+            service,
+            auth_service,
+            mock_user,
+            mock_preference,
+            tags=["안전", "안전한 길", "안전한 길"],
+        )
+        single_kwargs = _get_upsert_kwargs(
+            service, auth_service, mock_user, mock_preference, tags=["안전"],
+        )
+        assert duplicate_kwargs["weights_safety"] == pytest.approx(single_kwargs["weights_safety"])
+        assert duplicate_kwargs["weights_comfort"] == pytest.approx(single_kwargs["weights_comfort"])
+
     def test_다른_세부_태그는_weights_safety_comfort에_영향을_주지_않는다(
         self, service, auth_service, mock_user, mock_preference
     ):
@@ -191,6 +228,22 @@ class TestSafetyComfortDeltas:
         assert with_detail_tag["weights_safety"] == pytest.approx(without_tag["weights_safety"])
         assert with_detail_tag["weights_comfort"] == pytest.approx(without_tag["weights_comfort"])
 
+    def test_알_수_없는_문장은_부분_문자열만으로_선택되지_않는다(
+        self, service, auth_service, mock_user, mock_preference
+    ):
+        unknown_kwargs = _get_upsert_kwargs(
+            service,
+            auth_service,
+            mock_user,
+            mock_preference,
+            tags=["안전하고 편안한 아무 문장"],
+        )
+        empty_kwargs = _get_upsert_kwargs(
+            service, auth_service, mock_user, mock_preference, tags=[],
+        )
+        assert unknown_kwargs["weights_safety"] == pytest.approx(empty_kwargs["weights_safety"])
+        assert unknown_kwargs["weights_comfort"] == pytest.approx(empty_kwargs["weights_comfort"])
+
     def test_설문_완료_시_survey_completed가_True다(
         self, service, auth_service, mock_user, mock_preference
     ):
@@ -201,9 +254,49 @@ class TestSafetyComfortDeltas:
         self, service, auth_service, mock_user, mock_preference
     ):
         kwargs = _get_upsert_kwargs(
-            service, auth_service, mock_user, mock_preference, tags=["안전", "편안"],
+            service, auth_service, mock_user, mock_preference, tags=["안전한 길", "편안한 길"],
         )
-        assert kwargs["selected_tags"] == ["안전", "편안"]
+        assert kwargs["selected_tags"] == ["안전한 길", "편안한 길"]
+
+    def test_앱_태그_제출_시_저장_가중치와_응답_가중치가_일치한다(
+        self, service, auth_service, mock_user, mock_preference
+    ):
+        mock_preference.default_target_km = 3.0
+        mock_preference.weights_safety = 0.65
+        mock_preference.weights_comfort = 0.15
+        kwargs, response = _submit(
+            service,
+            auth_service,
+            mock_user,
+            mock_preference,
+            tags=["안전한 길", "편안한 길"],
+            distance=DistanceOption.NORMAL,
+        )
+        assert kwargs["weights_safety"] == pytest.approx(response.weights_safety)
+        assert kwargs["weights_comfort"] == pytest.approx(response.weights_comfort)
+        assert kwargs["default_target_km"] == pytest.approx(response.default_target_km)
+
+
+class TestSurveyStatus:
+    def test_조회_시_앱_태그_표현을_그대로_반환한다(
+        self, service, auth_service, mock_user, mock_preference
+    ):
+        auth_service.check_access_token.return_value = (
+            Status.SUCCESS,
+            Provider.KAKAO,
+            "kakao-123",
+        )
+        mock_preference.selected_tags = ["안전한 길", "편안한 길"]
+        with patch(
+            "src.service.user.survey_service.UserRepository.find_by_provider_and_provider_id",
+            return_value=mock_user,
+        ), patch(
+            "src.service.user.survey_service.UserPreferenceRepository.get_by_user_id",
+            return_value=mock_preference,
+        ):
+            response = service.get_status("valid_token")
+
+        assert response.selected_tags == ["안전한 길", "편안한 길"]
 
 
 # ── 거리 매핑 ────────────────────────────────────────────────────────────────

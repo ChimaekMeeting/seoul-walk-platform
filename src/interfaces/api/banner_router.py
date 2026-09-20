@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.interfaces.dependencies import get_banner_service
+from src.interfaces.errors import SAFE_INTERNAL_ERROR_DETAIL, log_unexpected_error
 from src.interfaces.schema.banner_schema import BannerResponse
 from src.service.route.banner_service import BannerService
 
@@ -22,5 +23,5 @@ async def get_banner(
     try:
         return await service.get_banner_list(lat, lon, hour)
     except Exception as e:
-        logger.exception("banner_router_unexpected_error | lat=%s | lon=%s", lat, lon)
-        raise HTTPException(status_code=500, detail=str(e))
+        log_unexpected_error(logger, "banner_unexpected_error", e)
+        raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e

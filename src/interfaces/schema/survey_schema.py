@@ -6,7 +6,7 @@ src/interfaces/schema/survey_schema.py
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DistanceOption(str, Enum):
@@ -29,16 +29,29 @@ class SurveyRequest(BaseModel):
     """
     온보딩 설문 제출 요청 스키마입니다.
 
-    tags: 프론트가 보내는 온보딩 선택 태그 목록. 지금 프론트에서 넘어오는 값은
-        "안전"/"편안" 두 가지뿐이며(선택 안 한 축은 목록에서 빠짐), survey_service.
-        submit()이 이 목록에서 "안전"/"편안" 포함 여부를 뽑아 _safety_comfort_deltas의
+    tags: 프론트가 보내는 온보딩 선택 태그 목록. 현재 앱 표현 "안전한 길"/"편안한 길"과
+        기존 서버 표현 "안전"/"편안"을 모두 지원하며(선택 안 한 축은 목록에서 빠짐),
+        survey_service.submit()이 명시적 별칭 매핑으로 두 의미를 뽑아 _safety_comfort_deltas의
         k=0.3 배분 공식 입력으로 쓴다 — 장기 프로필의 weights_safety/weights_comfort
         초기값을 함께 결정한다(장기 프로필이 실제로 추적하는 축이 이 둘뿐이라 온보딩
-        초기값도 이 공식 하나로 통일했다). selected_tags에 참고용으로 그대로 저장도 됨.
+        초기값도 이 공식 하나로 통일했다). 제출한 원래 표현은 selected_tags에 그대로 저장됨.
     distance: 선호 산책 거리 선택지 (선택 안 하면 null)
     """
-    tags: List[str] = Field(default_factory=list)
-    distance: Optional[DistanceOption] = None
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"tags": ["안전한 길", "편안한 길"], "distance": "normal"}}
+    )
+
+    tags: List[str] = Field(
+        default_factory=list,
+        description=(
+            "온보딩 선택 태그. 안전/안전한 길, 편안/편안한 길 별칭을 지원하며 "
+            "알 수 없는 태그는 선호 가중치에 반영하지 않습니다."
+        ),
+    )
+    distance: Optional[DistanceOption] = Field(
+        default=None,
+        description="선호 거리: slow(~2km), normal(2~4km), fast(4km 이상)",
+    )
 
 
 class SurveyResponse(BaseModel):

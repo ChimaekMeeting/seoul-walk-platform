@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.schema.prewalk_schema import State
 from src.interfaces.validators.coord_validator import (
@@ -16,8 +16,10 @@ class InitRequest(BaseModel):
     """
     챗봇 세션 생성을 위한 입력 스키마
     """
-    lat: float
-    lon: float
+    model_config = ConfigDict(json_schema_extra={"example": {"lat": 37.5665, "lon": 126.9780}})
+
+    lat: float = Field(description="현재 위도. 서울 영역의 유한한 좌표")
+    lon: float = Field(description="현재 경도. 서울 영역의 유한한 좌표")
 
     @field_validator("lat", "lon", mode="before")
     @classmethod
@@ -40,10 +42,21 @@ class ChatRequest(BaseModel):
     """
     챗봇과 상호작용을 위한 입력 스키마
     """
-    thread_id: str
-    user_prompt: str
-    lat: float
-    lon: float
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "thread_id": "8b3018da-5a11-4f24-9c42-39fd630888c5",
+                "user_prompt": "광화문에서 3km 순환 산책을 추천해줘",
+                "lat": 37.5665,
+                "lon": 126.9780,
+            }
+        }
+    )
+
+    thread_id: str = Field(min_length=1, description="/api/prewalk/init이 발급한 세션 ID")
+    user_prompt: str = Field(min_length=1, description="사용자 산책 요청 문장. 공백만 입력할 수 없음")
+    lat: float = Field(description="현재 위도. 서울 영역의 유한한 좌표")
+    lon: float = Field(description="현재 경도. 서울 영역의 유한한 좌표")
 
     @field_validator("user_prompt")
     @classmethod

@@ -1,11 +1,9 @@
-from fastapi import APIRouter, Body, Depends, Query, Request, Response
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Depends, Query, Request, Response
 from src.service.user.login_service import KakaoLoginService
-from src.interfaces.schema.login_schema import LoginUrlResponse, LoginResponse, MobileLoginRequest
+from src.interfaces.schema.login_schema import LoginUrlResponse, LoginResponse, LogoutRequest, MobileLoginRequest
 from src.interfaces.schema.auth_schema import AuthResponse, Status
 from src.interfaces.dependencies import get_kakao_login_service
-
-optional_bearer = HTTPBearer(auto_error=False)
+from src.interfaces.security import resolve_access_token
 
 router = APIRouter(
     prefix="/api/login",
@@ -52,7 +50,14 @@ async def kakao_callback(
     )
     return LoginResponse(status=Status.SUCCESS, token_type="Bearer", nickname=nickname, access_token=jwt_access_token, refresh_token=refresh_token)
 
-@router.post("/kakao/mobile-login", response_model=LoginResponse)
+@router.post(
+    "/kakao/mobile-login",
+    response_model=LoginResponse,
+    responses={
+        422: {"description": "Kakao SDK access token 누락 또는 빈 값"},
+        500: {"description": "안전한 공통 메시지로 반환하는 예기치 않은 서버 오류"},
+    },
+)
 async def kakao_mobile_login(
     body: MobileLoginRequest,
     service: KakaoLoginService = Depends(get_kakao_login_service)
@@ -64,15 +69,34 @@ async def kakao_mobile_login(
     jwt_access_token, refresh_token, nickname = await service.login_with_access_token(body.access_token)
     return LoginResponse(status=Status.SUCCESS, token_type="Bearer", nickname=nickname, access_token=jwt_access_token, refresh_token=refresh_token)
 
-@router.post("/kakao/logout", response_model=AuthResponse)
+@router.post(
+    "/kakao/logout",
+    response_model=AuthResponse,
+    responses={
+        401: {"description": "Authorization header 형식 오류"},
+        422: {"description": "본문을 보냈지만 refresh_token이 누락되거나 빈 값인 경우"},
+        500: {"description": "로그인 정보 저장소 조회·삭제 등 서버 처리 실패"},
+    },
+)
 async def kakao_logout(
     request: Request,
     response: Response,
-    credentials: HTTPAuthorizationCredentials = Depends(optional_bearer),
+    body: LogoutRequest | None = None,
+    access_token: str | None = Depends(resolve_access_token),
     service: KakaoLoginService = Depends(get_kakao_login_service)
 ):
-    access_token = (credentials.credentials if credentials else None) or request.cookies.get("access_token")
-    refresh_token = request.cookies.get("refresh_token")
+    """ROUDI 로그인 갱신 정보를 삭제합니다.
+
+    모바일은 body에 ROUDI refresh_token을 보내며, access Bearer는 생략할 수 있습니다.
+    유효한 access를 우선하고, 없거나 만료·손상된 경우 refresh의 서명·만료·저장값을
+    검증합니다. body가 없거나 null일 때만 기존 refresh cookie를 읽습니다.
+    사용할 수 있는 token이 없어도 cookie를 지우고 success를 반환합니다.
+    이미 발급한 access JWT를 즉시 무효화하거나 Kakao 계정을 로그아웃하지는 않습니다.
+    """
+    refresh_token = (
+        body.refresh_token if body is not None
+        else request.cookies.get("refresh_token")
+    )
 
     await service.logout(access_token, refresh_token)
 

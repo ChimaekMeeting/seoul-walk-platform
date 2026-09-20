@@ -23,6 +23,7 @@ from src.interfaces.schema.prewalk_schema import ChatResponse, ChatStatus
 from src.schema.prewalk_schema import State, Location
 from src.service.user.auth_service import AuthService
 from src.agent.utils.chatbot_utils import PromptUtils
+from src.config.logging import log_unexpected_error
 
 logger = logging.getLogger(__name__)
 
@@ -98,15 +99,15 @@ class PrewalkOrchestrator:
 
         try:
             user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
-        except Exception:
-            logger.exception("prewalk_init_user_lookup_error | provider=%s", provider)
+        except Exception as exc:
+            log_unexpected_error(logger, "prewalk_init_user_lookup_error", exc)
             return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
 
         try:
             thread_id = str(uuid4())
             ChatSessionRepository.save(user.id, thread_id)
-        except Exception:
-            logger.exception("prewalk_init_session_save_error | user_id=%s", user.id)
+        except Exception as exc:
+            log_unexpected_error(logger, "prewalk_init_session_save_error", exc)
             return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
 
         # 날씨 기반 초기 메시지
@@ -121,8 +122,8 @@ class PrewalkOrchestrator:
                 address    = kakao_result.place_address,
                 place_name = kakao_result.place_name,
             )
-        except Exception:
-            logger.exception("prewalk_init_kakao_error | lat=%s | lon=%s", lat, lon)
+        except Exception as exc:
+            log_unexpected_error(logger, "prewalk_init_kakao_error", exc)
             location = Location(lat=lat, lon=lon)
 
         initial_state = State(
@@ -133,8 +134,8 @@ class PrewalkOrchestrator:
 
         try:
             await ChatStateRepository.save_state(thread_id=thread_id, state=initial_state)
-        except Exception:
-            logger.exception("prewalk_init_state_save_error | thread_id=%s", thread_id)
+        except Exception as exc:
+            log_unexpected_error(logger, "prewalk_init_state_save_error", exc)
 
         return ChatResponse(status=status, thread_id=thread_id, state=initial_state)
 
@@ -150,8 +151,8 @@ class PrewalkOrchestrator:
         # 챗봇 최근 대화 내역 조회
         try:
             state = await ChatStateRepository.get_state(thread_id)
-        except Exception:
-            logger.exception("prewalk_intent_state_load_error | thread_id=%s", thread_id)
+        except Exception as exc:
+            log_unexpected_error(logger, "prewalk_intent_state_load_error", exc)
             return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
 
         if not state:
@@ -160,8 +161,8 @@ class PrewalkOrchestrator:
         # 사용자의 접근 권한 확인
         try:
             user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
-        except Exception:
-            logger.exception("prewalk_intent_user_lookup_error | provider=%s", provider)
+        except Exception as exc:
+            log_unexpected_error(logger, "prewalk_intent_user_lookup_error", exc)
             return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
 
         if state.user_id != user.id:
@@ -184,8 +185,8 @@ class PrewalkOrchestrator:
                     address    = kakao_result.place_address,
                     place_name = kakao_result.place_name,
                 )
-            except Exception:
-                logger.exception("prewalk_intent_kakao_error | lat=%s | lon=%s", lat, lon)
+            except Exception as exc:
+                log_unexpected_error(logger, "prewalk_intent_kakao_error", exc)
                 state.current_location = Location(lat=lat, lon=lon)
 
         state.access_token  = access_token
@@ -196,14 +197,14 @@ class PrewalkOrchestrator:
         try:
             result      = await self.graph.ainvoke(state)
             final_state = State.model_validate(result)
-        except Exception:
-            logger.exception("prewalk_intent_graph_error | thread_id=%s", thread_id)
+        except Exception as exc:
+            log_unexpected_error(logger, "prewalk_intent_graph_error", exc)
             return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
 
         try:
             await ChatStateRepository.save_state(thread_id, final_state)
-        except Exception:
-            logger.exception("prewalk_intent_state_save_error | thread_id=%s", thread_id)
+        except Exception as exc:
+            log_unexpected_error(logger, "prewalk_intent_state_save_error", exc)
 
         return ChatResponse(
             status    = status,

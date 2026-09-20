@@ -10,6 +10,7 @@ from src.infrastructure.external.client.gpt_client import GPTClient
 from src.interfaces.schema.auth_schema import Status
 from src.schema.route_schema import GpsArtPoint
 from src.service.user.auth_service import AuthService
+from src.config.logging import log_unexpected_error
 
 logger = logging.getLogger(__name__)
 
@@ -43,33 +44,30 @@ class GpsArtService:
         """
         auth_status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if auth_status != Status.SUCCESS:
-            logger.warning("gps art shape lookup auth failed: shape=%s status=%s", shape_name, auth_status.value)
+            logger.warning("gps_art_shape_lookup_auth_failed | status=%s", auth_status.value)
             return None
 
         os.makedirs(_PICTURES_DIR, exist_ok=True)
         image_path = os.path.join(_PICTURES_DIR, f"{shape_name}.png")
 
         if os.path.exists(image_path):
-            logger.info("gps art image cache hit: shape=%s path=%s", shape_name, image_path)
+            logger.info("gps_art_image_cache_hit")
         else:
             try:
                 await self._generate_image(shape_name, image_path)
-            except Exception:
-                logger.exception("gps art image generation failed: shape=%s", shape_name)
+            except Exception as exc:
+                log_unexpected_error(logger, "gps_art_image_generation_error", exc)
                 return None
 
         try:
             mask = self._load_mask(image_path)
             contour = self._get_largest_contour(mask)
-        except ValueError as e:
-            logger.warning("gps art contour extraction failed: shape=%s error=%s", shape_name, e)
+        except ValueError as exc:
+            logger.warning("gps_art_contour_extraction_failed | error_type=%s", type(exc).__name__)
             return None
 
         points = self._extract_shape_points(contour)
-        logger.info(
-            "gps art shape points extracted: shape=%s count=%d points=%s",
-            shape_name, len(points), [(p.x, p.y) for p in points],
-        )
+        logger.info("gps_art_shape_points_extracted | count=%d", len(points))
         return points
 
     async def _generate_image(self, shape_name: str, save_path: str) -> None:
@@ -86,7 +84,7 @@ class GpsArtService:
         image_bytes = base64.b64decode(b64_data)
         with open(save_path, "wb") as f:
             f.write(image_bytes)
-        logger.info("gps art image generated: shape=%s path=%s", shape_name, save_path)
+        logger.info("gps_art_image_generated")
 
     @staticmethod
     def _load_mask(image_path: str) -> np.ndarray:

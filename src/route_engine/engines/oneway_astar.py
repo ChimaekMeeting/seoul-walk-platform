@@ -11,6 +11,7 @@ from src.interfaces.schema.walk_schema import (
 from src.schema.route_schema import OnewayRouteInput, Weights
 from src.route_engine.scoring.scoring_engine import WeightedEdgeCost
 from src.route_engine.alt_runtime import get_alt_heuristic, get_alt_info
+from src.config.logging import log_unexpected_error
 
 logger = logging.getLogger(__name__)
 
@@ -133,8 +134,8 @@ class OnewayAstarEngine:
         except nx.NetworkXNoPath:
             logger.warning("출발-도착 노드 사이에 연결된 경로가 없습니다")
             return []
-        except Exception:
-            logger.exception("최단 경로 생성에 실패했습니다")
+        except Exception as exc:
+            log_unexpected_error(logger, "astar_path_error", exc)
             return []
 
     def _build_search_weight(self, end: int):

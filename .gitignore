@@ -44,11 +44,15 @@ package-lock.json
 !tests/unit/test_weighted_cost_runtime.py
 !tests/unit/test_waypoint_detour_cap.py
 !tests/unit/test_weight_extractor_state.py
+!tests/unit/test_distance_validation.py
+!tests/unit/test_prewalk_access_control.py
+!tests/unit/test_safe_error_policy.py
 !tests/unit/test_oneway_grasp_waypoint_alns.py
 !/tests/integration/
 /tests/integration/*
 !tests/integration/test_route_feedback_flow.py
 !tests/integration/test_circular_preference_flow.py
+!tests/integration/test_mobile_logout.py
 !tests/integration/check_circular_preference_artifact.py
 !tests/integration/test_oneway_detour_flow.py
 .claude/

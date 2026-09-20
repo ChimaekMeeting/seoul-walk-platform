@@ -5,6 +5,7 @@ from src.interfaces.schema.walk_schema import WalkMode, Coordinate
 from src.agent.tools.route_tools import RouteTool
 from src.schema.route_schema import Weights
 from src.repository.user.user_preference_repository import UserPreferenceRepository
+from src.config.logging import log_unexpected_error
 
 logger = logging.getLogger(__name__)
 
@@ -79,15 +80,13 @@ class RouteExecutor:
             args["preference"] = weights
 
         logger.info(f"mode: {state.mode}")
-        logger.info(f"custom_weights: {args['custom_weights']}")
-        logger.info(f"preference: {args.get('preference')}")
 
         # 경로 생성
         try:
             state.route_result = await self.route_tool.tool_map[tool_name].ainvoke(args)
-        except Exception:
+        except Exception as exc:
             # 예외2. 경로 생성에 실패한 경우
-            logger.exception("경로 생성에 실패했습니다.")
+            log_unexpected_error(logger, "route_executor_error", exc)
             return state
 
         return state

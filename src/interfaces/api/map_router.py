@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 
 from src.interfaces.dependencies import get_map_service
+from src.interfaces.errors import SAFE_INTERNAL_ERROR_DETAIL, log_unexpected_error
 from src.interfaces.schema.map_schema import (
     FacilityResponse,
     PointResponse,
@@ -50,8 +51,8 @@ async def get_facilities(
             for p in places
         ]
     except Exception as e:
-        logger.exception("카카오 시설 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
-        raise HTTPException(status_code=500, detail=str(e))
+        log_unexpected_error(logger, "map_facilities_unexpected_error", e)
+        raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e
 
 
 @router.get("/points/safety", response_model=list[PointResponse])
@@ -72,8 +73,8 @@ def get_safety_points(
         df = service.fetch_safety_points(lat, lon, radius_m)
         return df.to_dict(orient="records")
     except Exception as e:
-        logger.exception("안전 시설 포인트 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
-        raise HTTPException(status_code=500, detail=str(e))
+        log_unexpected_error(logger, "map_safety_points_unexpected_error", e)
+        raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e
 
 
 @router.get("/points/nature", response_model=list[PointResponse])
@@ -94,8 +95,8 @@ def get_nature_points(
         df = service.fetch_nature_points(lat, lon, radius_m)
         return df.to_dict(orient="records")
     except Exception as e:
-        logger.exception("녹지 포인트 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
-        raise HTTPException(status_code=500, detail=str(e))
+        log_unexpected_error(logger, "map_nature_points_unexpected_error", e)
+        raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e
 
 
 @router.get("/edges", response_model=list[EdgeResponse])
@@ -118,5 +119,5 @@ def get_edges(
         df["path"] = df["geometry"].apply(lambda x: json.loads(x)["coordinates"])
         return df[["path", "link_id"]].to_dict(orient="records")
     except Exception as e:
-        logger.exception("도보 네트워크 엣지 조회 중 오류가 발생했습니다: lat=%s, lon=%s", lat, lon)
-        raise HTTPException(status_code=500, detail=str(e))
+        log_unexpected_error(logger, "map_edges_unexpected_error", e)
+        raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e
