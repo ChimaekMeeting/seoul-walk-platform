@@ -39,6 +39,7 @@ candidate_feature_vectors(장기 프로필 SGD 스냅샷):
 from __future__ import annotations
 
 import logging
+import time
 import random
 from collections.abc import Mapping
 from dataclasses import replace
@@ -133,6 +134,7 @@ class WaypointEngine:
         refinement: str = "local",
         refinement_options: Optional[Mapping[str, Any]] = None,
         cost_context: Optional[WeightedEdgeCost] = None,
+        time_budget_sec: Optional[float] = None,
     ):
         if construction not in CONSTRUCTION_REGISTRY:
             raise ValueError(f"알 수 없는 construction: {construction!r}")
@@ -162,6 +164,8 @@ class WaypointEngine:
         self.G = G
         self.mode = mode
         self.seed = seed
+        self.time_budget_sec = time_budget_sec
+        self._deadline: Optional[float] = None
         self.config = config if num_waypoints is None else replace(config, num_waypoints=num_waypoints)
         self.construction = construction
         self.refinement = refinement
@@ -232,6 +236,10 @@ class WaypointEngine:
         return alternatives
 
     def run(self) -> list[WalkRouteResponse]:
+        self._deadline = (
+            time.monotonic() + self.time_budget_sec
+            if self.time_budget_sec is not None else None
+        )
         logger.info(
             "%s(경유지 선택) 경로 생성 엔진을 시작합니다: target_km=%s, mode=%s",
             self._label(), self.inp.target_km, self.mode,
@@ -255,6 +263,15 @@ class WaypointEngine:
                 )]
 
         nodes = self.find_path(start, self.inp.target_km or 3.0, end_node=end)
+        if self.last_selection_status == SelectionStatus.TIMEOUT:
+            return [WalkRouteResponse(
+                status=WalkRouteStatus.TIMEOUT,
+                mode=self._walk_mode,
+                coordinates=[],
+                total_km=0.0,
+                selection_status=SelectionStatus.TIMEOUT,
+                route_seed=self.seed,
+            )]
         if not nodes or len(nodes) < 2:
             logger.warning("경로가 비어 있습니다.")
             return [WalkRouteResponse(
@@ -268,6 +285,20 @@ class WaypointEngine:
         self.candidate_feature_vectors = []  # 같은 엔진으로 두 번 호출해도 이전 값이 새지 않게 한다
         responses = [self._to_response(nodes)]
         responses.extend(self._to_response(route.node_ids) for route in self.last_alternative_routes)
+        # 후보 진단은 좌표가 최종 직렬화된 뒤 계산한다. 완전히 같은 후보를
+        # 복제해 계약상 3개를 맞춘 경우도 외부 응답에서 식별할 수 있어야 한다.
+        route_keys = [tuple(tuple(point) for point in response.coordinates) for response in responses]
+        unique_count = len(set(route_keys))
+        duplicate_ratio = (len(route_keys) - unique_count) / len(route_keys) if route_keys else 0.0
+        target_km = self.inp.target_km
+        for response in responses:
+            response.selection_status = self.last_selection_status
+            response.target_distance_error_km = (
+                abs(response.total_km - target_km) if target_km is not None else None
+            )
+            response.candidate_unique_count = unique_count
+            response.candidate_duplicate_ratio = duplicate_ratio
+            response.route_seed = self.seed
         return responses
 
     def _to_response(self, node_ids: list[int]) -> WalkRouteResponse:
@@ -289,6 +320,9 @@ class WaypointEngine:
         넘기면 출발지·도착지 두 점 기준 풀(build_pool_two_point)을 만들고, 구축·정제 전부에
         end_node를 그대로 흘려보내 편도 우회 경로를 만든다."""
         target_m = target_km * 1000
+        if self._deadline is not None and time.monotonic() >= self._deadline:
+            self.last_selection_status = SelectionStatus.TIMEOUT
+            return [start_node]
         rng = random.Random(self.seed)
         self.last_alternative_routes = []  # 같은 엔진으로 두 번 호출해도 이전 후보가 새지 않게 한다
 
@@ -326,6 +360,9 @@ class WaypointEngine:
             self.G, self.cost_cache, pool_result, start_node, target_m, self.config, rng,
             end_node=end_node,
         ):
+            if self._deadline is not None and time.monotonic() >= self._deadline:
+                self.last_selection_status = SelectionStatus.TIMEOUT
+                return [start_node]
             had_valid_waypoint_pair = had_valid_waypoint_pair or construction_result.had_valid_waypoint_pair
             route = construction_result.route
             if route is None:
@@ -334,6 +371,9 @@ class WaypointEngine:
                 self.G, self.cost_cache, pool_result, start_node, route, target_m, self.config, rng,
                 stats=alns_stats, options=self.refinement_options, end_node=end_node,
             )
+            if self._deadline is not None and time.monotonic() >= self._deadline:
+                self.last_selection_status = SelectionStatus.TIMEOUT
+                return [start_node]
             obj = evaluate_route(route, target_m, target_m * self.config.distance_tolerance_ratio)
             if collect_candidates:
                 candidate_pool.append((obj, route))

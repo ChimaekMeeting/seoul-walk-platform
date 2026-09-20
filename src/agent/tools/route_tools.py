@@ -2,7 +2,8 @@ import asyncio
 from typing import List, Optional
 from langchain_core.tools import StructuredTool
 
-from src.interfaces.schema.walk_schema import WalkMode, Coordinate
+from src.interfaces.schema.walk_schema import WalkMode, Coordinate, WalkRouteResponse, WalkRouteStatus
+from src.config.settings import settings
 from src.schema.route_schema import WaypointLegMode, Weights
 from src.service.route.gps_art_service import GpsArtService
 
@@ -22,13 +23,28 @@ class RouteTool:
         ]
         self.tool_map = {t.name: t for t in self.tools}
 
+    async def _run_route(self, *args, **kwargs):
+        """동기 RouteService를 스레드에서 실행하되 챗봇 호출 deadline을 보장한다."""
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self.route_service.get_route, *args, **kwargs),
+                timeout=settings.WALK_ROUTE_HARD_TIMEOUT_SEC,
+            )
+        except asyncio.TimeoutError:
+            mode = kwargs.get("mode") or (args[4] if len(args) >= 5 else WalkMode.ONEWAY_RANDOM)
+            seed = kwargs.get("seed", 42)
+            return [WalkRouteResponse(
+                status=WalkRouteStatus.TIMEOUT, mode=mode, coordinates=[], total_km=0.0,
+                selection_status="timeout", route_seed=seed,
+            )]
+
     async def circular_random_route(self, origin: Coordinate, target_km: float = 3.0, access_token: str = "", custom_weights: Optional[Weights] = None):
         """
         출발지 주변을 랜덤하게 순환하는 경로를 생성합니다.
         특별한 조건 없이 자유롭게 산책하고 싶을 때 사용하세요.
         """
-        return await asyncio.to_thread(
-            self.route_service.get_route, access_token, origin, None, target_km, WalkMode.CIRCULAR_RANDOM, custom_weights,
+        return await self._run_route(
+            access_token, origin, None, target_km, WalkMode.CIRCULAR_RANDOM, custom_weights,
             # 최종 선호로 요청 비용을 만드는 서비스 입력도 채운다(#471).
             preference=custom_weights,
         )
@@ -38,8 +54,8 @@ class RouteTool:
         출발지에서 목적지까지 최단 경로를 생성합니다.
         목적지가 정해져 있고 빠르게 이동하고 싶을 때 사용하세요.
         """
-        return await asyncio.to_thread(
-            self.route_service.get_route, access_token, origin, destination, None, WalkMode.ONEWAY_SHORTEST, custom_weights
+        return await self._run_route(
+            access_token, origin, destination, None, WalkMode.ONEWAY_SHORTEST, custom_weights
         )
 
     async def oneway_random_route(self, origin: Coordinate, destination: Coordinate, target_km: float = 3.0, access_token: str = "", custom_weights: Optional[Weights] = None):
@@ -47,8 +63,9 @@ class RouteTool:
         출발지에서 목적지까지 목표 거리를 채우며 이동하는 경로를 생성합니다.
         목적지가 있지만 중간 경로를 다양하게 탐색하고 싶을 때 사용하세요.
         """
-        return await asyncio.to_thread(
-            self.route_service.get_route, access_token, origin, destination, target_km, WalkMode.ONEWAY_RANDOM, custom_weights
+        return await self._run_route(
+            access_token, origin, destination, target_km,
+            WalkMode.ONEWAY_RANDOM, custom_weights, preference=custom_weights,
         )
 
     async def gps_art_route(self, origin: Coordinate, shape: str, target_km: float = 3.0, access_token: str = "", custom_weights: Optional[Weights] = None):
@@ -58,8 +75,8 @@ class RouteTool:
         """
         shape_points = await self.gps_art_service.get_shape_points(access_token, shape)
 
-        return await asyncio.to_thread(
-            self.route_service.get_route, access_token, origin, None, target_km, WalkMode.GPS_ART, custom_weights, shape_points
+        return await self._run_route(
+            access_token, origin, None, target_km, WalkMode.GPS_ART, custom_weights, shape_points
         )
 
     async def waypoint_route(
@@ -81,7 +98,7 @@ class RouteTool:
         구간만 가중 연결(oneway_preferred)로 채웁니다(#445). preference를 아예 안 넘기면
         (챗봇을 거치지 않는 직접 호출자) 선호 없음으로 보고 최단 경로로만 채웁니다.
         """
-        return await asyncio.to_thread(
+        return await self._run_route(
             self.route_service.get_route,
             access_token, origin, destination, None, WalkMode.WAYPOINT, custom_weights, None,
             waypoints, leg_modes, leg_target_km, preference,

@@ -74,6 +74,7 @@ class RouteService:
         leg_modes: Optional[List[WaypointLegMode]] = None,
         leg_target_km: Optional[List[Optional[float]]] = None,
         preference: Optional[Weights] = None,
+        seed: Optional[int] = None,
     ) -> List[WalkRouteResponse]:
         """
         context에 적합한 경로 생성 엔진을 호출합니다.
@@ -120,7 +121,8 @@ class RouteService:
             )]
 
         if mode != WalkMode.CIRCULAR_RANDOM and destination is not None:
-            if utils.find_nearest_node_with_expansion(destination.lat, destination.lon) is None:
+            end_node = utils.find_nearest_node_with_expansion(destination.lat, destination.lon)
+            if end_node is None:
                 logger.warning("walk route no nearest end node: mode=%s", mode)
                 return [WalkRouteResponse(
                     status=WalkRouteStatus.NO_NEAREST_END_NODE,
@@ -143,7 +145,7 @@ class RouteService:
         try:
             engine = self._build_engine(
                 mode, origin, destination, target_km, custom_weights, shape_points,
-                waypoints, leg_modes, leg_target_km, preference,
+                waypoints, leg_modes, leg_target_km, preference, seed,
             )
         except ValueError:
             logger.warning("walk route invalid destination: mode=%s", mode)
@@ -157,6 +159,21 @@ class RouteService:
         logger.info("walk route engine selected: mode=%s engine=%s", mode, type(engine).__name__)
 
         results = engine.run()
+        if mode == WalkMode.ONEWAY_RANDOM:
+            # 편도 우회는 preference가 실제 cost context로 만들어졌는지를
+            # 응답에도 남긴다. 챗봇과 직접 API의 경로 품질을 구분할 수 있어야 한다.
+            weighted = bool(getattr(getattr(engine, "cost_cache", None), "cost_context", None))
+            skipped_reason = None
+            if not weighted:
+                if preference is None:
+                    skipped_reason = "no_preference"
+                elif (preference.safety, preference.comfort) == (0.0, 0.0):
+                    skipped_reason = "zero_weights"
+                else:
+                    skipped_reason = "scores_unavailable"
+            for result in results:
+                result.preference_applied = weighted
+                result.preference_skipped_reason = skipped_reason
         # circular_random/oneway_random은 이제 최대 3개까지 다양화한 후보를 반환한다(results[0]이 대표 후보).
         # POI는 성공한 후보 전부에 붙이고, RouteHistory는 아직 대표 후보 1개만 저장한다
         # — 사용자가 실제로 어떤 후보를 골랐는지는 아직 API로 전달받지 않기 때문이다.
@@ -280,6 +297,7 @@ class RouteService:
         leg_modes: Optional[List[WaypointLegMode]] = None,
         leg_target_km: Optional[List[Optional[float]]] = None,
         preference: Optional[Weights] = None,
+        seed: Optional[int] = None,
     ):
         """custom_weights를 엔진에 주입해 경로 생성 엔진 인스턴스를 반환합니다."""
         cost_context = self._build_cost_context(preference)
@@ -292,7 +310,11 @@ class RouteService:
             )
             # cost_context가 있으면 경유지 확정 후 A* 연결(BuildCycleRoute)이 가중 비용을
             # 쓴다(#462). ALNS의 경유지 선택 자체(alns_search)는 거리 기준 그대로다.
-            return self.base_engines[mode](inp, self.G, cost_context=cost_context)
+            return self.base_engines[mode](
+                inp, self.G, cost_context=cost_context,
+                seed=seed if seed is not None else 42,
+                time_budget_sec=settings.WALK_ROUTE_TIME_BUDGET_SEC,
+            )
 
         if mode == WalkMode.GPS_ART:
             if not shape_points:
@@ -361,7 +383,11 @@ class RouteService:
                 end_lon=destination.lon,
                 target_km=target_km,
             )
-            return self.base_engines[mode](inp, self.G, cost_context=cost_context)
+            return self.base_engines[mode](
+                inp, self.G, cost_context=cost_context,
+                seed=seed if seed is not None else 42,
+                time_budget_sec=settings.WALK_ROUTE_TIME_BUDGET_SEC,
+            )
 
         if destination is None:
             raise ValueError(f"{mode} 모드에서는 destination이 필요합니다")
