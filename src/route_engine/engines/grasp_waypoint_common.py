@@ -3,7 +3,8 @@ src/route_engine/engines/grasp_waypoint_common.py
 
 경유지(waypoint) 선택 기반 GRASP 계열 엔진(local/VND/VNS/ALNS, circular_grasp_waypoint_*.py)이
 공유하는 순수 로직. GRASP은 여기서 전체 경로를 직접 만들지 않고 경유지 cfg.num_waypoints개만
-선택하며, 실제 구간 연결(p1→w1→...→w_N→p1)은 NetworkX A*(PathUtils.astar_path 경유)가 담당한다.
+선택하며, 실제 구간 연결(p1→w1→...→w_N→p1, 편도는 p1→w1→...→w_N→end_node)은 NetworkX
+A*(PathUtils.astar_path 경유)가 담당한다.
 
 경유지 개수 n 일반화(2026-09-02, "GRASP 경유지 개수를 임의 n으로 확장" 이슈):
     이전 버전은 경유지가 정확히 2개(p2, p3)라는 전제가 Route 데이터 모델(waypoint2/waypoint3
@@ -49,6 +50,20 @@ cost_context를 받으면 _weight()가 EdgeCost(mode=...) 대신 그쪽을 쓴�
     재-export한다 — 이 모듈 안의 다른 함수(EdgeCost, _CostCache 등 GRASP의 A* 탐색 비용
     정책)는 옮기지 않았다. 그건 "조립"이 아니라 "탐색 비용 정책"이라 GRASP 전용으로 남아야
     한다.
+
+구축 단계의 편도(end_node) 지원(2026-09-20, feat/496, "구축 함수 end_node 파라미터 추가"
+이슈): construct_initial_route()에 end_node: Optional[int] = None을 추가했다. None이면
+_rank_next_waypoint_candidates()에 p2=None이 그대로 전달되고 BuildCycleRoute도 start_node로
+복귀해 기존 순환 동작과 완전히 동일하다(기존 4개 순환 엔진 호출부는 이 기본값만 쓴다).
+end_node를 넘기면 매 단계 랭킹의 tail(c) 기준점·방향 다양성 기준선이 p2=end_node 기준으로
+바뀌고(_rank_next_waypoint_candidates의 p2 파라미터 자체는 커밋 79a3515에서 먼저 도입됐다),
+마지막 구간 연결도 waypoint_route_builder.py::build_cycle_route()의 같은 이름 파라미터로
+end_node까지 이어진다. end_node를 실제로 start_node와 다른 값으로 쓰려면 pool_result가
+dist_from_p2를 가진 WaypointPoolResultTwoPoint(waypoint_pool.py::build_pool_two_point 결과)
+여야 한다 — 이 함수는 그 전제를 강제하지 않으므로 호출부가 맞춰야 한다. 정제 단계
+(local/VND/VNS/ALNS, waypoint_refinement.py)와 조립 계층(waypoint_engine_assembly.py)까지
+end_node를 넓히는 작업, 그리고 이 풀을 실제로 소비하는 조합 엔진 자체는 아직 없다 — 별도
+이슈로 남겨뒀다.
 
 """
 
@@ -858,24 +873,38 @@ def construct_initial_route(
     target_m: float,
     rng: random.Random,
     cfg: GraspConfig,
+    end_node: Optional[int] = None,
 ) -> ConstructionResult:
     """GRASP 구축 단계 — 4개 엔진(local/VND/VNS/ALNS)이 동일하게 사용한다. cfg.num_waypoints개의
     경유지를 직전 경유지 기준 적응적 랭킹으로 하나씩 순서대로 뽑는다 — 각 단계 그리디
     점수는 항상 이전 단계까지의 실제 누적 거리를 반영해 다시 계산되므로, 경유지가
-    늘어나도 서로 독립적인 샘플링이 되지 않는다(GRASP의 적응성 유지)."""
+    늘어나도 서로 독립적인 샘플링이 되지 않는다(GRASP의 적응성 유지).
+
+    end_node(편도 지원, 2026-09-20 추가, feat/496): 기본값 None이면 최종 도착지가
+    start_node로 취급되어 기존 순환 동작과 완전히 동일하다(기존 4개 순환 엔진 호출부는
+    전부 이 기본값을 쓴다). end_node를 넘기면 _rank_next_waypoint_candidates에
+    p2=end_node로 그대로 전달해(각 단계 tail(c) 하한이 dist(p1,c) 대신 dist(c,end_node),
+    방향 다양성 기준선이 p1→end_node 고정으로 바뀐다 — 함수 docstring 참고) 랭킹을
+    목적지 기준으로 맞추고, 마지막 BuildCycleRoute 호출에도 같은 end_node를 넘겨 실제
+    구간 연결이 start_node가 아니라 end_node로 돌아가게 한다. p2를 실제로 start_node와
+    다른 값으로 넘기려면 pool_result가 dist_from_p2를 가진 WaypointPoolResultTwoPoint여야
+    한다(waypoint_pool.py::build_pool_two_point 결과) — 베이스 WaypointPoolResult에는
+    이 속성이 없어 AttributeError가 난다. 이 함수는 그 전제를 강제하지 않으므로(어떤
+    pool_result를 만들지는 호출부의 책임) 호출부가 맞춰줘야 한다."""
     waypoints: list[int] = []
     prev = start_node
     cumulative_m = 0.0
     n = cfg.num_waypoints
-    total_legs = n + 1  # p1→w1, w1→w2, ..., w_N→p1
+    total_legs = n + 1  # p1→w1, w1→w2, ..., w_N→(end_node 또는 p1)
 
     for i in range(n):
-        # i번째(0-based) 경유지를 고르면 그 뒤로 남는 구간은 w_i→w_{i+1} ... w_N→p1의
-        # n - i개다. 마지막 단계(i == n-1)에서는 1이 되어 추정 없이 정확한 dist(c,p1)를 쓴다.
+        # i번째(0-based) 경유지를 고르면 그 뒤로 남는 구간은 w_i→w_{i+1} ... w_N→목적지의
+        # n - i개다. 마지막 단계(i == n-1)에서는 1이 되어 추정 없이 정확한 dist(c,목적지)를 쓴다.
         rcl = _rank_next_waypoint_candidates(
             G, pool_result, start_node, prev, cumulative_m, target_m, cfg,
             exclude=frozenset(waypoints),
             remaining_legs=n - i, total_legs=total_legs,
+            p2=end_node,
         )[: cfg.rcl_size]
         if not rcl:
             return ConstructionResult(route=None, had_valid_waypoint_pair=False)
@@ -886,7 +915,10 @@ def construct_initial_route(
         waypoints.append(chosen)
         prev = chosen
 
-    route = BuildCycleRoute(G, cost_cache.astar_path, start_node, waypoints, cost_context=cost_cache.cost_context)
+    route = BuildCycleRoute(
+        G, cost_cache.astar_path, start_node, waypoints,
+        cost_context=cost_cache.cost_context, end_node=end_node,
+    )
     return ConstructionResult(route=route, had_valid_waypoint_pair=True)
 
 

@@ -848,7 +848,16 @@ RouteService와 API는 이 인자를 전달하지 않는다. 필요성·비율·
   `slack_ratio=5%`는 이 경우를 84개로 되살린다(84배). 순환 대비 풀 크기 비율은
   데이터셋 조건에서 `slack_ratio` 0%→20% 구간 중앙값 0.43배→1.03배, 경계근접
   조건에서는 0.13배→0.66배로, 어느 조건도 순환보다 극단적으로 커지지는 않는다.
-- 소비하는 조합 단계는 아직 없다(위 섹션과 동일). 재현:
+- **구축 단계 연결(2026-09-20, feat/496)**: 이 풀을 직접 소비하는 조합 엔진은 여전히
+  없지만, `engines/grasp_waypoint_common.py::construct_initial_route()`와
+  `waypoint_route_builder.py::build_cycle_route()`가 `end_node` 파라미터로 이 풀의
+  `dist_from_p2`와 `_rank_next_waypoint_candidates()`의 `p2`(커밋 79a3515)를 받아 실제
+  경로를 연결할 수 있는 상태는 됐다 — `end_node=None`(기본값)이면 두 함수 모두 기존
+  순환 동작과 완전히 동일하다. `route_service.py`·조립 계층(`waypoint_engine_assembly.py`)이
+  이 풀(`build_pool_two_point`)을 만들어 그 함수들에 넘기는 프로덕션 배선은 아직 빠져
+  있어 "완성된 편도 다중 경유지 조합 엔진"은 여전히 없다 — 위 `slack_ratio` 미검증
+  항목도 그대로 유효하다. 정제 단계(local/VND/VNS/ALNS)와 조립 루프까지 `end_node`를
+  넓히는 작업은 별도 이슈로 남겨뒀다. 재현:
   [waypoint_pool_two_point_benchmark.py](../../benchmarks/runner/waypoint_pool_two_point_benchmark.py).
 
 ## Planar 랜드마크 선택 독립 함수 (2026-08-30)
