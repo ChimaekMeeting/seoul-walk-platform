@@ -9,6 +9,12 @@ WaypointPoolGenerator / WaypointPoolResult 단위 테스트
   - 캐시 행 수가 상한을 넘으면 LRU로 가장 오래된 행부터 제거됨
   - 풀 노드가 아닌 값으로 조회하면 ValueError
   - p1 최근접 노드를 못 찾으면 None을 반환함
+
+build_pool_two_point (편도) 추가 검증 항목:
+  - dist(p1,v)+dist(v,p2) <= target_m인 노드만 포함되고, p1·p2 자신은 제외됨
+  - target_km이 dist(p1,p2)보다 짧으면(infeasible) None을 반환함
+  - slack_m만큼 합 조건 상한이 완화됨
+  - distance()가 상속받은 lazy+LRU 캐시 그대로 동작함
 """
 
 import pytest
@@ -79,3 +85,52 @@ class TestDistance:
         result = gen.build_pool(37.5, 127.0, target_km=1.0)
         with pytest.raises(ValueError):
             result.distance(0, 1)  # 0(p1)은 풀 노드가 아님
+
+
+class TestBuildPoolTwoPoint:
+    """p1=0, p2=4, dist(p1,p2)=400m인 line_graph 기준."""
+
+    def test_합_조건을_만족하는_노드만_포함되고_p1_p2는_제외된다(self, line_graph):
+        gen = WaypointPoolGenerator(line_graph)
+        # target_m=400 == dist(p1,p2) -> 모든 중간 노드가 정확히 경계에서 통과
+        result = gen.build_pool_two_point(
+            37.5, 127.0, 37.50004, 127.00004, target_km=0.4
+        )
+        assert sorted(result.pool_nodes) == [1, 2, 3]
+        assert 0 not in result.pool_nodes
+        assert 4 not in result.pool_nodes
+        assert result.dist_from_p1 == {1: 100, 2: 200, 3: 300}
+        assert result.dist_from_p2 == {1: 300, 2: 200, 3: 100}
+
+    def test_target_km이_직선최단거리보다_짧으면_None을_반환한다(self, line_graph):
+        gen = WaypointPoolGenerator(line_graph)
+        result = gen.build_pool_two_point(
+            37.5, 127.0, 37.50004, 127.00004, target_km=0.3
+        )
+        assert result is None
+
+    def test_slack_m만큼_합_조건_상한이_완화된다(self, line_graph):
+        gen = WaypointPoolGenerator(line_graph)
+        # target_m=300 < dist(p1,p2)=400이라 slack 없이는 infeasible이지만
+        # slack_m=100으로 budget_m=400을 채우면 다시 실현 가능해야 함
+        result = gen.build_pool_two_point(
+            37.5, 127.0, 37.50004, 127.00004, target_km=0.3, slack_m=100
+        )
+        assert result is not None
+        assert sorted(result.pool_nodes) == [1, 2, 3]
+
+    def test_p1_또는_p2_노드를_찾지_못하면_None을_반환한다(self):
+        G = nx.Graph()
+        G.add_node(0, lat=0.0, lon=0.0)
+        gen = WaypointPoolGenerator(G)
+        assert gen.build_pool_two_point(37.5, 127.0, 37.6, 127.1, target_km=1.0) is None
+
+    def test_distance가_상속받은_lazy_캐시로_동작한다(self, line_graph):
+        gen = WaypointPoolGenerator(line_graph)
+        result = gen.build_pool_two_point(
+            37.5, 127.0, 37.50004, 127.00004, target_km=0.4
+        )
+        assert result.distance(1, 3) == 200
+        assert result.cached_row_count == 1
+        assert result.distance(3, 1) == 200  # 반대 방향 — 캐시 재사용
+        assert result.cached_row_count == 1

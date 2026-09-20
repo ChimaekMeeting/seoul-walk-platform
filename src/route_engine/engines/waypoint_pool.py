@@ -145,6 +145,59 @@ class WaypointPoolResult:
             self._row_cache.popitem(last=False)  # 가장 오래 쓰이지 않은 행 제거(LRU)
 
 
+class WaypointPoolResultTwoPoint(WaypointPoolResult):
+    """
+    편도(p1→p2) 경유지 후보 풀 생성 결과.
+
+    p1·p2 서로 다른 두 지점을 초점으로 하는 타원 조건
+    dist(p1,v) + dist(v,p2) <= budget_m(=target_m+slack_m)을 만족하는 노드만
+    pool_nodes에 담는다. 각 소스의 cutoff SSSP(반경 budget_m)는 후보 도메인을 좁히는
+    전처리일 뿐이고, 실제 채택 기준은 항상 이 합 조건 하나다 — "두 cutoff 영역이
+    겹치는가"는 판단 기준이 아니다(두 영역은 budget_m >= dist(p1,p2)/2부터 겹치기
+    시작하지만, 그 안의 노드가 합 조건까지 만족한다는 보장은 없다 — 실제로 후보가
+    하나라도 존재하려면 budget_m >= dist(p1,p2)가 필요하다. build_pool_two_point()의
+    infeasible 판정 참고).
+
+    순환(WaypointPoolResult)의 r_max=target_m/2 원 조건은 p1=p2인 퇴화 케이스이고,
+    편도는 p1≠p2이므로 원 조건을 그대로 전용할 수 없다.
+
+    distance()의 lazy+LRU 캐시, G_band 서브그래프 구조는 부모 클래스를 그대로 상속해
+    재사용한다. 부모의 r_max 필드는 여기서는 budget_m으로 재해석된다: 왕복은 소스
+    하나에서 절반만 가면 되지만, 편도는 한쪽 구간이 0에 가까우면 다른 쪽이 budget_m
+    전체를 써야 하므로 각 소스의 cutoff 자체가 target_m/2가 아니라 budget_m이어야
+    한다. distance(u,v)의 lazy SSSP도 이 budget_m을 cutoff로 쓴다 — p1→u→v→p2
+    경로에서 dist(u,v) <= budget_m - dist(p1,u) - dist(v,p2) <= budget_m이 항상
+    성립하므로, budget_m은 잘라내도 안전한(false negative 없는) 상한이다.
+    """
+
+    def __init__(
+        self,
+        pool_nodes: list[int],
+        dist_from_p1: dict[int, float],
+        dist_from_p2: dict[int, float],
+        p1: int,
+        p2: int,
+        target_m: float,
+        budget_m: float,
+        G_band: nx.Graph,
+        weight,
+        cache_rows: int = _DEFAULT_PAIRWISE_CACHE_ROWS,
+    ):
+        super().__init__(
+            pool_nodes=pool_nodes,
+            dist_from_p1=dist_from_p1,
+            r_max=budget_m,
+            G_band=G_band,
+            weight=weight,
+            cache_rows=cache_rows,
+        )
+        self.dist_from_p2 = dist_from_p2
+        self.p1 = p1
+        self.p2 = p2
+        self.target_m = target_m
+        self.budget_m = budget_m
+
+
 class WaypointPoolGenerator:
     """
     p1 기준 cutoff SSSP로 거리 밴드 후보 풀을 만든다. 새 경로 탐색 알고리즘이 아니라
@@ -197,6 +250,92 @@ class WaypointPoolGenerator:
             pool_nodes=pool_nodes,
             dist_from_p1={v: dist_from_p1[v] for v in pool_nodes},
             r_max=r_max,
+            G_band=G_band,
+            weight=weight,
+            cache_rows=pairwise_cache_rows,
+        )
+
+    def build_pool_two_point(
+        self,
+        p1_lat: float,
+        p1_lon: float,
+        p2_lat: float,
+        p2_lon: float,
+        target_km: float,
+        slack_m: float = 0.0,
+        pairwise_cache_rows: int = _DEFAULT_PAIRWISE_CACHE_ROWS,
+    ) -> WaypointPoolResultTwoPoint | None:
+        """
+        p1(출발지)·p2(목적지) 좌표와 목표 총 거리(target_km)로 편도 경유지 후보 풀을 만든다.
+
+        dist(p1,v) + dist(v,p2) <= budget_m(=target_km*1000+slack_m)을 만족하는 노드만
+        후보로 남긴다 — p1·p2를 초점으로 하는 타원 조건이며, build_pool()의
+        r_max=target_m/2 원 조건이 p1=p2인 퇴화 케이스임을 일반화한 것이다
+        (WaypointPoolResultTwoPoint 문서 참고).
+
+        p1 또는 p2의 최근접 노드를 못 찾거나, budget_m이 dist(p1,p2)(합 조건을 만족하는
+        노드가 하나라도 존재하기 위한 최소 거리)보다 짧아 애초에 실현 불가능하면 None을
+        반환한다. "두 cutoff 영역이 겹치는가"가 아니라 이 최소 거리 하나로만 판단한다.
+        """
+        p1 = self.utils.find_nearest_node_with_expansion(p1_lat, p1_lon)
+        p2 = self.utils.find_nearest_node_with_expansion(p2_lat, p2_lon)
+        if p1 is None or p2 is None:
+            logger.warning("p1 또는 p2 기준 노드를 찾지 못했습니다.")
+            return None
+
+        target_m = target_km * 1000
+        budget_m = target_m + slack_m
+        weight = compute_distance_only_lookup(self.G)["weight"]
+
+        # cutoff SSSP 2회 — budget_m 밖의 노드는 어느 쪽이든 합 조건을 만족할 수 없으므로
+        # 애초에 순회 안 함. slack_m만큼 사후 필터(budget_m)만 늘리고 cutoff는 target_m에
+        # 묶어두면, slack 덕분에 포함돼야 할 노드가 SSSP 단계에서부터 잘려나간다 — 반드시
+        # 같은 budget_m을 cutoff로 써야 한다. 왕복(r_max=target_m/2)과 달리 편도는 각
+        # 소스의 cutoff 자체가 (거의) target_m 전체여야 한다(클래스 docstring 삼각부등식
+        # 참고).
+        dist_from_p1 = nx.single_source_dijkstra_path_length(
+            self.G, p1, cutoff=budget_m, weight=weight
+        )
+        dist_from_p2 = nx.single_source_dijkstra_path_length(
+            self.G, p2, cutoff=budget_m, weight=weight
+        )
+
+        if p2 not in dist_from_p1:
+            # dist(p1,p2) > budget_m이면 p1→p2 직행조차 budget_m을 넘어, 합 조건을
+            # 만족하는 노드가 하나도 있을 수 없다(최소 실현 가능 target_km = dist(p1,p2) - slack_m/1000).
+            logger.warning(
+                "target_km(+slack_m)이 p1-p2 최단거리보다 짧아 편도 풀을 생성할 수 없습니다: "
+                "budget_m=%.1f",
+                budget_m,
+            )
+            return None
+
+        pool_nodes = [
+            v for v, d1 in dist_from_p1.items()
+            if v != p1 and v != p2
+            and (d2 := dist_from_p2.get(v)) is not None
+            and d1 + d2 <= budget_m
+        ]
+
+        # 두 SSSP 합집합 밖의 노드는 위 필터를 애초에 통과할 수 없으므로, 이후 pairwise
+        # lazy SSSP도 이 유도 부분그래프 안에서만 돈다.
+        band_nodes = set(dist_from_p1.keys()) | set(dist_from_p2.keys())
+        G_band = self.G.subgraph(band_nodes)
+
+        logger.info(
+            "편도 경유지 후보 풀 생성 완료: 노드 %d개, target_m=%.1f, budget_m=%.1f "
+            "(pairwise는 lazy 계산)",
+            len(pool_nodes), target_m, budget_m,
+        )
+
+        return WaypointPoolResultTwoPoint(
+            pool_nodes=pool_nodes,
+            dist_from_p1={v: dist_from_p1[v] for v in pool_nodes},
+            dist_from_p2={v: dist_from_p2[v] for v in pool_nodes},
+            p1=p1,
+            p2=p2,
+            target_m=target_m,
+            budget_m=budget_m,
             G_band=G_band,
             weight=weight,
             cache_rows=pairwise_cache_rows,
