@@ -39,9 +39,8 @@ class OnewayAstarEngine:
         # 유지하고, WaypointComposerEngine이 leg 엔진으로 쓸 때만 가중 비용이 주입된다.
         self.cost_context = cost_context if (cost_context and cost_context.enabled) else None
         self._weight_fn = self.cost_context.weight if self.cost_context else self._distance_weight
-        # 레거시: 벤치마크 solver(benchmarks/solvers/astar_solver.py)가 여전히 여기에
-        # 전체 간선 lookup을 대입한다. 엔진은 더 이상 읽지 않는다 — 요청마다 2*E 크기
-        # dict를 만드는 비용을 없애려고 직접 edge 속성을 읽는 방식으로 바꿨다.
+        # 이전 벤치마크 어댑터가 채우던 레거시 필드다. 엔진은 직접 edge 속성을 읽으므로
+        # 요청마다 전체 간선 lookup을 만들 필요가 없고, 호환을 위해 빈 dict만 둔다.
         self._score_lookup: dict = {}
         # WaypointComposerEngine이 leg 간 경로 겹침을 페널티로 방지할 때 채워줌. 기본(빈 set)이면 기존 동작과 동일.
         self.visited_nodes = visited_nodes or set()
