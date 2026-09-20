@@ -127,10 +127,17 @@ class FeatureLabel(BaseModel):
     explicitness_label: ExplicitnessLabel
 
 
-class FeatureLabelMap(RootModel[dict[FeatureTag, FeatureLabel]]):
+# 이번 턴 WeightExtractor가 그 축에 대해 실제로 낼 수 있는 값. "cancelled"는 [이전 라벨]에
+# 있던 값을 대체 없이 명시적으로 취소한다는 뜻이고, dict에 그 축의 키 자체가 없는 것은
+# 이번 발화가 그 축을 아예 다루지 않았다는 뜻이다(이전 값 유지) — 이 둘을 구분하려고
+# 만든 타입이다(WeightExtractor.run()의 병합 로직 참고).
+FeatureLabelEntry = Union[FeatureLabel, Literal["cancelled"]]
+
+
+class FeatureLabelMap(RootModel[dict[FeatureTag, FeatureLabelEntry]]):
     """
     WeightExtractor 출력 전체를 감싸는 root model입니다. PydanticOutputParser는
-    BaseModel만 파싱 대상으로 받을 수 있어 dict[FeatureTag, FeatureLabel]을 직접
+    BaseModel만 파싱 대상으로 받을 수 있어 dict[FeatureTag, FeatureLabelEntry]를 직접
     쓸 수 없으므로 RootModel로 감쌉니다.
     """
 
