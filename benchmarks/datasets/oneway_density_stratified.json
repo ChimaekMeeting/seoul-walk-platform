@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "mode": "oneway",
+    "objective": "detour",
+    "target_definition": "physical_shortest_km * detour_multiplier",
+    "density_metric": "edge_km_per_km2 @ r=1000m",
+    "note": "출발지 밀도는 순환 층화 데이터셋과 같은 실측 값이다. 목적지까지의 실제 최단거리는 runner가 현재 artifact에서 매 실행 전 계산한다."
+  },
+  "routes": [
+    {"origin_id": "hongdae", "origin_label": "홍대입구역", "origin_density_tier": "dense", "origin_density": 31.3, "origin_lat": 37.557192, "origin_lon": 126.925381, "destination_id": "yeouido", "destination_label": "여의도역", "destination_lat": 37.521624, "destination_lon": 126.924191},
+    {"origin_id": "gyeongbok", "origin_label": "경복궁역", "origin_density_tier": "medium", "origin_density": 22.9, "origin_lat": 37.575771, "origin_lon": 126.973297, "destination_id": "namsan", "destination_label": "남산 N서울타워", "destination_lat": 37.551169, "destination_lon": 126.988227},
+    {"origin_id": "jamsil", "origin_label": "잠실 아파트", "origin_density_tier": "sparse", "origin_density": 19.2, "origin_lat": 37.512500, "origin_lon": 127.083000, "destination_id": "bukhan", "destination_label": "북한산 우이", "destination_lat": 37.663000, "destination_lon": 127.011000},
+    {"origin_id": "eunpyeong", "origin_label": "은평 뉴타운", "origin_density_tier": "rural", "origin_density": 9.1, "origin_lat": 37.634000, "origin_lon": 126.928000, "destination_id": "gyeongbok", "destination_label": "경복궁역", "destination_lat": 37.575771, "destination_lon": 126.973297}
+  ],
+  "detour_multipliers": [1.25, 1.5],
+  "num_waypoints": [2, 3],
+  "weight_conditions": {
+    "distance": {"safety": 0.0, "comfort": 0.0},
+    "safety": {"safety": 1.0, "comfort": 0.0},
+    "comfort": {"safety": 0.0, "comfort": 1.0},
+    "mixed": {"safety": 0.7, "comfort": 0.7}
+  },
+  "seeds_from": "benchmarks.config.BENCHMARK_SEEDS"
+}

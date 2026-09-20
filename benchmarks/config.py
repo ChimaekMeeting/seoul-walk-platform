@@ -60,6 +60,13 @@ MAX_DISTANCE_DEVIATION_KM = 0.5   # 목표 3km에서 ±0.5km. LENGTH_TOLERANCE(�
 MAX_REPEATED_EDGE_RATIO = 0.35    # 엔진의 퇴화 판정 임계값(_DEGENERATE_REPEATED_EDGE_RATIO)과 동일값
 MAX_SPIKE_COUNT = 0               # prune_dead_ends를 거친 경로라면 0이어야 한다
 
+# ── 편도 우회 합격 게이트 ───────────────────────────────────────────────────
+# 편도는 "출발지에서 목적지까지, 요청한 우회 길이를 무리 없이 만들었는가"를 본다.
+# 거리 오차는 절대 km가 아니라 목표 대비 비율로 판정해야 1km와 9km 조건을 같은 의미로
+# 비교할 수 있다. 기준 최단거리보다 짧은 목표는 어떤 solver도 만족할 수 없으므로 별도로
+# target_distance_feasible=false로 기록한다.
+ONEWAY_MAX_TARGET_ERROR_RATIO = LENGTH_TOLERANCE
+
 # ── 다중 조건 격자 공용 상수 (2026-09-10) ──────────────────────────────────
 # 러너 4종이 각자 SEEDS = [42, 7, 123]을 들고 있었다. 시드 3개는 표준편차 추정
 # 표본으로 부족해(자유도 2) 확률적 알고리즘의 분산·최악값을 논할 수 없다.

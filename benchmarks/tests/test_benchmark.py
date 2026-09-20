@@ -469,6 +469,7 @@ def test_r9g_candidate_pairwise_overlap_is_distance_weighted_jaccard_for_three_r
 
     # (1/5 + 0/6 + 1/5) / 3 = 0.1333...
     assert row["candidate_pairwise_overlap_ratio"] == pytest.approx(0.1333)
+    assert row["candidate_distinct_route_count"] == 3
 
 
 def test_r9g_candidate_pairwise_overlap_is_unmeasured_without_exactly_three_candidates():
@@ -635,19 +636,53 @@ def test_d1_gate_uses_only_final_path_observations(path, target_km, expect_passe
         assert expect_reason in row["gate_failed_on"]
 
 
-def test_d2_gate_is_not_applied_to_oneway_rows():
-    """편도 행은 게이트 대상이 아니다 — 닫히면 오히려 틀렸고, target_km을 아예 보지 않는
-    알고리즘(A*/Dijkstra)도 섞여 있어 같은 기준이 무의미하다."""
+def test_d2_oneway_gate_checks_delivery_distance_quality_time_and_weight_mode():
+    """편도 gate는 실제 도착·우회 목표·경로 품질·시간·가중 활성화를 함께 본다."""
     graph = nx.Graph()
-    graph.add_edge("A", "B", length=1000)
+    graph.add_edge("A", "B", length=625)
+    graph.add_edge("B", "C", length=625)
 
-    df = bm.run_benchmark(
-        [FixedPathSolver("Oneway", path=["A", "B"])], graph, "A", "B", {"target_km": 1.0},
-        timeout_sec=TEST_TIMEOUT_SEC,
+    row = bm_results.build_result_row(
+        "Oneway", graph,
+        {
+            "target_km": 1.25, "time_budget_sec": 1.0, "weight_mode": "distance",
+            "_expected_end_node": "C",
+        },
+        0.1,
+        {"paths": [["A", "B", "C"]], "cost": 1250.0, "baseline_shortest_km": 1.0},
+        circular=False,
     )
 
-    assert pd.isna(df.iloc[0]["passed"])
-    assert pd.isna(df.iloc[0]["gate_failed_on"])
+    assert row["reaches_destination"] is True
+    assert row["target_distance_feasible"] is True
+    assert row["weight_active"] is True
+    assert row["passed"] is True
+
+
+@pytest.mark.parametrize(
+    "override, expected_failure",
+    [
+        ({"reaches_destination": False}, "reaches_destination"),
+        ({"target_distance_feasible": False}, "target_distance_feasible"),
+        ({"target_distance_error_ratio": 0.2}, "target_distance_error_ratio"),
+        ({"repeated_edge_ratio": 0.5}, "repeated_edge_ratio"),
+        ({"spike_count": 1}, "spike_count"),
+        ({"within_time_budget": False}, "within_time_budget"),
+        ({"weight_active": False}, "weight_active"),
+    ],
+)
+def test_d2b_oneway_gate_reports_each_required_failure(override, expected_failure):
+    row = {
+        "status": "ok", "reaches_destination": True, "target_distance_feasible": True,
+        "target_distance_error_ratio": 0.0, "repeated_edge_ratio": 0.0, "spike_count": 0,
+        "within_time_budget": True, "weight_active": True,
+    }
+    row.update(override)
+
+    passed, reason = bm_results.evaluate_gate(row, circular=False)
+
+    assert passed is False
+    assert expected_failure in reason
 
 
 def test_d3_failed_rows_are_gate_failures_on_circular_runs():

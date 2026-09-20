@@ -201,6 +201,7 @@ def _run_single(
     이 함수가 results.py::run_solver_task()를 쓰지 않는 이유는 위 하드킬 구조 때문이며,
     "어떤 컬럼을 어떻게 채우는가"는 러너 4종과 완전히 동일하게 공유한다.
     """
+    params = {**params, "_expected_end_node": target_node}
     target_km = params.get("target_km")
     circular = start_node == target_node  # 순환 경로는 출발=도착
 

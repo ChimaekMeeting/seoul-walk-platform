@@ -177,6 +177,7 @@ ONEWAY_METRICS = (
 # 관측한다. 후보를 하나만 내는 solver/편도 행은 None이므로 순위·게이트에 넣지 않는다.
 CANDIDATE_METRICS = (
     Metric("candidate_pairwise_overlap_ratio", higher_is_better=False),
+    Metric("candidate_distinct_route_count", higher_is_better=True),
 )
 
 ALL_METRICS = (
@@ -199,7 +200,9 @@ DERIVED_COLUMNS = frozenset({"path_lookups", "search_work", "circularity_q_rel"}
 # 분모도 이 키로 나뉜다.
 # num_waypoints_used는 엔진이 실제로 쓴 값을 기록한 결과 컬럼이라 여기 넣지 않는다.
 _CONDITION_CANDIDATES = (
-    "scenario_id", "mode", "start_node", "start_id", "target_km", "num_waypoints",
+    "scenario_id", "mode", "start_node", "start_id", "origin_id", "destination_id",
+    "origin_density_tier", "shortest_distance_km", "detour_multiplier", "weight_mode",
+    "target_km", "num_waypoints",
     # 원래 안전·편안 입력값 대신 실제 normalize_preference_weights() 출력값을 쓴다.
     # 상한 비례 축소가 일어난 두 입력을 같은 조건으로 오해하지 않기 위해서다.
     "cost_alpha", "cost_beta",

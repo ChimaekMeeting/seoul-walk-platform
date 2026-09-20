@@ -138,6 +138,18 @@ def test_g5b_candidate_overlap_is_aggregated_as_a_lower_is_better_observation():
     assert result["candidate_pairwise_overlap_ratio_worst"] == pytest.approx(0.6)
 
 
+def test_g5b2_candidate_distinct_count_is_aggregated_as_higher_is_better():
+    rows = [
+        {**_row("A", 1, 1), "candidate_distinct_route_count": 2},
+        {**_row("A", 1, 2), "candidate_distinct_route_count": 3},
+    ]
+
+    result = agg.per_condition(pd.DataFrame(rows)).iloc[0]
+
+    assert result["candidate_distinct_route_count_mean"] == pytest.approx(2.5)
+    assert result["candidate_distinct_route_count_worst"] == 2
+
+
 def test_g5c_preference_and_oneway_metrics_are_aggregated_without_affecting_ranking_metrics():
     rows = [
         _row(
