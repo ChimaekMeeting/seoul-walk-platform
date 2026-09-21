@@ -6,6 +6,9 @@ import math
 import httpx
 
 from src.config.settings import settings
+from src.infrastructure.cache.repository.weather_cache_repository import (
+    WeatherCacheRepository,
+)
 from src.infrastructure.external.client.kakao_client import KakaoClient
 
 logger = logging.getLogger(__name__)
@@ -33,12 +36,81 @@ class WeatherClient:
         self.kakao_client = kakao_client
 
     async def get_environment_info(self, lat: float, lon: float):
+        # 날씨와 대기질은 서로 독립이다. 한쪽에서 예외가 나도 다른 쪽 결과를 버리지 않도록
+        # 각각 예외를 잡아 None으로 돌려준다(실패 시 None은 기존 응답 형식과 같다).
         weather_status, air_status = await asyncio.gather(
-            self.get_weather(lat, lon),
-            self.get_air_quality(lat, lon),
+            self._run_safely("weather", self._get_weather_cached(lat, lon)),
+            self._run_safely("air_quality", self._get_air_quality_cached(lat, lon)),
         )
 
         return weather_status, air_status
+
+    async def _run_safely(self, name: str, coroutine):
+        try:
+            return await coroutine
+        except Exception as error:
+            logger.warning(
+                "%s_unexpected_error | error_type=%s",
+                name,
+                type(error).__name__,
+            )
+            return None
+
+    async def _get_weather_cached(self, lat: float, lon: float):
+        """같은 기상청 격자(nx, ny) 안에서는 캐시된 날씨를 재사용한다."""
+        nx, ny = self.get_nx_and_ny(lat, lon)
+        cached = await self._read_cache(
+            "weather", WeatherCacheRepository.get_weather, nx, ny
+        )
+        if cached is not None:
+            return cached
+
+        weather = await self.get_weather(lat, lon)
+        if weather:
+            await self._write_cache(
+                "weather", WeatherCacheRepository.save_weather, nx, ny, weather
+            )
+        return weather
+
+    async def _get_air_quality_cached(self, lat: float, lon: float):
+        """캐시가 있으면 카카오 주소 변환과 에어코리아 호출을 모두 건너뛴다."""
+        nx, ny = self.get_nx_and_ny(lat, lon)
+        cached = await self._read_cache(
+            "air_quality", WeatherCacheRepository.get_air_quality, nx, ny
+        )
+        if cached is not None:
+            return cached
+
+        air = await self.get_air_quality(lat, lon)
+        # 실패(None)와 자치구를 못 찾은 경우({})는 저장하지 않는다. 저장하면 복구된 뒤에도
+        # TTL 동안 빈 값이 계속 나간다.
+        if air:
+            await self._write_cache(
+                "air_quality", WeatherCacheRepository.save_air_quality, nx, ny, air
+            )
+        return air
+
+    async def _read_cache(self, name: str, reader, nx: int, ny: int):
+        # 캐시(Valkey) 장애가 API 실패로 번지지 않도록 조회 실패는 캐시 미스로 취급한다.
+        try:
+            return await reader(nx, ny)
+        except Exception as error:
+            logger.warning(
+                "%s_cache_read_failed | error_type=%s",
+                name,
+                type(error).__name__,
+            )
+            return None
+
+    async def _write_cache(self, name: str, writer, nx: int, ny: int, data: dict):
+        try:
+            await writer(nx, ny, data)
+        except Exception as error:
+            logger.warning(
+                "%s_cache_write_failed | error_type=%s",
+                name,
+                type(error).__name__,
+            )
 
     async def get_weather(self, lat: float, lon: float):
         """
@@ -104,7 +176,17 @@ class WeatherClient:
         url = "https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty"
 
         station_name = ""
-        place_info = await self.kakao_client.get_address_from_coords(lat, lon)
+        # 카카오 주소 변환이 실패(한도 초과 등)해도 예외를 밖으로 내보내지 않고 다른 실패와
+        # 같이 None으로 처리한다.
+        try:
+            place_info = await self.kakao_client.get_address_from_coords(lat, lon)
+        except Exception as error:
+            logger.warning(
+                "air_quality_address_failed | error_type=%s | detail=%s",
+                type(error).__name__,
+                error,
+            )
+            return None
         for p in place_info.place_address.split():
             if "구" in p:
                 station_name = p

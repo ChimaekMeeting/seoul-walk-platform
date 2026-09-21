@@ -30,6 +30,10 @@ CATEGORY_GROUP_CODE = {
     "약국": "PM9",
 }
 
+class KakaoApiError(RuntimeError):
+    """카카오 API가 정상 결과 대신 오류 본문(한도 초과 등)을 돌려줬을 때 발생합니다."""
+
+
 class KakaoClient:
     def __init__(self):
         self.KAKAO_API_KEY = os.getenv("KAKAO_API_KEY")
@@ -47,7 +51,27 @@ class KakaoClient:
                 params={"x": lon, "y": lat},
                 headers=self.get_headers(),
             )
-            docs = res.json().get("documents")[0]
+            # 카카오는 한도 초과 같은 실패를 documents 없는 오류 본문(code, message)으로 돌려준다.
+            # 그대로 인덱싱하면 TypeError만 남아 원인을 알 수 없으므로, 상태코드와 카카오 오류
+            # 내용을 담은 예외로 바꿔 던진다.
+            try:
+                body = res.json()
+            except ValueError:
+                body = {}
+            if not isinstance(body, dict):
+                body = {}
+            documents = body.get("documents")
+            if not res.is_success or documents is None:
+                raise KakaoApiError(
+                    "카카오 좌표→주소 변환 실패: "
+                    f"status={res.status_code}, code={body.get('code')}, "
+                    f"message={body.get('message') or res.text[:200]}"
+                )
+            if not documents:
+                raise KakaoApiError(
+                    f"카카오 좌표→주소 변환 결과가 비어 있습니다: status={res.status_code}"
+                )
+            docs = documents[0]
             road_address = docs.get("road_address")
             address = docs.get("address")
 
