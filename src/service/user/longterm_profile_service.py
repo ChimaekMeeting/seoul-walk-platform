@@ -60,7 +60,12 @@ from src.repository.user.user_repository import UserRepository
 from src.route_engine.scoring.scoring_engine import FEATURE_DIMENSIONS
 from src.service.route.route_service import MIN_CANDIDATES_FOR_PROFILE
 from src.service.user.auth_service import AuthService
-from src.service.user.survey_service import BASE_COMFORT, BASE_WEIGHTS, _safety_comfort_deltas
+from src.service.user.survey_service import (
+    BASE_COMFORT,
+    BASE_WEIGHTS,
+    _normalize_survey_tags,
+    _safety_comfort_deltas,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,14 +93,16 @@ def _adaptive_learning_rate(feedback_count: int) -> float:
 def _onboarding_initial_weights(preference) -> dict[str, float]:
     """온보딩 설문이 정한 가중치 초기값 — SGD 갱신 결과의 하한이다(#487).
 
-    survey_service.submit()과 같은 식으로 selected_tags("안전"/"편안" 선택 조합)에서 다시 계산한다.
+    survey_service.submit()과 같은 식으로 selected_tags에서 다시 계산한다. selected_tags에는
+    사용자가 제출한 표현이 그대로 저장되므로("안전한 길"/"편안한 길" 또는 "안전"/"편안"),
+    submit()과 같은 _normalize_survey_tags()로 의미 단위("안전"/"편안")로 정규화한 뒤 판단한다.
     설문을 하지 않은 사용자(행이 없거나 survey_completed가 아님)는 기본값(safety=0.5, comfort=0.0)이다.
     selected_tags가 없는 설문 완료 행은 "둘 다 미선택"으로 본다.
     """
     if preference is None or getattr(preference, "survey_completed", False) is not True:
         return {"safety": BASE_WEIGHTS["safety"], "comfort": BASE_COMFORT}
 
-    tags = preference.selected_tags or []
+    tags = _normalize_survey_tags(preference.selected_tags or [])
     safety_delta, comfort_delta = _safety_comfort_deltas(
         selected_safety="안전" in tags,
         selected_comfort="편안" in tags,
