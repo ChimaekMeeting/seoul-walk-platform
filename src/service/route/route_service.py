@@ -39,12 +39,12 @@ from src.config.logging import log_unexpected_error
 
 logger = logging.getLogger(__name__)
 
-# 장기 프로필(안전/편안 SGD 갱신)이 신뢰할 수 있는 대조값(contrast)을 계산하려면
-# 대표 후보와 비교할 경쟁 후보가 최소 2개(전체 3개) 있어야 한다. circular_random
+# 후보 경로를 다양화하는 엔진이 보장하는 경로 개수(대표 경로 1 + 후보 경로 2 = 3). 이름과 달리
+# 후보 경로만의 개수가 아니라 대표 경로를 포함한 candidate_features 전체 길이다. circular_random
 # (CircularGraspWaypointAlnsEngine)과 oneway_random(OnewayGraspWaypointAlnsEngine,
 # 2026-09-20, #498 확장)은 둘 다 MULTI_CANDIDATE_COMBOS(construction="grasp",
-# refinement="alns")에 속해 이미 이 최솟값을 만족한다 — longterm_profile_service가
-# RouteHistory.candidate_features 길이를 이 상수로 검증한다.
+# refinement="alns")에 속해 이 개수를 만족한다. 장기 프로필(안전/편안 SGD 갱신)은 후보 경로가
+# 1개 이상이면 대조값(contrast)을 쓰고 0개면 별점만 쓴다(#516, longterm_profile_service).
 MIN_CANDIDATES_FOR_PROFILE = 3
 
 
@@ -207,13 +207,14 @@ class RouteService:
                 user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
                 if user is not None:
                     # engine.candidate_feature_vectors: results와 같은 순서의 {"safety","comfort"}
-                    # 후보별 평균 — 장기 프로필 SGD가 나중에 X_R/X_contrast로 쓴다(route_feedback).
-                    # 다양화를 지원하지 않는 엔진(oneway_shortest 등)은 속성 자체가 없을 수 있다.
+                    # 경로(대표 경로, 후보 경로)별 평균 — 장기 프로필 SGD가 나중에 X_R/X_contrast로 쓴다
+                    # (route_feedback). 다양화를 지원하지 않는 엔진(oneway_shortest 등)은 속성 자체가
+                    # 없을 수 있다(후보 경로 0개).
                     candidate_features = getattr(engine, "candidate_feature_vectors", None) or None
                     if candidate_features and len(candidate_features) < MIN_CANDIDATES_FOR_PROFILE:
                         logger.info(
-                            "walk route candidate count below profile minimum: mode=%s count=%d",
-                            mode, len(candidate_features),
+                            "walk route has fewer candidate routes than expected: mode=%s candidate_routes=%d",
+                            mode, len(candidate_features) - 1,
                         )
 
                     for index, result in enumerate(results):

@@ -13,8 +13,8 @@ submit_feedback()으로 이어지는 흐름을 하나의 테스트에서 검증�
 
 2026-09-17 로컬 API 실측(Docker Postgres/Valkey + 실제 서울 그래프)에서 확인한 4개 케이스를
 결정적인 가짜 엔진/리포지토리로 재현한다:
-  - 후보 1개(candidate_feature_vectors 없음, 예: oneway_shortest류) -> insufficient_candidates
-  - 후보 3개 -> success, feedback_count가 호출마다 1씩 증가
+  - 후보 경로 0개(candidate_feature_vectors 없음, 예: oneway_shortest류) -> success, 대조값 없이 별점만으로 갱신(#516)
+  - 후보 경로 2개(대표 경로 포함 3개) -> success, feedback_count가 호출마다 1씩 증가
 
 engine.candidate_feature_vectors는 duck-typing으로 읽히므로(route_service.py 참고), 이
 흐름은 RouteService.base_engines에 어떤 엔진이 매핑돼 있는지와 무관하게 성립한다 — 그래서
@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 
 import networkx as nx
 import pytest
+from pydantic import ValidationError
 
 from src.agent.nodes.route_executor import MODE_TOOL_MAP, RouteExecutor
 from src.agent.tools.route_tools import RouteTool
@@ -90,8 +91,8 @@ class _FakePreferenceStore:
 def _engine_stub(total_km: float, candidate_feature_vectors: list[dict[str, float]] | None):
     """route_service.base_engines[mode]에 꽂아 넣을 가짜 엔진 클래스.
 
-    실제 beam/GRASP 탐색 없이 run()의 후보 개수와 candidate_feature_vectors를 자유롭게
-    지정한다 — 진짜 서울 그래프로 정확히 1개/3개 후보를 강제로 재현하는 건 비결정적이라
+    실제 beam/GRASP 탐색 없이 run()의 경로 개수(대표 경로 + 후보 경로)와 candidate_feature_vectors를 자유롭게
+    지정한다 — 진짜 서울 그래프로 정확히 후보 경로 0개/2개를 강제로 재현하는 건 비결정적이라
     이 흐름의 회귀 테스트로는 적합하지 않다. candidate_feature_vectors가 None이면
     oneway_shortest처럼 이 속성 자체가 없는 엔진(다양화 미지원)을 흉내 낸다.
     """
@@ -211,20 +212,189 @@ def _generate_and_get_history_id(route_service, target_km: float) -> int:
     return result[0].id
 
 
-class TestCandidateCountDrivesFeedbackOutcome:
-    """2026-09-17 로컬 API 실측 id=19(후보 3개)/id=20(후보 1개) 케이스에 대응."""
+def _generate_oneway_and_get_history_id(route_service, mode: WalkMode, target_km=None) -> int:
+    result = route_service.get_route(
+        ACCESS_TOKEN, origin=ORIGIN, destination=Coordinate(lat=37.51, lon=127.01),
+        target_km=target_km, mode=mode,
+    )
+    assert result[0].status == WalkRouteStatus.SUCCESS
+    return result[0].id
 
-    def test_후보가_1개면_생성된_경로의_피드백이_insufficient_candidates다(
-        self, route_service, profile_service
+
+class TestCandidateCountDrivesFeedbackOutcome:
+    """2026-09-17 로컬 API 실측 id=19(후보 경로 2개)/id=20(후보 경로 0개) 케이스에 대응."""
+
+    def test_후보_경로가_없으면_생성된_경로의_피드백이_success이고_별점만으로_갱신된다(
+        self, route_service, profile_service, preference_store
     ):
+        """후보 경로가 없으면 대조값 없이 W_d += η(y_d - 0.5) * 0.2 로 갱신한다(#516).
+        초기 가중치(safety=0.5, comfort=0.0), η=0.5, 별점 안전 4(y=0.75)/편안 5(y=1.0):
+        safety = 0.5 + 0.5*0.25*0.2 = 0.525, comfort = 0.0 + 0.5*0.5*0.2 = 0.05."""
         route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(5.19, None)
 
         history_id = _generate_and_get_history_id(route_service, target_km=5.0)
         result = profile_service.submit_feedback(ACCESS_TOKEN, history_id, _feedback())
 
-        assert result.status == RouteFeedbackStatus.INSUFFICIENT_CANDIDATES
+        assert result.status == RouteFeedbackStatus.SUCCESS
+        assert result.weights_safety == pytest.approx(0.525)
+        assert result.weights_comfort == pytest.approx(0.05)
+        assert preference_store.get_by_user_id(1).feedback_count == 1
 
-    def test_후보가_3개면_생성된_경로의_피드백이_success이고_가중치가_갱신된다(
+    def test_후보_경로가_1개면_대표_경로와의_대조값을_쓰는_기존_공식으로_갱신된다(
+        self, route_service, profile_service, preference_store
+    ):
+        """대표 경로 {안전 0.6, 편안 0.9} vs 후보 경로 1개 {안전 0.5, 편안 0.7}: 대조 +0.1/+0.2(편안은 상한 0.1로 제한).
+        초기 가중치(0.5, 0.0), η=0.5, 별점 4/5/5의 기존 SGD 공식 결과는 safety 0.5336625, comfort 0.0486625."""
+        features = [
+            {"safety": 0.6, "comfort": 0.9},
+            {"safety": 0.5, "comfort": 0.7},
+        ]
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(2.47, features)
+        history_id = _generate_and_get_history_id(route_service, target_km=2.5)
+
+        with patch.object(
+            longterm_profile_module, "_contrast_vector",
+            wraps=longterm_profile_module._contrast_vector,
+        ) as contrast_spy:
+            result = profile_service.submit_feedback(
+                ACCESS_TOKEN, history_id, _feedback(safety=4, comfort=5, overall=5)
+            )
+
+        contrast_spy.assert_called_once_with(features)
+        assert result.status == RouteFeedbackStatus.SUCCESS
+        assert result.weights_safety == pytest.approx(0.5336625)
+        assert result.weights_comfort == pytest.approx(0.0486625)
+        assert preference_store.get_by_user_id(1).feedback_count == 1
+
+    def test_후보_경로가_없으면_대조값을_계산하지_않는다(self, route_service, profile_service):
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(5.19, None)
+        history_id = _generate_and_get_history_id(route_service, target_km=5.0)
+
+        with patch.object(longterm_profile_module, "_contrast_vector") as contrast_spy:
+            profile_service.submit_feedback(ACCESS_TOKEN, history_id, _feedback())
+
+        contrast_spy.assert_not_called()
+
+    def test_별점만_갱신은_별점_낮으면_내리되_온보딩_초기값_아래로는_내려가지_않는다(
+        self, route_service, profile_service
+    ):
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(5.19, None)
+        history_id = _generate_and_get_history_id(route_service, target_km=5.0)
+
+        result = profile_service.submit_feedback(
+            ACCESS_TOKEN, history_id, _feedback(safety=1, comfort=1, overall=1)
+        )
+
+        assert result.status == RouteFeedbackStatus.SUCCESS
+        assert result.weights_safety == pytest.approx(0.5)  # 0.475 -> 하한(미설문 기본값 0.5)
+        assert result.weights_comfort == pytest.approx(0.0)  # -0.05 -> 하한 0.0
+
+    def test_별점은_선택_입력이라_생략해도_요청_모델이_받아들이고_범위는_검증한다(self):
+        empty = RouteFeedbackRequest()
+        assert (empty.rating_safety, empty.rating_comfort, empty.rating_overall) == (None, None, None)
+        assert RouteFeedbackRequest(rating_safety=5).rating_comfort is None
+        for bad in (0, 6, -1):  # 값이 있으면 1~5여야 한다
+            with pytest.raises(ValidationError):
+                RouteFeedbackRequest(rating_safety=bad)
+
+    def test_후보_경로가_없을_때_일부_별점이_비어_있으면_비어_있는_별점을_3점으로_보고_저장한다(
+        self, route_service, profile_service, preference_store
+    ):
+        """안전 5점만 보내면 편안, 전체는 3점(중립)으로 간주한다. 후보 경로가 없으면 3점의 갱신량이
+        0이라 안전만 0.5 + 0.5*0.5*0.2 = 0.55로 오른다. 별점 행은 3점으로 채워 저장한다(NOT NULL)."""
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(5.19, None)
+        history_id = _generate_and_get_history_id(route_service, target_km=5.0)
+
+        result = profile_service.submit_feedback(
+            ACCESS_TOKEN, history_id, RouteFeedbackRequest(rating_safety=5)
+        )
+
+        assert result.status == RouteFeedbackStatus.SUCCESS
+        assert result.weights_safety == pytest.approx(0.55)
+        assert result.weights_comfort == pytest.approx(0.0)
+        assert preference_store.get_by_user_id(1).feedback_count == 1
+        saved = longterm_profile_module.RouteFeedbackRepository.upsert.call_args.kwargs
+        assert (saved["rating_safety"], saved["rating_comfort"], saved["rating_overall"]) == (5, 3, 3)
+
+    def test_후보_경로가_1개일_때_안전_별점이_비어_있으면_안전은_3점으로_대조값_공식에_들어간다(
+        self, route_service, profile_service
+    ):
+        """후보 경로가 있으면 3점도 갱신량이 정확히 0은 아니다(예측 ŷ = 0.5 + W·x가 0.5에서 벗어나 있어서).
+        별점 (3, 5, 5)의 기존 공식 결과는 safety 0.52119375, comfort 0.04869375."""
+        features = [
+            {"safety": 0.6, "comfort": 0.9},
+            {"safety": 0.5, "comfort": 0.7},
+        ]
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(2.47, features)
+        history_id = _generate_and_get_history_id(route_service, target_km=2.5)
+
+        result = profile_service.submit_feedback(
+            ACCESS_TOKEN, history_id, RouteFeedbackRequest(rating_comfort=5, rating_overall=5)
+        )
+
+        assert result.status == RouteFeedbackStatus.SUCCESS
+        assert result.weights_safety == pytest.approx(0.52119375)
+        assert result.weights_comfort == pytest.approx(0.04869375)
+
+    @pytest.mark.parametrize("candidate_features", [None, [{"safety": 0.6, "comfort": 0.9}], _SUCCESS_CANDIDATE_FEATURES])
+    def test_별점이_전부_비어_있어도_오류가_아니라_SUCCESS이고_저장과_학습은_하지_않는다(
+        self, route_service, profile_service, preference_store, candidate_features
+    ):
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(2.47, candidate_features)
+        history_id = _generate_and_get_history_id(route_service, target_km=2.5)
+
+        result = profile_service.submit_feedback(ACCESS_TOKEN, history_id, RouteFeedbackRequest())
+
+        assert result.status == RouteFeedbackStatus.SUCCESS
+        assert preference_store.get_by_user_id(1) is None  # UserPreferenceRepository.upsert 미호출(가중치 불변)
+        longterm_profile_module.RouteFeedbackRepository.upsert.assert_not_called()
+
+    def test_별점이_전부_비어_있던_경로에_나중에_별점을_제출하면_최초_제출로_학습된다(
+        self, route_service, profile_service, preference_store
+    ):
+        """별점 행을 만들지 않았으므로(재제출 방어가 행의 존재로 판단한다) 빈 제출이 학습 기회를 소모하지 않는다."""
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(5.19, None)
+        history_id = _generate_and_get_history_id(route_service, target_km=5.0)
+
+        profile_service.submit_feedback(ACCESS_TOKEN, history_id, RouteFeedbackRequest())
+        result = profile_service.submit_feedback(ACCESS_TOKEN, history_id, _feedback())
+
+        assert result.status == RouteFeedbackStatus.SUCCESS
+        assert result.weights_safety == pytest.approx(0.525)
+        assert preference_store.get_by_user_id(1).feedback_count == 1
+
+    def test_최단_경로의_피드백은_별점만_저장하고_장기_가중치는_갱신하지_않는다(
+        self, route_service, profile_service, preference_store
+    ):
+        """최단 경로는 안전/편안 가중치를 쓰지 않으므로 그 피드백으로 프로필을 바꾸지 않는다(#516)."""
+        route_service.base_engines[WalkMode.ONEWAY_SHORTEST] = _engine_stub(1.0, None)
+        history_id = _generate_oneway_and_get_history_id(route_service, WalkMode.ONEWAY_SHORTEST)
+
+        result = profile_service.submit_feedback(
+            ACCESS_TOKEN, history_id, _feedback(safety=5, comfort=5, overall=5)
+        )
+
+        assert result.status == RouteFeedbackStatus.SUCCESS
+        assert preference_store.get_by_user_id(1) is None  # UserPreferenceRepository.upsert 미호출
+        longterm_profile_module.RouteFeedbackRepository.upsert.assert_called_once()  # 별점은 기록
+
+    def test_편도_우회_피드백은_순환과_같은_공식으로_가중치를_갱신한다(
+        self, route_service, profile_service, preference_store
+    ):
+        route_service.base_engines[WalkMode.ONEWAY_RANDOM] = _engine_stub(2.0, _SUCCESS_CANDIDATE_FEATURES)
+        history_id = _generate_oneway_and_get_history_id(route_service, WalkMode.ONEWAY_RANDOM, target_km=2.0)
+
+        result = profile_service.submit_feedback(
+            ACCESS_TOKEN, history_id, _feedback(safety=4, comfort=5, overall=5)
+        )
+
+        assert result.status == RouteFeedbackStatus.SUCCESS
+        # 순환의 "SGD 결과값이 기대치와 정확히 일치" 테스트와 같은 입력 -> 같은 값
+        assert result.weights_safety == pytest.approx(0.5)
+        assert result.weights_comfort == pytest.approx(0.05037090390625)
+        assert preference_store.get_by_user_id(1).feedback_count == 1
+
+    def test_후보_경로가_2개면_생성된_경로의_피드백이_success이고_가중치가_갱신된다(
         self, route_service, profile_service
     ):
         route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(
@@ -237,7 +407,7 @@ class TestCandidateCountDrivesFeedbackOutcome:
         )
 
         assert result.status == RouteFeedbackStatus.SUCCESS
-        # 대표 후보(candidate_features[0])가 나머지 둘보다 뚜렷하게 편안함 -> X_contrast[comfort] > 0,
+        # 대표 경로(candidate_features[0])가 후보 경로 둘보다 뚜렷하게 편안함 -> X_contrast[comfort] > 0,
         # 별점도 comfort=5로 높으므로 weights_comfort는 반드시 오른다(BASE_COMFORT=0.0에서 시작).
         assert result.weights_comfort > 0.0
 
@@ -260,23 +430,30 @@ class TestCandidateCountDrivesFeedbackOutcome:
         assert second.status == RouteFeedbackStatus.SUCCESS
         assert preference_store.get_by_user_id(1).feedback_count == 2
 
-    def test_후보가_1개인_경로는_피드백을_반복해도_feedback_count가_늘지_않는다(
+    def test_후보_경로가_없는_경로도_재제출은_feedback_count를_늘리지_않고_가중치를_다시_바꾸지_않는다(
         self, route_service, profile_service, preference_store
     ):
         route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(5.19, None)
-
         history_id = _generate_and_get_history_id(route_service, target_km=5.0)
-        profile_service.submit_feedback(ACCESS_TOKEN, history_id, _feedback())
-        profile_service.submit_feedback(ACCESS_TOKEN, history_id, _feedback())
+        feedback_lookup = longterm_profile_module.RouteFeedbackRepository.find_by_route_history_id
+        feedback_lookup.side_effect = [None, MagicMock()]  # 첫 제출, 재제출
 
-        assert preference_store.get_by_user_id(1) is None  # UserPreferenceRepository.upsert 자체가 호출되지 않음
+        first = profile_service.submit_feedback(ACCESS_TOKEN, history_id, _feedback())
+        second = profile_service.submit_feedback(
+            ACCESS_TOKEN, history_id, _feedback(safety=1, comfort=1, overall=1)
+        )
+
+        assert first.status == RouteFeedbackStatus.SUCCESS
+        assert preference_store.get_by_user_id(1).feedback_count == 1
+        assert second.weights_safety == first.weights_safety
+        assert second.weights_comfort == first.weights_comfort
 
     def test_저장된_candidate_features가_엔진이_만든_값과_순서까지_완전히_같다(
         self, route_service, history_store
     ):
         """route_service.get_route()가 RouteHistory에 넘기는 candidate_features가
         engine.candidate_feature_vectors를 값·순서 그대로 옮겼는지 확인한다 — 여기서 한 번이라도
-        누락/재정렬/변형이 생기면 대표 후보(index 0)가 뒤바뀌어 X_contrast 자체가 틀어진다."""
+        누락/재정렬/변형이 생기면 대표 경로(index 0)가 뒤바뀌어 X_contrast 자체가 틀어진다."""
         route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(
             2.47, _SUCCESS_CANDIDATE_FEATURES
         )
@@ -286,7 +463,7 @@ class TestCandidateCountDrivesFeedbackOutcome:
 
         assert stored.candidate_features == _SUCCESS_CANDIDATE_FEATURES
 
-    def test_각_후보는_자기_id와_자신이_첫번째인_candidate_features를_가진다(
+    def test_각_경로는_자기_id와_자신이_첫번째인_candidate_features를_가진다(
         self, route_service, history_store
     ):
         route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(
@@ -387,7 +564,7 @@ class TestCandidateCountDrivesFeedbackOutcome:
     ):
         """selected_tags에는 제출한 표현("안전한 길")이 그대로 저장된다. 하한(온보딩 초기값)이 저장된 원본
         태그를 "안전" 문자열로만 찾으면 앱 표현을 "둘 다 미선택"(0.533/0.033)으로 오인해 실제 초기값보다
-        낮은 하한을 쓰게 된다. 대표 후보가 덜 안전한 음의 대조 + 안전 5점은 안전 가중치를 내리는 갱신이라,
+        낮은 하한을 쓰게 된다. 대표 경로가 후보 경로보다 덜 안전한 음의 대조 + 안전 5점은 안전 가중치를 내리는 갱신이라,
         하한이 올바르면 갱신 결과가 초기값에서 멈춘다."""
         preference_store._row = MagicMock(
             user_id=1, survey_completed=True, selected_tags=selected_tags,
@@ -494,7 +671,7 @@ class TestRealGraspAlnsEngineFeedsIntoFeedback:
     """스텁이 아니라 실제 CircularGraspWaypointAlnsEngine을 돌려, 그 출력이
     longterm_profile_service까지 올바르게 이어지는지 확인한다."""
 
-    def test_후보_개수가_MIN_CANDIDATES_FOR_PROFILE과_정확히_맞는다(self, grasp_alns_grid_graph):
+    def test_경로_개수가_MIN_CANDIDATES_FOR_PROFILE과_정확히_맞는다(self, grasp_alns_grid_graph):
         """MULTI_CANDIDATE_COMBOS 소속인 grasp+alns는 CANDIDATE_COUNT(=3)개를 반환하는데,
         route_service.MIN_CANDIDATES_FOR_PROFILE도 3이다 — 두 상수가 서로 다른 파일에 따로
         있으므로 실제 실행 결과로 항상 일치하는지 고정해둔다(하나만 바뀌면 이 테스트가 깨진다)."""
@@ -576,7 +753,7 @@ class TestPrewalkPathReachesCandidateFeaturesContract:
         feedback_result = profile_service.submit_feedback(ACCESS_TOKEN, result[0].id, _feedback())
         assert feedback_result.status == RouteFeedbackStatus.SUCCESS
 
-    def test_후보가_1개면_prewalk_경로로_생성해도_insufficient_candidates다(
+    def test_후보_경로가_없으면_prewalk_경로로_생성해도_별점만으로_갱신된다(
         self, route_service, profile_service
     ):
         route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(5.19, None)
@@ -587,7 +764,8 @@ class TestPrewalkPathReachesCandidateFeaturesContract:
         ))
 
         feedback_result = profile_service.submit_feedback(ACCESS_TOKEN, result[0].id, _feedback())
-        assert feedback_result.status == RouteFeedbackStatus.INSUFFICIENT_CANDIDATES
+        assert feedback_result.status == RouteFeedbackStatus.SUCCESS
+        assert feedback_result.weights_safety == pytest.approx(0.525)
 
     def test_walk_router와_prewalk_router_경로가_같은_결과를_낸다(
         self, route_service
@@ -676,7 +854,7 @@ class TestRouteExecutorReachesCandidateFeaturesContract:
         )
         assert feedback_result.status == RouteFeedbackStatus.SUCCESS
 
-    def test_후보가_1개면_RouteExecutor_run_경로로도_insufficient_candidates다(
+    def test_후보_경로가_없으면_RouteExecutor_run_경로로도_별점만으로_갱신된다(
         self, route_service, profile_service
     ):
         route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(5.19, None)
@@ -687,7 +865,8 @@ class TestRouteExecutorReachesCandidateFeaturesContract:
         feedback_result = profile_service.submit_feedback(
             ACCESS_TOKEN, result_state.route_result[0].id, _feedback()
         )
-        assert feedback_result.status == RouteFeedbackStatus.INSUFFICIENT_CANDIDATES
+        assert feedback_result.status == RouteFeedbackStatus.SUCCESS
+        assert feedback_result.weights_safety == pytest.approx(0.525)
 
     def test_UserPreference_기반_가중치_조립이_실제로_route_service까지_전달된다(
         self, route_service
