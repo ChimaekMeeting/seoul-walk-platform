@@ -178,8 +178,10 @@ def submit_route_feedback(
     service: LongTermProfileService = Depends(get_longterm_profile_service),
 ):
     """
-    산책 후 피드백(안전/편안/전체 별점, 각 1~5)을 제출합니다.
-    같은 후보군(최소 3개)과 대조(contrast)할 수 있는 경로에 한해 장기 프로필
+    산책 후 피드백(안전/편안/전체 별점, 각 1~5, 선택 입력)을 제출합니다. 비어 있는 별점은 3점(중립)으로
+    간주하고, 세 별점이 모두 비어 있으면 저장·학습 없이 현재 가중치를 돌려줍니다.
+    순환과 편도 우회 경로의 피드백만 장기 프로필을 갱신하고(최단 경로 등은 별점만 저장),
+    후보 경로가 있으면 대표 경로와 대조(contrast)해, 없으면 별점만으로 장기 프로필
     (weights_safety/weights_comfort)이 온라인 SGD로 갱신됩니다 — longterm_profile_service 참고.
     """
     return service.submit_feedback(
