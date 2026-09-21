@@ -372,6 +372,43 @@ class TestCandidateCountDrivesFeedbackOutcome:
         assert result.weights_safety == pytest.approx(0.5)
         assert result.weights_comfort == pytest.approx(0.05037090390625)
 
+    @pytest.mark.parametrize(
+        "selected_tags, initial_safety, initial_comfort",
+        [
+            (["안전한 길", "편안한 길"], 0.65, 0.15),  # 현재 앱 표현
+            (["안전", "편안"], 0.65, 0.15),  # 기존 서버 표현
+            (["안전한 길"], 0.5 + 0.8 / 3, 0.3 / 9),
+            (["편안한 길"], 0.5 + 0.3 / 9, 0.8 / 3),
+        ],
+    )
+    def test_온보딩_초기값_하한은_앱이_보낸_표현으로_저장된_태그에서도_적용된다(
+        self, route_service, profile_service, preference_store,
+        selected_tags, initial_safety, initial_comfort,
+    ):
+        """selected_tags에는 제출한 표현("안전한 길")이 그대로 저장된다. 하한(온보딩 초기값)이 저장된 원본
+        태그를 "안전" 문자열로만 찾으면 앱 표현을 "둘 다 미선택"(0.533/0.033)으로 오인해 실제 초기값보다
+        낮은 하한을 쓰게 된다. 대표 후보가 덜 안전한 음의 대조 + 안전 5점은 안전 가중치를 내리는 갱신이라,
+        하한이 올바르면 갱신 결과가 초기값에서 멈춘다."""
+        preference_store._row = MagicMock(
+            user_id=1, survey_completed=True, selected_tags=selected_tags,
+            weights_safety=initial_safety, weights_comfort=initial_comfort, feedback_count=0,
+        )
+        features = [
+            {"safety": 0.5, "comfort": 0.9},
+            {"safety": 0.8, "comfort": 0.9},
+            {"safety": 0.8, "comfort": 0.9},
+        ]  # 안전 대조 -0.3(상한으로 -0.1), 편안 대조 0
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(2.47, features)
+        history_id = _generate_and_get_history_id(route_service, target_km=2.5)
+
+        result = profile_service.submit_feedback(
+            ACCESS_TOKEN, history_id, _feedback(safety=5, comfort=3, overall=5)
+        )
+
+        assert result.status == RouteFeedbackStatus.SUCCESS
+        assert result.weights_safety == pytest.approx(initial_safety)
+        assert result.weights_comfort == pytest.approx(initial_comfort)
+
     def test_엔진_클래스와_무관하게_candidate_feature_vectors만_있으면_계약이_성립한다(
         self, route_service, profile_service
     ):
