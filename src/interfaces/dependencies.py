@@ -15,7 +15,6 @@ from src.service import (
     LongTermProfileService,
 )
 from src.agent.nodes import (
-    WeatherChecker,
     Extractor,
     WeightExtractor,
     Interviewer,
@@ -95,7 +94,6 @@ def init_route_service():
     ))
     route_service = RouteService(G=G, auth_service=auth_service)
     prewalk_orchestrator = PrewalkOrchestrator(
-        weather_checker        = WeatherChecker(weather_client=weather_client),
         kakao_client            = kakao_client,
         auth_service            = auth_service,
         extractor               = Extractor(),

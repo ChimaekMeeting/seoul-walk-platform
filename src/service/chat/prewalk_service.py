@@ -12,7 +12,6 @@ from src.repository.user.user_repository import UserRepository
 from src.repository.chat.chat_session_repository import ChatSessionRepository
 from src.infrastructure.cache.repository.chat_state_repository import ChatStateRepository
 from src.agent.nodes import (
-    WeatherChecker,
     Extractor,
     WeightExtractor,
     Interviewer,
@@ -31,7 +30,6 @@ logger = logging.getLogger(__name__)
 class PrewalkOrchestrator:
     def __init__(
         self,
-        weather_checker:         WeatherChecker,
         kakao_client:            KakaoClient,
         auth_service:            AuthService,
         extractor:               Extractor,
@@ -40,7 +38,6 @@ class PrewalkOrchestrator:
         confirmation_classifier: ConfirmationClassifier,
         route_executor:          RouteExecutor
     ):
-        self.weather_checker = weather_checker
         self.kakao_client    = kakao_client
         self.auth_service    = auth_service
         self.graph           = self._build_graph(extractor, weight_extractor, interviewer, confirmation_classifier, route_executor)
@@ -110,8 +107,8 @@ class PrewalkOrchestrator:
             log_unexpected_error(logger, "prewalk_init_session_save_error", exc)
             return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
 
-        # 날씨 기반 초기 메시지
-        init_message = await self.weather_checker.run(lat, lon)
+        # 초기 메시지
+        init_message = "편안하고 안전한 길을 추천해드리는 ROUDI예요! 어떤 산책 코스를 추천해드릴까요? (예: 돌아오는 코스, 빠른 코스, 목적지까지 돌아가는 코스)"
 
         # 현재 위치 확인 — 실패 시 좌표만으로 Location 구성
         try:

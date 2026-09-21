@@ -12,7 +12,7 @@
 - `POST /api/prewalk/init`: access cookie와 현재 좌표로 세션·초기 State 생성
 - `POST /api/prewalk/intent`: `thread_id`와 사용자 발화로 State 진행
 - 시작 전 인증 사용자, PostgreSQL, Valkey, 메모리 Graph가 필요하다.
-- 초기 인사와 정보 추출에는 OpenAI, 날씨·주소·장소 검색에는 외부 API를 사용한다.
+- 정보 추출에는 OpenAI, 주소·장소 검색에는 외부 API를 사용한다. 초기 인사는 2026-09-21부터 LLM·외부 API 호출 없는 고정 문구다.
 
 ## 2. 참여 코드
 
@@ -21,7 +21,6 @@
 | `prewalk_router.py` | init 좌표 검증과 두 API 계약 |
 | `PrewalkOrchestrator` | 인증·소유권·State 저장과 LangGraph 분기 |
 | `State`, `ChatSession`, `ChatStateRepository` | 대화 상태 계약과 PostgreSQL/Valkey 저장 |
-| `WeatherChecker` | 날씨·대기질 기반 LLM 첫 인사 |
 | `Extractor` | LLM tool call로 모드·위치·거리·테마 추출 |
 | `Interviewer` | 누락 질문·Kakao 장소 검색·최종 확인 |
 | `RouteExecutor`, `RouteTool` | 설문·테마 가중치 조합과 `RouteService` 실행 |
@@ -31,7 +30,7 @@
 ```text
 init: 좌표 schema·서울 Polygon·수계·보행 가능 검증
 → JWT 사용자 확인 → PostgreSQL ChatSession(START) 생성
-→ 날씨·대기질 → OpenAI 초기 인사
+→ 고정 문구 초기 인사(2026-09-21부터 LLM·외부 API 미호출)
 → Kakao 주소 → 초기 State
 → Valkey chat_state:{thread_id}(TTL 1시간) 저장
 
@@ -50,7 +49,7 @@ intent: JWT 확인 → Valkey State 조회 → State.user_id 소유권 확인
 
 - PostgreSQL `chat_sessions`에는 사용자·UUID thread·`START`가 저장된다.
 - 전체 `State`는 Valkey에 JSON으로 저장되며 intent마다 TTL이 3,600초로 갱신된다.
-- State는 현재 위치, 날씨, 모드별 preference, 후보 위치, 테마, 확인 상태와 경로 결과를 가진다.
+- State는 현재 위치, 모드별 preference, 후보 위치, 테마, 확인 상태와 경로 결과를 가진다.
 - intent 처리 때 State에 access JWT를 넣으며 현재 API 응답과 Valkey JSON에도 포함된다.
 - 경로 성공 시 `RouteService`가 `route_histories`를 저장하고 State의 `route_result.id`에 연결한다.
 - 이동 편의 테마(`유모차`, `계단이 불편한`)는 내부 `accessible`, 편의 테마
@@ -70,7 +69,7 @@ intent: JWT 확인 → Valkey State 조회 → State.user_id 소유권 확인
 | Valkey State 없음·TTL 만료 | `session_not_found` | init부터 재시작 |
 | 다른 사용자의 thread | `unaccessible` | 자신의 thread 사용 |
 | DB·Valkey load 또는 Node 예외 | `internal_error` | 의존성 복구 후 해당 단계 재시도 |
-| 초기 날씨·주소 실패 | 기본 인사·좌표 Location으로 계속 | 외부 API 복구 후 새 init |
+| 초기 주소(Kakao) 실패 | 좌표 Location으로 계속 | 외부 API 복구 후 새 init |
 | State 저장 실패 | 성공 응답은 반환하지만 다음 intent에서 세션 유실 가능 | Valkey 복구 후 init 재시작 |
 
 Node 내부의 일부 LLM·경로 실패는 예외 대신 기존 State를 반환한다. HTTP 200만으로 완료를 판단하지 말고 `awaiting_confirmation`, `is_complete`, `route_result.status`를 확인한다.
@@ -90,6 +89,6 @@ Node 내부의 일부 LLM·경로 실패는 예외 대신 기존 State를 반환
 | 정보 추출 | 순환 모드·거리 추출 후 확인 대기 |
 | 긍정 확인 | HTTP 200, 경로 `success`, 61좌표·3.10km·이력 ID 4 |
 
-공공데이터가 실패해 빈 날씨·대기질이 전달됐지만 LLM 인사는 날씨와 대기질이 좋다고 표현했다. 결측 입력에 대한 프롬프트 계약이 없어 사실과 다른 안내가 생성될 수 있다.
+(2026-07-27 당시 기록, 현재는 무의미함) 공공데이터가 실패해 빈 날씨·대기질이 전달됐지만 LLM 인사는 날씨와 대기질이 좋다고 표현했다 — 2026-09-21 `WeatherChecker` 제거로 초기 인사가 LLM 호출 없는 고정 문구가 되면서 이 문제 자체가 사라졌다.
 
 한글 확인 응답은 실행 셸 인코딩 영향 때문에 증거에서 제외하고 코드가 지원하는 `yes`로 긍정 분기를 확인했다. 편도 모드, 장소 후보 선택, State 저장 장애와 TTL 실제 만료는 아직 실행하지 않았다.
