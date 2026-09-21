@@ -6,6 +6,7 @@ import networkx as nx
 from src.interfaces.schema.auth_schema import Status
 from src.interfaces.schema.walk_schema import (
     Coordinate,
+    PlaceLabel,
     RoutePoiItem,
     WalkMode,
     WalkRouteResponse,
@@ -75,9 +76,13 @@ class RouteService:
         leg_target_km: Optional[List[Optional[float]]] = None,
         preference: Optional[Weights] = None,
         seed: Optional[int] = None,
+        origin_label: Optional[PlaceLabel] = None,
+        destination_label: Optional[PlaceLabel] = None,
     ) -> List[WalkRouteResponse]:
         """
         context에 적합한 경로 생성 엔진을 호출합니다.
+        origin_label/destination_label(#520)은 경로 생성에는 쓰이지 않고 RouteHistory에 출발지/도착지
+        표시용 이름(address, place_name)으로만 저장됩니다. 챗봇 state에서 넘어오며, 없으면 저장하지 않습니다.
         mode는 경로 생성 방식(circular_random/oneway_shortest/oneway_random/gps_art/waypoint)을 결정합니다.
         shape_points는 gps_art 모드 전용이며, 호출 전에 이미 도형 이름 -> 좌표 변환이
         끝난 상태여야 합니다(RouteService는 이미지 생성 등 비동기 작업을 하지 않음).
@@ -239,6 +244,8 @@ class RouteService:
                             destination_lat=destination.lat if destination else None,
                             destination_lon=destination.lon if destination else None,
                             candidate_features=selected_first_features,
+                            origin_label=origin_label,
+                            destination_label=destination_label,
                         )
                         result.id = history.id
             except Exception as exc:

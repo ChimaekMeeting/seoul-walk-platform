@@ -41,6 +41,27 @@ class Coordinate(BaseModel):
         return self
 
 
+class PlaceLabel(BaseModel):
+    """출발지/도착지의 표시용 이름(#520). 챗봇 state의 Location(address, place_name)에서 온다.
+
+    경로 좌표(Coordinate)와 달리 경로 생성에는 쓰이지 않고 경로 기록(RouteHistory)에만 저장한다 —
+    프론트가 이력 화면마다 Kakao API로 좌표를 이름으로 바꾸지 않아도 되게 하기 위해서다.
+    """
+    address: Optional[str] = Field(default=None, description="지번 주소 또는 도로명 주소")
+    place_name: Optional[str] = Field(default=None, description="장소 명칭")
+
+
+class WalkProgressStatus(str, Enum):
+    """산책 진행 상태(#520). route_histories.walk_status에 문자열로 저장한다.
+
+    recommended -> in_progress -> completed. 시작 요청이 오면 바로 in_progress가 되고
+    별도의 "시작함" 단계는 없다.
+    """
+    RECOMMENDED = "recommended"  # 추천만 받은 경로(기본값)
+    IN_PROGRESS = "in_progress"  # 산책 시작을 눌러 진행 중
+    COMPLETED = "completed"      # 끝까지 완주
+
+
 class WalkMode(str, Enum):
     CIRCULAR_RANDOM = "circular_random"
     ONEWAY_SHORTEST = "oneway_shortest"
