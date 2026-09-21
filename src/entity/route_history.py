@@ -1,7 +1,7 @@
 from src.entity.base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import Integer, String, Float, DateTime, JSON, ForeignKey, func
-from datetime import datetime
+from sqlalchemy import Integer, String, Float, DateTime, Date, JSON, ForeignKey, Text, func
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
@@ -39,5 +39,22 @@ class RouteHistory(Base):
         server_default=func.now(),
         nullable=False
     )
+
+    # 출발지/도착지 표시용 이름(#520). 챗봇 state의 Location(address, place_name)에서 채우고,
+    # 챗봇을 거치지 않은 경로(직접 경로 API)와 이 컬럼이 생기기 전 기록은 None이다.
+    origin_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    origin_place_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    destination_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    destination_place_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # 산책 진행 상태(#520): recommended(추천만 받음) -> in_progress(산책 시작) -> completed(완주).
+    # 문자열로 저장한다(WalkProgressStatus). 이 컬럼이 생기기 전 기록은 init_table()의 ADD COLUMN이
+    # 기본값 없이 NULL로 추가하므로 None은 recommended로 읽는다(is_favorite과 같은 처리).
+    walk_status: Mapped[str] = mapped_column(
+        String(20), default="recommended", server_default="recommended", nullable=False
+    )
+    # 완주한 날짜(한국 시간 기준). 완주로 기록하는 순간에만 채우고, 완주하지 않은 경로는 None이다.
+    # 사용자의 최근 산책은 이 날짜가 가장 늦은 기록이다.
+    walked_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="route_histories")

@@ -1,7 +1,7 @@
 import logging
 
 from src.schema.prewalk_schema import State, FeatureTag
-from src.interfaces.schema.walk_schema import WalkMode, Coordinate
+from src.interfaces.schema.walk_schema import WalkMode, Coordinate, PlaceLabel
 from src.agent.tools.route_tools import RouteTool
 from src.schema.route_schema import Weights
 from src.repository.user.user_preference_repository import UserPreferenceRepository
@@ -59,6 +59,10 @@ class RouteExecutor:
         for k, v in context_dump.items():
             if k in ("origin", "destination"):
                 args[k] = Coordinate(lat=v["lat"], lon=v["lon"])
+                # 이름(address, place_name)은 경로 생성에 쓰이지 않고 경로 기록에만 저장한다(#520) —
+                # 프론트가 이력 화면마다 Kakao API로 좌표를 이름으로 바꾸지 않아도 되게 한다.
+                if v.get("address") or v.get("place_name"):
+                    args[f"{k}_label"] = PlaceLabel(address=v.get("address"), place_name=v.get("place_name"))
             elif k == "waypoints":
                 args[k] = [Coordinate(lat=wp["lat"], lon=wp["lon"]) for wp in v]
             else:

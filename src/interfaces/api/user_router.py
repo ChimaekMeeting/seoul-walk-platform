@@ -21,7 +21,9 @@ from src.interfaces.schema.route_feedback_schema import RouteFeedbackRequest, Ro
 from src.interfaces.schema.user_schema import (
     UserMeResponse, UserUpdateRequest, UserUpdateResponse,
     RouteHistoryResponse, RouteHistoryItem,
+    RouteWalkProgressResponse,
 )
+from src.interfaces.schema.walk_schema import WalkProgressStatus
 from src.service.user.survey_service import SurveyService
 from src.service.user.user_service import UserService
 from src.service.user.longterm_profile_service import LongTermProfileService
@@ -133,6 +135,72 @@ def toggle_favorite(
     except Exception as e:
         log_unexpected_error(logger, "route_favorite_unexpected_error", e)
         raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e
+
+
+def _walk_progress_response(history) -> RouteWalkProgressResponse:
+    """경로 기록의 현재 산책 진행 상태를 응답으로 만든다(walk_status가 없던 이전 기록은 recommended)."""
+    return RouteWalkProgressResponse(
+        walk_status=WalkProgressStatus(history.walk_status or WalkProgressStatus.RECOMMENDED.value),
+        walked_on=history.walked_on,
+    )
+
+
+def _update_walk_progress(history_id: int, access_token: str | None, auth_service: AuthService, update, log_name: str):
+    """산책 시작/완주 기록 엔드포인트의 공통 처리(인증 -> 소유 확인 -> 상태 기록 -> 진행 상태 응답)."""
+    try:
+        status, provider, provider_id = auth_service.check_access_token(access_token)
+        if status != Status.SUCCESS:
+            logger.warning("%s_auth_failed | status=%s", log_name, status.value)
+            raise HTTPException(status_code=401, detail=status.value)
+
+        user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
+        if user is None:
+            logger.warning("%s_user_not_found", log_name)
+            raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+        history = update(history_id, user.id)
+        if history is None:
+            logger.warning("%s_not_found", log_name)
+            raise HTTPException(status_code=404, detail="경로 기록을 찾을 수 없습니다.")
+
+        return _walk_progress_response(history)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_unexpected_error(logger, f"{log_name}_unexpected_error", e)
+        raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e
+
+
+@router.post("/routes/{history_id}/start", response_model=RouteWalkProgressResponse)
+def start_route_walk(
+    history_id: int,
+    access_token: str | None = Depends(resolve_access_token),
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """
+    산책 시작을 누른 경로로 기록합니다. 요청 본문은 없고, 바로 진행 중(in_progress)으로 바뀝니다.
+    응답 walk_status는 처리 후 진행 상태입니다. 이미 진행 중이거나 완주한 경로를 다시 호출해도
+    상태를 되돌리지 않습니다.
+    """
+    return _update_walk_progress(
+        history_id, access_token, auth_service, RouteHistoryRepository.mark_started, "route_walk_start",
+    )
+
+
+@router.post("/routes/{history_id}/complete", response_model=RouteWalkProgressResponse)
+def complete_route_walk(
+    history_id: int,
+    access_token: str | None = Depends(resolve_access_token),
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """
+    완주를 기록합니다. 요청 본문은 없고, 호출되면 무조건 완주(completed)로 기록하며 완주한 날짜
+    (한국 시간 기준)를 walked_on에 저장합니다. 산책을 중간에 끝낸 경우에는 호출하지 않으며,
+    이 경우 경로는 in_progress로 남습니다. 이미 완주한 경로를 다시 호출해도 날짜는 바뀌지 않습니다.
+    """
+    return _update_walk_progress(
+        history_id, access_token, auth_service, RouteHistoryRepository.mark_completed, "route_walk_complete",
+    )
 
 
 @router.get("/routes/{history_id}", response_model=RouteHistoryItem)

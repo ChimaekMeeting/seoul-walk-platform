@@ -908,3 +908,41 @@ class TestRouteExecutorReachesCandidateFeaturesContract:
         custom_weights = get_route_spy.call_args.args[5]
         assert custom_weights.safety == pytest.approx(0.9)
         assert custom_weights.comfort == pytest.approx(0.1)
+
+
+class TestPlaceLabelsReachRouteHistory:
+    """챗봇 state의 Location(address, place_name)이 RouteExecutor -> RouteTool -> RouteService를 거쳐
+    RouteHistory 저장 인자까지 전달되는지 확인한다(#520). 직접 경로 API처럼 이름이 없으면 None이다."""
+
+    def test_챗봇_state의_출발지_이름이_경로_기록_저장까지_전달된다(self, route_service, history_store):
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(2.47, _SUCCESS_CANDIDATE_FEATURES)
+        executor = _real_route_executor(route_service)
+        state = _circular_state()
+        state.user_context.origin = Location(
+            lat=ORIGIN.lat, lon=ORIGIN.lon, address="서울 종로구 세종로 1", place_name="광화문",
+        )
+
+        result_state = asyncio.run(executor.run(state))
+
+        stored = history_store.find_by_id(result_state.route_result[0].id, user_id=1)
+        assert stored.origin_label.address == "서울 종로구 세종로 1"
+        assert stored.origin_label.place_name == "광화문"
+        assert stored.destination_label is None  # 순환 경로는 도착지가 없다
+
+    def test_출발지에_이름이_없으면_라벨은_None으로_저장된다(self, route_service, history_store):
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(2.47, _SUCCESS_CANDIDATE_FEATURES)
+        executor = _real_route_executor(route_service)
+
+        result_state = asyncio.run(executor.run(_circular_state()))
+
+        stored = history_store.find_by_id(result_state.route_result[0].id, user_id=1)
+        assert stored.origin_label is None
+
+    def test_직접_경로_API_경로는_라벨_없이_저장된다(self, route_service, history_store):
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(2.47, _SUCCESS_CANDIDATE_FEATURES)
+
+        history_id = _generate_and_get_history_id(route_service, target_km=2.5)
+
+        stored = history_store.find_by_id(history_id, user_id=1)
+        assert stored.origin_label is None
+        assert stored.destination_label is None
