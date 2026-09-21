@@ -5,9 +5,9 @@ src/interfaces/api/user_router.py
 현재 온보딩 설문 제출(POST /api/user/survey)을 제공합니다.
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 import logging
 
 from src.interfaces.dependencies import (
@@ -67,15 +67,23 @@ def submit_survey(
 
 @router.get("/routes", response_model=RouteHistoryResponse)
 def get_route_histories(
-    limit: int = 20,
-    offset: int = 0,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     is_favorite: Optional[bool] = None,
+    walk_status: Literal["in_progress", "completed"] = "completed",
+    group_by_route: bool = True,
     access_token: str | None = Depends(resolve_access_token),
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """
-    로그인한 사용자의 추천 경로 기록을 조회합니다.
-    is_favorite을 지정하면 즐겨찾기 여부로 필터링합니다(예: true → 즐겨찾기만).
+    로그인한 사용자의 경로 기록을 조회합니다. 기록 탭별 요청:
+    - 산책 완료 경로: 파라미터 없이 요청(walk_status 기본값 completed)
+    - 산책 시작한 경로: walk_status=in_progress (시작했고 아직 완주하지 않은 경로)
+    - 즐겨찾기 경로: is_favorite=true (walk_status와 무관하게 즐겨찾기 경로)
+
+    같은 경로(route_hash)는 한 항목으로 묶여 대표 행 하나만 내려가며 limit/offset/total도 그룹 기준입니다.
+    항목의 id는 대표 행의 실제 id라서 /start, /complete, /favorite에 그대로 씁니다. 정렬은 완료와 즐겨찾기는
+    최근 완주일(walked_on) 순, 시작한 경로는 경로 생성 시각 순입니다. group_by_route=false를 주면 행 단위로 조회합니다.
     """
     try:
         status, provider, provider_id = auth_service.check_access_token(
@@ -90,12 +98,21 @@ def get_route_histories(
             logger.warning("route_history_list_user_not_found")
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
-        histories = RouteHistoryRepository.find_by_user_id(
-            user.id, limit=limit, offset=offset, is_favorite=is_favorite
+        page, total = RouteHistoryRepository.find_page(
+            user.id,
+            walk_status=WalkProgressStatus(walk_status),
+            is_favorite=is_favorite,
+            limit=limit,
+            offset=offset,
+            group_by_route=group_by_route,
         )
         return RouteHistoryResponse(
-            histories=[RouteHistoryItem.model_validate(h) for h in histories],
-            total=len(histories),
+            # 그룹의 즐겨찾기 여부(같은 경로의 행 중 하나라도 즐겨찾기)를 대표 행의 값 대신 내려 준다.
+            histories=[
+                RouteHistoryItem.model_validate(h).model_copy(update={"is_favorite": favorite})
+                for h, favorite in page
+            ],
+            total=total,
         )
     except HTTPException:
         raise
@@ -196,7 +213,8 @@ def complete_route_walk(
     """
     완주를 기록합니다. 요청 본문은 없고, 호출되면 무조건 완주(completed)로 기록하며 완주한 날짜
     (한국 시간 기준)를 walked_on에 저장합니다. 산책을 중간에 끝낸 경우에는 호출하지 않으며,
-    이 경우 경로는 in_progress로 남습니다. 이미 완주한 경로를 다시 호출해도 날짜는 바뀌지 않습니다.
+    이 경우 경로는 in_progress로 남습니다. 이미 완주한 경로를 다시 호출하면 walked_on을 그날 날짜로
+    갱신합니다(재산책이 최근 산책 순서에 반영되며, 최초 완주일은 남지 않습니다).
     """
     return _update_walk_progress(
         history_id, access_token, auth_service, RouteHistoryRepository.mark_completed, "route_walk_complete",
@@ -230,7 +248,10 @@ def get_route_history(
             logger.warning("route_history_detail_not_found")
             raise HTTPException(status_code=404, detail="경로 기록을 찾을 수 없습니다.")
 
-        return RouteHistoryItem.model_validate(history)
+        # 목록과 같은 기준으로, 같은 경로의 행 중 하나라도 즐겨찾기면 즐겨찾기로 보여 준다.
+        favorite = RouteHistoryRepository.is_group_favorite(history_id, user.id)
+        item = RouteHistoryItem.model_validate(history)
+        return item if favorite is None else item.model_copy(update={"is_favorite": favorite})
     except HTTPException:
         raise
     except Exception as e:
