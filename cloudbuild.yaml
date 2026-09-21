@@ -70,7 +70,7 @@ steps:
       - --max-instances=3
       - --timeout=300
       # ── Non-sensitive env vars (Supabase + app config 확정값) ──
-      - --set-env-vars=POSTGRES_HOST=aws-1-ap-northeast-2.pooler.supabase.com,POSTGRES_PORT=5432,POSTGRES_USER=postgres.cbtqbecddiepzrzrcnou,POSTGRES_DB=postgres,POSTGRES_SSL_MODE=require,DB_POOL_SIZE=2,DB_MAX_OVERFLOW=3,WALK_GRAPH_SOURCE=artifact,WALK_GRAPH_DATA_VERSION=v1-2026-07-30,WALK_GRAPH_EXPECTED_COMMIT=55d30b0cdef16b2bfdd04723fbac39e397bd5f58,DB_AUTO_MIGRATE=create,LANGCHAIN_TRACING_V2=false
+      - --set-env-vars=POSTGRES_HOST=aws-1-ap-northeast-2.pooler.supabase.com,POSTGRES_PORT=5432,POSTGRES_USER=postgres.cbtqbecddiepzrzrcnou,POSTGRES_DB=postgres,POSTGRES_SSL_MODE=require,DB_POOL_SIZE=2,DB_MAX_OVERFLOW=3,WALK_GRAPH_SOURCE=artifact,WALK_GRAPH_DATA_VERSION=v3-2026-09-19,WALK_GRAPH_EXPECTED_COMMIT=3d1696a08696c9921e7ad4b6e1c4962687cd2651,DB_AUTO_MIGRATE=create,LANGCHAIN_TRACING_V2=false
       # ── Secrets from Secret Manager ──
       - --set-secrets=POSTGRES_PASSWORD=postgres-password:latest,VALKEY_URI=valkey-uri:latest,OPENAI_API_KEY=openai-api-key:latest,KAKAO_API_KEY=kakao-api-key:latest,MAPBOX_API_KEY=mapbox-api-key:latest,WEATHER_API_KEY=weather-api-key:latest,AIR_KOREA_API_KEY=air-korea-api-key:latest,PUBLIC_DATA_API_KEY=public-data-api-key:latest,ACCESS_SECRET_KEY=access-secret-key:latest,REFRESH_SECRET_KEY=refresh-secret-key:latest
 
