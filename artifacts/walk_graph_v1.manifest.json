@@ -1,0 +1,15 @@
+{
+  "artifact_schema_version": 1,
+  "artifact_file": "walk_graph_v1.pkl",
+  "artifact_sha256": "6b1270c5618421a161ae1ab2cbc55746bae0e93ac19f721e073ca5e9a789ae8f",
+  "artifact_size_bytes": 24845026,
+  "created_at_utc": "2026-09-19T07:47:42.868811+00:00",
+  "data_version": "v3-2026-09-19",
+  "source_commit": "3d1696a08696c9921e7ad4b6e1c4962687cd2651",
+  "source_dirty": false,
+  "python_version": "3.12.12",
+  "networkx_version": "3.6",
+  "graph_type": "Graph",
+  "node_count": 160197,
+  "edge_count": 223693
+}
