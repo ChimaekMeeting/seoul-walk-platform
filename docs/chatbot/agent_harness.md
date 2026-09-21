@@ -1,7 +1,8 @@
 # 챗봇 Agent 하네스
 
 > 상태: Current  
-> 2026-09-20 WeightExtractor 갱신: 이전 선호를 프롬프트에 전달하고, 이번 턴에 언급하지 않은 축은 유지하며, 다시 언급한 축은 갱신하고, 명시적으로 취소한 축은 삭제한다. GPS Art·최단경로로 전환해도 기존 라벨을 유지한다. 실제 OpenAI 평가와 멀티턴 검증 결과·알려진 한계는 §9의 “2026-09-20” 및 “2026-09-20 후속” 기록을 참고한다.
+> 2026-09-20 WeightExtractor 갱신: 이전 선호를 프롬프트에 전달하고, 이번 턴에 언급하지 않은 축은 유지하며, 다시 언급한 축은 갱신하고, 명시적으로 취소한 축은 삭제한다. GPS Art·최단경로로 전환해도 기존 라벨을 유지한다. 실제 OpenAI 평가와 멀티턴 검증 결과·알려진 한계는 §9의 “2026-09-20” 및 “2026-09-20 후속” 기록을 참고한다.  
+> 2026-09-21 WeatherChecker 제거: 날씨·대기질 기반 LLM 초기 인사 Node를 없애고 고정 문구로 대체했다. `weather_checker.py`/`weather_checker.yaml`/`weather_cache_repository.py`도 함께 삭제했다.
 
 ## 1. 책임
 
@@ -58,7 +59,7 @@ Authorization header가 있으면 Bearer를 사용하고 cookie는 보지 않는
 - 경로 성공: `route_result`(`List[WalkRouteResponse]`)는 모드에 따라 최대 3개까지 담길 수 있다(2026-09-19 갱신 — `circular_random`은 `WaypointEngine`의 grasp+alns 다중 후보 규칙으로 3개, `oneway_random`은 지금 `oneway_shortest`와 같은 엔진이라 1개, `waypoint`는 leg 조합 다양화로 최대 3개 — 상세는 [경로 생성 엔진](../route_engine/README.md)의 "Engine 반환 계약"·"후보 다양화(벡터 score 기반)" 절 참고)
 - 경로 성공: `RouteService`가 `RouteHistory`를 저장하고 `route_result[0].id`(대표 후보만)에 반영한다 — 나머지 후보의 `id`는 비어 있다(사용자가 실제로 고른 후보를 저장하는 흐름은 아직 없음, 알려진 개선 항목)
 - 경로 성공: 성공한 후보 전부에 대해 그 경로 50m 안의 도보망 연결 POI를 `route_result[i].nearby_pois`로 반환
-- LLM 출력: 초기 인사, 모드·거리·위치 추출, feature(safety/comfort)별 `preference_label`·`explicitness_label` 추출, 누락 질문, 확인 질문 긍정·부정 판정, 최종 확인 요청·검색 실패·서울 밖 안내(2026-08-20부터 전부 `interview.yaml` 생성, 하드코딩 문구 없음)
+- LLM 출력: 모드·거리·위치 추출, feature(safety/comfort)별 `preference_label`·`explicitness_label` 추출, 누락 질문, 확인 질문 긍정·부정 판정, 최종 확인 요청·검색 실패·서울 밖 안내(2026-08-20부터 전부 `interview.yaml` 생성, 하드코딩 문구 없음). 초기 인사는 2026-09-21부터 `WeatherChecker` 제거와 함께 LLM 호출 없는 고정 문구로 바뀌었다(아래 "파일 구조" 참고).
 - 오류 출력: `Interviewer`의 LLM·Kakao API 호출이 실패하면 원문 예외 대신 `서버 내부 오류가 발생했습니다.`를 `response`에 넣는다. 실패 로그는 사건명과 예외 형식만 기록한다(2026-09-20).
 
 현재 intent State에는 access JWT가 포함되며 API 응답과 Valkey JSON 양쪽으로 전달된다. `ChatSession.current_state`는 경로 완료 후에도 `START`로 남는다.
@@ -70,7 +71,6 @@ Authorization header가 있으면 Bearer를 사용하고 cookie는 보지 않는
 ```text
 src/agent/
 ├── nodes/
-│   ├── weather_checker.py      # init 환경 인사, Graph 밖에서 실행
 │   ├── extractor.py            # 모드·위치·거리 추출
 │   ├── weight_extractor.py     # feature(safety/comfort)별 preference_label·explicitness_label 추출
 │   ├── interviewer.py          # 누락 질문·장소 검색·확인 질문
@@ -93,18 +93,12 @@ src/repository/chat/chat_session_repository.py   # PostgreSQL 세션 저장
 src/prompt/                                      # LLM Prompt
 ```
 
-**알려진 제약(2026-08-07): `WeatherCacheRepository` 미병합**
-
-- `weather_checker.py`가 import하는 `src/infrastructure/cache/repository/weather_cache_repository.py`가 이 브랜치에는 아직 없다 — 다른 브랜치에서 추가될 예정이다.
-- 그 모듈이 합쳐지기 전까지 `weather_checker.py`를 import하는 모든 경로(`src.agent.nodes` 패키지 전체, `src.service.chat.prewalk_service`, 이를 거치는 `src.service` 하위 대부분)가 `ModuleNotFoundError`로 즉시 실패한다 — 실제 서버 기동(`src/main.py`)과 `python -c "from src.service...`처럼 직접 import하는 스크립트 모두 영향을 받는다.
-- `tests/`는 영향받지 않는다 — `tests/conftest.py`가 `src.agent.nodes.weather_checker`를 통째로 `MagicMock`으로 미리 등록해 real import를 우회한다.
-- `WeatherCacheRepository`가 합쳐지면 이 제약은 자동으로 해소된다. 그 전까지 이 브랜치 단독으로 로컬 서버를 띄우거나 `src.service`를 직접 import하는 수동 확인은 할 수 없다.
+**`WeatherChecker` 제거(2026-09-21)**: 날씨·대기질 기반 LLM 초기 인사 Node를 통째로 없애고, `prewalk_service.py::orchestrator`(init)가 고정 문자열("편안하고 안전한 길을 추천해드리는 ROUDI예요! 어떤 산책 코스를 추천해드릴까요? ...")을 바로 반환하도록 바꿨다. `weather_checker.py`/`weather_checker.yaml`과 그 전용 캐시 의존성(`weather_cache_repository.py`)도 함께 삭제했다 — `/api/weather`(배너용 `WeatherClient`)는 완전히 별개 기능이라 영향받지 않는다.
 
 ### Node 입출력
 
 | Node | 입력 | 출력·State 변경 | 외부 호출 |
 |---|---|---|---|
-| `WeatherChecker.run` | `lat`, `lon` | `init_message`(문자열) | 기상청·에어코리아·OpenAI |
 | `Extractor.run` | `State` | `mode`, `user_context` | OpenAI, `ModeTool` |
 | `WeightExtractor.run` | `State` | `feature_labels`(GPS Art·최단경로는 `custom_weights`를 안 쓰므로 호출 자체를 건너뛰고 `{}`) | OpenAI(`PydanticOutputParser`, tool 미바인딩) |
 | `Interviewer.run` | `State` | 후보 위치, 보완된 context, `response`, 확인 상태 | OpenAI, `PlaceTool` |
@@ -136,8 +130,8 @@ src/prompt/                                      # LLM Prompt
 
 ```mermaid
 flowchart TD
-    INIT["POST /init"] --> WC["WeatherChecker"]
-    WC --> SAVE["ChatSession + 초기 State 저장"]
+    INIT["POST /init"] --> GREET["고정 인사 문구(2026-09-21부터 LLM 미호출)"]
+    GREET --> SAVE["ChatSession + 초기 State 저장"]
 
     INTENT["POST /intent"] --> LOAD["인증 + State 조회 + 소유권 확인"]
     LOAD --> ENTRY{"조건부 진입점: awaiting_confirmation?"}
@@ -179,7 +173,6 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 
 | Node | 현재 사용하는 Prompt |
 |---|---|
-| `WeatherChecker` | `weather_checker.yaml` |
 | `Extractor` | `extraction.yaml` |
 | `WeightExtractor` | `weight_extraction.yaml`(도구 미바인딩, `PydanticOutputParser`로 `FeatureLabelMap`(`dict[FeatureTag, FeatureLabelEntry]` `RootModel`, `FeatureLabelEntry = Union[FeatureLabel, Literal["cancelled"]]`, 2026-09-20) 파싱. `previous_labels` input variable로 `[이전 라벨]`도 함께 받음) |
 | `Interviewer` | `interview.yaml` 단일 파일 — 도구 바인딩 1차 호출(장소 검색)과, 확인 요청·검색 실패·서울 밖 안내·재질문을 만드는 도구 미바인딩 호출(`_generate_response()`로 통합, `parser=str_parser`) 두 가지 방식으로 호출한다 |
