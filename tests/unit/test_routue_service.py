@@ -195,7 +195,7 @@ class TestModeRouting:
         find_pois.assert_called_once_with(SUCCESS_RESPONSE.coordinates)
         assert result[0].nearby_pois[0].category == "toilet"
 
-    def test_후보가_여러_개면_POI는_전부에_붙고_이력은_대표_후보만_저장한다(self, service, patched_nodes):
+    def test_후보가_여러_개면_POI와_선택가능한_이력_id가_전부에_붙는다(self, service, patched_nodes):
         mock_engine_instance = MagicMock()
         mock_engine_instance.run.return_value = [
             SUCCESS_RESPONSE.model_copy(update={"total_km": 1.5}),
@@ -221,7 +221,7 @@ class TestModeRouting:
             return_value=MagicMock(id=1),
         ), patch(
             "src.service.route.route_service.RouteHistoryRepository.save",
-            return_value=MagicMock(id=99),
+            side_effect=[MagicMock(id=99), MagicMock(id=100)],
         ) as save_history:
             result = service.get_route(
                 ACCESS_TOKEN,
@@ -234,9 +234,9 @@ class TestModeRouting:
         assert find_pois.call_count == 2  # 성공한 후보 전부에 POI 조회
         assert result[0].nearby_pois[0].category == "toilet"
         assert result[1].nearby_pois[0].category == "toilet"
-        save_history.assert_called_once()  # 이력 저장은 대표 후보 1개만
+        assert save_history.call_count == 2
         assert result[0].id == 99
-        assert result[1].id is None
+        assert result[1].id == 100
 
     def test_엔진이_실패_status를_반환하면_그대로_전달된다(self, service, patched_nodes):
         mock_engine_instance = MagicMock()

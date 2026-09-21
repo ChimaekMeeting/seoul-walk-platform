@@ -144,6 +144,10 @@ class LongTermProfileService:
             return RouteFeedbackResponse(status=RouteFeedbackStatus.ROUTE_NOT_FOUND)
 
         # 별점 자체는 항상 저장한다 — 장기 프로필 갱신 가능 여부와 무관하게 기록으로 남긴다.
+        # 다만 같은 route_history_id의 재제출은 기존 별점 수정일 뿐 새 산책 경험이 아니다.
+        # 이미 학습한 경로를 다시 SGD에 넣으면 feedback_count와 가중치가 중복 누적되므로,
+        # 최초 제출인지 먼저 기억해 두고 재제출은 저장만 한 뒤 현재 가중치를 반환한다.
+        existing_feedback = RouteFeedbackRepository.find_by_route_history_id(route_history_id)
         RouteFeedbackRepository.upsert(
             user_id=user.id,
             route_history_id=route_history_id,
@@ -162,6 +166,14 @@ class LongTermProfileService:
             preference = UserPreferenceRepository.get_by_user_id(user.id)
             return RouteFeedbackResponse(
                 status=RouteFeedbackStatus.INSUFFICIENT_CANDIDATES,
+                weights_safety=preference.weights_safety if preference else None,
+                weights_comfort=preference.weights_comfort if preference else None,
+            )
+
+        if existing_feedback is not None:
+            preference = UserPreferenceRepository.get_by_user_id(user.id)
+            return RouteFeedbackResponse(
+                status=RouteFeedbackStatus.SUCCESS,
                 weights_safety=preference.weights_safety if preference else None,
                 weights_comfort=preference.weights_comfort if preference else None,
             )

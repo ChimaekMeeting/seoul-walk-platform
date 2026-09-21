@@ -448,7 +448,7 @@ A*(`BuildCycleRoute`)가 그 가중 비용으로 구간을 잇는다 — 단, AL
 - 후보 선별은 `evaluate_route`/`better`의 사전식 키(`RouteObjective.sort_key()`)로 **안정 정렬**한 뒤 `node_ids` 완전 일치 중복만 제거하고, 그래도 2개를 못 채우면 최종 경로를 복제해 채운다. 최선해 추적(`better` 순차 갱신)은 그대로 두고 후보 수집만 옆에 붙였으므로, 같은 seed에서 최종 경로는 이 변경 전과 동일하다(실측 9조건에서 `|cost - target_m|`이 소수점까지 일치, 2026-09-17).
 - 복제 발동률은 실측 5.0%다(2026-09-17, `grasp+local`, 출발지 8 × 거리 5종 × N=2 × seed {42, 7, 123} = 120회 중 6회). 발동 조건은 남산 1km·북한산 3km 둘뿐이고 세 시드에서 모두 같은 조건에서만 걸렸다 — 무작위 변동이 아니라 성긴 도로망 + 짧은 목표거리의 구조적 한계다. 복제는 매번 1개였고(후보 2개를 모두 복제한 경우 0회), dense·medium 60회와 5km 이상 72회에서는 한 번도 발동하지 않았다. N=3·4는 별도 16조건에서 서로 다른 경로가 최소 5개였다(seed 42).
 - `oneway_shortest` 모드의 실제 사용 엔진은 `dijkstra.py`(`OnewayDijkstraEngine`)에서 `oneway_astar.py`(`OnewayAstarEngine`)로 교체되었다. 배경·현재 사용처는 바로 아래 "oneway_shortest 엔진: 거리 전용(distance-only) weight + Haversine 휴리스틱" 절 참고.
-- `route_service.get_route()`도 같은 계약(`List[WalkRouteResponse]`)으로 반환한다. POI 조회는 성공한 후보 전부에 적용하고, `RouteHistory` 저장은 아직 대표 후보(리스트의 첫 번째)만 한다 — 사용자가 실제로 어떤 후보를 골랐는지 아직 API로 전달받지 않기 때문이며, 그 흐름이 생기면 선택된 후보를 저장하도록 바꿀 예정이다(`route_service.py`의 `TODO` 주석 참고). 리스트 전체는 그대로 반환한다.
+- `route_service.get_route()`도 같은 계약(`List[WalkRouteResponse]`)으로 반환한다. POI 조회와 `RouteHistory` 저장은 성공한 후보 전부에 적용하며, 각 응답 후보에는 자신의 이력 ID가 붙는다. 사용자가 어느 후보를 선택해도 즐겨찾기·별점·장기 프로필 갱신이 그 후보 이력을 기준으로 동작한다.
 - `OnewayAstarEngine._heuristic`은 2026-08-23부터 랜드마크 기반 ALT 방식이 아니라 Haversine 직선거리(`PathUtils._haversine_m`)를 쓴다. 이에 따라 `precompute_landmarks()`/`_select_landmarks()`/`landmark_dist` 노드 속성은 코드에서 전부 제거됐다 — 상세는 아래 "oneway_shortest 엔진: 거리 전용(distance-only) weight + Haversine 휴리스틱" 절 참고.
 
 ## 후보 다양화(벡터 score 기반)
@@ -494,7 +494,7 @@ A*(`BuildCycleRoute`)가 그 가중 비용으로 구간을 잇는다 — 단, AL
 **`route_service.py`: POI·이력 처리**
 
 - POI 조회(`RoutePoiRepository.find_near_route`)는 성공한 후보 전부에 적용한다.
-- `RouteHistory` 저장은 아직 대표 후보(리스트의 첫 번째)만 한다 — 사용자가 실제로 어떤 후보를 선택했는지 API로 전달받는 흐름이 아직 없기 때문이다. **알려진 개선 항목**: 그 흐름이 생기면 사용자가 실제로 고른 후보를 저장하도록 바꿀 예정이다(`route_service.py`의 `TODO` 주석 참고).
+- `RouteHistory`도 성공한 후보마다 하나씩 저장하고 각 `WalkRouteResponse.id`에 해당 이력 ID를 넣는다. 저장하는 `candidate_features`는 그 이력의 후보 특성을 첫 번째로 재정렬한다. 장기 프로필 학습이 첫 번째 특성을 실제 선택 경로(`X_R`)로 해석하기 때문이다.
 - `walk_router.py`(직접 REST API)는 의도적으로 이번 변경 범위에서 제외했다 — 레거시로 간주하기로 했고, `response.status.value`가 이미 실제 반환 타입(`List[...]`)과 맞지 않는 기존 버그도 그대로 둔다.
 
 **아직 확인 안 된 것**: 실제 그래프 규모에서 이 다양화가 실제로 서로 다른 "의미 있는" 3개(예: 정말 확연히 다른 동선)를 만들어내는지는 toy 그래프 검증까지만 했고, 실서비스 규모 그래프·프런트엔드 노출까지는 확인하지 않았다. `tests/`에 정식 회귀 테스트도 아직 없다.

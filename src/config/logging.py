@@ -17,3 +17,7 @@ def setup_logging() -> None:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     root.addHandler(handler)
+
+    # httpx의 INFO 요청 로그에는 serviceKey query가 그대로 포함될 수 있다.
+    # 외부 호출 실패는 각 client가 키를 제외한 사건명과 예외 형식으로 남긴다.
+    logging.getLogger("httpx").setLevel(logging.WARNING)

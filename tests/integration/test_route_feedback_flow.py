@@ -174,6 +174,10 @@ def patched_repositories(history_store, preference_store):
             "src.service.user.longterm_profile_service.RouteHistoryRepository.find_by_id",
             side_effect=history_store.find_by_id,
         ),
+        patch(
+            "src.service.user.longterm_profile_service.RouteFeedbackRepository.find_by_route_history_id",
+            return_value=None,
+        ),
         patch("src.service.user.longterm_profile_service.RouteFeedbackRepository.upsert"),
         patch(
             "src.service.user.longterm_profile_service.UserPreferenceRepository.get_by_user_id",
@@ -281,6 +285,48 @@ class TestCandidateCountDrivesFeedbackOutcome:
         stored = history_store.find_by_id(history_id, user_id=1)
 
         assert stored.candidate_features == _SUCCESS_CANDIDATE_FEATURES
+
+    def test_각_후보는_자기_id와_자신이_첫번째인_candidate_features를_가진다(
+        self, route_service, history_store
+    ):
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(
+            2.47, _SUCCESS_CANDIDATE_FEATURES
+        )
+
+        results = route_service.get_route(
+            ACCESS_TOKEN, origin=ORIGIN, target_km=2.5, mode=WalkMode.CIRCULAR_RANDOM,
+        )
+
+        assert len({result.id for result in results}) == len(results) == 3
+        for index, result in enumerate(results):
+            stored = history_store.find_by_id(result.id, user_id=1)
+            expected = [
+                _SUCCESS_CANDIDATE_FEATURES[index],
+                *_SUCCESS_CANDIDATE_FEATURES[:index],
+                *_SUCCESS_CANDIDATE_FEATURES[index + 1:],
+            ]
+            assert stored.candidate_features == expected
+
+    def test_같은_경로_피드백_재제출은_별점만_갱신하고_프로필은_중복_학습하지_않는다(
+        self, route_service, profile_service, preference_store
+    ):
+        route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(
+            2.47, _SUCCESS_CANDIDATE_FEATURES
+        )
+        history_id = _generate_and_get_history_id(route_service, target_km=2.5)
+        feedback_lookup = longterm_profile_module.RouteFeedbackRepository.find_by_route_history_id
+        feedback_lookup.side_effect = [None, MagicMock()]
+
+        first = profile_service.submit_feedback(ACCESS_TOKEN, history_id, _feedback())
+        first_safety = first.weights_safety
+        first_comfort = first.weights_comfort
+        second = profile_service.submit_feedback(
+            ACCESS_TOKEN, history_id, _feedback(safety=1, comfort=1, overall=1)
+        )
+
+        assert preference_store.get_by_user_id(1).feedback_count == 1
+        assert second.weights_safety == first_safety
+        assert second.weights_comfort == first_comfort
 
     def test_피드백_시점_SGD_입력에_생성_시점_candidate_features가_그대로_전달된다(
         self, route_service, profile_service
