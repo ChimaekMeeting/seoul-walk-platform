@@ -64,7 +64,7 @@ class RouteHistoryItem(BaseModel):
     destination_place_name: Optional[str] = None
     # 산책 진행 상태: recommended(추천만 받음) / in_progress(산책 시작) / completed(완주). 이전 기록은 recommended.
     walk_status: str = "recommended"
-    # 완주한 날짜(한국 시간 기준). 완주하지 않은 경로는 None.
+    # 가장 최근에 완주한 날짜(한국 시간 기준). 완주한 적 없는 경로는 None.
     walked_on: Optional[date] = None
 
     @field_validator("is_favorite", mode="before")
@@ -87,7 +87,7 @@ class RouteWalkProgressResponse(BaseModel):
     walk_status는 요청 성공 여부가 아니라 처리 후 산책 진행 상태다(recommended / in_progress / completed).
     /favorite, /feedback의 status(성공 여부)와 헷갈리지 않도록 필드명을 walk_status로 둔다.
     요청 실패(인증 오류, 없는 경로)는 다른 /routes 엔드포인트처럼 HTTP 401/404로 돌려준다.
-    walked_on은 완주한 날짜(한국 시간 기준)이며 완주하지 않았으면 null이다.
+    walked_on은 가장 최근에 완주한 날짜(한국 시간 기준)이며 완주한 적이 없으면 null이다.
     """
     walk_status: WalkProgressStatus
     walked_on: Optional[date] = None
