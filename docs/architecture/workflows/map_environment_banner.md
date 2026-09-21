@@ -61,11 +61,11 @@
 | Kakao 시설 또는 Point 조회 예외 | HTTP 500 | key·외부 응답·DB 확인 |
 | Edge DB 예외 | repository가 빈 목록으로 축소 | DB 로그 확인 |
 | Edge `link_id` 타입 불일치 | HTTP 500 응답 검증 실패 | entity/schema 계약 수정 필요 |
-| 기상·대기질 파싱·HTTP 실패 | HTTP 200, 해당 값 `null` | 공공데이터 key·응답 확인 후 재요청 |
+| 기상·대기질 파싱·HTTP 실패 | HTTP 200, 해당 값 `null` | 기상청은 `WEATHER_API_KEY`, 대기질은 `AIR_KOREA_API_KEY`의 서비스 등록·응답을 확인 후 재요청 |
 | 날씨·마라톤 배너 입력 실패 | 나머지 DB 배너 반환 | 외부 연동 복구 후 재요청 |
 | banner DB 실패 | HTTP 200 / `db_error` | PostgreSQL 복구 |
 
-현재 외부 client는 Kakao 일부 메서드와 공공데이터 응답의 HTTP 상태를 일관되게 검사하지 않는다. 장애 조사 시 HTTP 200만 보지 말고 응답 body와 서버 로그를 함께 확인한다.
+공공데이터 client는 HTTP 상태를 확인하고 실패를 `null` fallback으로 축소한다. 인증키가 query에 포함되므로 요청 URL 전체는 로그에 남기지 않는다. Kakao 일부 메서드는 HTTP 상태를 일관되게 검사하지 않으므로 장애 조사 시 HTTP 200만 보지 말고 응답 body와 서버 로그를 함께 확인한다.
 
 ## 6. 검증 결과
 

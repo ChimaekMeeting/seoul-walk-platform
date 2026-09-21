@@ -1,16 +1,35 @@
-import os
 import asyncio
 from datetime import datetime, timedelta
-import math, httpx
-from dotenv import load_dotenv
+import logging
+import math
 
+import httpx
+
+from src.config.settings import settings
 from src.infrastructure.external.client.kakao_client import KakaoClient
 
-load_dotenv()
+logger = logging.getLogger(__name__)
+
 
 class WeatherClient:
-    def __init__(self, kakao_client: KakaoClient):
-        self.api_key = os.getenv("PUBLIC_DATA_API_KEY")
+    def __init__(
+        self,
+        kakao_client: KakaoClient,
+        weather_api_key: str | None = None,
+        air_korea_api_key: str | None = None,
+    ):
+        # 기상청과 에어코리아는 공공데이터포털에서 각각 발급·활성화한 키를 쓴다.
+        # 전용 키가 없는 기존 환경만 PUBLIC_DATA_API_KEY로 호환한다.
+        self.weather_api_key = (
+            weather_api_key
+            if weather_api_key is not None
+            else settings.WEATHER_API_KEY or settings.PUBLIC_DATA_API_KEY
+        )
+        self.air_korea_api_key = (
+            air_korea_api_key
+            if air_korea_api_key is not None
+            else settings.AIR_KOREA_API_KEY or settings.PUBLIC_DATA_API_KEY
+        )
         self.kakao_client = kakao_client
 
     async def get_environment_info(self, lat: float, lon: float):
@@ -25,13 +44,13 @@ class WeatherClient:
         """
         날씨 데이터를 조회합니다.
         """
-        url = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst"
+        url = "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst"
 
         base_date, base_time = self.get_base_datetime()
         nx, ny = self.get_nx_and_ny(lat, lon)
 
         params = {
-            "serviceKey": self.api_key,
+            "serviceKey": self.weather_api_key,
             "pageNo":     1,
             "numOfRows":  10,
             "dataType":   "JSON",
@@ -62,7 +81,8 @@ class WeatherClient:
         async with httpx.AsyncClient(timeout=10) as client:
             try:
                 res = await client.get(url, params=params)
-                items = res.json().get("response").get("body").get("items").get("item")
+                res.raise_for_status()
+                items = res.json()["response"]["body"]["items"]["item"]
                 data = {item["category"]: item["obsrValue"] for item in items}
                 return {
                     new_key: (PTY_map.get(int(float(data[key])), "없음") + unit) if key == "PTY"
@@ -70,14 +90,18 @@ class WeatherClient:
                     for key, (new_key, unit) in rename_map.items()
                     if key in data
                 }
-            except Exception:
-                print("날씨 데이터 조회 시 오류가 발생했습니다.")
+            except Exception as error:
+                logger.warning(
+                    "weather_fetch_failed | error_type=%s",
+                    type(error).__name__,
+                )
+                return None
 
     async def get_air_quality(self, lat: float, lon: float):
         """
         대기질 정보를 조회합니다.
         """
-        url = "http://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty"
+        url = "https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty"
 
         station_name = ""
         place_info = await self.kakao_client.get_address_from_coords(lat, lon)
@@ -91,7 +115,7 @@ class WeatherClient:
             return {}
 
         params = {
-            "serviceKey": self.api_key,
+            "serviceKey": self.air_korea_api_key,
             "returnType": "json",
             "numOfRows": 1,
             "pageNo": 1,
@@ -101,7 +125,7 @@ class WeatherClient:
         }
 
         rename_map = {
-            "KhaiValue": ("air_quality_index", ""),  # 통합대기환경지수
+            "khaiValue": ("air_quality_index", ""),  # 통합대기환경지수
             "so2Value":  ("so2", "ppm"),             # 이산화황
             "coValue":   ("co", "ppm"),              # 일산화탄소
             "pm10Value": ("pm10", "㎍/㎥"),           # 미세먼지
@@ -113,14 +137,19 @@ class WeatherClient:
         async with httpx.AsyncClient() as client:
             try:
                 res = await client.get(url=url, params=params)
-                data = res.json().get("response").get("body").get("items")[0]
+                res.raise_for_status()
+                data = res.json()["response"]["body"]["items"][0]
                 return {
                     new_key: str(v) + unit
                     for key, (new_key, unit) in rename_map.items()
                     if key in data and (v := data.get(key)) is not None and v != "-"
                 }
-            except Exception:
-                print("대기질 데이터 조회 시 오류가 발생했습니다.")
+            except Exception as error:
+                logger.warning(
+                    "air_quality_fetch_failed | error_type=%s",
+                    type(error).__name__,
+                )
+                return None
 
     def get_base_datetime(self) -> tuple[str, str]:
         """
@@ -157,8 +186,10 @@ class WeatherClient:
 
         ra = re * sf / math.pow(math.tan(math.pi * 0.25 + lat * D * 0.5), sn)
         theta = (lon - OLON) * D
-        if theta >  math.pi: theta -= 2.0 * math.pi
-        if theta < -math.pi: theta += 2.0 * math.pi
+        if theta > math.pi:
+            theta -= 2.0 * math.pi
+        if theta < -math.pi:
+            theta += 2.0 * math.pi
         theta *= sn
 
         nx = int(ra * math.sin(theta) + XO + 0.5)

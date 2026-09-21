@@ -178,10 +178,11 @@ class RouteService:
                 if cost_context is not None:
                     result.cost_alpha = cost_context.alpha
                     result.cost_beta = cost_context.beta
-        # circular_random/oneway_random은 이제 최대 3개까지 다양화한 후보를 반환한다(results[0]이 대표 후보).
-        # POI는 성공한 후보 전부에 붙이고, RouteHistory는 아직 대표 후보 1개만 저장한다
-        # — 사용자가 실제로 어떤 후보를 골랐는지는 아직 API로 전달받지 않기 때문이다.
-        # TODO: 사용자가 후보 중 하나를 선택하는 흐름이 생기면, 그때 선택된 후보를 저장하도록 바꾼다.
+        # circular_random/oneway_random은 최대 3개까지 다양화한 후보를 반환한다.
+        # 앱은 어느 후보든 바로 선택해 산책·즐겨찾기·평가할 수 있으므로 성공 후보마다
+        # RouteHistory를 하나씩 저장해 각각의 id를 응답에 붙인다. 후보별 history에는 해당
+        # 후보 특성을 index 0으로 재정렬해 저장한다 — longterm_profile_service가 index 0을
+        # 실제 선택 경로(X_R)로 해석하기 때문이다.
         first_result = results[0]
         logger.info(
             "walk route result: mode=%s status=%s candidates=%d",
@@ -214,18 +215,31 @@ class RouteService:
                             "walk route candidate count below profile minimum: mode=%s count=%d",
                             mode, len(candidate_features),
                         )
-                    history = RouteHistoryRepository.save(
-                        user_id=user.id,
-                        mode=mode,
-                        origin_lat=origin.lat,
-                        origin_lon=origin.lon,
-                        coordinates=first_result.coordinates,
-                        total_km=first_result.total_km,
-                        destination_lat=destination.lat if destination else None,
-                        destination_lon=destination.lon if destination else None,
-                        candidate_features=candidate_features,
-                    )
-                    first_result.id = history.id
+
+                    for index, result in enumerate(results):
+                        if result.status != WalkRouteStatus.SUCCESS:
+                            continue
+
+                        selected_first_features = candidate_features
+                        if candidate_features and index < len(candidate_features):
+                            selected_first_features = [
+                                candidate_features[index],
+                                *candidate_features[:index],
+                                *candidate_features[index + 1:],
+                            ]
+
+                        history = RouteHistoryRepository.save(
+                            user_id=user.id,
+                            mode=mode,
+                            origin_lat=origin.lat,
+                            origin_lon=origin.lon,
+                            coordinates=result.coordinates,
+                            total_km=result.total_km,
+                            destination_lat=destination.lat if destination else None,
+                            destination_lon=destination.lon if destination else None,
+                            candidate_features=selected_first_features,
+                        )
+                        result.id = history.id
             except Exception as exc:
                 log_unexpected_error(logger, "route_history_save_error", exc)
 

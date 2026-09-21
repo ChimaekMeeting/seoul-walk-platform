@@ -28,10 +28,12 @@ OS별 설치 방법은 달라도 위 버전·명령·포트·환경변수 계약
 | PostgreSQL | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_HOST`, `POSTGRES_PORT` |
 | Valkey | `VALKEY_URI` |
 | 인증 | `ACCESS_SECRET_KEY`, `REFRESH_SECRET_KEY`, `KAKAO_API_KEY`, `KAKAO_REDIRECT_URI` |
-| 외부 데이터 | `PUBLIC_DATA_API_KEY`, `TAAS_OPEN_API_KEY` |
+| 외부 데이터 | `WEATHER_API_KEY`, `AIR_KOREA_API_KEY`, `PUBLIC_DATA_API_KEY`, `TAAS_OPEN_API_KEY` |
 | AI·추적 | `OPENAI_API_KEY`, `LANGCHAIN_*` |
 
 startup에는 PostgreSQL 연결이 필요합니다. Valkey와 외부 API는 관련 요청 workflow에서 필요합니다.
+
+날씨 조회는 `WEATHER_API_KEY`, 대기질 조회는 `AIR_KOREA_API_KEY`를 우선 사용한다. 전용 키가 비어 있는 기존 환경에서만 `PUBLIC_DATA_API_KEY`로 대체한다. 외부 요청 URL에는 인증키가 포함되므로 `httpx` 요청 로그는 INFO에서 출력하지 않는다.
 
 ## 3. 표준 실행
 

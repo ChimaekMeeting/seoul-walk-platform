@@ -36,6 +36,8 @@ from src.route_engine.scoring.scoring_engine import (
     CoverageReport,
     WeightedEdgeCost,
     normalize_preference_weights,
+    path_feature_averages,
+    precompute_scoring_features,
 )
 from src.route_engine.waypoint_route_builder import MissingEdgeAttributeError
 
@@ -417,3 +419,26 @@ def test_total_distance_is_independent_of_search_cost():
     total_m = sum(G[u][v]["length"] for u, v in zip(path, path[1:]))
 
     assert total_m == pytest.approx(sum(_euclid(u, v) for u, v in zip(_DETOUR, _DETOUR[1:])))
+
+
+@pytest.mark.parametrize(
+    "accidents, expected_missing",
+    [([0.0, None, 1.0], 0.5), ([0.0, None, 0.4], 0.2), ([None, None], 0.0)],
+)
+def test_feature_cache_initializes_accident_median(accidents, expected_missing):
+    """기동 캐시가 사고 점수의 0과 결측을 구분하고 결측만 중앙값으로 채운다."""
+    graph = nx.Graph()
+    for i, accident in enumerate(accidents):
+        graph.add_edge(i, i + 1, **make_edge(safety=0.8, accident=accident))
+
+    precompute_scoring_features(graph)
+
+    for i, accident in enumerate(accidents):
+        expected = expected_missing if accident is None else accident
+        features = path_feature_averages(graph, [i, i + 1])
+        assert features["safety"] == pytest.approx(1 - (0.5 * 0.2 + 0.5 * expected))
+        assert graph[i][i + 1][ACCIDENT_ATTR] == accident
+
+
+def test_feature_cache_initializes_without_edges():
+    precompute_scoring_features(nx.Graph())

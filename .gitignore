@@ -42,6 +42,7 @@ package-lock.json
 !tests/unit/test_graph_repository_scores.py
 !tests/unit/test_oneway_astar_weighted.py
 !tests/unit/test_weighted_cost_runtime.py
+!tests/unit/test_weather_client.py
 !tests/unit/test_waypoint_detour_cap.py
 !tests/unit/test_weight_extractor_state.py
 !tests/unit/test_distance_validation.py
