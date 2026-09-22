@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 from uuid import uuid4
 
 from langgraph.graph import StateGraph, END
@@ -15,7 +16,6 @@ from src.agent.nodes import (
     Extractor,
     WeightExtractor,
     Interviewer,
-    ConfirmationClassifier,
     RouteExecutor
 )
 from src.interfaces.schema.prewalk_schema import ChatResponse, ChatStatus
@@ -35,16 +35,15 @@ class PrewalkOrchestrator:
         extractor:               Extractor,
         weight_extractor:        WeightExtractor,
         interviewer:             Interviewer,
-        confirmation_classifier: ConfirmationClassifier,
         route_executor:          RouteExecutor
     ):
         self.kakao_client    = kakao_client
         self.auth_service    = auth_service
-        self.graph           = self._build_graph(extractor, weight_extractor, interviewer, confirmation_classifier, route_executor)
+        self.graph           = self._build_graph(extractor, weight_extractor, interviewer, route_executor)
 
-    def _build_graph(self, extractor, weight_extractor, interviewer, confirmation_classifier, route_executor):
+    def _build_graph(self, extractor, weight_extractor, interviewer, route_executor):
         """
-        extractor, weight_extractor, interviewer, confirmation_classifier, route_executor 노드를 연결합니다.
+        extractor, weight_extractor, interviewer, route_executor 노드를 연결합니다.
         """
         builder = StateGraph(State)
 
@@ -52,14 +51,13 @@ class PrewalkOrchestrator:
         builder.add_node("extractor",              extractor.run)
         builder.add_node("weight_extractor",        weight_extractor.run)
         builder.add_node("interviewer",             interviewer.run)
-        builder.add_node("confirmation_classifier", confirmation_classifier.run)
         builder.add_node("route_executor",          route_executor.run)
 
-        # awaiting_confirmation=True -> confirmation_classifier(확인 응답 판정)
-        # awaiting_confirmation=False -> extractor(새 정보 추출)
+        # is_complete=True면 바로 route_executor로 들어가고
+        # False면 extractor로 들어간다.
         builder.set_conditional_entry_point(
-            lambda state: "confirmation_classifier" if state.awaiting_confirmation else "extractor",
-            {"confirmation_classifier": "confirmation_classifier", "extractor": "extractor"},
+            lambda state: "route_executor" if state.is_complete else "extractor",
+            {"route_executor": "route_executor", "extractor": "extractor"},
         )
 
         # extractor -> weight_extractor(가중치 라벨 추출, mode 확정 후 GPS Art/최단 스킵 판단) -> interviewer
@@ -71,14 +69,6 @@ class PrewalkOrchestrator:
             "interviewer",
             lambda state: "route_executor" if state.is_complete else END,
             {"route_executor": "route_executor", END: END},
-        )
-
-        # confirmation_classifier -> 긍정 -> route_executor
-        # confirmation_classifier -> 부정 -> extractor(부정 응답에 섞인 수정 정보 반영 후 interviewer로)
-        builder.add_conditional_edges(
-            "confirmation_classifier",
-            lambda state: "route_executor" if state.is_complete else "extractor",
-            {"route_executor": "route_executor", "extractor": "extractor"},
         )
 
         builder.add_edge("route_executor", END)
@@ -136,7 +126,15 @@ class PrewalkOrchestrator:
 
         return ChatResponse(status=status, thread_id=thread_id, state=initial_state)
 
-    async def orchestrator(self, access_token: str, thread_id: str, user_prompt: str, lat: float, lon: float) -> ChatResponse:
+    async def orchestrator(
+        self,
+        access_token: str,
+        thread_id: str,
+        user_prompt: str,
+        lat: float,
+        lon: float,
+        confirmation: Optional[bool] = None,
+    ) -> ChatResponse:
         """
         Langgraph를 기반으로 정보 수집부터 경로 생성까지 진행합니다.
         """
@@ -189,7 +187,13 @@ class PrewalkOrchestrator:
         state.access_token = access_token
         state.user_prompt  = PromptUtils.sanitize_user_prompt(user_prompt)  # 프롬프트 정규화
 
-        # awaiting_confirmation 여부에 따라 confirmation_classifier/extractor 중 하나로 진입
+        # 최종 산책 조건에 대한 긍정/부정 여부 확인
+        if state.awaiting_confirmation:
+            state.awaiting_confirmation = False
+            state.is_complete = bool(confirmation)
+        else:
+            state.is_complete = False
+
         try:
             result      = await self.graph.ainvoke(state)
             final_state = State.model_validate(result)
