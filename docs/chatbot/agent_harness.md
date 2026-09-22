@@ -5,7 +5,8 @@
 > 2026-09-21 WeatherChecker 제거: 날씨·대기질 기반 LLM 초기 인사 Node를 없애고 고정 문구로 대체했다. `weather_checker.py`/`weather_checker.yaml`/`weather_cache_repository.py`도 함께 삭제했다.  
 > 2026-09-21 Interviewer 편도 우회 최단거리 초과 안내: `RouteService.get_shortest_km`(신규)로 목표 거리가 물리적 최단거리보다 짧거나 같은지 확인해, 그럴 때만 확인 질문 대신 최단 경로/거리 조정 여부를 되묻는다. 검증 결과·알려진 한계(모델이 `없음` 신호를 넘겨짚는 잔존 케이스)와, 이 과정에서 발견한 별개의 `extraction.yaml` 기존 결함("최단"만 짧게 답하면 tool 미호출)은 §9의 “2026-09-21 (Interviewer...)” 기록을 참고한다.  
 > 2026-09-23 위 기능을 `oneway_shortest`(편도 최단)까지 확장하고 계산값을 `State.shortest_km`(신규 필드)로 영속화했다. `Interviewer._oneway_shortest_conflict`는 `_update_shortest_km`(필드 갱신)·`_is_oneway_shortest_conflict`(판단만) 두 메서드로 분리됐다. 같은 날 `interview.yaml` 지침4(최종 확인)도 FE가 State를 직접 표시하는 쪽으로 바뀌면서 장소·거리 재요약 없이 짧게만 확인하도록 간소화했다(출발=목적지 왕복 요청의 알려진 한계 포함). 지침0(무관한 주제)도 테스터 제보로 "다리(교량)" 지명이 산책 요청을 무관한 주제로 오판하던 버그를 찾아 고쳤다(성산대교 0/5→5/5, 마포대교 0/5→3/3, 반문형 제거 변형 하나는 잔존 한계로 남음). 상세는 §9의 “2026-09-23 후속” 기록을 참고한다.  
-> 2026-09-23 후속2 `Interviewer`가 `oneway_shortest`의 최종 경로를 확인 전에 미리 계산해 `state.route_result`에 채우고, `route_executor.py`는 이미 채워져 있으면 재계산 없이 그대로 반환한다. 계산은 `RouteService.get_route()`를 이 async 노드에서 직접(동기) 호출하지 않고 `route_executor`와 똑같이 `RouteTool.oneway_shortest_route`(`asyncio.to_thread` + 타임아웃)를 통해 — DB 호출로 이벤트 루프가 막히지 않게 한다. `RouteService.get_shortest_km`은 시그니처·반환값(`Optional[float]`) 모두 그대로 두고 `oneway_random`의 참고용 거리 전용으로만 쓴다 — `oneway_random`은 이 값으로 `state.shortest_km`만 채우고 `state.route_result`는 채우지 않는다(최종 경로는 GRASP+ALNS로 따로 생성돼 `route_executor`가 실행되면 항상 새로 덮어쓰므로 미리 채워도 의미가 없다). 이에 맞춰 `prewalk_service.py::orchestrator`가 매 턴 `state.route_result`를 `None`으로 초기화하던 로직을 없앴다 — `Interviewer`가 두 모드 모두에서 항상 명시적으로 채우거나 지우므로 더 이상 필요 없다. 상세는 §9의 “2026-09-23 후속2” 기록을 참고한다.
+> 2026-09-23 후속2 `Interviewer`가 `oneway_shortest`의 최종 경로를 확인 전에 미리 계산해 `state.route_result`에 채우고, `route_executor.py`는 이미 채워져 있으면 재계산 없이 그대로 반환한다. 계산은 `RouteService.get_route()`를 이 async 노드에서 직접(동기) 호출하지 않고 `route_executor`와 똑같이 `RouteTool.oneway_shortest_route`(`asyncio.to_thread` + 타임아웃)를 통해 — DB 호출로 이벤트 루프가 막히지 않게 한다. `RouteService.get_shortest_km`은 시그니처·반환값(`Optional[float]`) 모두 그대로 두고 `oneway_random`의 참고용 거리 전용으로만 쓴다 — `oneway_random`은 이 값으로 `state.shortest_km`만 채우고 `state.route_result`는 채우지 않는다(최종 경로는 GRASP+ALNS로 따로 생성돼 `route_executor`가 실행되면 항상 새로 덮어쓰므로 미리 채워도 의미가 없다). 이에 맞춰 `prewalk_service.py::orchestrator`가 매 턴 `state.route_result`를 `None`으로 초기화하던 로직을 없앴다 — `Interviewer`가 두 모드 모두에서 항상 명시적으로 채우거나 지우므로 더 이상 필요 없다. 상세는 §9의 “2026-09-23 후속2” 기록을 참고한다.  
+> 2026-09-24 `ConfirmationClassifier` Node·`confirmation.yaml`을 완전히 삭제했다. FE가 확인 질문에 버튼(예/아니요)으로 답하는 쪽으로 계약이 바뀌면서 자유 텍스트를 LLM으로 분류할 필요가 없어졌기 때문이다. `ChatRequest`에 새 필드 `confirmation: Optional[bool]`을 추가해 이 버튼 값을 `user_prompt`와 분리했다(`user_prompt`는 "아니요"에 곁들이는 교정 내용 전용으로 남김 — 긍정/부정 신호와 자유 텍스트를 한 필드에 같이 실으면 파싱이 더 복잡해지고 깨지기 쉽다는 이유로, 처음 시도했던 `user_prompt=="yes"` 문자열 비교안은 되돌렸다). 판정은 `PrewalkOrchestrator.orchestrator()`가 그래프 실행 전에 `bool(confirmation)`으로 직접 하고, 그 결과를 `state.is_complete`에 반영한 뒤 Graph의 조건부 진입점이 `is_complete`만 보고 `route_executor`/`extractor`로 바로 분기한다(Node 하나가 통째로 없어짐). 상세는 §9의 “2026-09-24” 기록을 참고한다.
 
 ## 1. 책임
 
@@ -20,7 +21,7 @@ HTTP 입력:
 | 진입점 | 입력 |
 |---|---|
 | `POST /api/prewalk/init` | `lat`, `lon`, access Bearer 우선·header가 없을 때 `access_token` cookie |
-| `POST /api/prewalk/intent` | `thread_id`, 공백이 아닌 `user_prompt`, `lat`, `lon`(2026-09-17부터 필수), access Bearer 우선·cookie fallback |
+| `POST /api/prewalk/intent` | `thread_id`, `user_prompt`(`confirmation`을 안 보내면 공백 불가, 2026-09-24), `confirmation`(`Optional[bool]`, 확인 대기 중 FE 버튼 응답, 2026-09-24 신규), `lat`, `lon`(2026-09-17부터 필수), access Bearer 우선·cookie fallback |
 
 Authorization header가 있으면 Bearer를 사용하고 cookie는 보지 않는다. 잘못된 scheme·빈 값·공백이 섞인 Bearer는 HTTP 401 `invalid_token`이며, 형식은 맞지만 손상·만료된 Bearer도 유효한 cookie로 되돌아가지 않는다. header가 아예 없을 때만 cookie를 사용한다.
 
@@ -39,8 +40,8 @@ Authorization header가 있으면 Bearer를 사용하고 cookie는 보지 않는
 | `waypoint_candidates` | `Interviewer` | 다음 `Interviewer`(경유지 인덱스별 첫 번째 후보 자동 확정용, `waypoint` 모드 전용) |
 | `feature_labels` | `WeightExtractor`(GPS Art·최단경로는 `{}`로 스킵) | `RouteExecutor._build_weights` 가중치 블렌딩 |
 | `shortest_km` | `Interviewer._update_shortest_km`(`oneway_shortest`/`oneway_random`에서 위치 확정 시, 2026-09-23) | 편도 우회 최단거리 초과 안내 판단(`_is_oneway_shortest_conflict`), 확인 문구에 참고용 최단거리 표시 |
-| `awaiting_confirmation` | `Interviewer`(True로 설정)·`ConfirmationClassifier`(False로 해제) | 다음 intent의 Graph 진입점 분기(`ConfirmationClassifier` vs `Extractor`) |
-| `is_complete` | `Interviewer`·`ConfirmationClassifier` | Graph 분기(`RouteExecutor` 진입 여부)·완료 상태 |
+| `awaiting_confirmation` | `Interviewer`(True로 설정)·intent Orchestrator(False로 해제, 2026-09-24) | 이번 턴이 확인 응답인지 판단(intent Orchestrator) |
+| `is_complete` | intent Orchestrator(확인 응답이면 `ChatRequest.confirmation`(bool)을 그대로 반영, 아니면 항상 `False`로 명시적으로 지움, 2026-09-24) | Graph 조건부 진입점(`RouteExecutor` 직행 여부) |
 | `response` | 각 대화 Node·Orchestrator | `ChatResponse.state` |
 | `route_result` | `RouteExecutor` | API 응답·Valkey 저장 |
 
@@ -63,7 +64,7 @@ Authorization header가 있으면 Bearer를 사용하고 cookie는 보지 않는
 - 경로 성공: `route_result`(`List[WalkRouteResponse]`)에는 품질 평가 기준상 최종 경로 1개만 담긴다. 엔진 내부 후보는 외부에 노출하지 않는다.
 - 경로 성공: `RouteService`가 최종 경로에 대해서만 `RouteHistory`를 저장하고 `route_result[0].id`에 이력 ID를 반영한다. `route_hash`는 동일 좌표 경로 그룹화 용도로 유지한다.
 - 경로 성공: 최종 경로 1개에 대해서만 그 경로 50m 안의 도보망 연결 POI를 `nearby_pois`로 반환한다.
-- LLM 출력: 모드·거리·위치 추출, feature(safety/comfort)별 `preference_label`·`explicitness_label` 추출, 누락 질문, 확인 질문 긍정·부정 판정, 최종 확인 요청·검색 실패·서울 밖 안내(2026-08-20부터 전부 `interview.yaml` 생성, 하드코딩 문구 없음). 초기 인사는 2026-09-21부터 `WeatherChecker` 제거와 함께 LLM 호출 없는 고정 문구로 바뀌었다(아래 "파일 구조" 참고).
+- LLM 출력: 모드·거리·위치 추출, feature(safety/comfort)별 `preference_label`·`explicitness_label` 추출, 누락 질문, 최종 확인 요청·검색 실패·서울 밖 안내(2026-08-20부터 전부 `interview.yaml` 생성, 하드코딩 문구 없음). 초기 인사는 2026-09-21부터 `WeatherChecker` 제거와 함께 LLM 호출 없는 고정 문구로 바뀌었다(아래 "파일 구조" 참고). 확인 질문 긍정·부정 판정은 2026-09-24부터 LLM이 아니라 FE가 `ChatRequest.confirmation`(bool)으로 보낸 값을 intent Orchestrator가 그대로 반영해 정한다.
 - 오류 출력: `Interviewer`의 LLM·Kakao API 호출이 실패하면 원문 예외 대신 `서버 내부 오류가 발생했습니다.`를 `response`에 넣는다. 실패 로그는 사건명과 예외 형식만 기록한다(2026-09-20).
 
 현재 intent State에는 access JWT가 포함되며 API 응답과 Valkey JSON 양쪽으로 전달된다. `ChatSession.current_state`는 경로 완료 후에도 `START`로 남는다.
@@ -78,7 +79,6 @@ src/agent/
 │   ├── extractor.py            # 모드·위치·거리 추출
 │   ├── weight_extractor.py     # feature(safety/comfort)별 preference_label·explicitness_label 추출
 │   ├── interviewer.py          # 누락 질문·장소 검색·확인 질문
-│   ├── confirmation_classifier.py  # 확인 질문에 대한 긍정/부정 LLM 판정
 │   └── route_executor.py       # 가중치 조합·경로 실행
 ├── tools/
 │   ├── mode_tools.py           # preference 생성
@@ -99,6 +99,8 @@ src/prompt/                                      # LLM Prompt
 
 **`WeatherChecker` 제거(2026-09-21)**: 날씨·대기질 기반 LLM 초기 인사 Node를 통째로 없애고, `prewalk_service.py::orchestrator`(init)가 고정 문자열("편안하고 안전한 길을 추천해드리는 ROUDI예요! 어떤 산책 코스를 추천해드릴까요? ...")을 바로 반환하도록 바꿨다. `weather_checker.py`/`weather_checker.yaml`과 그 전용 캐시 의존성(`weather_cache_repository.py`)도 함께 삭제했다 — `/api/weather`(배너용 `WeatherClient`)는 완전히 별개 기능이라 영향받지 않는다.
 
+**`ConfirmationClassifier` 제거(2026-09-24)**: `confirmation_classifier.py`/`confirmation.yaml`을 통째로 삭제했다. FE가 확인 질문에 버튼(yes/no)으로 답하고 그 값을 `user_prompt`로 그대로 보내면서, 자유 텍스트를 LLM으로 긍정/부정 분류할 필요가 없어졌기 때문이다 — `PrewalkOrchestrator.orchestrator()`가 그래프 실행 전에 문자열 비교로 직접 판정한다(아래 "Edge와 실제 분기" 참고). `src/schema/prewalk_schema.py`의 `ConfirmationResult`(파서 전용 pydantic 모델)도 더는 쓰이지 않아 함께 삭제했다.
+
 ### Node 입출력
 
 | Node | 입력 | 출력·State 변경 | 외부 호출 |
@@ -106,10 +108,9 @@ src/prompt/                                      # LLM Prompt
 | `Extractor.run` | `State` | `mode`, `user_context` | OpenAI, `ModeTool` |
 | `WeightExtractor.run` | `State` | `feature_labels`(GPS Art·최단경로는 `custom_weights`를 안 쓰므로 호출 자체를 건너뛰고 `{}`) | OpenAI(`PydanticOutputParser`, tool 미바인딩) |
 | `Interviewer.run` | `State` | 후보 위치, 보완된 context, `response`, 확인 상태, `shortest_km`/`route_result`(oneway_shortest·oneway_random, 2026-09-23 후속2) | OpenAI, `PlaceTool`, `RouteTool.oneway_shortest_route`(oneway_shortest 전용 — POI·RouteHistory까지 포함한 완성된 경로를 `route_executor`와 같은 타임아웃·스레드 오프로딩 경로로 생성), `RouteService.get_shortest_km`(oneway_random 전용 — 참고용 거리만, 가벼운 A*) |
-| `ConfirmationClassifier.run` | `State` | `is_complete`(긍정/부정 판정 결과), `awaiting_confirmation=False` | OpenAI(`PydanticOutputParser`, tool 미바인딩) |
 | `RouteExecutor.run` | `State` | `route_result` | 사용자 설문, `RouteTool`(GPS Art는 내부에서 `GpsArtService`도 호출; waypoint 모드는 `_build_weights`가 만든 `Weights`를 그대로 `args["preference"]`로도 함께 전달, 2026-09-17 dev 병합·#445 — 2026-09-19 갱신: 별도 `_build_preference_signal`/`SafetyComfortPreference` 변환 없이 재사용). `mode==oneway_shortest`이고 `state.route_result`가 이미 성공으로 채워져 있으면(Interviewer가 미리 계산) `RouteTool` 호출 없이 그대로 반환한다(2026-09-23 후속2) |
 
-모든 대화 Node는 전달받은 State 객체를 변경해 반환한다. Node별 별도 입출력 schema는 없다.
+모든 대화 Node는 전달받은 State 객체를 변경해 반환한다. Node별 별도 입출력 schema는 없다. 확인 응답(긍정/부정) 판정은 더 이상 Node가 아니라 `PrewalkOrchestrator.orchestrator()`가 그래프 실행 전에 한다(2026-09-24, 아래 "Edge와 실제 분기" 참고).
 
 ### Extractor 후처리(결정론적 보정, 2026-09-14)
 
@@ -126,7 +127,7 @@ src/prompt/                                      # LLM Prompt
 | 9 | `target_minutes`가 있으면 도보 속도(4km/h, 근거: 정책브리핑 "시속 4km" 2011)로 `target_km`을 환산해 이번 턴의 옛 `target_km`보다 우선 적용. 시간·거리 언급이 모두 없으면 온보딩 `UserPreference.default_target_km`으로 채우고, 그마저 없으면 비워둔다(Interviewer 재질문에 맡김). 게이팅 조건은 args에 `target_km` 키가 실제로 있는지가 아니라 해당 도구가 `target_km` 필드를 받는지다(2026-09-14 버그 수정 — 이전 조건은 Context 없는 첫 요청에서 시간만 언급하면 LLM이 tool_call에 `target_km` 키를 아예 안 넣어 환산이 스킵되고 거리가 사라지는 문제가 있었다) |
 | 10 | tool invoke 자체가 실패하면 State를 바꾸지 않고 종료 |
 
-발화 정규화(HTML 태그·과도한 공백·반복 문자열 제거)는 더 이상 `Extractor` 내부가 아니라 `PrewalkOrchestrator.orchestrator()`가 그래프 실행 전에 `PromptUtils.sanitize_user_prompt`(`chatbot_utils.py`)로 한 번만 수행하고, 그 결과를 `State.user_prompt`에 직접 덮어쓴다(2026-09-17부터 — 이전에는 `Extractor`가 로컬로 정규화한 사본만 LLM에 넘기고 `State.user_prompt` 원본은 그대로 뒀다). 반복 문자열(`ㅋㅋㅋ`, `!!!` 등)은 강조 표현으로 보고 완전히 지우지 않고 2회로만 축약한다 — `WeightExtractor`가 `explicitness_label`을 판단할 때 이 반복이 신호로 쓰이기 때문이다. `Extractor`·`WeightExtractor`·`Interviewer`·`ConfirmationClassifier` 전부 같은 정규화된 `State.user_prompt`를 그대로 읽으며, 정규화 이전 원문을 보존하는 별도 필드는 없다.
+발화 정규화(HTML 태그·과도한 공백·반복 문자열 제거)는 더 이상 `Extractor` 내부가 아니라 `PrewalkOrchestrator.orchestrator()`가 그래프 실행 전에 `PromptUtils.sanitize_user_prompt`(`chatbot_utils.py`)로 한 번만 수행하고, 그 결과를 `State.user_prompt`에 직접 덮어쓴다(2026-09-17부터 — 이전에는 `Extractor`가 로컬로 정규화한 사본만 LLM에 넘기고 `State.user_prompt` 원본은 그대로 뒀다). 반복 문자열(`ㅋㅋㅋ`, `!!!` 등)은 강조 표현으로 보고 완전히 지우지 않고 2회로만 축약한다 — `WeightExtractor`가 `explicitness_label`을 판단할 때 이 반복이 신호로 쓰이기 때문이다. `Extractor`·`WeightExtractor`·`Interviewer` 전부 같은 정규화된 `State.user_prompt`를 그대로 읽으며, 정규화 이전 원문을 보존하는 별도 필드는 없다. intent Orchestrator의 확인 응답 판정(2026-09-24)은 `user_prompt`가 아니라 별도 필드 `ChatRequest.confirmation`(bool)을 보므로 이 정규화 대상이 아니다.
 
 `scripts/eval_extraction.py`(100개 — 001~070 첫 요청 강건성 케이스, 071~100 [Current Context]가 이미 채워진 "부분 수정" 시나리오)로 raw tool_call과 후처리 적용 후 결과를 각각 실행 검증했다(§9).
 
@@ -138,32 +139,32 @@ flowchart TD
     GREET --> SAVE["ChatSession + 초기 State 저장"]
 
     INTENT["POST /intent"] --> LOAD["인증 + State 조회 + 소유권 확인"]
-    LOAD --> ENTRY{"조건부 진입점: awaiting_confirmation?"}
+    LOAD --> WAIT{"awaiting_confirmation?"}
+    WAIT -- "true" --> JUDGE["is_complete = bool(ChatRequest.confirmation)\nawaiting_confirmation = False\n(Orchestrator, 2026-09-24)"]
+    WAIT -- "false" --> RESET["is_complete = False"]
+    JUDGE --> ENTRY{"조건부 진입점: is_complete?"}
+    RESET --> ENTRY
     ENTRY -- "false" --> EX["Extractor"]
-    ENTRY -- "true" --> CC["ConfirmationClassifier"]
+    ENTRY -- "true" --> RE["RouteExecutor"]
 
     EX --> WE["WeightExtractor"]
     WE --> IV["Interviewer"]
     IV --> DECLARED{"is_complete?"}
     DECLARED -- "false" --> END1["State 저장·응답"]
-    DECLARED -- "true" --> RE["RouteExecutor"]
-
-    CC --> CDECIDE{"is_complete(판정 결과)?"}
-    CDECIDE -- "true: 긍정" --> RE
-    CDECIDE -- "false: 부정" --> EX
+    DECLARED -- "true" --> RE
 
     RE --> RH["RouteService + RouteHistory"]
     RH --> END1
 ```
 
-Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작한다.
+`JUDGE`/`RESET`은 Graph 밖, `PrewalkOrchestrator.orchestrator()`에서 `self.graph.ainvoke(state)` 호출 직전에 실행되는 일반 Python 코드다(Node도 Edge도 아니다) — Graph 선언 자체는 그 결과인 `is_complete` 하나만 보는 조건부 진입점에서 시작한다(2026-09-24부터, 이전에는 `awaiting_confirmation`을 직접 보고 `ConfirmationClassifier`/`Extractor`로 갈라졌다).
 
-- `awaiting_confirmation=False` → `Extractor → WeightExtractor → Interviewer → (is_complete ? RouteExecutor : END)`
-- `awaiting_confirmation=True` → `ConfirmationClassifier → (is_complete ? RouteExecutor : Extractor)`
+- `is_complete=True`(직전 턴이 확인 대기 중이었고 이번 `ChatRequest.confirmation=True`) → `RouteExecutor`로 바로 진입, 재추출 없음
+- `is_complete=False`(새 정보 수집 턴이거나, 확인 대기 중 `confirmation`이 `False`거나 아예 안 왔을 때) → `Extractor → WeightExtractor → Interviewer → (is_complete ? RouteExecutor : END)`
 
-`Interviewer`는 정보가 충분하면 `awaiting_confirmation=True`, `is_complete=False`로 확인 질문을 만들고 END로 끝난다. 다음 intent 턴에서 조건부 진입점이 이를 보고 `ConfirmationClassifier`로 보낸다. `ConfirmationClassifier`는 `confirmation.yaml`(`PydanticOutputParser`, tool 미바인딩)로 긍정/부정을 LLM 판정해 `is_complete`에 그대로 반영하고 `awaiting_confirmation`을 해제한다. 부정 판정이면 `Interviewer`로 바로 가지 않고 `Extractor`를 다시 거치는데, 부정 응답에 수정 정보가 섞여 있을 수 있어서다("아니, 5km로 바꿔줘"의 "5km"는 `Interviewer`가 아니라 `Extractor`의 `ModeTool`만 파싱 가능).
+`Interviewer`는 정보가 충분하면 `awaiting_confirmation=True`, `is_complete=False`로 확인 질문을 만들고 END로 끝난다. 다음 intent 턴에서 Orchestrator가 이를 보고 `ChatRequest.confirmation`을 판정한다. `confirmation=False`(FE의 "아니요" 버튼)면 `user_prompt`에 교정 내용을 곁들여 보낼 수 있고, 그 값을 그대로 `state.user_prompt`에 실어 `Extractor`부터 다시 거친다 — `user_prompt`가 비어 있으면(FE가 버튼만 보내고 텍스트를 안 실었으면) `Extractor`가 아무것도 새로 추출하지 못해 사실상 같은 확인 질문이 그대로 다시 만들어진다(별도 "무엇을 바꿀지 되묻는" 로직은 없다).
 
-이전에는(2026-07-29 이전) `Interviewer`가 정보 충분 시 만든 `awaiting_confirmation=True` 상태를 Orchestrator가 Python if/else로 직접 처리하며 Graph 자체를 우회했고(긍정 시 `route_executor.run()` 직접 호출, 부정 시 하드코딩 문구 반환), 그래서 Graph에 선언된 조건부 Edge가 실행되지 않는 죽은 코드였다. 2026-07-30 `ConfirmationClassifier` 도입과 함께 이 우회 코드를 제거하고 확인 판정 자체를 Graph 안의 정식 Node·조건부 Edge로 옮겼다(근거: [챗봇 하드코딩 문구 처리 방안 제안](../proposals/chatbot_hardcoding_proposal.md) 1, 3번 항목).
+**2026-09-24 `ConfirmationClassifier` 제거**: FE가 확인 질문에 버튼(예/아니요)으로 답하는 쪽으로 계약이 바뀌면서, 자유 텍스트("응", "그걸로 해줘", "아니 5km로 바꿔줘" 등)를 LLM으로 긍정/부정 분류할 필요가 없어졌다. `confirmation_classifier.py`·`confirmation.yaml`·`ConfirmationResult` schema를 전부 삭제하고, 판정을 `PrewalkOrchestrator.orchestrator()`로 옮겼다(사용자 요청). `ChatRequest`에 `confirmation: Optional[bool]` 필드를 새로 추가해 이 버튼 값을 `user_prompt`와 분리했다 — 처음에는 `user_prompt`에 `"yes"`/`"no"`를 그대로 실어 문자열로 비교하는 안을 시도했지만, 그러면 "아니요" 응답에 교정 내용("3km로 바꿔줘")을 실을 자리가 없어진다는 문제를 사용자가 지적해 되돌렸다(제어 신호와 자유 텍스트를 분리하는 게 맞다는 판단). 이전에는(2026-07-29 이전) 같은 판정을 Orchestrator가 Python if/else로 직접 처리하며 Graph 자체를 우회했던 적이 있는데(긍정 시 `route_executor.run()` 직접 호출, 부정 시 하드코딩 문구 반환) 그때는 Graph에 선언된 조건부 Edge가 실행되지 않는 죽은 코드였다는 문제가 있었다(2026-07-30 `ConfirmationClassifier` 도입으로 해소, 근거: [챗봇 하드코딩 문구 처리 방안 제안](../proposals/chatbot_hardcoding_proposal.md) 1, 3번 항목). 이번 되돌림은 그 문제를 재현하지 않는다 — Orchestrator는 문구를 만들지 않고 `is_complete` 판정만 하며, 그 값을 Graph의 조건부 진입점이 그대로 읽어 정식 Edge로 분기하므로 죽은 코드가 생기지 않는다.
 
 2026-08-20에는 `Interviewer` 내부의 나머지 하드코딩 응답 문구(확인 질문 f-string, 검색 실패·서울 밖 안내 f-string)를 제거했다. 확인 질문·검색 실패·서울 밖 안내는 `interview.yaml`에 추가한 우선순위 지침(0: 서울 밖, 1: 검색 실패, 2: 최종 확인)을 통해 LLM이 생성한다(근거: [챗봇 하드코딩 문구 처리 방안 제안](../proposals/chatbot_hardcoding_proposal.md) 2, 6, 9번 항목). 당시 LLM/Kakao 예외 원문도 `response`에 노출했으나, 2026-09-20 안전 오류 계약에 따라 공통 문구로 교체했다. 정상 LLM 생성 문구와 `no_path` 등 경로 업무 상태는 이 변경의 대상이 아니다.
 
@@ -180,8 +181,9 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 | `Extractor` | `extraction.yaml` |
 | `WeightExtractor` | `weight_extraction.yaml`(도구 미바인딩, `PydanticOutputParser`로 `FeatureLabelMap`(`dict[FeatureTag, FeatureLabelEntry]` `RootModel`, `FeatureLabelEntry = Union[FeatureLabel, Literal["cancelled"]]`, 2026-09-20) 파싱. `previous_labels` input variable로 `[이전 라벨]`도 함께 받음) |
 | `Interviewer` | `interview.yaml` 단일 파일 — 도구 바인딩 1차 호출(장소 검색)과, 확인 요청·검색 실패·서울 밖 안내·편도 우회 최단거리 초과 안내(지침3, 2026-09-21)·재질문을 만드는 도구 미바인딩 호출(`_generate_response()`로 통합, `parser=str_parser`) 두 가지 방식으로 호출한다. `input_variables`에 `shortest_km_conflict`가 추가됐다 |
-| `ConfirmationClassifier` | `confirmation.yaml`(도구 미바인딩, `PydanticOutputParser`로 `ConfirmationResult.is_positive` 파싱) |
 | `RouteExecutor` | 없음 |
+
+확인 응답 판정은 Prompt가 없다(2026-09-24부터 `PrewalkOrchestrator.orchestrator()`의 문자열 비교) — 이전에 쓰던 `confirmation.yaml`은 삭제됐다.
 
 `extraction.yaml`에 `select_waypoint` 선택 규칙, `interview.yaml`에 경유지 장소 검색(`target="waypoint"`+`waypoint_index`) 가이드가 추가됐다(2026-08-07, GPS Art 때의 `select_gps_art` 선택 규칙과 같은 패턴). 다만 정적 대조(YAML 파싱·`load_prompt(...).format(...)` 렌더링 확인)만 했고, 실제 대화에서 LLM이 이 모드를 언제 선택하고 경유지를 얼마나 정확히 태깅하는지는 아직 검증되지 않았다.
 
@@ -209,7 +211,7 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 |---|---|
 | State 필드 | API schema, Valkey 기존 JSON, 모든 Node, 직렬화 |
 | Node 입출력 | Graph Edge, 조건부 진입점, Prompt |
-| 확인 상태 | `ConfirmationClassifier` LLM 판정(`confirmation.yaml`), `is_complete`, Graph 조건부 Edge, RouteExecutor 진입 |
+| 확인 상태 | `PrewalkOrchestrator.orchestrator()`의 `ChatRequest.confirmation`(bool) 판정(2026-09-24, FE 버튼 계약), `is_complete`, Graph 조건부 진입점, RouteExecutor 진입 |
 | Mode/Preference | ModeTool, Extractor prompt, Interviewer 완료 조건, RouteTool |
 | 장소 필드 | Kakao schema, 후보 선택, 서울 bbox 검증 |
 | intent 좌표(`current_location` 갱신) | `ChatRequest.lat/lon` 검증(coord/water/highway validator), `PrewalkOrchestrator.orchestrator()`의 동일 좌표 스킵 조건, Kakao 역지오코딩, `prewalk_router.py`의 `ValueError`→400 매핑 |
@@ -230,7 +232,7 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 | Extractor LLM 실패 | 기존 State 유지 | 다음 intent에서 재시도 |
 | WeightExtractor LLM·파싱 실패 | 직전 턴 `feature_labels`를 그대로 유지한다. 성공한 경우에도 이번 턴에 언급하지 않은 축은 유지한다(§9 “2026-09-20” 참고) | 다음 intent에서 재시도 |
 | Interviewer LLM·Kakao API 실패 | 원문 대신 공통 안전 문구를 `response`에 반환 | 다음 intent에서 재시도 |
-| ConfirmationClassifier LLM 실패 | `is_complete=False`로 처리해 `Extractor`로 진행(안전 측 기본값, 별도 fallback 문구 없음) | 다음 intent에서 재확인 질문 재생성 |
+| 확인 응답 `confirmation`이 `False`거나 없음(2026-09-24) | bool 판정이라 실패할 수 없다 — `True`가 아니면 전부 `is_complete=False`로 처리해 `Extractor`로 진행(안전 측 기본값) | 다음 intent에서 재확인 질문 재생성(교정 내용은 `user_prompt`로 반영) |
 | RouteTool 실패 | 예외를 기록하고 기존 State 유지 | 조건 확인 후 재확인 |
 | State 저장 실패 | 응답은 반환될 수 있음 | Valkey 복구 후 init 재시작 |
 
@@ -409,6 +411,35 @@ HTTP 200만으로 성공을 판단하지 않는다. `status`, `awaiting_confirma
   - `tests/unit`(사전에 깨져 있던 `test_data_collector_scope.py` 수집 오류 제외) 1073 PASS / 20 FAIL — FAIL 전부 `test_banner_service.py`(한글 인코딩)·`test_base_collector.py`·`test_park_polygon_collector.py`로 이번 변경과 무관한 기존 실패임을 파일명으로 확인.
   - `tests/integration/test_route_feedback_flow.py`(`route_service.get_route()`를 직접 호출해 `RouteExecutor`/`Interviewer`를 거치지 않음)·`tests/integration/test_circular_preference_flow.py`(`RouteExecutor.run()`을 `CIRCULAR_RANDOM`으로만 직접 호출) 44개 전부 PASS — 두 파일 다 `ONEWAY_SHORTEST` 경로를 실제로 거치지 않아 회귀 확인용이다.
   - **확인하지 못한 항목**: `prewalk_service.py::orchestrator`(LangGraph + Valkey 상태 영속)를 실제로 여러 턴 돌려 "interviewer 턴에 채운 `route_result`가 confirmation 턴까지 살아남아 `route_executor`가 재사용하는지"와 `RouteTool.oneway_shortest_route`의 실제 DB/그래프 경로를 엔드투엔드로 실행 검증하지는 않았다(단위 테스트는 `route_tool`/`route_service`를 mock) — `PrewalkOrchestrator`를 직접 구동하는 테스트가 저장소에 없다.
+
+**2026-09-24 (`ConfirmationClassifier` 제거 — FE 버튼 기반 확인 응답 전환, 사용자 요청·결정론적 단위 실행)**
+
+- **배경**: FE가 확인 질문("이 코스로 진행할까요?")에 자유 텍스트가 아니라 예/아니요 버튼으로 답하도록 바뀌면서, 자유 텍스트의 긍정/부정을 LLM으로 분류하던 `ConfirmationClassifier`·`confirmation.yaml`이 더 이상 필요 없어져 통째로 삭제했다(사용자가 직접 두 파일을 지웠고, 이 작업은 그에 맞춰 Graph·Orchestrator·잔여 참조를 정리했다).
+- **처음 시도했다가 되돌린 설계**: 버튼 값을 `user_prompt`에 `"yes"`/`"no"` 문자열로 그대로 실어 보내고, Orchestrator가 `user_prompt.strip().lower() == "yes"`로 판정하는 안을 먼저 구현했다. 그런데 "아니요" 응답에는 사용자가 무엇을 바꾸고 싶은지 자유 텍스트(예: "3km로 바꿔줘")가 같이 와야 `Extractor`가 교정 내용을 파싱할 수 있는데, `user_prompt` 하나로 제어 신호(긍정/부정)와 자유 텍스트를 동시에 표현할 방법이 없다는 걸 사용자가 지적했다. `[yes]`/`[no]` 접두어로 인코딩하는 대안도 검토했으나, 백엔드에서 접두어를 다시 파싱·제거해야 하고(안 지우면 LLM 프롬프트에 그대로 노출됨) `PromptUtils.sanitize_user_prompt`의 정규화 순서까지 신경 써야 해 더 복잡하다고 판단해 기각했다. 최종적으로 제어 신호와 자유 텍스트를 완전히 분리하는 아래 설계로 정리했다.
+- **`src/interfaces/schema/prewalk_schema.py::ChatRequest`(필드 추가·제약 변경)**: `confirmation: Optional[bool] = None` 필드를 신설했다 — FE가 확인 대기 중에만 채워 보낸다. `user_prompt`는 `min_length=1` 고정 필수에서 `default=""`로 바뀌었고, 대신 `confirmation`과 함께 보는 model validator(`check_user_prompt_required_without_confirmation`)를 추가했다: `confirmation`이 없으면(일반 대화 턴) 여전히 공백을 막고, `confirmation`이 있으면(확인 응답 턴) 공백을 허용한다("yes"는 교정할 내용이 없고, "no"는 있으면 그대로 실림).
+- **`src/schema/prewalk_schema.py`**: `ConfirmationResult`(`ConfirmationClassifier`의 `PydanticOutputParser` 전용 모델) 삭제 — 다른 어떤 코드도 참조하지 않는 걸 grep으로 확인 후 제거. `State`에는 `confirmation` 필드를 추가하지 않았다 — 매 요청마다 오는 일회성 신호라 Orchestrator가 그 자리에서 `is_complete`로 소비하고 끝나며, 턴을 넘어 영속할 이유가 없다.
+- **`prewalk_router.py::read_message`**: `service.orchestrator(...)` 호출에 `confirmation=request.confirmation`을 추가로 넘긴다.
+- **`prewalk_service.py::_build_graph`**: `confirmation_classifier` Node와 그 조건부 Edge를 없앴다. 조건부 진입점을 `awaiting_confirmation` 대신 `state.is_complete`로 바꿨다 — `is_complete=True`면 `route_executor`로 바로, 아니면 `extractor`로 간다(`Interviewer`가 만드는 하류 조건부 Edge는 기존 그대로 `is_complete` 기준).
+- **`prewalk_service.py::orchestrator`(시그니처에 `confirmation: Optional[bool] = None` 추가)**: 그래프 실행 직전에 확인 응답을 판정하는 코드를 추가했다.
+  ```python
+  if state.awaiting_confirmation:
+      state.awaiting_confirmation = False
+      state.is_complete = bool(confirmation)
+  else:
+      state.is_complete = False
+  ```
+  - `awaiting_confirmation`이 `True`(직전 턴이 확인 질문으로 끝남)일 때만 판정한다. `confirmation=True`면 긍정, 그 외(`False`·`None` — FE가 안 보낸 경우 포함)는 전부 부정 — LLM 판정이 실패할 수 있던 것과 달리 bool 판정은 실패하지 않으므로 별도 예외 처리가 필요 없다.
+  - `awaiting_confirmation`이 애초에 `False`였던 일반 턴에서도 `state.is_complete`를 명시적으로 `False`로 지운다 — Valkey에서 불러온 이전 턴의 `is_complete`가 우연히 `True`로 남아있었다면(예: 직전 턴이 `route_executor`까지 실행됐던 턴) 그 값을 그대로 두고 그래프 진입점이 이를 읽으면 `route_executor`로 잘못 직행하기 때문이다(`route_executor`는 `is_complete`를 되돌리지 않는다) — 매 턴 명시적으로 덮어써야 이 staleness를 막을 수 있다는 점은 `_update_shortest_km`가 `shortest_km`/`route_result`에 이미 적용해 둔 것과 같은 원칙이다.
+- **`tests/integration/check_circular_preference_artifact.py`**: `ConfirmationClassifier`를 직접 import해 `.run`을 patch하던 코드가 있어 삭제 후 `ImportError`로 깨졌다. import·patch·`confirm()` 헬퍼를 제거하고, `client.post` JSON body를 `"user_prompt": "네, 이 조건으로 만들어줘"`에서 `"confirmation": True`(`user_prompt` 생략)로 바꿨다(FE 버튼 계약과 동일하게).
+- **`scripts/eval_extraction.py`**: `ConfirmationClassifier`를 언급하던 주석 한 줄만 새 판정 방식을 반영하도록 수정(코드 동작 변화 없음).
+- **손대지 않고 남긴 것**: `scripts/test_prewalk_conversation.py`는 확인 응답에 "응"/"그걸로 해줘" 같은 자유 텍스트를 `user_prompt`로만 보내는 시나리오(3, 9~11번)가 있다 — import는 없어 실행은 되지만, 새 계약에서는 `confirmation` 없이 보내는 호출이라 전부 `is_complete=False`(부정)로 처리돼 원래 의도("애매한 긍정이 판정되는지")를 더는 검증하지 못한다. 시나리오를 `confirmation` 필드 기반으로 다시 짤지는 제품 판단이 필요해 이번 작업 범위에서 다루지 않았다 — `docs/chatbot/test_scenarios.md`도 같은 이유로 손대지 않았다(§9의 이 항목 참고).
+- **실행 검증**:
+  - `ChatRequest` 스모크 테스트(5개 조합 직접 생성): `confirmation` 없이 빈 `user_prompt` → `ValidationError`(의도대로 거부), `confirmation` 없이 비어있지 않은 `user_prompt` → 통과, `confirmation=True`·`user_prompt` 생략 → 통과(빈 문자열로 채워짐), `confirmation=False`+교정 텍스트 → 통과, `confirmation=False`·`user_prompt` 생략 → 통과(빈 문자열 허용) — 전부 의도대로 동작.
+  - 그래프 라우팅 스모크 테스트(mock Node로 `PrewalkOrchestrator._build_graph`가 만든 실제 컴파일 그래프를 `ainvoke`): `is_complete=True`로 진입 시 `extractor` 미호출·`route_executor`만 호출, `is_complete=False`로 진입 시 `extractor`만 호출·`route_executor` 미호출을 확인.
+  - `import src.interfaces.dependencies`·`import src.service.chat.prewalk_service` 정상 임포트 확인(순환 임포트·깨진 참조 없음).
+  - `tests/unit`(사전에 깨져 있던 `test_data_collector_scope.py` 수집 오류 제외) 1073 PASS / 20 FAIL — FAIL 전부 이전과 동일한 무관 도메인(`test_banner_service.py`·`test_base_collector.py`·`test_park_polygon_collector.py`)임을 파일명으로 재확인.
+  - `tests/integration`(`check_circular_preference_artifact.py` 제외 — 실제 그래프 artifact가 필요한 수동 스크립트라 pytest 대상이 아님) 146 PASS.
+  - **확인하지 못한 항목**: `check_circular_preference_artifact.py`를 실제로 실행해(`python -m tests.integration.check_circular_preference_artifact`, 실제 그래프 artifact 필요) `confirmation=True`로 바꾼 뒤에도 여전히 통과하는지는 로컬 환경(artifact 파일) 제약으로 실행하지 못했다 — 코드 검토로만 판단했다. `scripts/test_prewalk_conversation.py`의 자유 텍스트 확인 시나리오를 새 계약(`confirmation` 필드)에 맞춰 갱신하는 작업도 남아 있다.
 
 ## 10. 완료 기준
 
