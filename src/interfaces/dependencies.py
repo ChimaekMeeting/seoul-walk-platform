@@ -18,7 +18,6 @@ from src.agent.nodes import (
     Extractor,
     WeightExtractor,
     Interviewer,
-    ConfirmationClassifier,
     RouteExecutor
 )
 from src.infrastructure.external.client import (
@@ -99,7 +98,6 @@ def init_route_service():
         extractor               = Extractor(),
         weight_extractor        = WeightExtractor(),
         interviewer             = Interviewer(route_service=route_service),
-        confirmation_classifier = ConfirmationClassifier(),
         route_executor          = RouteExecutor(),
     )
 

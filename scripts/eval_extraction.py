@@ -60,8 +60,9 @@ extraction.yaml 프롬프트 검증(eval) 스크립트.
   채우는 게 맞는 동작이라, null로 남는다는 원래 기대가 틀렸었다.
 
 - `scripts/test_prewalk_conversation.py`와의 차이: 저 스크립트는 Extractor +
-  Interviewer + ConfirmationClassifier 전체 대화 흐름을 DB·Valkey·Kakao까지 실제로
-  호출해 사람이 눈으로 보는 용도다. 이 스크립트는 DB/Valkey/Kakao를 전혀 쓰지 않는다
+  Interviewer + 확인 응답 판정(2026-09-24부터 orchestrator가 yes/no 문자열로 직접
+  판정, 이전엔 ConfirmationClassifier가 LLM으로 판정) 전체 대화 흐름을 DB·Valkey·
+  Kakao까지 실제로 호출해 사람이 눈으로 보는 용도다. 이 스크립트는 DB/Valkey/Kakao를 전혀 쓰지 않는다
   (필요한 건 OPENAI_API_KEY뿐 — UserPreferenceRepository는 온보딩 선호값 없음으로 모킹).
 - 각 케이스마다 raw tool_call(LLM이 낸 그대로)과, 그 raw 결과에 Extractor._apply_postprocessing()
   (예외3~10: 좌표 재검증, 모드 변경과 무관한 필드 보존, origin=null→현재위치, target_km/

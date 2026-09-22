@@ -81,7 +81,8 @@ async def read_message(
     """
     try:
         return await service.orchestrator(
-            access_token, request.thread_id, request.user_prompt, request.lat, request.lon
+            access_token, request.thread_id, request.user_prompt, request.lat, request.lon,
+            confirmation=request.confirmation,
         )
     except HTTPException:
         raise

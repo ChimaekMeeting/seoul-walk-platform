@@ -101,13 +101,6 @@ class WayPointPreference(BasePreference):
     legs:        List[WaypointLegPreference] = Field(default_factory=list)
 
 
-class ConfirmationResult(BaseModel):
-    """
-    확인 질문에 대한 사용자 응답의 긍정/부정 분류 결과입니다.
-    """
-    is_positive: bool = Field(description="사용자 응답이 확인 질문에 긍정(진행)인지 여부")
-
-
 class FeatureTag(str, Enum):
     """
     가중치 라벨링 대상이 되는 선호 특징 축입니다. 새 feature가 늘어나면 여기에 값을

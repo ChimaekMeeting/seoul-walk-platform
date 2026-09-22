@@ -4,7 +4,8 @@
 > 기준일: 2026-07-30
 > 관련 코드: `src/interfaces/api/prewalk_router.py`, `src/service/chat/prewalk_service.py`, `src/agent/`, `src/schema/prewalk_schema.py`  
 > 검증 상태: 프로필 전달 단위 테스트 완료·기존 OpenAI/Kakao/DB/Valkey/경로 통합 확인  
-> 2026-09-23 `oneway_shortest`(편도 최단)는 `Interviewer`가 확인 질문 전에 최종 경로를 미리 계산해 `State.route_result`에 채워두고, 사용자가 긍정 확인하면 `RouteExecutor`는 그 값을 재계산 없이 그대로 반환한다. 노드별 계약·근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-23 후속2"를 단일 기준으로 참고한다 — 이 문서는 여기서 세부를 반복하지 않는다.
+> 2026-09-23 `oneway_shortest`(편도 최단)는 `Interviewer`가 확인 질문 전에 최종 경로를 미리 계산해 `State.route_result`에 채워두고, 사용자가 긍정 확인하면 `RouteExecutor`는 그 값을 재계산 없이 그대로 반환한다. 노드별 계약·근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-23 후속2"를 단일 기준으로 참고한다 — 이 문서는 여기서 세부를 반복하지 않는다.  
+> 2026-09-24 `ConfirmationClassifier` Node(확인 응답 긍정/부정 LLM 판정)를 삭제했다. FE가 확인 질문에 버튼으로 답하고 그 값을 `ChatRequest`의 새 필드 `confirmation`(`Optional[bool]`)으로 따로 보내면서(`user_prompt`는 "아니요"의 교정 내용 전용으로 분리), `PrewalkOrchestrator.orchestrator()`가 그 값을 그대로 반영해 직접 판정한다(그래프 진입점도 `awaiting_confirmation` 대신 이 판정 결과인 `is_complete`를 본다). 근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-24"를 참고한다.
 
 ## 1. 목적과 시작 조건
 
@@ -36,18 +37,24 @@ init: 좌표 schema·서울 Polygon·수계·보행 가능 검증
 → Valkey chat_state:{thread_id}(TTL 1시간) 저장
 
 intent: JWT 확인 → Valkey State 조회 → State.user_id 소유권 확인
-→ Extractor → Interviewer
-→ 정보 부족: 질문 후 State 저장
-→ 정보 충분: awaiting_confirmation=true로 확인 질문 후 저장
-  (oneway_shortest는 이 시점에 Interviewer가 이미 RouteTool로 최종 경로까지
-   계산해 route_result에 채워둔다, 2026-09-23)
-→ 긍정 응답: oneway_shortest면 위에서 채워둔 route_result를 그대로 반환
+→ awaiting_confirmation=true였다면: ChatRequest.confirmation(bool)을 그대로
+  긍정/부정으로 반영(Orchestrator, 2026-09-24 — FE가 확인 질문에 버튼으로 답하고
+  그 값을 confirmation 필드로 따로 보낸다. user_prompt는 "아니요"에 곁들이는
+  교정 내용 전용) → is_complete에 반영, awaiting_confirmation 해제
+→ 긍정(is_complete=true): Extractor/Interviewer를 다시 거치지 않고 바로 RouteExecutor로
+   (oneway_shortest면 Interviewer가 직전 턴에 이미 RouteTool로 최종 경로까지
+    계산해 route_result에 채워둔 값을 그대로 반환, 2026-09-23)
    그 외 모드는 RouteExecutor가 테마·명시값으로 profile 선택
+→ 부정 또는 새 정보 수집 턴(is_complete=false): Extractor → Interviewer
+  → 정보 부족: 질문 후 State 저장
+  → 정보 충분: awaiting_confirmation=true로 확인 질문 후 저장
+    (oneway_shortest는 이 시점에 Interviewer가 이미 RouteTool로 최종 경로까지
+     계산해 route_result에 채워둔다, 2026-09-23)
 → 설문 가중치와 테마 delta 결합 → RouteService → 주변 POI·RouteHistory
 → 최종 State 저장·반환
 ```
 
-부정 응답은 LangGraph를 실행하지 않고 확인 대기를 해제한 뒤 변경할 항목을 다시 묻는다. 다음 턴은 기존 `user_context`를 유지해 일부만 수정한다.
+확인 대기 중 `confirmation=false`(또는 아예 안 옴)은 부정으로 처리돼 `Extractor`부터 다시 거친다 — 기존 `user_context`는 유지되므로, FE가 `user_prompt`에 교정 내용을 같이 실으면 그걸로 일부만 수정되고, 비어 있으면(버튼만 클릭) `Extractor`가 아무것도 새로 추출하지 못해 사실상 같은 확인 질문이 다시 만들어진다.
 
 ## 4. 상태 변화와 결과
 
