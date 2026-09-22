@@ -17,10 +17,11 @@ Interviewer 검증(eval) 스크립트.
 (`_execute_tool_calls`)는 실제 네트워크가 필요해 이 스크립트 범위 밖이다 —
 그 경로는 `scripts/test_prewalk_conversation.py`가 다룬다.
 
-[100개 데이터셋(2026-09-13 전면 교체, 2026-09-13 GPS Art·경유지 범위 제외)] id는
-"001"~"100" 연속 번호. 지금은 3개 모드(순환/편도 우회/최단)만 검증 범위다 — GPS Art·
-경유지는 나중에 다시 넣을 수 있으므로 카테고리 구조·개수(100개)는 그대로 두고, 원래
-그 두 모드가 차지하던 자리를 순환/편도 우회/최단 케이스로 채웠다. 카테고리:
+[100개 데이터셋(2026-09-13 전면 교체, 2026-09-13 GPS Art·경유지 범위 제외) + 101~106
+(2026-09-21 신규, 편도 우회 최단거리 초과 안내)] id는 "001"~"106" 연속 번호. 지금은
+3개 모드(순환/편도 우회/최단)만 검증 범위다 — GPS Art·경유지는 나중에 다시 넣을 수
+있으므로 카테고리 구조·개수(001~100)는 그대로 두고, 원래 그 두 모드가 차지하던
+자리를 순환/편도 우회/최단 케이스로 채웠다. 카테고리:
     A. 001~030 Phase1 완료 판정 — 3개 모드(순환/편도우회/최단) × 필드 누락 조합,
        _has_location의 4개 하위 필드(lat/lon/address/place_name) 개별 누락 등
        경계 케이스 포함.
@@ -33,12 +34,25 @@ Interviewer 검증(eval) 스크립트.
        실패 수로 보는 게 목적이라, 재현되면 그대로 FAIL로 세야 한다.
     D. 056~063 지침1 — 서울 밖 안내.
     E. 064~071 지침2 — 검색 실패 안내.
-    F. 072~081 지침3 — 확인 질문의 정확성(요약된 장소·거리가 실제 context와 일치).
-    G. 082~091 지침5 — 재질문의 정확성(누락된 필드만 정확히 묻고 이미 있는 값은
-       다시 안 묻는지).
+    F. 072~081 지침4(2026-09-21 이전 번호 3) — 확인 질문의 간결성. 2026-09-23부터 FE가
+       [Current Context]를 화면에 직접 표시하므로, LLM은 장소·거리를 문장으로 재요약하지
+       않고 "이 코스로 진행할까요?"처럼 짧게만 확인해야 한다(이전엔 반대로 "요약이 실제
+       context와 일치하는지"를 봤었다 — 검사 기준을 전면 교체했다).
+    G. 082~091 지침6(2026-09-21 이전 번호 5) — 재질문의 정확성(누락된 필드만 정확히
+       묻고 이미 있는 값은 다시 안 묻는지).
     H. 092~100 프롬프트 인젝션 — Interviewer는 Extractor와 달리 구조화된 tool_call이
        아니라 사용자에게 직접 노출되는 자유 텍스트를 생성하므로, 인젝션 성공 시
        시스템 프롬프트 조각이 응답에 그대로 노출될 위험이 더 크다.
+    I. 101~106 지침3(2026-09-21 신규) — 편도 우회(oneway_random) 목표 거리가 물리적
+       최단거리보다 짧거나 같을 때("우회할 여지가 없는 요청") 안내 문구 생성. 101~103은
+       기본 케이스(경계값·발화 변형 포함), 104~105는 검색 실패·서울 밖 신호가 동시에
+       있을 때 그쪽이 우선하는지(지침2/1 > 지침3), 106은 충돌이 없을 때 이 지침이
+       잘못 발동하지 않고 최종 확인(지침4)으로 정상 진행하는지 확인하는 음성 대조다.
+       100개 밖의 신규 범위라 데이터셋은 100개가 아니라 106개다(모듈 상단 카운트 참고).
+    L. 107~112(2026-09-23 신규) — 지침0 오탐 패턴 확인. case_055("~해야겠죠?" 반문형 +
+       "근처 지나서 가는 거면"처럼 간접적으로 표현된 산책 요청)가 5/5로 일관되게 오탐되는
+       걸 재현 확인한 뒤, 원인이 반문형 어미 자체인지·경유 표현 때문인지·다른 요인인지
+       최소 대조쌍으로 좁혀본다(아직 프롬프트 수정 전, 패턴 확인 단계).
     케이스 발화는 `interview.yaml`의 유일한 few-shot 예시("오늘 뭐 먹지?")와
     겹치지 않게 썼다.
 
@@ -249,36 +263,38 @@ PHASE2_CASES: list[dict] = [
     },
 
     # ── C. 지침0 오탐 방지 — 진짜 산책 요청인데 무관하다고 판정하면 안 됨 (041~055) ──
+    # 041~044(2026-09-23 갱신): 지침4가 세부 정보를 재요약하지 않도록 바뀌어서(카테고리 F와
+    # 같은 변경) 기대값도 "장소·거리 포함"이 아니라 "짧은 확인 문구 + 재요약 없음"으로 맞췄다.
     {
         "id": "041", "desc": "[오탐 방지] 순환 확인 대기, 완전히 산책 관련인 발화",
         "context": CircularPreference(origin=resolved("봉원사"), target_km=4.0), "missing_info": "",
         "user_input": "봉원사에서 4km 정도 순환으로 걷고 싶어요",
-        "must_contain_any": [["봉원사"], ["4"], ["맞", "진행", "?"]],
-        "must_not_contain": BRUSH_OFF,
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["봉원사", "4km"],
     },
     {
         "id": "042", "desc": "[오탐 방지] 편도 우회 확인 대기, 산책 관련 발화",
         "context": OnewayPreference(origin=resolved("신정역"), destination=resolved("까치산역"), target_km=2.5),
         "missing_info": "",
         "user_input": "신정역에서 까치산역까지 2.5km 걷고 싶어요",
-        "must_contain_any": [["신정"], ["까치산"], ["맞", "진행", "?"]],
-        "must_not_contain": BRUSH_OFF,
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["신정", "까치산"],
     },
     {
         "id": "043", "desc": "[오탐 방지] 최단 확인 대기",
         "context": OnewayShortestPreference(origin=resolved("독립문역"), destination=resolved("서대문역")),
         "missing_info": "",
         "user_input": "독립문역에서 서대문역까지 최단으로 가고 싶어요",
-        "must_contain_any": [["독립문"], ["서대문"], ["맞", "진행", "?"]],
-        "must_not_contain": BRUSH_OFF,
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["독립문", "서대문"],
     },
     {
         "id": "044", "desc": "[오탐 방지] 최단 확인 대기(다른 장소 조합)",
         "context": OnewayShortestPreference(origin=resolved("교대역"), destination=resolved("사당역")),
         "missing_info": "",
         "user_input": "교대역에서 사당역까지 최단으로 가고 싶어요",
-        "must_contain_any": [["교대"], ["사당"], ["맞", "진행", "?"]],
-        "must_not_contain": BRUSH_OFF,
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["교대", "사당"],
     },
     {
         "id": "045", "desc": "[오탐 방지] 퇴근 후 산책, 거리 미정",
@@ -488,83 +504,98 @@ PHASE2_CASES: list[dict] = [
         "must_contain_any": [["존재하지않는건물명", "검색", "찾"]], "must_not_contain": BRUSH_OFF,
     },
 
-    # ── F. 지침3 — 확인 질문의 정확성 (072~081) ─────────────────────────────
+    # ── F. 지침4(2026-09-23: FE가 State를 직접 표시하므로, 세부 정보 재요약 없이
+    #    짧게 진행 여부만 확인하는지로 검사 기준 전면 교체 — 이전엔 반대로 장소·거리를
+    #    "정확히 요약"하는지를 봤었다) 확인 질문의 간결성 (072~081) ─────────────
     {
-        "id": "072", "desc": "확인 질문 — 순환, 장소·거리 정확히 요약",
+        "id": "072", "desc": "확인 질문 — 순환, 장소·거리를 되풀이하지 않고 짧게 확인",
         "context": CircularPreference(origin=resolved("봉원사"), target_km=4.0), "missing_info": "",
         "user_input": "봉원사에서 4km 순환으로 걷고 싶어요",
-        "must_contain_any": [["봉원사"], ["4"], ["맞", "진행", "?"]],
-        "must_not_contain": BRUSH_OFF + ["도착", "목적지"],
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["봉원사", "4km", "4.0km"],
     },
     {
-        "id": "073", "desc": "확인 질문 — 편도 우회, 출발·도착·거리 전부 요약",
+        "id": "073", "desc": "확인 질문 — 편도 우회, 출발·도착·거리 재요약 금지",
         "context": OnewayPreference(origin=resolved("신정역"), destination=resolved("까치산역"), target_km=2.5),
         "missing_info": "",
         "user_input": "신정역에서 까치산역까지 2.5km 걷고 싶어요",
-        "must_contain_any": [["신정"], ["까치산"], ["2.5", "2.5km"]],
-        "must_not_contain": BRUSH_OFF,
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["신정", "까치산", "2.5"],
     },
     {
-        "id": "074", "desc": "확인 질문 — 최단, 거리 필드 자체가 없으니 거리 언급 없어야 함",
+        "id": "074", "desc": "확인 질문 — 최단, 장소 재요약 금지",
         "context": OnewayShortestPreference(origin=resolved("독립문역"), destination=resolved("서대문역")),
         "missing_info": "",
         "user_input": "독립문역에서 서대문역까지 최단으로 가고 싶어요",
-        "must_contain_any": [["독립문"], ["서대문"], ["맞", "진행", "?"]],
-        "must_not_contain": BRUSH_OFF,
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["독립문", "서대문"],
     },
     {
-        "id": "075", "desc": "확인 질문 — 최단, 다른 장소 조합",
+        "id": "075", "desc": "확인 질문 — 최단, 다른 장소 조합도 재요약 금지",
         "context": OnewayShortestPreference(origin=resolved("녹번역"), destination=resolved("불광역")),
         "missing_info": "",
         "user_input": "녹번역에서 불광역까지 최단으로 가고 싶어요",
-        "must_contain_any": [["녹번"], ["불광"], ["맞", "진행", "?"]],
-        "must_not_contain": BRUSH_OFF,
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["녹번", "불광"],
     },
     {
-        "id": "076", "desc": "확인 질문 — 순환, 다른 장소·소수점 거리",
+        "id": "076", "desc": "확인 질문 — 순환, 소수점 거리도 재요약 금지",
         "context": CircularPreference(origin=resolved("길음역"), target_km=3.5),
         "missing_info": "",
         "user_input": "길음역에서 3.5km 순환으로 걷고 싶어요",
-        "must_contain_any": [["길음"], ["3.5"]],
-        "must_not_contain": BRUSH_OFF,
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["길음", "3.5"],
     },
     {
-        "id": "077", "desc": "확인 질문 — 편도 우회, 다른 장소·거리 조합",
+        "id": "077", "desc": "확인 질문 — 편도 우회, 다른 장소·거리 조합도 재요약 금지",
         "context": OnewayPreference(origin=resolved("녹번역"), destination=resolved("불광역"), target_km=1.8),
         "missing_info": "",
         "user_input": "녹번역에서 불광역까지 1.8km 걷고 싶어요",
-        "must_contain_any": [["녹번"], ["불광"], ["1.8"]],
-        "must_not_contain": BRUSH_OFF,
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["녹번", "불광", "1.8"],
     },
     {
-        "id": "078", "desc": "확인 질문 — 순환, 소수점 거리 정확히 요약",
+        "id": "078", "desc": "확인 질문 — 순환, 소수점 거리 재요약 금지(2)",
         "context": CircularPreference(origin=resolved("역삼동"), target_km=2.3), "missing_info": "",
         "user_input": "역삼동에서 2.3km 순환으로 걷고 싶어요",
-        "must_contain_any": [["역삼동"], ["2.3"]],
-        "must_not_contain": BRUSH_OFF,
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["역삼동", "2.3"],
     },
     {
-        "id": "079", "desc": "확인 질문 — 편도, 출발=목적지(왕복성 요청)",
+        "id": "079", "desc": "확인 질문 — 편도, 출발=목적지(왕복성 요청)도 재요약 금지"
+                            "(2026-09-23: 알려진 한계 — 출발=목적지면 [Shortest Km Conflict]=없음이어도"
+                            " 모델이 '같은 장소니 최단거리는 0'이라고 항상(5/5) 판단해 지침3(최단거리 초과"
+                            " 안내)으로 새버림. 금지 지침을 더 추가해도(재시도 1회) 전혀 안 바뀜(5/5 유지)"
+                            " — 더 밀어붙이지 않고 알려진 한계로 남김. 실제 시스템 기준으로는 이 판단이"
+                            " 틀렸다 — origin=destination이면 실제 최단거리도 0에 가깝지만, 비교 조건은"
+                            " `target_km <= shortest_km`이라 target_km=3.0 > 0이면 오히려 충돌이 아니다"
+                            " (3km짜리 원점 회귀 루프는 물리적으로 충분히 가능한 요청). 모델이 '같은 장소면"
+                            " 무조건 못 돌아간다'로 성급히 일반화하는 것으로 보인다.",
         "context": OnewayPreference(origin=resolved("왕십리역"), destination=resolved("왕십리역"), target_km=3.0),
         "missing_info": "",
         "user_input": "왕십리역에서 다시 왕십리역으로 돌아오는 3km 코스로 걷고 싶어요",
-        "must_contain_any": [["왕십리"]],
-        "must_not_contain": BRUSH_OFF,
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["왕십리"],
     },
     {
-        "id": "080", "desc": "확인 질문 — 최단, 출발=목적지",
+        "id": "080", "desc": "확인 질문 — 최단, 출발=목적지도 재요약 금지"
+                            "(2026-09-23: 알려진 한계, case 079와 같은 원인 — 다만 이쪽은 `oneway_shortest`라"
+                            " `_is_oneway_shortest_conflict`가 애초에 `OnewayPreference`가 아니면 무조건"
+                            " False라, 실제 시스템에서는 이 모드에서 지침3이 절대 발동할 수 없다(target_km"
+                            " 필드 자체가 없어 '충돌'이라는 개념이 없음). 그런데도 모델이 같은 장소라는 것만"
+                            " 보고 지침3 문구를 만들어냄(5/5) — 순수 프롬프트 오적용.",
         "context": OnewayShortestPreference(origin=resolved("교대역"), destination=resolved("교대역")),
         "missing_info": "",
         "user_input": "교대역에서 교대역까지 최단으로 가고 싶어요",
-        "must_contain_any": [["교대"]],
-        "must_not_contain": BRUSH_OFF,
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["교대"],
     },
     {
-        "id": "081", "desc": "확인 질문 — 좌표(위경도) 숫자가 문장에 그대로 노출되면 안 됨",
+        "id": "081", "desc": "확인 질문 — 좌표(위경도) 숫자는 물론 장소명·거리도 노출되면 안 됨",
         "context": CircularPreference(origin=resolved("낙성대역"), target_km=3.0), "missing_info": "",
         "user_input": "낙성대역에서 3km 순환으로 걷고 싶어요",
-        "must_contain_any": [["낙성대"], ["3"]],
-        "must_not_contain": BRUSH_OFF + ["37.", "126."],
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": BRUSH_OFF + ["낙성대", "3km", "37.", "126."],
     },
 
     # ── G. 지침5 — 재질문의 정확성 (082~091) ────────────────────────────────
@@ -706,6 +737,146 @@ PHASE2_CASES: list[dict] = [
         "must_contain_any": [["거리", "km"] + BRUSH_OFF],
         "must_not_contain": ["1 더하기 2는", "정답은 3"],
     },
+
+    # ── I. 지침3(2026-09-21 신규) — 편도 우회 최단거리 초과 안내 (101~106) ──────
+    # interview.yaml few-shot 예시가 "여의도역/여의도한강공원"을 쓰므로, 그 패턴을 그대로
+    # 따라한 건지(오탐)와 실제 [Shortest Km Conflict] 신호를 보고 판단한 건지 구분되도록
+    # 이 카테고리 케이스는 few-shot과 겹치지 않는 장소 쌍만 쓴다(eval_extraction.py/
+    # eval_weight_extraction.py와 같은 원칙 — few-shot과 테스트 케이스는 겹치지 않아야 함).
+    {
+        "id": "101", "desc": "기본 — 목표 거리가 최단거리보다 짧음",
+        "context": OnewayPreference(origin=resolved("성수역"), destination=resolved("서울숲"), target_km=1.0),
+        "missing_info": "", "shortest_km_conflict": 2.1,
+        "user_input": "성수역에서 서울숲까지 1km로 돌아가고 싶어요",
+        "must_contain_any": [["최단", "2.1"], ["늘려", "최단으로", "어떻게"]],
+        "must_not_contain": ["맞을까요"],  # 최종 확인(지침4) 문구가 아니라 이 안내여야 함
+    },
+    {
+        "id": "102", "desc": "경계값 — 목표 거리가 최단거리와 정확히 같음",
+        "context": OnewayPreference(origin=resolved("잠실역"), destination=resolved("잠실한강공원"), target_km=1.5),
+        "missing_info": "", "shortest_km_conflict": 1.5,
+        "user_input": "잠실역에서 잠실한강공원까지 1.5km로 가고 싶어요",
+        "must_contain_any": [["1.5", "최단"], ["늘려", "최단으로", "어떻게"]],
+        "must_not_contain": ["맞을까요"],
+    },
+    {
+        "id": "103", "desc": "사용자가 '우회'라는 단어까지 명시한 경우도 동일하게 안내",
+        "context": OnewayPreference(origin=resolved("합정역"), destination=resolved("망원한강공원"), target_km=0.8),
+        "missing_info": "", "shortest_km_conflict": 1.3,
+        "user_input": "합정역에서 망원한강공원까지 우회해서 0.8km만 걷고 싶어요",
+        "must_contain_any": [["최단", "1.3"], ["늘려", "최단으로", "어떻게"]],
+        "must_not_contain": ["맞을까요"],
+    },
+    {
+        "id": "104", "desc": "우선순위 — 검색 실패가 동시에 있으면 검색 실패 안내가 먼저(지침2 > 지침3)",
+        "context": OnewayPreference(origin=resolved("신촌역"), destination=named("가상의건물99"), target_km=0.5),
+        "missing_info": "목적지 장소명 또는 좌표", "shortest_km_conflict": 1.8,
+        "search_failures": {"destination": "가상의건물99"},
+        "user_input": "신촌역에서 가상의건물99까지 0.5km로 가고 싶어요",
+        "must_contain_any": [["가상의건물99", "찾지 못했", "검색"]],
+        "must_not_contain": ["최단거리", "1.8"],
+    },
+    {
+        "id": "105", "desc": "우선순위 — 서울 밖이 동시에 있으면 서울 밖 안내가 먼저(지침1 > 지침3)",
+        "context": OnewayPreference(origin=resolved("신촌역"), destination=named("과천"), target_km=0.5),
+        "missing_info": "목적지 장소명 또는 좌표", "shortest_km_conflict": 1.8,
+        "out_of_seoul": {"destination": "과천"},
+        "user_input": "신촌역에서 과천까지 0.5km로 가고 싶어요",
+        "must_contain_any": [["서울"]],
+        "must_not_contain": ["최단거리", "1.8"],
+    },
+    {
+        "id": "106", "desc": "음성 대조 — 충돌 없음(목표 거리가 최단거리보다 김) → 최종 확인으로 가야 함"
+                            "(2026-09-21: 알려진 한계 — 홍대입구역/경의선숲길처럼 모델이 실제로 가깝다고"
+                            " '아는' 실존 장소 쌍에서는, [Shortest Km Conflict]=없음이어도 가끔(5회 중"
+                            " 1회 수준) 자체 지리 지식으로 넘겨짚어 거리 초과를 언급함. 명시적 금지 지침"
+                            " 추가로 3/3 실패 → 1/5 실패까지 줄었으나 완전히는 안 없어짐. 실제 영향은"
+                            " 제한적 — 이 분기가 잘못 나와도 사용자에게 선택지를 주는 안내문일 뿐, 잘못된"
+                            " 경로를 만들거나 데이터를 조작하지 않음.",
+        "context": OnewayPreference(origin=resolved("홍대입구역"), destination=resolved("경의선숲길"), target_km=3.0),
+        "missing_info": "", "shortest_km_conflict": None,
+        "user_input": "홍대입구역에서 경의선숲길까지 3km로 걷고 싶어요",
+        "must_contain_any": [["맞", "진행", "할까요", "좋을까요"]],
+        "must_not_contain": ["돌아가는 길을 만들 수가 없", "늘려드릴까요", "홍대입구", "경의선숲길", "3km"],
+    },
+
+    # ── L. 지침0 오탐 패턴 확인 — 반문형/간접 표현 (107~112, 2026-09-23 신규) ──
+    # case_055가 5/5로 일관되게 오탐(재현 확인됨, 알려진 이슈로 기록). 원인이 (a) 반문형
+    # 어미("~해야겠죠?") 자체인지, (b) "지나서/거쳐서" 같은 경유 표현 때문인지, (c) 다른
+    # 요인인지 최소 대조쌍으로 좁혀본다. 아직 프롬프트는 안 고쳤다 — 패턴만 확인하는 단계.
+    {
+        "id": "107", "desc": "[오탐 패턴] 055와 동일 의미, 반문형만 제거(직접 서술형)"
+                            "(2026-09-23: 알려진 한계 — 지침0에 '다리·도로 지명이어도 산책 판단이면"
+                            " 관련 있음' 지침을 추가한 뒤 055/113/114(다리 지명, 조건형+반문형 구조)는"
+                            " 전부 해소됐는데(각각 5/5, 3/3, 3/3 PASS), 이 케이스만 0/8(누적)로 안 바뀜."
+                            " '지나서 가는 거면'(조건형) 대신 '지나가려고 하는데'(단순 진행형 서술)를 쓴"
+                            " 게 오히려 '이동 중'이라는 인상을 더 강하게 주는 것으로 보임 — 반문형 제거가"
+                            " 역효과였던 셈. 실제 영향은 제한적(재질문 문구가 다소 불친절해지는 정도이고,"
+                            " 사용자가 다시 말하면 정상 복구됨) — 더 밀어붙이지 않고 알려진 한계로 남김.",
+        "context": OnewayPreference(origin=resolved("신정역"), destination=resolved("까치산역")),
+        "missing_info": "목표 거리",
+        "user_input": "성산대교 근처를 지나가려고 하는데 얼마나 걸을지 정해야 해요",
+        "must_contain_any": [["거리", "km", "얼마나", "몇"]],
+        "must_not_contain": BRUSH_OFF,
+    },
+    {
+        "id": "108", "desc": "[오탐 패턴] 반문형 유지, 다른 주제(목적지 미정)로 교체",
+        "context": OnewayPreference(origin=resolved("신정역")), "missing_info": "목적지 장소명 또는 좌표",
+        "user_input": "한강진역을 지나서 간다고 하면, 어디까지 갈지 정해야겠죠?",
+        "must_contain_any": [["목적지", "어디", "도착"]],
+        "must_not_contain": BRUSH_OFF,
+    },
+    {
+        "id": "109", "desc": "[오탐 패턴] 반문형 + 컨텍스트 없음(첫 요청)",
+        "context": None, "missing_info": "출발지, 목적지(편도인 경우), 목표 거리, 경로 유형",
+        "user_input": "여의도공원 근처로 걸으려면 거리부터 정해야겠죠?",
+        "must_contain_any": [["거리", "km", "얼마나", "출발", "어디"]],
+        "must_not_contain": BRUSH_OFF,
+    },
+    {
+        "id": "110", "desc": "[오탐 패턴] 대조군 — 반문형이지만 실제로 산책과 완전 무관(지침0이 맞게 동작해야 함)",
+        "context": None, "missing_info": "출발지, 목적지(편도인 경우), 목표 거리, 경로 유형",
+        "user_input": "오늘 점심은 그냥 집에 있는 라면으로 때워야겠죠?",
+        "must_contain_any": [BRUSH_OFF], "must_not_contain": [],
+    },
+    {
+        "id": "111", "desc": "[오탐 패턴] '지나서' 대신 '거쳐서'(경유 표현이 계기인지 확인)",
+        "context": OnewayPreference(origin=resolved("신정역"), destination=resolved("까치산역")),
+        "missing_info": "목표 거리",
+        "user_input": "한강공원을 거쳐서 가는 거면 얼마나 걸을지 정해야 하나요?",
+        "must_contain_any": [["거리", "km", "얼마나", "몇"]],
+        "must_not_contain": BRUSH_OFF,
+    },
+    {
+        "id": "112", "desc": "[오탐 패턴] 반문형 + 순환 모드(목적지 필드 자체가 없는 모드에서도 재현되는지)",
+        "context": CircularPreference(origin=resolved("봉원사")), "missing_info": "목표 거리",
+        "user_input": "봉원사 근처만 도는 거면 거리는 어느 정도로 해야겠죠?",
+        "must_contain_any": [["거리", "km", "얼마나", "몇"]],
+        "must_not_contain": BRUSH_OFF,
+    },
+    {
+        "id": "113", "desc": "[오탐 패턴] '다리(교량)' 가설 확인 — 성산대교를 반포대교로 교체, 나머지 구조는 055와 동일",
+        "context": OnewayPreference(origin=resolved("신정역"), destination=resolved("까치산역")),
+        "missing_info": "목표 거리",
+        "user_input": "반포대교 근처 지나서 가는 거면 얼마나 걸을지 정해야겠죠?",
+        "must_contain_any": [["거리", "km", "얼마나", "몇"]],
+        "must_not_contain": BRUSH_OFF,
+    },
+    {
+        "id": "114", "desc": "[오탐 패턴] '다리(교량)' 가설 확인 — 성산대교를 마포대교로 교체",
+        "context": OnewayPreference(origin=resolved("신정역"), destination=resolved("까치산역")),
+        "missing_info": "목표 거리",
+        "user_input": "마포대교 근처 지나서 가는 거면 얼마나 걸을지 정해야겠죠?",
+        "must_contain_any": [["거리", "km", "얼마나", "몇"]],
+        "must_not_contain": BRUSH_OFF,
+    },
+    {
+        "id": "115", "desc": "[오탐 패턴] 사용자 제보 — '여기서 30분 산책하고 싶어'(직접적·명확한 요청, 컨텍스트 없음)",
+        "context": None, "missing_info": "출발지, 목적지(편도인 경우), 목표 거리, 경로 유형",
+        "user_input": "여기서 30분 산책하고 싶어",
+        "must_contain_any": [["출발", "거리", "얼마나", "어디", "코스", "경로", "종류"]],
+        "must_not_contain": BRUSH_OFF,
+    },
 ]
 
 
@@ -743,12 +914,16 @@ def check_phase2_text(case: dict, text: str) -> list[str]:
 
 async def gen_interview_response(client: GPTClient, iv: Interviewer, parser, case: dict) -> str:
     pu = PromptUtils()
+    shortest_km_conflict = case.get("shortest_km_conflict")
     input_variables = {
         "current_context":  pu.format_for_prompt(case["context"]),
         "current_location": pu.format_for_prompt(CURRENT_LOCATION),
         "missing_info":     case.get("missing_info", ""),
         "search_failures":  iv._describe_targets(case.get("search_failures"), "검색 결과 없음"),
         "out_of_seoul":     iv._describe_targets(case.get("out_of_seoul"), "서울 밖"),
+        "shortest_km_conflict": (
+            "없음" if shortest_km_conflict is None else f"최단거리 {shortest_km_conflict}km"
+        ),
         "user_input":       case["user_input"],
     }
     return await client.get_response(
@@ -762,8 +937,18 @@ def _snippet(text: str, n: int = 140) -> str:
 
 
 # ── 실행 ────────────────────────────────────────────────────────────────────
+class _NoConflictRouteService:
+    """실제 그래프·A* 없이 '편도 우회 최단거리 초과' 분기를 항상 비활성으로 둔다.
+
+    이 스크립트는 interview.yaml 문구 생성만 검증 범위라(모듈 docstring 참고),
+    실제 그래프가 필요한 RouteService.get_shortest_km()은 대상이 아니다.
+    """
+    def get_shortest_km(self, origin, destination):
+        return None
+
+
 async def run(args: argparse.Namespace) -> int:
-    iv = Interviewer()
+    iv = Interviewer(route_service=_NoConflictRouteService())
 
     passed = failed = xfail = 0
 
