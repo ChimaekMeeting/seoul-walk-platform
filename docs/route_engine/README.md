@@ -442,13 +442,13 @@ A*(`BuildCycleRoute`)가 그 가중 비용으로 구간을 잇는다 — 단, AL
   이 `grasp+alns` 규칙을 그대로 물려받는다 — `route_service.py`를 통한 `circular_random`·
   `oneway_random` 요청 모두 실제로 후보 3개를 반환한다(2026-09-19/2026-09-20, 실제 엔진으로
   재확인). 단 `select_diverse_paths` 기반 벡터 다양화는 쓰지 않는다(`mode="distance"`
-  전용) — 후보 3개는 순수하게 구축·정제 반복이 만들어낸 서로 다른 경로들이다.
+  전용) — 후보 경로는 내부 품질 비교·실험용으로만 유지하고 외부 응답에는 최종 경로 1개만 노출한다.
 - 조합을 가른 근거는 실측이다(2026-09-17, seed 42, 벤치 fixture 160,328노드/223,927엣지, `target_km=3.0`·N=2에서 정제 후 서로 다른 경로 수): `grasp+alns` 18~21개, `grasp+local` 2~8개, `grasp+vnd` 1~2개, `grasp+vns` 2~7개, `beam+*` 1개. VND·VNS는 결정적 단조 하강이라 서로 다른 구축 결과 24개가 같은 지역 최적해로 수렴하고, `beam_construction()`은 애초에 `ConstructionResult`를 1개만 yield한다. 재현 기준은 구축×정제 루프를 그대로 돌면서 매 반복의 `Route`를 모아 `node_ids` 기준 중복을 제거하는 것이다.
 - `WaypointEngine.find_path()`는 위 조합에서도 **최종 경로 노드열 하나**(`list[int]`)만 반환한다 — `circular_beam`·`oneway_beam`·`oneway_astar`가 `list[list[int]]`를 반환하는 것과 다르다. 후보는 `last_alternative_routes` 속성으로만 나간다. 그래서 이 함수를 쓰는 벤치마크 어댑터(`benchmarks/solvers/_circular_engine_common.py::run_circular_engine_distance_only`)와 CSV 지표는 이 변경으로 바뀌지 않는다. `benchmarks/results.py`의 `route_distance_km()`이 `paths` 전체를 합산하므로, 후보를 `paths`에 넣었다면 거리·게이트 지표가 전부 어긋났을 것이다.
 - 후보 선별은 `evaluate_route`/`better`의 사전식 키(`RouteObjective.sort_key()`)로 **안정 정렬**한 뒤 `node_ids` 완전 일치 중복만 제거하고, 그래도 2개를 못 채우면 최종 경로를 복제해 채운다. 최선해 추적(`better` 순차 갱신)은 그대로 두고 후보 수집만 옆에 붙였으므로, 같은 seed에서 최종 경로는 이 변경 전과 동일하다(실측 9조건에서 `|cost - target_m|`이 소수점까지 일치, 2026-09-17).
 - 복제 발동률은 실측 5.0%다(2026-09-17, `grasp+local`, 출발지 8 × 거리 5종 × N=2 × seed {42, 7, 123} = 120회 중 6회). 발동 조건은 남산 1km·북한산 3km 둘뿐이고 세 시드에서 모두 같은 조건에서만 걸렸다 — 무작위 변동이 아니라 성긴 도로망 + 짧은 목표거리의 구조적 한계다. 복제는 매번 1개였고(후보 2개를 모두 복제한 경우 0회), dense·medium 60회와 5km 이상 72회에서는 한 번도 발동하지 않았다. N=3·4는 별도 16조건에서 서로 다른 경로가 최소 5개였다(seed 42).
 - `oneway_shortest` 모드의 실제 사용 엔진은 `dijkstra.py`(`OnewayDijkstraEngine`)에서 `oneway_astar.py`(`OnewayAstarEngine`)로 교체되었다. 배경·현재 사용처는 바로 아래 "oneway_shortest 엔진: 거리 전용(distance-only) weight + Haversine 휴리스틱" 절 참고.
-- `route_service.get_route()`도 같은 계약(`List[WalkRouteResponse]`)으로 반환한다. POI 조회와 `RouteHistory` 저장은 성공한 후보 전부에 적용하며, 각 응답 후보에는 자신의 이력 ID가 붙는다. 사용자가 어느 후보를 선택해도 즐겨찾기·별점·장기 프로필 갱신이 그 후보 이력을 기준으로 동작한다.
+- `route_service.get_route()`는 외부 계약상 `List[WalkRouteResponse]`를 유지하되 최종 경로 1개만 담아 반환한다. POI 조회와 `RouteHistory` 저장도 최종 경로에만 적용하며, 응답에는 최종 경로의 이력 ID만 붙는다. 후보 경로별 이력과 사용자 선택 상태는 저장하지 않는다.
 - `OnewayAstarEngine._heuristic`은 2026-08-23부터 랜드마크 기반 ALT 방식이 아니라 Haversine 직선거리(`PathUtils._haversine_m`)를 쓴다. 이에 따라 `precompute_landmarks()`/`_select_landmarks()`/`landmark_dist` 노드 속성은 코드에서 전부 제거됐다 — 상세는 아래 "oneway_shortest 엔진: 거리 전용(distance-only) weight + Haversine 휴리스틱" 절 참고.
 
 ## 후보 다양화(벡터 score 기반)
@@ -491,13 +491,13 @@ A*(`BuildCycleRoute`)가 그 가중 비용으로 구간을 잇는다 — 단, AL
 - 이 방식은 leg 개수와 무관하게 항상 최대 3개만 계산한다 — leg별 후보를 전부 조합(3^legs)하지는 않는다. 일부 leg가 실패한 경우엔 다양화 없이 기존처럼 대표 경로 1개만 이어붙여 반환한다(부분/실패 경로까지 3개로 부풀리지 않음).
 - 검증: 단일 leg(순수 `oneway_random`), 2-leg(경유지 1개, 양쪽 다 `oneway_random`, 각각 3-lane), 2-leg 전부 `oneway_shortest`(대안 없음, degenerate case) 세 시나리오를 실제 toy 그래프로 직접 실행해 각각 3개/3개/1개(중복 제거 확인)가 나오는 것까지 확인했다(2026-08-07). **정식 `tests/` 회귀 테스트로는 아직 옮기지 않았다** — 지금까지는 임시 스크립트로만 검증했다.
 
-**`route_service.py`: POI·이력 처리**
+**`route_service.py`: 최종 경로 POI·이력 처리**
 
-- POI 조회(`RoutePoiRepository.find_near_route`)는 성공한 후보 전부에 적용한다.
-- `RouteHistory`도 성공한 후보마다 하나씩 저장하고 각 `WalkRouteResponse.id`에 해당 이력 ID를 넣는다. 저장하는 `candidate_features`는 그 이력의 후보 특성을 첫 번째로 재정렬한다. 장기 프로필 학습이 첫 번째 특성을 실제 선택 경로(`X_R`)로 해석하기 때문이다.
+- POI 조회(`RoutePoiRepository.find_near_route`)는 최종 성공 경로 1개에만 적용한다.
+- `RouteHistory`도 최종 성공 경로에 대해서만 저장하고 `WalkRouteResponse.id`에 해당 이력 ID를 넣는다. 내부 비교용 `candidate_features`는 최종 이력에 유지하며, 후보별 이력·고유 ID·사용자 선택 상태는 저장하지 않는다.
 - 저장할 때 `RouteHistoryRepository.save`가 `coordinates`로 `route_hash`(64자리 SHA-256 hex)와 `route_hash_version`(`v1`)을 함께 계산해 저장한다(`repository/user/route_hash.py`). 규칙 v1은 좌표를 소수점 5자리로 반올림하고 바로 앞 점과 같은 점을 제거한 뒤 compact JSON을 SHA-256한다. 방향과 시작점은 정규화하지 않는다. 행은 여전히 생성마다 새로 만들며 기존 행을 재사용하지 않고, `UNIQUE`도 없다(같은 경로를 여러 번 산책할 수 있다). hash 계산에 실패하거나 좌표가 없으면 hash와 버전이 `NULL`이고 이력 저장은 그대로 성공한다. 이 컬럼이 생기기 전 기록도 `NULL`이며 backfill은 하지 않는다. `(user_id, route_hash)` 복합 인덱스는 `init_table()`이 기존 테이블에도 만든다. API 응답에는 노출하지 않는다.
 - 기록 목록(`GET /api/user/routes`)은 `route_hash`로 같은 경로를 한 항목으로 묶어 대표 행 하나만 돌려주며 `limit`(1~100, 기본 20)/`offset`/`total`도 그룹 기준이다(`RouteHistoryRepository.find_page`). `group_by_route=false`면 행 단위로 조회한다. hash가 없는 행과 hash 버전이 다른 행은 서로 묶이지 않는다. 탭별 요청은 산책 완료 경로(파라미터 없음, `walk_status` 기본값 `completed`), 산책 시작한 경로(`walk_status=in_progress`), 즐겨찾기(`is_favorite=true`, 진행 상태와 무관)다. 완료 목록에는 상태 컬럼이 생기기 전 행(`walk_status` NULL)도 포함하고 `recommended` 행은 어느 탭에도 나오지 않는다. 정렬은 완료와 즐겨찾기가 `walked_on` 최신순(없으면 뒤, 같으면 `created_at`, `id` 최신순), 시작한 경로가 `created_at`, `id` 최신순이다(시작 시각은 저장하지 않는다). 그룹의 즐겨찾기 여부는 같은 경로의 행 중 하나라도 즐겨찾기인지이고, `PATCH .../favorite`은 같은 경로의 모든 행을 함께 토글한다. `POST .../complete`는 이미 완주한 경로에도 `walked_on`을 그날로 덮어써서 재산책이 최근 순서에 반영된다.
-- `walk_router.py`(직접 REST API)는 의도적으로 이번 변경 범위에서 제외했다 — 레거시로 간주하기로 했고, `response.status.value`가 이미 실제 반환 타입(`List[...]`)과 맞지 않는 기존 버그도 그대로 둔다.
+- `walk_router.py`(직접 REST API)는 `RouteService`가 반환한 리스트의 첫 번째 최종 경로를 단일 `WalkRouteResponse`로 반환한다.
 
 **아직 확인 안 된 것**: 실제 그래프 규모에서 이 다양화가 실제로 서로 다른 "의미 있는" 3개(예: 정말 확연히 다른 동선)를 만들어내는지는 toy 그래프 검증까지만 했고, 실서비스 규모 그래프·프런트엔드 노출까지는 확인하지 않았다. `tests/`에 정식 회귀 테스트도 아직 없다.
 
@@ -1760,7 +1760,7 @@ target_km=3.0, seed 0~119)으로 확인했다: 97/120(80.8%), 실패 23건 전�
 - 챗봇 연동: `mode_tools.py`에 `select_waypoint`(`origin`/`waypoints`/`destination`/`legs` → `WayPointPreference`)가 추가됐고, `route_tools.py`에 `waypoint_route` tool이, `route_executor.py`의 `MODE_TOOL_MAP`에 `WalkMode.WAYPOINT: "waypoint_route"`가 추가됐다. `RouteExecutor.run`은 `WayPointPreference.legs`(`{mode, target_km}` 객체 리스트)를 `leg_modes`/`leg_target_km` 두 리스트로 분리해 tool 인자를 구성한다. 경유지 장소 검색은 `place_tools.py`의 `target="waypoint"`+`waypoint_index`로 식별하고, `interviewer.py`가 인덱스별 후보(`state.waypoint_candidates`)를 관리한다.
 - leg별 `profile`/`custom_weights` 지정은 여전히 지원하지 않는다 — `RouteExecutor`가 계산한 공통 `profile`/`custom_weights` 하나를 `WaypointComposerEngine` 생성자를 통해 모든 leg에 동일하게 적용한다(변경 없음).
 - `extraction.yaml`에 `select_waypoint` 선택 규칙(경유지 표현 판단, 순환 코스 처리, `waypoints`/`legs` 필드 추출, 판단 예시 3개)이, `interview.yaml`에 경유지 장소 검색 가이드(`target="waypoint"`+`waypoint_index` 지정, 인덱스 오검색 방지, 복수 경유지 확인 질문)가 추가됐다(2026-08-07).
-- **아직 확인 안 된 것**: 위 prompt 가이드가 추가됐다는 것과 실제 LLM이 대화에서 이 모드를 의도대로 선택·태깅한다는 것은 다른 문제다 — 정적 대조(YAML 파싱, `load_prompt(...).format(...)` 렌더링 확인)만 했고 실제 LLM 호출로 검증하지 않았다. 이 연동은 `tests/unit/test_routue_service.py::TestWaypointRouting`(mock 엔진 기반 4개 테스트) + 기존 `test_waypoint_engine.py`(엔진 자체 단위 테스트)로만 확인했고, 실제 그래프·LLM·Kakao를 사용한 실행 검증은 하지 않았다.
+- **아직 확인 안 된 것**: 위 prompt 가이드가 추가됐다는 것과 실제 LLM이 대화에서 이 모드를 의도대로 선택·태깅한다는 것은 다른 문제다 — 정적 대조(YAML 파싱, `load_prompt(...).format(...)` 렌더링 확인)만 했고 실제 LLM 호출로 검증하지 않았다. 이 연동은 `tests/unit/test_route_service.py::TestWaypointRouting`(mock 엔진 기반 4개 테스트) + 기존 `test_waypoint_engine.py`(엔진 자체 단위 테스트)로만 확인했고, 실제 그래프·LLM·Kakao를 사용한 실행 검증은 하지 않았다.
 
 **leg 간 경로 겹침 방지(visited_nodes 페널티)**
 
