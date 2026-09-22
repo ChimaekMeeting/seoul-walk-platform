@@ -9,6 +9,7 @@ from src.agent.utils.chatbot_utils import PromptUtils
 from src.config.logging import log_unexpected_error
 from src.interfaces.errors import SAFE_INTERNAL_ERROR_DETAIL
 from src.interfaces.validators.coord_validator import is_within_seoul_bbox
+from src.interfaces.schema.walk_schema import Coordinate
 from src.schema.prewalk_schema import (
     State,
     Location,
@@ -23,12 +24,13 @@ from src.schema.prewalk_schema import (
 logger = logging.getLogger(__name__)
 
 class Interviewer(GPTClient):
-    def __init__(self):
+    def __init__(self, route_service):
         super().__init__()
-        self.place_tool   = PlaceTool()
-        self.prompt_utils = PromptUtils()
-        self.model        = self.llm.bind_tools(self.place_tool.tools)
-        self.str_parser   = StrOutputParser()
+        self.place_tool    = PlaceTool()
+        self.prompt_utils  = PromptUtils()
+        self.model         = self.llm.bind_tools(self.place_tool.tools)
+        self.str_parser    = StrOutputParser()
+        self.route_service = route_service
 
     async def run(self, state: State) -> State:
         """
@@ -39,9 +41,21 @@ class Interviewer(GPTClient):
         """
         is_complete  = self._is_complete(state.user_context)
         missing_info = self._get_missing_info(state.user_context)
+        self._update_shortest_km(state)
 
         logger.info(f"is_complete: {is_complete}")
         logger.info(f"missing_info: {missing_info}")
+        logger.info(f"shortest_km: {state.shortest_km}")
+
+        # 정보가 충분해도, 편도 우회인데 목표 거리가 최단거리보다 짧거나 같으면
+        # (우회할 여지가 없는 요청) 확인 질문 대신 이 사실부터 안내하고 어떻게 할지 되묻는다.
+        if is_complete and self._is_oneway_shortest_conflict(state):
+            state.is_complete = False
+            state.response = await self._generate_response(
+                state, missing_info="", shortest_km_conflict=state.shortest_km,
+            )
+            logger.info("interviewer_oneway_shortest_conflict | shortest_km=%s", state.shortest_km)
+            return state
 
         # 정보가 충분하면 → 사용자 확인 질문 생성 (경로 실행은 확인 후)
         if is_complete:
@@ -115,7 +129,17 @@ class Interviewer(GPTClient):
                             logger.info("interviewer_waypoint_candidate_selected | index=%d", idx)
 
             is_complete = self._is_complete(state.user_context)
+            self._update_shortest_km(state)
             logger.info(f"is_complete을 재확인합니다: is_complete = {is_complete}")
+            logger.info(f"shortest_km: {state.shortest_km}")
+
+            if is_complete and self._is_oneway_shortest_conflict(state):
+                state.is_complete = False
+                state.response = await self._generate_response(
+                    state, missing_info="", shortest_km_conflict=state.shortest_km,
+                )
+                logger.info("interviewer_oneway_shortest_conflict | shortest_km=%s", state.shortest_km)
+                return state
 
             # 장소 검색 후 정보가 충분해진 경우 → 확인 질문
             if is_complete:
@@ -144,6 +168,7 @@ class Interviewer(GPTClient):
         missing_info: str,
         search_failures: Optional[dict[str, str]] = None,
         out_of_seoul: Optional[dict[str, str]] = None,
+        shortest_km_conflict: Optional[float] = None,
     ) -> dict:
         return {
             "current_context":  self.prompt_utils.format_for_prompt(state.user_context),
@@ -151,6 +176,9 @@ class Interviewer(GPTClient):
             "missing_info":     missing_info,
             "search_failures":  self._describe_targets(search_failures, "검색 결과 없음"),
             "out_of_seoul":     self._describe_targets(out_of_seoul, "서울 밖"),
+            "shortest_km_conflict": (
+                "없음" if shortest_km_conflict is None else f"최단거리 {shortest_km_conflict}km"
+            ),
             "user_input":       state.user_prompt,
         }
 
@@ -160,17 +188,18 @@ class Interviewer(GPTClient):
         missing_info: str,
         search_failures: Optional[dict[str, str]] = None,
         out_of_seoul: Optional[dict[str, str]] = None,
+        shortest_km_conflict: Optional[float] = None,
     ) -> str:
         """
         interview.yaml을 tool 미바인딩 상태(parser=str_parser)로 호출해 사용자 응답 문구를 생성한다.
-        확인 질문 / 검색 실패 안내 / 서울 밖 안내 / 정보 재질문을 전부 이 경로로 통일한다.
-        호출이 실패하면 내부 원문 대신 공통 안전 메시지를 반환한다.
+        확인 질문 / 검색 실패 안내 / 서울 밖 안내 / 편도 최단거리 초과 안내 / 정보 재질문을
+        전부 이 경로로 통일한다. 호출이 실패하면 내부 원문 대신 공통 안전 메시지를 반환한다.
         """
         try:
             return await super().get_response(
                 prompt_name="interview",
                 input_variables=self._build_input_variables(
-                    state, missing_info, search_failures, out_of_seoul,
+                    state, missing_info, search_failures, out_of_seoul, shortest_km_conflict,
                 ),
                 parser=self.str_parser,
             )
@@ -198,6 +227,43 @@ class Interviewer(GPTClient):
             return "없음"
         parts = [f"{self._target_label(key)}('{keyword}') {reason}" for key, keyword in targets.items()]
         return "; ".join(parts)
+
+    def _update_shortest_km(self, state: State) -> None:
+        """
+        편도 우회(oneway_random)·최단(oneway_shortest) 두 모드 모두에서, 출발지·목적지
+        위경도가 둘 다 확정되면 물리적 최단거리(km)를 A*로 계산해 state.shortest_km에
+        채운다. 그 외(다른 모드로 바뀜, 위치 미확정, 경로 없음)에는 None으로 지운다 —
+        이전 턴·이전 장소 쌍의 값이 남아 stale해지는 걸 막기 위해 값이 없을 때도 항상
+        명시적으로 덮어쓴다. is_complete 판정이 바뀔 수 있는 지점(run() 안 두 곳)마다
+        호출해, 이번 턴 기준으로 항상 최신 상태를 유지한다.
+        """
+        pref = state.user_context
+        if not isinstance(pref, (OnewayPreference, OnewayShortestPreference)):
+            state.shortest_km = None
+            return
+        if not self._has_location(pref.origin) or not self._has_location(pref.destination):
+            state.shortest_km = None
+            return
+
+        state.shortest_km = self.route_service.get_shortest_km(
+            Coordinate(lat=pref.origin.lat, lon=pref.origin.lon),
+            Coordinate(lat=pref.destination.lat, lon=pref.destination.lon),
+        )
+
+    @staticmethod
+    def _is_oneway_shortest_conflict(state: State) -> bool:
+        """
+        편도 우회(oneway_random)에서, 목표 거리가 state.shortest_km(직전에 `_update_shortest_km`가
+        채운 값) 이하면(=우회할 여지가 없는 요청) True. 다른 모드거나 target_km/shortest_km이
+        아직 없으면 False — oneway_shortest는 애초에 target_km 필드 자체가 없어 "충돌"이라는
+        개념이 성립하지 않는다(단지 참고용 거리로 state.shortest_km만 채워질 뿐).
+        """
+        pref = state.user_context
+        if not isinstance(pref, OnewayPreference):
+            return False
+        if pref.target_km is None or state.shortest_km is None:
+            return False
+        return pref.target_km <= state.shortest_km
 
     def _has_location(self, loc: Optional[Location]) -> bool:
         """

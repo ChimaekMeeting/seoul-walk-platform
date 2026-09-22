@@ -253,6 +253,30 @@ class RouteService:
 
         return results
 
+    def get_shortest_km(self, origin: Coordinate, destination: Coordinate) -> Optional[float]:
+        """
+        origin·destination 사이의 물리적 최단 거리(km)만 가볍게 구한다.
+
+        `ONEWAY_SHORTEST`가 실제로 쓰는 것과 같은 엔진(`OnewayAstarEngine`, 거리 전용
+        Haversine A*)을 직접 호출한다 — GRASP+ALNS 같은 무거운 조합 최적화(`oneway_random`,
+        초 단위)를 거치지 않고 ms~수백ms 수준으로 끝난다. `custom_weights`/`cost_context`를
+        넘기지 않아 항상 물리 최단(순수 거리 기준)을 반환한다 — "이 목표 거리가 최단거리보다
+        짧은가"를 판단하는 용도라 가중치가 섞이면 기준 자체가 흔들린다.
+
+        경로를 못 찾으면(출발·도착 인근 노드가 없거나 연결이 끊긴 경우) None을 반환한다.
+        """
+        inp = OnewayRouteInput(
+            start_lat=origin.lat,
+            start_lon=origin.lon,
+            end_lat=destination.lat,
+            end_lon=destination.lon,
+        )
+        result = OnewayAstarEngine(inp, self.G).run()[0]
+        if result.status != WalkRouteStatus.SUCCESS:
+            logger.warning(f"get_shortest_km: 최단거리를 구하지 못했습니다 (status={result.status})")
+            return None
+        return result.total_km
+
     # 가중 비용 자체는 어떤 WalkMode를 쓰는지 모른다 — preference가 있으면(그리고
     # 점수 커버리지가 충분하면) 항상 cost_context를 만든다. 이걸 실제로 엔진에
     # 넘길지는 모드별로 _build_engine()이 정한다(예: ONEWAY_SHORTEST는 #445 설계

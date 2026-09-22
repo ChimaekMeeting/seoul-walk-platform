@@ -49,6 +49,7 @@ package-lock.json
 !tests/unit/test_prewalk_access_control.py
 !tests/unit/test_safe_error_policy.py
 !tests/unit/test_oneway_grasp_waypoint_alns.py
+!tests/unit/test_interviewer_shortest_conflict.py
 !/tests/integration/
 /tests/integration/*
 !tests/integration/test_route_feedback_flow.py

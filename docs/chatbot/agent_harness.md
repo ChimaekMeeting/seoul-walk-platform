@@ -2,7 +2,9 @@
 
 > 상태: Current  
 > 2026-09-20 WeightExtractor 갱신: 이전 선호를 프롬프트에 전달하고, 이번 턴에 언급하지 않은 축은 유지하며, 다시 언급한 축은 갱신하고, 명시적으로 취소한 축은 삭제한다. GPS Art·최단경로로 전환해도 기존 라벨을 유지한다. 실제 OpenAI 평가와 멀티턴 검증 결과·알려진 한계는 §9의 “2026-09-20” 및 “2026-09-20 후속” 기록을 참고한다.  
-> 2026-09-21 WeatherChecker 제거: 날씨·대기질 기반 LLM 초기 인사 Node를 없애고 고정 문구로 대체했다. `weather_checker.py`/`weather_checker.yaml`/`weather_cache_repository.py`도 함께 삭제했다.
+> 2026-09-21 WeatherChecker 제거: 날씨·대기질 기반 LLM 초기 인사 Node를 없애고 고정 문구로 대체했다. `weather_checker.py`/`weather_checker.yaml`/`weather_cache_repository.py`도 함께 삭제했다.  
+> 2026-09-21 Interviewer 편도 우회 최단거리 초과 안내: `RouteService.get_shortest_km`(신규)로 목표 거리가 물리적 최단거리보다 짧거나 같은지 확인해, 그럴 때만 확인 질문 대신 최단 경로/거리 조정 여부를 되묻는다. 검증 결과·알려진 한계(모델이 `없음` 신호를 넘겨짚는 잔존 케이스)와, 이 과정에서 발견한 별개의 `extraction.yaml` 기존 결함("최단"만 짧게 답하면 tool 미호출)은 §9의 “2026-09-21 (Interviewer...)” 기록을 참고한다.  
+> 2026-09-23 위 기능을 `oneway_shortest`(편도 최단)까지 확장하고 계산값을 `State.shortest_km`(신규 필드)로 영속화했다. `Interviewer._oneway_shortest_conflict`는 `_update_shortest_km`(필드 갱신)·`_is_oneway_shortest_conflict`(판단만) 두 메서드로 분리됐다. 같은 날 `interview.yaml` 지침4(최종 확인)도 FE가 State를 직접 표시하는 쪽으로 바뀌면서 장소·거리 재요약 없이 짧게만 확인하도록 간소화했다(출발=목적지 왕복 요청의 알려진 한계 포함). 지침0(무관한 주제)도 테스터 제보로 "다리(교량)" 지명이 산책 요청을 무관한 주제로 오판하던 버그를 찾아 고쳤다(성산대교 0/5→5/5, 마포대교 0/5→3/3, 반문형 제거 변형 하나는 잔존 한계로 남음). 상세는 §9의 “2026-09-23 후속” 기록을 참고한다.
 
 ## 1. 책임
 
@@ -35,6 +37,7 @@ Authorization header가 있으면 Bearer를 사용하고 cookie는 보지 않는
 | `destination_candidate` | `Interviewer` | 다음 `Interviewer`(첫 번째 후보 자동 확정용) |
 | `waypoint_candidates` | `Interviewer` | 다음 `Interviewer`(경유지 인덱스별 첫 번째 후보 자동 확정용, `waypoint` 모드 전용) |
 | `feature_labels` | `WeightExtractor`(GPS Art·최단경로는 `{}`로 스킵) | `RouteExecutor._build_weights` 가중치 블렌딩 |
+| `shortest_km` | `Interviewer._update_shortest_km`(`oneway_shortest`/`oneway_random`에서 위치 확정 시, 2026-09-23) | 편도 우회 최단거리 초과 안내 판단(`_is_oneway_shortest_conflict`), 확인 문구에 참고용 최단거리 표시 |
 | `awaiting_confirmation` | `Interviewer`(True로 설정)·`ConfirmationClassifier`(False로 해제) | 다음 intent의 Graph 진입점 분기(`ConfirmationClassifier` vs `Extractor`) |
 | `is_complete` | `Interviewer`·`ConfirmationClassifier` | Graph 분기(`RouteExecutor` 진입 여부)·완료 상태 |
 | `response` | 각 대화 Node·Orchestrator | `ChatResponse.state` |
@@ -101,7 +104,7 @@ src/prompt/                                      # LLM Prompt
 |---|---|---|---|
 | `Extractor.run` | `State` | `mode`, `user_context` | OpenAI, `ModeTool` |
 | `WeightExtractor.run` | `State` | `feature_labels`(GPS Art·최단경로는 `custom_weights`를 안 쓰므로 호출 자체를 건너뛰고 `{}`) | OpenAI(`PydanticOutputParser`, tool 미바인딩) |
-| `Interviewer.run` | `State` | 후보 위치, 보완된 context, `response`, 확인 상태 | OpenAI, `PlaceTool` |
+| `Interviewer.run` | `State` | 후보 위치, 보완된 context, `response`, 확인 상태 | OpenAI, `PlaceTool`, `RouteService.get_shortest_km`(편도 우회 최단거리 초과 판단 전용, 2026-09-21) |
 | `ConfirmationClassifier.run` | `State` | `is_complete`(긍정/부정 판정 결과), `awaiting_confirmation=False` | OpenAI(`PydanticOutputParser`, tool 미바인딩) |
 | `RouteExecutor.run` | `State` | `route_result` | 사용자 설문, `RouteTool`(GPS Art는 내부에서 `GpsArtService`도 호출; waypoint 모드는 `_build_weights`가 만든 `Weights`를 그대로 `args["preference"]`로도 함께 전달, 2026-09-17 dev 병합·#445 — 2026-09-19 갱신: 별도 `_build_preference_signal`/`SafetyComfortPreference` 변환 없이 재사용) |
 
@@ -175,7 +178,7 @@ Graph 선언은 조건부 진입점(`awaiting_confirmation` 기준)에서 시작
 |---|---|
 | `Extractor` | `extraction.yaml` |
 | `WeightExtractor` | `weight_extraction.yaml`(도구 미바인딩, `PydanticOutputParser`로 `FeatureLabelMap`(`dict[FeatureTag, FeatureLabelEntry]` `RootModel`, `FeatureLabelEntry = Union[FeatureLabel, Literal["cancelled"]]`, 2026-09-20) 파싱. `previous_labels` input variable로 `[이전 라벨]`도 함께 받음) |
-| `Interviewer` | `interview.yaml` 단일 파일 — 도구 바인딩 1차 호출(장소 검색)과, 확인 요청·검색 실패·서울 밖 안내·재질문을 만드는 도구 미바인딩 호출(`_generate_response()`로 통합, `parser=str_parser`) 두 가지 방식으로 호출한다 |
+| `Interviewer` | `interview.yaml` 단일 파일 — 도구 바인딩 1차 호출(장소 검색)과, 확인 요청·검색 실패·서울 밖 안내·편도 우회 최단거리 초과 안내(지침3, 2026-09-21)·재질문을 만드는 도구 미바인딩 호출(`_generate_response()`로 통합, `parser=str_parser`) 두 가지 방식으로 호출한다. `input_variables`에 `shortest_km_conflict`가 추가됐다 |
 | `ConfirmationClassifier` | `confirmation.yaml`(도구 미바인딩, `PydanticOutputParser`로 `ConfirmationResult.is_positive` 파싱) |
 | `RouteExecutor` | 없음 |
 
@@ -345,6 +348,43 @@ HTTP 200만으로 성공을 판단하지 않는다. `status`, `awaiting_confirma
 - 사용자 판단으로, 이 4가지 시도를 모두 되돌리고 `weight_extraction.yaml`을 Option B(병합+`previous_labels`+`cancelled`) 최초 검증 통과 시점 상태로 롤백했다 — 좁은 엣지 케이스 하나 대비 추가 프롬프트 수정 비용이 크다고 판단했기 때문이다. `multiturn_04` 케이스는 이 known limitation을 재현 근거와 함께 FAIL 상태로 남겨 회귀 감시 용도로 유지한다.
 - **실제 영향(`route_executor.py::_build_weights` 기준)**: 이 한계가 발동해 `low` 대신 `cancelled`가 나오면, `WeightExtractor.run()`의 병합 로직이 그 축을 `state.feature_labels`에서 지운다. `_build_weights()`는 매 턴 `base`를 온보딩 설문 장기 가중치로 채운 뒤 `state.feature_labels`에 **있는 축만** EMA 블렌딩하므로(축이 없으면 그 턴은 완전히 스킵), 이 한계의 실제 결과는 "그 축이 사라지거나 0이 되는" 게 아니라 "그 턴의 저우선순위 조정이 반영되지 않고 온보딩 설문 값으로 되돌아가는" 정도다 — 데이터 손상은 아니다.
 - **실행 검증**: 새로 추가한 11개 멀티턴 케이스 각각 `--repeat 3~5`로 실제 `gpt-4o-mini` 호출 재확인(10 PASS 안정적, `multiturn_04`는 5/5 재현 FAIL). 프롬프트 롤백 **후** 전체 111개(단일 발화 100 + 멀티턴 11) 1회 실행: 87/111 PASS, 멀티턴은 10/11(`multiturn_04`만 FAIL), 단일 발화 `CASES`는 77/100으로 기존 74/100 기준선과 동등(회귀 없음 — `temperature=0.1` 기준 실행 관측값이라 재실행 시 ±수 개 변동 가능).
+
+**2026-09-21 (Interviewer — 편도 우회 최단거리 초과 안내 추가, 실제 OpenAI 호출 + 결정론적 단위 실행)**
+
+- **배경**: `oneway_random`(편도 우회) 요청에서 목표 거리가 출발지·목적지 사이 물리적 최단거리보다 짧거나 같으면(우회할 여지가 없는 요청) `waypoint_pool.py::build_pool_two_point()`가 조용히 target_m을 clamp하고 경고 로그만 남긴 채 진행하던 것을, 사용자에게 되물어보도록(최단 경로로 갈지 목표 거리를 늘릴지) 바꿨다.
+- **`RouteService.get_shortest_km(origin, destination)`(신규)**: `ONEWAY_SHORTEST`가 실제로 쓰는 것과 같은 엔진(`OnewayAstarEngine`, 거리 전용 Haversine A*)을 직접 호출해 `total_km`만 가볍게 반환한다(GRASP+ALNS 같은 무거운 조합 최적화를 거치지 않음). 경로를 못 찾으면 `None`. toy graph(1km 엣지)로 연결/비연결 두 경우 모두 실제 실행 검증했다.
+- **`Interviewer(route_service)`(생성자 변경)**: `route_service`를 새 의존성으로 받는다. `dependencies.py`의 `Interviewer()` 생성부에 `route_service=route_service`를 주입했다.
+- **`Interviewer._oneway_shortest_conflict(pref)`(신규)**: `oneway_random` + `target_km` 존재 + origin/destination 위치 확정(`_has_location`) 상태에서만 `get_shortest_km`을 호출한다. `target_km <= 최단거리`일 때만 그 최단거리(km)를 반환하고, 그 외(다른 모드, 미정, 위치 미확정, 우회 여지 있음)는 전부 `None`이다 — 불필요한 A* 호출을 만들지 않는다.
+- **`run()` 배선**: `is_complete=True`가 되는 두 지점(최초 판정, 장소 검색 후 재판정) 모두에서, 확인 질문(`awaiting_confirmation=True`)으로 가기 전에 이 충돌을 먼저 확인한다. 충돌이면 `is_complete=False`로 두고 `shortest_km_conflict`를 실어 `interview.yaml`을 호출해 안내 문구를 생성한다 — 충돌이 없으면(target_km > 최단거리) 이 분기를 타지 않고 기존 확인 질문 흐름 그대로 진행한다.
+- **`interview.yaml`**: 새 지침 "3. 편도 우회 최단거리 초과 안내" 추가(기존 3~5번은 4~6번으로 밀림), `shortest_km_conflict` input variable 추가. `[Shortest Km Conflict]`가 "없음"이면 모델 자신의 지리 지식으로 넘겨짚지 말라는 지침도 추가했다(아래 알려진 한계 참고).
+- **실행 검증**:
+  - `tests/unit/test_interviewer_shortest_conflict.py`(신규 8개, `route_service.get_shortest_km` mock) — 충돌/경계값/충돌아님/순환·최단모드 해당없음(A* 미호출 확인)/거리미정(A* 미호출)/위치미확정(A* 미호출)/경로없음 전부 PASS.
+  - `scripts/eval_interviewer.py`에 카테고리 I(101~106) 추가, 실제 OpenAI 호출로 안내 문구·우선순위(검색 실패·서울 밖이 이 안내보다 먼저인지) 검증 — 5 PASS, 1 FLAKY(아래 한계).
+  - `scripts/eval_extraction.py`에 카테고리 J(101~103) 추가 — 이 안내를 받은 다음 턴 사용자 응답("최단으로"/"거리 늘려줘")을 `Extractor`가 정상 처리하는지. **여기서 기존에 몰랐던 실제 버그를 발견했다(아래).**
+  - `tests/unit/test_routue_service.py` 25/25, `dependencies.py` import 정상 — 회귀 없음.
+- **알려진 한계(`interview.yaml` 지침3)**: `[Shortest Km Conflict]`가 "없음"인데도, 모델이 실존 장소(예: 홍대입구역/경의선숲길처럼 실제로 가까운 곳)에 대해 자기 지리 지식으로 "거리가 부족할 것 같다"고 넘겨짚는 경우가 있다. 금지 지침 추가로 3/3 실패 → 1/5로 줄었으나 완전히는 안 없어졌다. 실제 영향은 제한적(선택지를 주는 안내문일 뿐 경로 데이터를 조작하지 않음) — `scripts/eval_interviewer.py` case 106에 재현 근거와 함께 기록.
+- **새로 발견한 `extraction.yaml` 버그(오늘 작업 범위 밖, 미수정)**: "그럼 최단 경로로 가줘"/"최단으로 해줘"처럼 장소명을 다시 언급하지 않고 "최단"만 짧게 답하면 `Extractor`가 tool을 아예 호출하지 않는다(0/5). 비교로 기존에 이미 있던 `scripts/eval_extraction.py::case_084`("이번엔 최단으로 가줘")를 재실행해도 0/5로 실패해, 오늘 코드 변경과 무관한 기존 결함임을 확인했다. "최단"은 `extraction.yaml`이 이미 명시적 전환 키워드로 인정하는 단어인데도 rule 0("막연한 요청")으로 오판되는 것으로 보인다. 숫자로 거리를 바꿔달라는 요청(`case_102`, 3/3 정상)은 문제없다. `scripts/eval_extraction.py` 카테고리 J(101~103)에 재현 근거를 남겼다 — 사용자가 이전에 지적한 "Extractor가 무관한 대화를 잘 못 구분한다" 문제의 구체적 사례로 보이며, 수정은 아직 하지 않았다.
+
+**2026-09-23 후속 (편도 최단(oneway_shortest)까지 확장 + `State.shortest_km` 필드로 영속화, 실제 OpenAI 호출 + 결정론적 단위 실행)**
+
+- **배경**: 위 2026-09-21 구현은 `oneway_random`(편도 우회) 전용이었고 계산값도 `Interviewer.run()` 안에서만 쓰고 버렸다. 사용자 요청으로 (1) `oneway_shortest`(편도 최단)에도 같은 최단거리 계산을 적용하고, (2) 그 값을 `State`의 새 필드로 영속화하도록 확장했다.
+- **`State.shortest_km`(신규, `prewalk_schema.py`)**: 출발지·목적지 사이 물리적 최단거리(km). `Optional[float] = None`. origin/destination이 바뀌면 즉시 stale해지는 값이라, "그 값을 채운 시점 기준"으로만 신뢰해야 한다는 docstring을 남겼다 — 영속 캐시가 아니라 "이번 턴 계산 결과를 다음 노드·최종 응답까지 들고 가기 위한 값"이라는 취지.
+- **`Interviewer._oneway_shortest_conflict(pref)` → 두 메서드로 분리**:
+  - `_update_shortest_km(state)`: `oneway_shortest`·`oneway_random` 두 모드 모두에서 origin/destination 위경도가 확정되면 `route_service.get_shortest_km`을 호출해 `state.shortest_km`을 채운다. 그 외(다른 모드, 위치 미확정, 경로 없음)는 **명시적으로 `None`으로 지운다** — 이전 턴·이전 모드의 값이 남아 stale해지는 걸 막기 위해 "값이 없을 때도 항상 쓴다."
+  - `_is_oneway_shortest_conflict(state)`: `oneway_random` + `target_km` + 이미 채워진 `state.shortest_km`을 보고 `target_km <= state.shortest_km`인지만 판단한다(재계산 없이 위 메서드가 채운 값을 재사용). `oneway_shortest`는 `target_km` 필드 자체가 없어 이 판단 대상이 아니다 — 다만 참고용 최단거리는 `_update_shortest_km`을 통해 똑같이 `state.shortest_km`에 채워진다.
+  - `run()`의 두 `is_complete` 판정 지점 모두에서 `_update_shortest_km(state)`를 **`is_complete` 여부와 무관하게 먼저 호출**한 뒤(모드가 바뀌었거나 위치가 아직 미확정이면 그 즉시 필드를 정리하기 위함), `is_complete and self._is_oneway_shortest_conflict(state)`일 때만 충돌 분기를 탄다.
+- **실행 검증**:
+  - `tests/unit/test_interviewer_shortest_conflict.py`를 새 API에 맞춰 재작성(8개) — `oneway_shortest`가 필드는 채우되 충돌 판정은 절대 안 함, 순환 모드로 바뀌면 이전 값(9.9로 세팅해둔 값)이 실제로 `None`으로 지워짐(stale 방지 확인), 거리 미정이어도 위치만 확정되면 필드는 채워짐 등 전부 PASS.
+  - `Interviewer.run()`을 toy graph(1.2km 엣지)로 실제 실행(mock 없이 진짜 로직 경로) — `oneway_shortest`·`oneway_random`(충돌)·`oneway_random`(정상) 세 시나리오 전부 `state.shortest_km=1.2`로 정확히 채워짐을 확인했고, 충돌 케이스의 실제 생성 문구도 "최단 거리가 이미 1.2km라..."로 이 필드 값을 정확히 재사용했다.
+  - `tests/unit/test_routue_service.py` 회귀 없음(변경 없는 파일).
+- **`interview.yaml` 지침4(최종 확인 요청) 간소화(같은 날 후속)**: FE가 `[Current Context]`를 화면에 직접 표시하기로 하면서, LLM이 출발지·목적지·거리·경로 종류를 문장으로 재요약하던 것을 없애고 "이 코스로 진행할까요?"처럼 짧게만 확인하도록 바꿨다(지침0의 "확인 대기 상황" 재확인 문구도 동일하게 간소화). `scripts/eval_interviewer.py` 카테고리 F(072~081)는 "요약이 정확한지"를 보던 기존 검사 기준을 "세부 정보를 재요약하지 않는지"로 전면 교체했다 — 실제 OpenAI 호출로 재검증: 16개 중 14 PASS.
+  - **알려진 한계(079/080, 출발=목적지인 왕복 요청)**: `[Shortest Km Conflict]=없음`인데도 모델이 "출발지와 목적지가 같으니 최단거리는 0"이라고 5/5 일관되게 판단해 지침3(최단거리 초과 안내)으로 잘못 빠진다. 추가 금지 문구로도(1회 재시도) 전혀 안 바뀌어 더 밀어붙이지 않고 알려진 한계로 남겼다. 실제 시스템 기준으로는 이 판단 자체가 틀렸다 — `_is_oneway_shortest_conflict`의 비교식은 `target_km <= shortest_km`이라, origin=destination이어서 실제 최단거리가 0에 가까워도 target_km(예: 3.0) > 0이면 오히려 충돌이 아니다(원점 회귀 루프는 물리적으로 가능한 요청). `oneway_shortest`(080)는 애초에 `target_km` 필드가 없어 이 판단 대상 자체가 아닌데도 모델이 지침3 문구를 만들어내 순수 프롬프트 오적용에 가깝다.
+- **`interview.yaml` 지침0(무관한 주제) 오탐 수정 — "다리(교량)" 지명 (같은 날 후속, 테스터 제보로 발견)**: `scripts/eval_interviewer.py` 카테고리 B/C(031~055)를 다시 돌려보다 `case_055`("성산대교 근처 지나서 가는 거면 얼마나 걸을지 정해야겠죠?")가 명백히 산책 요청인데도 지침0이 5/5 일관되게 "무관한 주제"로 오판하는 걸 재현했다.
+  - **원인 특정**: 최소 대조쌍으로 좁힌 결과(`scripts/eval_interviewer.py` 카테고리 L, 107~115) 반문형 어미("~해야겠죠?")나 "지나서/거쳐서" 표현 자체는 원인이 아니었다 — 같은 구조에서 지명만 지하철역·공원으로 바꾸면 정상 동작했다. **"다리/교량"류 지명(성산대교·마포대교·반포대교) 자체가 원인**이었다: 다른 다리로 바꿔도 동일하게 재현됐다(마포대교 0/5, 반포대교 2/5, 성산대교 0/5) — 다리는 차량 통행과 강하게 연상돼 "지나가는" 표현과 결합하면 모델이 산책이 아니라 이동/통근으로 오인하는 것으로 보인다.
+  - **수정**: 지침0에 "다리·큰 도로·고가처럼 차량 이동과 연상되는 지명이 경로 일부로 언급돼도, 산책 관련 판단(거리·목적지 등)을 묻고 있다면 관련 있음"이라는 조건을 추가했다.
+  - **검증**: 실제 OpenAI 호출 재확인 — `case_055`(성산대교, 조건형+반문형) 0/5 → **5/5**, `case_113`(반포대교) 2/5 → **3/3**, `case_114`(마포대교) 0/5 → **3/3**. 기존 진짜 무관한 주제 케이스(031~035 등 22/23, 무관한 045 실패 1건은 지침0과 무관한 별개 사유)는 회귀 없음.
+  - **알려진 잔존 케이스(`case_107`)**: `case_055`와 의미가 같지만 반문형을 제거하고 "지나가려고 하는데"(단순 진행형 서술)로 바꾼 버전은 수정 후에도 0/8(누적)로 전혀 안 바뀌었다 — 반문형을 없앤 것이 오히려 "이동 중"이라는 인상을 더 강하게 준 것으로 추정된다. 실제 영향은 제한적(재질문이 다소 불친절해지는 정도, 사용자가 한 번 더 말하면 정상 복구)이라 더 밀어붙이지 않고 알려진 한계로 남겼다.
+  - **테스터 제보 "여기서 30분 산책하고 싶어"도 같은 계기로 확인**: `Interviewer` 단독(컨텍스트 없음)으로 5/5 정상 동작했고, 이전에 `Extractor` 단독으로도(§9 "2026-09-21" 이전 절 참고) 정상 동작이 확인된 문구라 — 실제 라이브에서 겪은 오작동은 두 프롬프트의 판단 로직 자체보다 그날의 실제 실행 환경(예외·DB/Kakao 등)이나 실제 입력 차이일 가능성이 있다. 아직 재현하지 못했다.
 
 ## 10. 완료 기준
 

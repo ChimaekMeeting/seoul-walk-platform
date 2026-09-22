@@ -170,6 +170,7 @@ class State(BaseModel):
     waypoint_candidates: Optional[List[Optional[List[Location]]]] = None
 
     route_result: Optional[List[WalkRouteResponse]] = None
+    shortest_km: Optional[float] = None  # 최단 경로, 편도 우회에서만 채워지는 값
     is_complete: bool = False
     awaiting_confirmation: bool = False
     user_prompt: str  = ""

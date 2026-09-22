@@ -98,7 +98,7 @@ def init_route_service():
         auth_service            = auth_service,
         extractor               = Extractor(),
         weight_extractor        = WeightExtractor(),
-        interviewer             = Interviewer(),
+        interviewer             = Interviewer(route_service=route_service),
         confirmation_classifier = ConfirmationClassifier(),
         route_executor          = RouteExecutor(),
     )

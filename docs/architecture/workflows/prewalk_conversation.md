@@ -22,7 +22,7 @@
 | `PrewalkOrchestrator` | 인증·소유권·State 저장과 LangGraph 분기 |
 | `State`, `ChatSession`, `ChatStateRepository` | 대화 상태 계약과 PostgreSQL/Valkey 저장 |
 | `Extractor` | LLM tool call로 모드·위치·거리·테마 추출 |
-| `Interviewer` | 누락 질문·Kakao 장소 검색·최종 확인 |
+| `Interviewer` | 누락 질문·Kakao 장소 검색·최종 확인·편도 우회 최단거리 초과 안내(2026-09-21) |
 | `RouteExecutor`, `RouteTool` | 설문·테마 가중치 조합과 `RouteService` 실행 |
 
 ## 3. 정상 흐름
@@ -49,7 +49,7 @@ intent: JWT 확인 → Valkey State 조회 → State.user_id 소유권 확인
 
 - PostgreSQL `chat_sessions`에는 사용자·UUID thread·`START`가 저장된다.
 - 전체 `State`는 Valkey에 JSON으로 저장되며 intent마다 TTL이 3,600초로 갱신된다.
-- State는 현재 위치, 모드별 preference, 후보 위치, 테마, 확인 상태와 경로 결과를 가진다.
+- State는 현재 위치, 모드별 preference, 후보 위치, 테마, 확인 상태, 참고용 최단거리(`shortest_km`, `oneway_shortest`/`oneway_random`에서 `Interviewer`가 채움, 2026-09-23)와 경로 결과를 가진다.
 - intent 처리 때 State에 access JWT를 넣으며 현재 API 응답과 Valkey JSON에도 포함된다.
 - 경로 성공 시 `RouteService`가 `route_histories`를 저장하고 State의 `route_result.id`에 연결한다.
 - 이동 편의 테마(`유모차`, `계단이 불편한`)는 내부 `accessible`, 편의 테마

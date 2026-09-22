@@ -851,6 +851,45 @@ CASES: list[dict] = [
         "utterance": "좀 더 조용한 길로 가고 싶어",
         "expect": {"tool": "select_oneway", "origin": "대림역", "destination": "구로디지털단지역", "target_km": 3.0},
     },
+
+    # ── J. 편도 우회 최단거리 초과 안내 이후 후속 응답 (101~103, 2026-09-21 신규) ──
+    # Interviewer가 "목표 거리가 최단거리보다 짧다"고 안내한 다음 턴에 사용자가 어떻게
+    # 답하든, Extractor 관점에서는 그냥 평소의 "부분 수정"(모드 명시 전환 / 거리만 변경)과
+    # 똑같이 처리돼야 한다 — 이 카테고리는 그 안내가 나온 뒤에도 기존 로직이 그대로
+    # 재사용되는지 확인한다(기존 case_073/084와 같은 패턴, context만 "충돌이 있었던
+    # 작은 target_km" 상태로 맞췄다).
+    #
+    # **확인된 실제 버그(2026-09-21)**: case_101/103(그리고 비교차 재실행한 기존
+    # case_084도 0/5)가 "그럼 최단 경로로 가줘"/"최단으로 해줘"처럼 장소명을 다시 말하지
+    # 않고 "최단"만 짧게 언급하면 tool 호출 자체가 안 나온다(rule 0의 "막연한 요청"으로
+    # 오판하는 것으로 보임 — "최단"은 extraction.yaml [3]/_MODE_CHANGE_KEYWORDS가 이미
+    # 명시적 전환 키워드로 인정하는 단어인데도 그렇다). case_102(거리를 숫자로 늘려달라는
+    # 요청)는 3/3 정상 동작 — 숫자가 있으면 "구체적"으로 인식하지만 "최단"이라는 단어만으로는
+    # 그렇지 않은 것으로 보인다. 이건 오늘 세션이 처음 만든 문제가 아니라 기존
+    # extraction.yaml에 이미 있던 결함이며(case_084는 새 코드로 손댄 적 없음), 사용자가
+    # 앞서 지적한 "Extractor가 무관한 대화를 잘 못 구분한다"는 문제의 구체적 사례로 보인다.
+    # 프롬프트 수정은 이 파일의 범위 밖이라 여기서는 발견 사실만 기록한다.
+    {
+        "id": "case_101",
+        "desc": "편도 우회 최단거리 초과 안내 후, 사용자가 최단 경로를 선택(장소명 재언급 없음)",
+        "context": OnewayPreference(origin=_loc("성수역"), destination=_loc("서울숲"), target_km=1.0),
+        "utterance": "그럼 최단 경로로 가줘",
+        "expect": {"tool": "select_oneway_shortest", "origin": "성수역", "destination": "서울숲"},
+    },
+    {
+        "id": "case_102",
+        "desc": "편도 우회 최단거리 초과 안내 후, 사용자가 목표 거리를 최단거리보다 늘림",
+        "context": OnewayPreference(origin=_loc("성수역"), destination=_loc("서울숲"), target_km=1.0),
+        "utterance": "그럼 2.5km로 늘려줘",
+        "expect": {"tool": "select_oneway", "origin": "성수역", "destination": "서울숲", "target_km": 2.5},
+    },
+    {
+        "id": "case_103",
+        "desc": "편도 우회 최단거리 초과 안내 후, '최단으로' 짧게만 답함(다른 장소 쌍)",
+        "context": OnewayPreference(origin=_loc("합정역"), destination=_loc("망원한강공원"), target_km=0.8),
+        "utterance": "최단으로 해줘",
+        "expect": {"tool": "select_oneway_shortest", "origin": "합정역", "destination": "망원한강공원"},
+    },
 ]
 
 # ── 비교 유틸 ────────────────────────────────────────────────────────────────
