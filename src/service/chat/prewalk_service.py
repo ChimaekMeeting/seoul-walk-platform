@@ -35,6 +35,12 @@ NODE_PROGRESS_MESSAGE: dict[str, str] = {
     "route_executor":    "경로를 생성하고 있습니다",
 }
 
+# 노드 간 연결관계 명시
+NEXT_NODE_AFTER: dict[str, str] = {
+    "extractor":        "weight_extractor",
+    "weight_extractor": "interviewer",
+}
+
 
 class PrewalkOrchestrator:
     def __init__(
@@ -210,16 +216,21 @@ class PrewalkOrchestrator:
         state.access_token = access_token
         state.user_prompt  = PromptUtils.sanitize_user_prompt(user_prompt)  # 프롬프트 정규화
 
-        # ainvoke 대신 astream(stream_mode="updates")을 써서 노드가 끝날 때마다
-        # 진행 문구를 하나씩 내보낸다. 각 노드가 항상 전체 State를 반환하므로(부분
-        # 필드가 아니라) update의 값이 곧 그 시점의 전체 State다 — 마지막으로 받은
-        # 값이 그래프가 끝난 시점의 최종 State가 된다.
+        # 첫 노드는 astream이 이벤트를 주기 전이라(아직 아무것도 안 끝남) 진입점과
+        # 같은 조건으로 직접 판단해서 먼저 알린다 — 이게 유일하게 "노드 실행 전"에
+        # 보내는 신호다.
+        entry_node = "route_executor" if state.is_complete else "extractor"
+        if entry_node in NODE_PROGRESS_MESSAGE:
+            yield "progress", NODE_PROGRESS_MESSAGE[entry_node]
+
+        # 노드가 끝날 때마다 진행 과정을 전송
         try:
             async for update in self.graph.astream(state, stream_mode="updates"):
                 for node_name, node_state in update.items():
-                    if node_name in NODE_PROGRESS_MESSAGE:
-                        yield "progress", NODE_PROGRESS_MESSAGE[node_name]
                     state = State.model_validate(node_state)
+                    next_node = NEXT_NODE_AFTER.get(node_name)
+                    if next_node and next_node in NODE_PROGRESS_MESSAGE:
+                        yield "progress", NODE_PROGRESS_MESSAGE[next_node]
         except Exception as exc:
             log_unexpected_error(logger, "prewalk_intent_graph_error", exc)
             yield "result", ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
