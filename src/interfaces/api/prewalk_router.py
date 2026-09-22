@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from src.database.postgresql import get_postgresql_db
 from src.interfaces.schema.prewalk_schema import InitRequest, ChatRequest, ChatResponse
 from src.interfaces.validators.coord_validator import validate_seoul_polygon_contains
@@ -17,6 +18,18 @@ router = APIRouter(
     prefix="/api/prewalk",
     tags=["prewalk"]
 )
+
+
+def _sse(event: str, data: str) -> str:
+    """
+    SSE 이벤트 한 개를 인코딩합니다.
+    줄바꿈은 여러 data로 나눠 반환합니다.
+    event: ~~
+    data: ~~
+    data: ~~
+    """
+    payload = "\n".join(f"data: {line}" for line in data.splitlines() or [""])
+    return f"event: {event}\n{payload}\n\n"
 
 @router.post(
     "/init",
@@ -36,8 +49,6 @@ async def read_init_message(
 ):
     """
     산책 추천 챗봇의 첫 번째 메시지입니다.
-    현재 좌표의 날씨 정보를 분석하여 환영 인사를 반환합니다. ROUDI access token은
-    Bearer를 우선하며, 없으면 기존 access_token cookie를 사용합니다.
     """
     try:
         with get_postgresql_db() as db:
@@ -60,34 +71,33 @@ async def read_init_message(
         log_unexpected_error(logger, "prewalk_init_unexpected_error", e)
         raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e
 
-@router.post(
-    "/intent",
-    response_model=ChatResponse,
-    response_model_exclude={"state": {"access_token"}},
-    responses={
-        400: {"description": "요청 처리 중 확인된 입력 오류"},
-        401: {"description": "Authorization 헤더 형식 오류"},
-        422: {"description": "요청 스키마·좌표·메시지 제약 오류"},
-        500: {"description": "안전한 공통 메시지로 반환하는 예기치 않은 서버 오류"},
-    },
-)
+@router.post("/intent")
 async def read_message(
     request: ChatRequest,
     access_token: str | None = Depends(resolve_access_token),
     service: PrewalkOrchestrator = Depends(get_prewalk_orchestrator)
 ):
     """
-    사용자가 메시지를 보낼 때마다 호출됩니다. 인증 입력 우선순위는 init과 같습니다.
+    사용자가 메시지를 보낼 때마다 호출됩니다.
     """
-    try:
-        return await service.orchestrator(
-            access_token, request.thread_id, request.user_prompt, request.lat, request.lon,
-            confirmation=request.confirmation,
-        )
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        log_unexpected_error(logger, "prewalk_intent_unexpected_error", e)
-        raise HTTPException(status_code=500, detail=SAFE_INTERNAL_ERROR_DETAIL) from e
+    async def event_stream():
+        try:
+            async for kind, data in service.orchestrator(
+                access_token, request.thread_id, request.user_prompt, request.lat, request.lon,
+                confirmation=request.confirmation,
+            ):
+                if kind == "result":
+                    yield _sse(kind, data.model_dump_json(exclude={"state": {"access_token"}}))
+                else:
+                    yield _sse(kind, data)
+        except ValueError as e:
+            yield _sse("error", str(e))
+        except Exception as e:
+            log_unexpected_error(logger, "prewalk_intent_unexpected_error", e)
+            yield _sse("error", SAFE_INTERNAL_ERROR_DETAIL)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
