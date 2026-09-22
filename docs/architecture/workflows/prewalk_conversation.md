@@ -5,7 +5,8 @@
 > 관련 코드: `src/interfaces/api/prewalk_router.py`, `src/service/chat/prewalk_service.py`, `src/agent/`, `src/schema/prewalk_schema.py`  
 > 검증 상태: 프로필 전달 단위 테스트 완료·기존 OpenAI/Kakao/DB/Valkey/경로 통합 확인  
 > 2026-09-23 `oneway_shortest`(편도 최단)는 `Interviewer`가 확인 질문 전에 최종 경로를 미리 계산해 `State.route_result`에 채워두고, 사용자가 긍정 확인하면 `RouteExecutor`는 그 값을 재계산 없이 그대로 반환한다. 노드별 계약·근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-23 후속2"를 단일 기준으로 참고한다 — 이 문서는 여기서 세부를 반복하지 않는다.  
-> 2026-09-24 `ConfirmationClassifier` Node(확인 응답 긍정/부정 LLM 판정)를 삭제했다. FE가 확인 질문에 버튼으로 답하고 그 값을 `ChatRequest`의 새 필드 `confirmation`(`Optional[bool]`)으로 따로 보내면서(`user_prompt`는 "아니요"의 교정 내용 전용으로 분리), `PrewalkOrchestrator.orchestrator()`가 그 값을 그대로 반영해 직접 판정한다(그래프 진입점도 `awaiting_confirmation` 대신 이 판정 결과인 `is_complete`를 본다). 근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-24"를 참고한다.
+> 2026-09-24 `ConfirmationClassifier` Node(확인 응답 긍정/부정 LLM 판정)를 삭제했다. FE가 확인 질문에 버튼으로 답하고 그 값을 `ChatRequest`의 새 필드 `confirmation`(`Optional[bool]`)으로 따로 보내면서(`user_prompt`는 "아니요"의 교정 내용 전용으로 분리), `PrewalkOrchestrator.orchestrator()`가 그 값을 그대로 반영해 직접 판정한다(그래프 진입점도 `awaiting_confirmation` 대신 이 판정 결과인 `is_complete`를 본다). 근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-24"를 참고한다.  
+> 2026-09-25 확인을 받아 `RouteExecutor`가 경로 생성을 호출하는 바로 그 턴(`is_complete=True`)에는 GPS 좌표가 바뀌어도 `current_location`을 갱신하지 않는다(PostGIS 검증·Kakao 역지오코딩 스킵). 그 이후에 오는 `user_prompt`는 무언가 수정할 게 있어서 오는 새 요청으로 보고(그때는 `is_complete`가 다시 `False`) 현위치 갱신을 재개한다 — "확인 후 영원히 멈춤"이 아니라 "경로 생성을 부르는 그 턴만" 스킵한다. 새 필드 추가 없이 기존 `is_complete`를 재사용한다. 근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-25"를 참고한다.
 
 ## 1. 목적과 시작 조건
 
