@@ -1,7 +1,7 @@
 import logging
 
 from src.schema.prewalk_schema import State, FeatureTag
-from src.interfaces.schema.walk_schema import WalkMode, Coordinate, PlaceLabel
+from src.interfaces.schema.walk_schema import WalkMode, Coordinate, PlaceLabel, WalkRouteStatus
 from src.agent.tools.route_tools import RouteTool
 from src.schema.route_schema import Weights
 from src.repository.user.user_preference_repository import UserPreferenceRepository
@@ -46,6 +46,15 @@ class RouteExecutor:
         """
         UserPreference와 feature 라벨을 반영한 가중치로 경로를 생성합니다.
         """
+        # 예외0. 최단경로(oneway_shortest) 모드에서 이미 state에 경로를 채워둔 경우, 바로 state 반환
+        if (
+            state.mode == WalkMode.ONEWAY_SHORTEST
+            and state.route_result
+            and state.route_result[0].status == WalkRouteStatus.SUCCESS
+        ):
+            logger.info("route_executor_reuse_precomputed_shortest_route")
+            return state
+
         # 예외1. 모드와 매핑되는 경로 생성 엔진이 없는 경우
         tool_name = MODE_TOOL_MAP.get(state.mode)
         if not tool_name:
