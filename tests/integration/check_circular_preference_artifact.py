@@ -30,7 +30,6 @@ def main():
     import networkx as nx
     from fastapi.testclient import TestClient
 
-    from src.agent.nodes.confirmation_classifier import ConfirmationClassifier
     from src.config.settings import settings
     from src.infrastructure.cache.repository.chat_state_repository import ChatStateRepository
     from src.infrastructure.external.client.gpt_client import GPTClient
@@ -58,11 +57,6 @@ def main():
     async def save_state(thread_id, state):
         states[thread_id] = state.model_copy(deep=True)
 
-    async def confirm(_self, state):
-        state.awaiting_confirmation = False
-        state.is_complete = True
-        return state
-
     with ExitStack() as stack:
         stack.enter_context(patch.object(main_module, "init_db"))
         stack.enter_context(patch.object(AuthService, "check_access_token", return_value=(Status.SUCCESS, "test", "test")))
@@ -72,7 +66,6 @@ def main():
         stack.enter_context(patch.object(RoutePoiRepository, "find_near_route", return_value=[]))
         stack.enter_context(patch.object(ChatStateRepository, "get_state", side_effect=load_state))
         stack.enter_context(patch.object(ChatStateRepository, "save_state", side_effect=save_state))
-        stack.enter_context(patch.object(ConfirmationClassifier, "run", confirm))
         stack.enter_context(patch.object(GPTClient, "get_response", new=AsyncMock(side_effect=AssertionError("외부 LLM 호출 금지"))))
 
         # 실제 앱 lifespan이 artifact 로드, 점수 준비, ALT 부착, LangGraph 조립을 수행한다.
@@ -117,7 +110,9 @@ def main():
             )
             started = perf_counter()
             response = client.post("/api/prewalk/intent", json={
-                "thread_id": name, "user_prompt": "네, 이 조건으로 만들어줘",
+                # FE는 확인 버튼 클릭 시 confirmation(bool)을 별도로 보낸다(2026-09-24,
+                # ConfirmationClassifier 제거 — user_prompt는 "no"의 교정 내용 전용).
+                "thread_id": name, "confirmation": True,
                 "lat": origin.lat, "lon": origin.lon,
             })
             elapsed = perf_counter() - started
