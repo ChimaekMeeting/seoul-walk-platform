@@ -26,6 +26,21 @@ from src.config.logging import log_unexpected_error
 
 logger = logging.getLogger(__name__)
 
+# SSE 진행 알림용 문구.
+# _build_graph()로 등록한 노드 이름과 동일해야 함.
+NODE_PROGRESS_MESSAGE: dict[str, str] = {
+    "extractor":         "정보를 추출하고 있습니다",
+    "weight_extractor":  "선호도를 분석하고 있습니다",
+    "interviewer":       "질문을 생성하고 있습니다",
+    "route_executor":    "경로를 생성하고 있습니다",
+}
+
+# 노드 간 연결관계 명시
+NEXT_NODE_AFTER: dict[str, str] = {
+    "extractor":        "weight_extractor",
+    "weight_extractor": "interviewer",
+}
+
 
 class PrewalkOrchestrator:
     def __init__(
@@ -134,34 +149,41 @@ class PrewalkOrchestrator:
         lat: float,
         lon: float,
         confirmation: Optional[bool] = None,
-    ) -> ChatResponse:
+    ):
         """
         Langgraph를 기반으로 정보 수집부터 경로 생성까지 진행합니다.
+        진행 상황을 ("progress", 문구) 이벤트로,
+        최종 결과를 ("result", ChatResponse) 이벤트로 yield하는 async generator입니다.
         """
         # 사용자 인증
         status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if status != ChatStatus.SUCCESS:
-            return ChatResponse(status=status, thread_id=None, state=None)
+            yield "result", ChatResponse(status=status, thread_id=None, state=None)
+            return
 
         # 챗봇 최근 대화 내역 조회
         try:
             state = await ChatStateRepository.get_state(thread_id)
         except Exception as exc:
             log_unexpected_error(logger, "prewalk_intent_state_load_error", exc)
-            return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
+            yield "result", ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
+            return
 
         if not state:
-            return ChatResponse(status=ChatStatus.SESSION_NOT_FOUND, thread_id=None, state=None)
+            yield "result", ChatResponse(status=ChatStatus.SESSION_NOT_FOUND, thread_id=None, state=None)
+            return
 
         # 사용자의 접근 권한 확인
         try:
             user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
         except Exception as exc:
             log_unexpected_error(logger, "prewalk_intent_user_lookup_error", exc)
-            return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
+            yield "result", ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
+            return
 
         if state.user_id != user.id:
-            return ChatResponse(status=ChatStatus.UNACCESSIBLE, thread_id=None, state=None)
+            yield "result", ChatResponse(status=ChatStatus.UNACCESSIBLE, thread_id=None, state=None)
+            return
 
         # 최종 산책 조건에 대한 긍정/부정 여부 확인
         if state.awaiting_confirmation:
@@ -194,19 +216,34 @@ class PrewalkOrchestrator:
         state.access_token = access_token
         state.user_prompt  = PromptUtils.sanitize_user_prompt(user_prompt)  # 프롬프트 정규화
 
+        # 첫 노드는 astream이 이벤트를 주기 전이라(아직 아무것도 안 끝남) 진입점과
+        # 같은 조건으로 직접 판단해서 먼저 알린다 — 이게 유일하게 "노드 실행 전"에
+        # 보내는 신호다.
+        entry_node = "route_executor" if state.is_complete else "extractor"
+        if entry_node in NODE_PROGRESS_MESSAGE:
+            yield "progress", NODE_PROGRESS_MESSAGE[entry_node]
+
+        # 노드가 끝날 때마다 진행 과정을 전송
         try:
-            result      = await self.graph.ainvoke(state)
-            final_state = State.model_validate(result)
+            async for update in self.graph.astream(state, stream_mode="updates"):
+                for node_name, node_state in update.items():
+                    state = State.model_validate(node_state)
+                    next_node = NEXT_NODE_AFTER.get(node_name)
+                    if next_node and next_node in NODE_PROGRESS_MESSAGE:
+                        yield "progress", NODE_PROGRESS_MESSAGE[next_node]
         except Exception as exc:
             log_unexpected_error(logger, "prewalk_intent_graph_error", exc)
-            return ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
+            yield "result", ChatResponse(status=ChatStatus.INTERNAL_ERROR, thread_id=None, state=None)
+            return
+
+        final_state = state
 
         try:
             await ChatStateRepository.save_state(thread_id, final_state)
         except Exception as exc:
             log_unexpected_error(logger, "prewalk_intent_state_save_error", exc)
 
-        return ChatResponse(
+        yield "result", ChatResponse(
             status    = status,
             thread_id = thread_id,
             state     = final_state,

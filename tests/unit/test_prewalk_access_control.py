@@ -42,15 +42,24 @@ def test_다른_사용자의_State에는_graph_실행_전에_접근을_차단한
         return_value=SimpleNamespace(id=1)
     )
 
-    response = asyncio.run(
-        orchestrator.orchestrator(
-            "request-user-token",
-            "other-users-thread",
-            "이 경로를 보여줘",
-            37.5,
-            127.0,
-        )
-    )
+    async def _run():
+        return [
+            event
+            async for event in orchestrator.orchestrator(
+                "request-user-token",
+                "other-users-thread",
+                "이 경로를 보여줘",
+                37.5,
+                127.0,
+            )
+        ]
 
+    events = asyncio.run(_run())
+
+    # orchestrator()는 async generator라 ("result", ChatResponse) 하나만 나오고 끝나야 한다
+    # (접근이 차단되면 진행 알림 없이 바로 결과만 yield하고 return한다).
+    assert len(events) == 1
+    kind, response = events[0]
+    assert kind == "result"
     assert response.status == ChatStatus.UNACCESSIBLE
-    orchestrator.graph.ainvoke.assert_not_called()
+    orchestrator.graph.astream.assert_not_called()

@@ -7,7 +7,9 @@
 > 2026-09-23 위 기능을 `oneway_shortest`(편도 최단)까지 확장하고 계산값을 `State.shortest_km`(신규 필드)로 영속화했다. `Interviewer._oneway_shortest_conflict`는 `_update_shortest_km`(필드 갱신)·`_is_oneway_shortest_conflict`(판단만) 두 메서드로 분리됐다. 같은 날 `interview.yaml` 지침4(최종 확인)도 FE가 State를 직접 표시하는 쪽으로 바뀌면서 장소·거리 재요약 없이 짧게만 확인하도록 간소화했다(출발=목적지 왕복 요청의 알려진 한계 포함). 지침0(무관한 주제)도 테스터 제보로 "다리(교량)" 지명이 산책 요청을 무관한 주제로 오판하던 버그를 찾아 고쳤다(성산대교 0/5→5/5, 마포대교 0/5→3/3, 반문형 제거 변형 하나는 잔존 한계로 남음). 상세는 §9의 “2026-09-23 후속” 기록을 참고한다.  
 > 2026-09-23 후속2 `Interviewer`가 `oneway_shortest`의 최종 경로를 확인 전에 미리 계산해 `state.route_result`에 채우고, `route_executor.py`는 이미 채워져 있으면 재계산 없이 그대로 반환한다. 계산은 `RouteService.get_route()`를 이 async 노드에서 직접(동기) 호출하지 않고 `route_executor`와 똑같이 `RouteTool.oneway_shortest_route`(`asyncio.to_thread` + 타임아웃)를 통해 — DB 호출로 이벤트 루프가 막히지 않게 한다. `RouteService.get_shortest_km`은 시그니처·반환값(`Optional[float]`) 모두 그대로 두고 `oneway_random`의 참고용 거리 전용으로만 쓴다 — `oneway_random`은 이 값으로 `state.shortest_km`만 채우고 `state.route_result`는 채우지 않는다(최종 경로는 GRASP+ALNS로 따로 생성돼 `route_executor`가 실행되면 항상 새로 덮어쓰므로 미리 채워도 의미가 없다). 이에 맞춰 `prewalk_service.py::orchestrator`가 매 턴 `state.route_result`를 `None`으로 초기화하던 로직을 없앴다 — `Interviewer`가 두 모드 모두에서 항상 명시적으로 채우거나 지우므로 더 이상 필요 없다. 상세는 §9의 “2026-09-23 후속2” 기록을 참고한다.  
 > 2026-09-24 `ConfirmationClassifier` Node·`confirmation.yaml`을 완전히 삭제했다. FE가 확인 질문에 버튼(예/아니요)으로 답하는 쪽으로 계약이 바뀌면서 자유 텍스트를 LLM으로 분류할 필요가 없어졌기 때문이다. `ChatRequest`에 새 필드 `confirmation: Optional[bool]`을 추가해 이 버튼 값을 `user_prompt`와 분리했다(`user_prompt`는 "아니요"에 곁들이는 교정 내용 전용으로 남김 — 긍정/부정 신호와 자유 텍스트를 한 필드에 같이 실으면 파싱이 더 복잡해지고 깨지기 쉽다는 이유로, 처음 시도했던 `user_prompt=="yes"` 문자열 비교안은 되돌렸다). 판정은 `PrewalkOrchestrator.orchestrator()`가 그래프 실행 전에 `bool(confirmation)`으로 직접 하고, 그 결과를 `state.is_complete`에 반영한 뒤 Graph의 조건부 진입점이 `is_complete`만 보고 `route_executor`/`extractor`로 바로 분기한다(Node 하나가 통째로 없어짐). 상세는 §9의 “2026-09-24” 기록을 참고한다.  
-> 2026-09-25 `PrewalkOrchestrator.orchestrator()`가 확인 판정 블록을 좌표 갱신 블록보다 먼저 실행하도록 바꾸고, 좌표 갱신 조건에 `not state.is_complete`를 더했다(새 필드 추가 없이 기존 `is_complete` 재사용) — `is_complete=True`인 턴(확인을 받아 `RouteExecutor`가 경로 생성을 호출하는 바로 그 턴)에는 좌표 검증(PostGIS)·Kakao 역지오코딩을 하지 않는다. 그 이후 오는 `user_prompt`는 무언가 수정할 게 있어서 오는 새 요청으로 보고(그 시점엔 `is_complete`가 이미 `False`로 리셋돼 있음) 다시 현위치를 갱신한다 — 즉 "확인 이후 영원히 멈춤"이 아니라 "경로 생성을 부르는 그 턴만" 스킵한다. 상세는 §9의 “2026-09-25” 기록을 참고한다.
+> 2026-09-25 `PrewalkOrchestrator.orchestrator()`가 확인 판정 블록을 좌표 갱신 블록보다 먼저 실행하도록 바꾸고, 좌표 갱신 조건에 `not state.is_complete`를 더했다(새 필드 추가 없이 기존 `is_complete` 재사용) — `is_complete=True`인 턴(확인을 받아 `RouteExecutor`가 경로 생성을 호출하는 바로 그 턴)에는 좌표 검증(PostGIS)·Kakao 역지오코딩을 하지 않는다. 그 이후 오는 `user_prompt`는 무언가 수정할 게 있어서 오는 새 요청으로 보고(그 시점엔 `is_complete`가 이미 `False`로 리셋돼 있음) 다시 현위치를 갱신한다 — 즉 "확인 이후 영원히 멈춤"이 아니라 "경로 생성을 부르는 그 턴만" 스킵한다. 상세는 §9의 “2026-09-25” 기록을 참고한다.  
+> 2026-09-25 후속 `POST /api/prewalk/intent`가 JSON 한 번 응답에서 SSE(`text/event-stream`)로 바뀌었다 — `event: progress`(텍스트)를, 그래프가 끝나면 `event: result`(JSON `ChatResponse`)를, 처리 중 실패하면 `event: error`(텍스트)를 내려보낸다. `PrewalkOrchestrator.orchestrator()`는 `graph.ainvoke()` 대신 `graph.astream(stream_mode="updates")`를 쓰는 async generator로 바뀌었고, Valkey 저장은 여전히 스트림이 끝나기 직전 한 번만 한다. 스트리밍 시작 뒤에는 HTTP status를 못 바꿔 `/intent`의 실패도 HTTPException 대신 `event: error`로 알린다(`/init`은 영향 없음). 상세는 §9의 “2026-09-25 후속” 기록을 참고한다.  
+> 2026-09-25 후속2 위 `event: progress`가 실제로는 "Node가 끝난 시점"이었는데, 필요한 건 "다음 Node가 시작하는 시점"이었다. `astream_events`로 바꾸는 대신 `astream`을 그대로 쓰면서 `NEXT_NODE_AFTER`(신규 모듈 상수, `extractor→weight_extractor→interviewer` 고정 순서)로 알림을 한 단계 당겨 보내도록 바꿨다 — 첫 Node(진입점, `extractor` 또는 `route_executor`)만 `astream` 호출 전에 `state.is_complete`로 직접 판단해서 먼저 알린다. 상세는 §9의 “2026-09-25 후속2” 기록을 참고한다.
 
 ## 1. 책임
 
@@ -59,7 +61,7 @@ Authorization header가 있으면 Bearer를 사용하고 cookie는 보지 않는
 
 ## 3. 출력
 
-- API 출력: `ChatResponse(status, thread_id, state)`
+- API 출력: `POST /api/prewalk/init`은 `ChatResponse(status, thread_id, state)` JSON을 한 번에 반환한다. `POST /api/prewalk/intent`는 2026-09-25 후속부터 SSE(`text/event-stream`)로 바뀌었다 — `event: progress`(텍스트, 다음 Node가 시작하는 시점마다), 마지막에 `event: result`(JSON, `ChatResponse`와 동일 스키마), 처리 중 실패 시 `event: error`(텍스트)를 내려보낸다(상세는 위 "파일 구조" 아래 "SSE 스트리밍 전환" 참고).
 - PostgreSQL: init마다 `ChatSession(user_id, thread_id, START)` 추가
 - Valkey: `chat_state:{thread_id}`에 전체 State JSON 저장, TTL 3,600초
 - 경로 성공: `route_result`(`List[WalkRouteResponse]`)에는 품질 평가 기준상 최종 경로 1개만 담긴다. 엔진 내부 후보는 외부에 노출하지 않는다.
@@ -100,7 +102,16 @@ src/prompt/                                      # LLM Prompt
 
 **`WeatherChecker` 제거(2026-09-21)**: 날씨·대기질 기반 LLM 초기 인사 Node를 통째로 없애고, `prewalk_service.py::orchestrator`(init)가 고정 문자열("편안하고 안전한 길을 추천해드리는 ROUDI예요! 어떤 산책 코스를 추천해드릴까요? ...")을 바로 반환하도록 바꿨다. `weather_checker.py`/`weather_checker.yaml`과 그 전용 캐시 의존성(`weather_cache_repository.py`)도 함께 삭제했다 — `/api/weather`(배너용 `WeatherClient`)는 완전히 별개 기능이라 영향받지 않는다.
 
-**`ConfirmationClassifier` 제거(2026-09-24)**: `confirmation_classifier.py`/`confirmation.yaml`을 통째로 삭제했다. FE가 확인 질문에 버튼(yes/no)으로 답하고 그 값을 `user_prompt`로 그대로 보내면서, 자유 텍스트를 LLM으로 긍정/부정 분류할 필요가 없어졌기 때문이다 — `PrewalkOrchestrator.orchestrator()`가 그래프 실행 전에 문자열 비교로 직접 판정한다(아래 "Edge와 실제 분기" 참고). `src/schema/prewalk_schema.py`의 `ConfirmationResult`(파서 전용 pydantic 모델)도 더는 쓰이지 않아 함께 삭제했다.
+**`ConfirmationClassifier` 제거(2026-09-24)**: `confirmation_classifier.py`/`confirmation.yaml`을 통째로 삭제했다. FE가 확인 질문에 버튼(예/아니요)으로 답하고 그 값을 `ChatRequest.confirmation`(`Optional[bool]`, `user_prompt`와 분리된 별도 필드)으로 보내면서, 자유 텍스트를 LLM으로 긍정/부정 분류할 필요가 없어졌기 때문이다 — `PrewalkOrchestrator.orchestrator()`가 그래프 실행 전에 그 값을 그대로 반영해 직접 판정한다(아래 "Edge와 실제 분기" 참고). `src/schema/prewalk_schema.py`의 `ConfirmationResult`(파서 전용 pydantic 모델)도 더는 쓰이지 않아 함께 삭제했다.
+
+**`POST /api/prewalk/intent` SSE 스트리밍 전환(2026-09-25 후속)**: FE에 "정보를 추출하고 있습니다" 같은 노드별 진행 상황을 실시간으로 보여주기 위해, 이 엔드포인트만 응답을 JSON 한 번에서 SSE(`text/event-stream`)로 바꿨다(`/init`은 그래프를 안 거치므로 그대로 JSON).
+
+- **`PrewalkOrchestrator.orchestrator()`(async generator로 변경)**: `self.graph.ainvoke(state)` 한 번 호출하던 것을 `self.graph.astream(state, stream_mode="updates")`로 바꿨다. `astream`은 Node가 끝나야 이벤트를 주므로(다음 "설계 결정" 참고), "다음 Node가 시작한다"는 진행 알림을 다음처럼 한 단계 당겨서 보낸다: ① `astream` 호출 전, 진입점과 같은 조건(`state.is_complete`)으로 첫 Node 이름을 직접 판단해 그 알림을 먼저 `yield`한다(유일하게 "Node 실행 전"에 보내는 경우). ② 루프 안에서는 방금 끝난 Node 이름이 아니라 `NEXT_NODE_AFTER`(모듈 상수, `extractor→weight_extractor`, `weight_extractor→interviewer`만 있음 — `interviewer`/`route_executor` 뒤로는 고정 Edge가 없어 그래프가 그대로 끝나므로 매핑에 없음)로 찾은 다음 Node의 알림을 보낸다. 문구 자체는 `NODE_PROGRESS_MESSAGE`(Node 이름 → 문구, `extractor`/`weight_extractor`/`interviewer`/`route_executor` 4개 모두 등록)에서 찾는다. 그래프가 끝나면 `("result", ChatResponse)`를 `yield`하고 함수가 끝난다. 인증·소유권 실패 같은 조기 종료 지점도 전부 `yield "result", ChatResponse(status=...)` 뒤 `return`으로 바뀌었다(과거엔 그냥 `return ChatResponse(...)`).
+- **`astream`이 왜 전체 State를 주는가**: 각 Node가 부분 필드가 아니라 항상 전체 `State`를 반환하므로(`extractor.run(state) -> state` 패턴), `stream_mode="updates"`가 주는 `{node_name: node_output}`의 `node_output`이 이미 그 시점의 전체 State다. 그래서 루프 안에서 매번 `state = State.model_validate(node_state)`로 누적하면 루프가 끝난 시점의 `state`가 곧 최종 State다.
+- **Valkey 저장 시점(변경 없음, 명시적으로 확인)**: `ChatStateRepository.save_state()`는 여전히 Node가 끝날 때마다가 아니라 `astream` 루프가 전부 끝난 뒤, 마지막 `yield "result", ...` 직전 딱 한 번만 호출된다 — 진행 알림은 메모리상의 `state` 변수만 갱신하고 Valkey에는 안 쓴다.
+- **`prewalk_router.py::read_message`**: `StreamingResponse(event_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})`를 반환한다(뒤 두 헤더는 프록시가 응답을 버퍼링해 스트리밍 효과가 없어지는 걸 막기 위함). 내부 `event_stream()`이 `service.orchestrator(...)`를 `async for`로 순회하며 각 항목을 `_sse(event, data)`(같은 파일의 모듈 함수)로 SSE 프레임(`event: 이름\ndata: 내용\n\n`, 내용에 개행이 있으면 줄마다 `data:`를 반복)으로 인코딩해 그대로 흘려보낸다. `kind == "result"`일 때만 `data.model_dump_json(exclude={"state": {"access_token"}})`로 JSON 인코딩하고, 그 외(`progress`)는 문자열 그대로 보낸다.
+- **오류 응답 방식이 바뀜**: 스트리밍은 HTTP 200 헤더가 본문보다 먼저 전송되므로, 본문을 만들기 시작한 뒤에는 HTTP status를 더 바꿀 수 없다. 그래서 `/intent`는 `ValueError`(좌표 검증 등)·예상치 못한 예외 전부를 더 이상 `HTTPException`(400/500)으로 올리지 않고 `event: error`(텍스트, `ValueError`는 `str(e)`, 그 외는 `SAFE_INTERNAL_ERROR_DETAIL`)로 내려보낸다. 요청 스키마 자체가 잘못된 401/422(인증 header·`ChatRequest` 검증 실패)는 스트림이 시작되기 전에 걸러지므로 그대로 HTTP 오류로 반환된다. `/init`은 스트리밍하지 않으므로 이 변경과 무관하게 기존 400/500 그대로다.
+- **`NODE_PROGRESS_MESSAGE`(신규, `prewalk_service.py` 모듈 상수)**: `{"extractor": "정보를 추출하고 있습니다", "weight_extractor": "선호도를 분석하고 있습니다", "interviewer": "질문을 생성하고 있습니다", "route_executor": "경로를 생성하고 있습니다"}`. key는 `_build_graph()`에서 `builder.add_node(...)`에 등록한 이름과 반드시 일치해야 한다.
 
 ### Node 입출력
 
@@ -215,10 +226,11 @@ flowchart TD
 | 확인 상태 | `PrewalkOrchestrator.orchestrator()`의 `ChatRequest.confirmation`(bool) 판정(2026-09-24, FE 버튼 계약), `is_complete`, Graph 조건부 진입점, RouteExecutor 진입 |
 | Mode/Preference | ModeTool, Extractor prompt, Interviewer 완료 조건, RouteTool |
 | 장소 필드 | Kakao schema, 후보 선택, 서울 bbox 검증 |
-| intent 좌표(`current_location` 갱신) | `ChatRequest.lat/lon` 검증(coord/water/highway validator), `PrewalkOrchestrator.orchestrator()`의 동일 좌표 스킵 조건·`is_complete` 스킵 조건(2026-09-25), Kakao 역지오코딩, `prewalk_router.py`의 `ValueError`→400 매핑 |
+| intent 좌표(`current_location` 갱신) | `ChatRequest.lat/lon` 검증(coord/water/highway validator), `PrewalkOrchestrator.orchestrator()`의 동일 좌표 스킵 조건·`is_complete` 스킵 조건(2026-09-25), Kakao 역지오코딩, `prewalk_router.py`의 `ValueError`→`event: error` 매핑(2026-09-25 후속) |
 | `feature_labels`·가중치 | `WeightExtractor` prompt(`weight_extraction.yaml`), `FeatureTag`/`FeatureLabel`/`FeatureLabelMap` 스키마, `RouteExecutor._build_weights`(`_PREFERENCE_TARGET_MAP`, `_EXPLICITNESS_ALPHA_MAP`, `_FEATURE_TO_WEIGHTS_KEY`), 설문 `Weights` delta, 경로 scoring |
 | Prompt | tool 이름·인자, parser, fallback, LLM 검증 |
 | 저장 방식 | TTL, 세션 소유권, 만료·복구, API 응답 |
+| `/intent` SSE 이벤트 포맷(2026-09-25 후속) | `prewalk_router.py::_sse()`/`event_stream()`, `PrewalkOrchestrator.orchestrator()`의 `yield` 튜플 계약(`("progress"|"result", ...)`), `NODE_PROGRESS_MESSAGE`, FE 파서 — Node 이름을 바꾸거나 추가하면 `NODE_PROGRESS_MESSAGE`와 `_build_graph()`의 `add_node(...)` 이름을 같이 맞춰야 한다 |
 
 ## 8. 실패·복구 방법
 
@@ -226,7 +238,7 @@ flowchart TD
 |---|---|---|
 | init 인증 실패 | 인증 상태 반환 | refresh·재로그인 |
 | 날씨·주소 실패 | 빈 환경·기본 인사 또는 좌표 Location | 새 init 또는 계속 진행 |
-| intent 좌표 검증 실패(서울 밖·수계·고속도로, 2026-09-17부터) | `ValueError` → HTTP 400(`prewalk_router.py`). 좌표가 이전 턴과 같으면 이 검증 자체를 건너뛰므로, 같은 위치를 유지하는 후속 턴에서는 발생하지 않는다 | 유효한 좌표로 재요청 |
+| intent 좌표 검증 실패(서울 밖·수계·고속도로, 2026-09-17부터) | `ValueError` → `event: error`(텍스트, `str(e)`)로 SSE 스트림에 실림(2026-09-25 후속부터 — 이전엔 HTTP 400이었으나 스트리밍 시작 뒤엔 HTTP status를 못 바꿔 이벤트로 알린다). 좌표가 이전 턴과 같으면 이 검증 자체를 건너뛰므로, 같은 위치를 유지하는 후속 턴에서는 발생하지 않는다 | 유효한 좌표로 재요청 |
 | intent Kakao 역지오코딩 실패(좌표가 바뀐 턴이면서 이번 턴 `is_complete=False`일 때만) | 주소·장소명 없이 좌표만 있는 Location으로 대체, 대화는 계속됨 | 다음 intent에서 재시도 |
 | State 없음·만료 | `session_not_found` | init부터 재시작 |
 | 타 사용자 State | `unaccessible` | 자신의 thread 사용 |
@@ -457,6 +469,30 @@ HTTP 200만으로 성공을 판단하지 않는다. `status`, `awaiting_confirma
   - 확인 후 다음 턴(불러온 `is_complete=True`, `awaiting_confirmation=False`, 새 `user_prompt`로 수정 요청) + 좌표 변경 → Kakao **호출됨**(갱신 재개), 저장되는 `is_complete=False`.
   - `tests/unit`(사전에 깨져 있던 `test_data_collector_scope.py` 수집 오류 제외) 1219 PASS / 20 FAIL — FAIL 전부 이전과 동일한 무관 도메인(`test_banner_service.py`·`test_base_collector.py`·`test_park_polygon_collector.py`)임을 파일명으로 재확인. `tests/integration`(`check_circular_preference_artifact.py` 제외) 146 PASS.
   - **확인하지 못한 항목**: 실제 Valkey에 저장된 State를 여러 턴에 걸쳐 불러오며 이 경계가 정확히 유지되는지(엔드투엔드), 그리고 실기기 시나리오에서 Kakao 호출 횟수가 실제로 줄어드는지는 실행 검증하지 못했다(스모크 테스트로 로직만 확인).
+
+**2026-09-25 후속 (`POST /api/prewalk/intent` SSE 스트리밍 전환 — 사용자 요청·결정론적 단위 실행)**
+
+- **배경**: 각 Node(`extractor`/`weight_extractor`/`interviewer`/`route_executor`) 작업이 끝날 때마다 FE에 "정보를 추출하고 있습니다" 같은 진행 신호를 보내고 싶다는 요청. 지금까지 `/intent`는 그래프 전체가 끝난 뒤 `ChatResponse` 하나를 JSON으로 한 번에 반환하는 구조라 중간 신호를 보낼 방법이 없었다.
+- **설계 결정 — SSE, `astream`, `event` 필드로 페이로드 종류 구분**: WebSocket(양방향 불필요) 대신 단방향 진행 알림에 맞는 SSE를 골랐다. LangGraph의 `graph.ainvoke()`(끝날 때까지 기다림) 대신 `graph.astream(stream_mode="updates")`(Node 하나가 끝날 때마다 그 결과를 넘겨줌)를 쓰기로 했다 — `astream_events`(LangChain 콜백 기반, `on_chain_start`까지 세밀하게 잡을 수 있음)도 검토했으나 이벤트 종류가 더 많고 필터링이 필요해 더 단순한 `astream`을 골랐다. 처음엔 "노드가 끝나는 시점"에 그 노드 이름으로 알림을 보내는 것으로 충분하다고 판단했으나, 실제로 필요했던 건 "다음 노드가 시작하는 시점"이라는 걸 사용자가 짚어 바로잡았다 — `astream_events`로 바꾸는 대신 `astream`을 그대로 쓰되 다음 노드 알림을 한 단계 당겨 보내는 방식(`NEXT_NODE_AFTER`)으로 해결했다(아래 "후속" 항목). SSE의 `data:`는 스키마를 강제하지 않으므로, 진행 알림은 순수 텍스트로, 최종 결과는 JSON으로 보내되 `event:` 필드(`progress`/`result`/`error`)로 종류를 구분하기로 했다(FE가 내용 형태를 추측하지 않고 `event` 이름만으로 파싱 분기).
+- **`src/service/chat/prewalk_service.py::NODE_PROGRESS_MESSAGE`(신규 모듈 상수)**: Node 이름 → 진행 문구 매핑. `route_executor.py::MODE_TOOL_MAP`과 같은 자리(클래스 밖, import 바로 아래)에 두는 기존 관례를 따랐다.
+- **`PrewalkOrchestrator.orchestrator()`(async generator로 변경)**: 위 "SSE 스트리밍 전환" 노트(파일 구조 섹션)에 상세 기록. 핵심은 `ainvoke`→`astream`, 모든 조기 종료 지점이 `return ChatResponse(...)`에서 `yield "result", ChatResponse(...); return`으로 바뀐 것, Valkey 저장은 여전히 스트림 끝나기 직전 한 번뿐이라는 것.
+- **`prewalk_router.py`**: `_sse(event, data)` 헬퍼(모듈 함수)로 SSE 프레임을 인코딩하고, `read_message`가 `StreamingResponse`를 반환하도록 바꿨다. `response_model`/`responses` 문서화 메타데이터는 실제 동작에 영향이 없어(OpenAPI 문서용) 군더더기라고 판단해 넣지 않기로 했다(사용자 판단) — 엔드포인트 자체 설명 docstring도 한 줄로 간소화했다.
+- **에러 시맨틱 변경**: 스트리밍 응답은 `StreamingResponse.__call__`이 body iterator를 건드리기 전에 이미 `http.response.start`(status 200)를 전송한다 — 그래서 본문 생성이 시작된 뒤에는 HTTP status를 바꿀 수 없다. `ValueError`/예상 못한 예외를 `HTTPException`으로 올리던 것을 `event: error`로 바꿨다. 요청 스키마 자체가 틀린 401/422는 스트림 시작 전(FastAPI 의존성 주입·`ChatRequest` 검증 단계)에 걸러지므로 영향 없다.
+- **실행 검증**:
+  - `orchestrator()`를 mock Node로 직접 구동하는 스모크 테스트: `("progress", 문구)`가 Node 실행 순서대로 나오고 마지막에 `("result", ChatResponse)`가 나옴을 확인. Valkey 저장이 루프 안이 아니라 끝난 뒤 한 번만 호출됨을 확인(사용자가 재확인 요청, 코드 재검토로 답변).
+  - `TestClient`로 실제 `/api/prewalk/intent`를 호출하는 end-to-end 스모크 테스트: `status_code=200`, `content-type: text/event-stream; charset=utf-8`, SSE 본문이 `event: progress`×3 → `event: result`(JSON) 순서로 정확히 옴을 확인. `state.access_token`이 `result` JSON에서 제외됨도 확인.
+  - `tests/unit/test_prewalk_access_control.py`: `orchestrator()`가 더 이상 코루틴이 아니라 async generator라 기존 `asyncio.run(orchestrator.orchestrator(...))` 호출이 깨져 있었다(async generator는 `awaitable`이 아님) — `async for`로 소비하도록 갱신, `graph.ainvoke`가 아니라 `graph.astream`이 호출 안 됐는지로 assertion도 갱신.
+  - `tests/integration/test_api.py::TestPrewalkIntentAPI`: 5개 테스트 전부 새 SSE 계약에 맞춰 갱신 — mock을 `AsyncMock(return_value=...)`에서 실제 async generator 함수로 바꾸고, `response.json()` 대신 SSE 파싱 헬퍼(`_parse_sse`, 이 테스트 파일에 신규 추가)로 검증. "서비스 내부 오류 시 500 반환" 테스트는 이제 실제로 200 + `event: error`가 맞는 동작이라 테스트명도 `test_서비스_내부_오류_시_error_이벤트로_알린다`로 바꿨다.
+  - `tests/unit`(사전에 깨져 있던 `test_data_collector_scope.py` 수집 오류 제외) 1219 PASS / 20 FAIL — FAIL 전부 이전과 동일한 무관 도메인. `tests/integration`(`check_circular_preference_artifact.py` 제외) 전체 PASS.
+  - **확인하지 못한 항목/남은 일**: 실제 FE와의 계약(이벤트 이름·포맷) 합의·문서 공유는 아직 안 했다. `scripts/test_prewalk_conversation.py`·`tests/integration/check_circular_preference_artifact.py`는 이 작업 직후 별도로 새 SSE 응답 형식에 맞춰 갱신했다(아래 "후속" 항목 참고) — 다만 둘 다 로컬 DB/OpenAI/Kakao·실제 그래프 artifact가 있어야 실행되는 수동 도구라 실행 자체는 이번에도 확인하지 못했고 문법·구조 검증만 했다.
+
+**2026-09-25 후속2 (진행 알림을 "다음 노드 시작 시점"으로 보정 — 사용자 요청)**
+
+- **배경**: 위에서 `astream(stream_mode="updates")`로 보내는 진행 알림은 실제로는 "그 노드가 끝난 시점"이었다. 사용자가 원한 건 "노드가 시작하는 시점"이었고, `astream_events`로 바꾸는 건 복잡하다고 판단해(위 "설계 결정" 참고) `astream`을 그대로 쓰면서 알림 타이밍만 보정하기로 했다.
+- **`NEXT_NODE_AFTER`(신규 모듈 상수, `prewalk_service.py`)**: `{"extractor": "weight_extractor", "weight_extractor": "interviewer"}`. `_build_graph()`의 고정 Edge(`extractor→weight_extractor→interviewer`)와 정확히 같다. `interviewer`/`route_executor`는 그 뒤로 고정 Edge가 없어(그래프가 그대로 끝남 — `interviewer→route_executor` conditional Edge는 `Interviewer.run()`이 `is_complete`를 절대 `True`로 안 남겨 항상 죽은 코드다) 매핑에 없다.
+- **`PrewalkOrchestrator.orchestrator()`**: `astream` 호출 **전**에, 그래프 진입점과 같은 조건(`"route_executor" if state.is_complete else "extractor"`)으로 첫 노드 이름을 직접 계산해 그 진행 알림을 먼저 `yield`한다 — 이게 유일하게 "노드 실행 전"에 보내는 경우다(entry point는 조건부라 `NEXT_NODE_AFTER`로 못 당기고 이미 알고 있는 `state.is_complete`로 직접 판단해야 한다). 루프 안에서는 `node_name`(방금 끝난 노드)이 아니라 `NEXT_NODE_AFTER.get(node_name)`(다음 노드)의 문구를 보낸다.
+- **실행 검증**: mock Node로 두 진입 경로를 각각 스모크 테스트 — (1) `is_complete=False` 진입(`extractor`): `["정보를 추출하고 있습니다", "선호도를 분석하고 있습니다", "질문을 생성하고 있습니다", result]` 순서로 나옴(각 문구가 해당 노드 실행 **전**에 나가는지까지 노드 실행 순서와 대조해 확인). (2) `is_complete=True` 진입(`route_executor`, 확인 긍정 턴): `["경로를 생성하고 있습니다", result]`만 나오고 그 이상 진행 알림이 없음을 확인. `tests/unit`+`tests/integration` 1219 PASS(기존 무관 실패 20개 제외, 재확인).
+- **확인하지 못한 항목**: 노드 실행이 실패하는 경우(예: `weight_extractor` 시작 알림을 이미 보낸 뒤 `weight_extractor.run()`이 실제로 예외를 던지는 상황) FE가 "시작했다고 알림 받은 노드가 실은 실행되지 않고 바로 실패했다"는 걸 `event: error`만으로 알 수 있는지는 FE 쪽과 협의가 필요하다 — 백엔드 쪽 동작(그 경우 `event: error`가 마지막에 온다는 것) 자체는 기존 예외 처리 경로와 동일해 이번에 새로 생긴 문제는 아니다.
 
 ## 10. 완료 기준
 
