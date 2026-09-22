@@ -17,6 +17,8 @@ API 엔드포인트 통합 테스트
   pytest tests/integration/ -v
 """
 
+import json
+
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from fastapi.testclient import TestClient
@@ -40,6 +42,24 @@ def client():
     with patch("src.main.init_db"), patch("src.main.init_route_service"):
         with TestClient(app, raise_server_exceptions=False) as c:
             yield c
+
+
+def _parse_sse(text: str) -> list[tuple[str, str]]:
+    """/api/prewalk/intent가 내려보내는 SSE 본문을 (event, data) 목록으로 파싱한다.
+    prewalk_router.py::_sse()가 만드는 정확히 같은 포맷(event: X\\ndata: ...\\n\\n)을 가정한다."""
+    events = []
+    for block in text.strip("\n").split("\n\n"):
+        if not block:
+            continue
+        event = None
+        data_lines = []
+        for line in block.split("\n"):
+            if line.startswith("event: "):
+                event = line[len("event: "):]
+            elif line.startswith("data: "):
+                data_lines.append(line[len("data: "):])
+        events.append((event, "\n".join(data_lines)))
+    return events
 
 
 @pytest.fixture
@@ -582,9 +602,9 @@ class TestPrewalkIntentAPI:
         from src.interfaces.schema.prewalk_schema import ChatResponse, ChatStatus
         from src.schema.prewalk_schema import State, Location
 
-        mock_orchestrator = MagicMock()
-        mock_orchestrator.orchestrator = AsyncMock(
-            return_value=ChatResponse(
+        async def fake_orchestrator(*args, **kwargs):
+            yield "progress", "정보를 추출하고 있습니다"
+            yield "result", ChatResponse(
                 status=ChatStatus.SUCCESS,
                 thread_id="thread-abc-123",
                 state=State(
@@ -593,7 +613,9 @@ class TestPrewalkIntentAPI:
                     access_token="secret-ro-udi-access-token",
                 ),
             )
-        )
+
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.orchestrator = fake_orchestrator
         with patch("src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator):
             response = client.post(
                 "/api/prewalk/intent",
@@ -605,9 +627,15 @@ class TestPrewalkIntentAPI:
                 },
             )
         assert response.status_code == 200
-        assert response.json()["status"] == "success"
-        assert response.json()["thread_id"] == "thread-abc-123"
-        assert "access_token" not in response.json()["state"]
+        assert response.headers["content-type"].startswith("text/event-stream")
+        events = _parse_sse(response.text)
+        assert events[0] == ("progress", "정보를 추출하고 있습니다")
+        event, data = events[-1]
+        assert event == "result"
+        payload = json.loads(data)
+        assert payload["status"] == "success"
+        assert payload["thread_id"] == "thread-abc-123"
+        assert "access_token" not in payload["state"]
         assert "secret-ro-udi-access-token" not in response.text
 
     def test_필수_필드_누락_시_422_반환(self, client):
@@ -626,29 +654,29 @@ class TestPrewalkIntentAPI:
     def test_존재하지_않는_thread_id_시_session_not_found_반환(self, client):
         from src.interfaces.schema.prewalk_schema import ChatResponse, ChatStatus
 
+        async def fake_orchestrator(*args, **kwargs):
+            yield "result", ChatResponse(status=ChatStatus.SESSION_NOT_FOUND, thread_id=None, state=None)
+
         mock_orchestrator = MagicMock()
-        mock_orchestrator.orchestrator = AsyncMock(
-            return_value=ChatResponse(status=ChatStatus.SESSION_NOT_FOUND, thread_id=None, state=None)
-        )
+        mock_orchestrator.orchestrator = fake_orchestrator
         with patch("src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator):
             response = client.post(
                 "/api/prewalk/intent",
                 json={"thread_id": "invalid-thread", "user_prompt": "산책 추천해줘", "lat": 37.5, "lon": 127.0},
             )
         assert response.status_code == 200
-        assert response.json()["status"] == "session_not_found"
+        event, data = _parse_sse(response.text)[-1]
+        assert event == "result"
+        assert json.loads(data)["status"] == "session_not_found"
 
     def test_다른_사용자의_대화_세션은_unaccessible을_유지한다(self, client):
         from src.interfaces.schema.prewalk_schema import ChatResponse, ChatStatus
 
+        async def fake_orchestrator(*args, **kwargs):
+            yield "result", ChatResponse(status=ChatStatus.UNACCESSIBLE, thread_id=None, state=None)
+
         mock_orchestrator = MagicMock()
-        mock_orchestrator.orchestrator = AsyncMock(
-            return_value=ChatResponse(
-                status=ChatStatus.UNACCESSIBLE,
-                thread_id=None,
-                state=None,
-            )
-        )
+        mock_orchestrator.orchestrator = fake_orchestrator
         with patch("src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator):
             response = client.post(
                 "/api/prewalk/intent",
@@ -662,20 +690,28 @@ class TestPrewalkIntentAPI:
             )
 
         assert response.status_code == 200
-        assert response.json()["status"] == "unaccessible"
+        event, data = _parse_sse(response.text)[-1]
+        assert event == "result"
+        assert json.loads(data)["status"] == "unaccessible"
 
-    def test_서비스_내부_오류_시_500_반환(self, client):
+    def test_서비스_내부_오류_시_error_이벤트로_알린다(self, client):
+        async def fake_orchestrator(*args, **kwargs):
+            raise RuntimeError("LLM 호출 실패")
+            yield  # pragma: no cover — 도달하지 않음, async generator 함수로 만들기 위함
+
         mock_orchestrator = MagicMock()
-        mock_orchestrator.orchestrator = AsyncMock(
-            side_effect=RuntimeError("LLM 호출 실패")
-        )
+        mock_orchestrator.orchestrator = fake_orchestrator
         with patch("src.interfaces.dependencies.prewalk_orchestrator", mock_orchestrator):
             response = client.post(
                 "/api/prewalk/intent",
                 json={"thread_id": "thread-abc-123", "user_prompt": "산책 추천해줘", "lat": 37.5, "lon": 127.0},
             )
-        assert response.status_code == 500
-        assert response.json() == {"detail": "서버 내부 오류가 발생했습니다."}
+        # 스트리밍이 시작되면(200 헤더가 이미 전송된 뒤) HTTP status를 더 바꿀 수 없어
+        # 실패도 200 + event: error로 알린다(prewalk_router.py::read_message 참고).
+        assert response.status_code == 200
+        event, data = _parse_sse(response.text)[-1]
+        assert event == "error"
+        assert data == "서버 내부 오류가 발생했습니다."
         assert "LLM 호출 실패" not in response.text
 
 

@@ -23,6 +23,27 @@ os.environ["LANGSMITH_TRACING"] = "false"
 os.environ["OPENAI_API_KEY"] = "test-unused-api-key"
 
 
+def _parse_result_event(sse_text: str) -> dict:
+    """/api/prewalk/intent 응답(SSE, 2026-09-25 후속)에서 마지막 event: result의 JSON
+    data를 파싱한다. prewalk_router.py::_sse()가 만드는 포맷(event: X\\ndata: ...\\n\\n)을
+    그대로 가정한다."""
+    events: list[tuple[str | None, str]] = []
+    for block in sse_text.strip("\n").split("\n\n"):
+        if not block:
+            continue
+        event = None
+        data_lines = []
+        for line in block.split("\n"):
+            if line.startswith("event: "):
+                event = line[len("event: "):]
+            elif line.startswith("data: "):
+                data_lines.append(line[len("data: "):])
+        events.append((event, "\n".join(data_lines)))
+    result_events = [data for event, data in events if event == "result"]
+    assert result_events, f"event: result가 응답에 없습니다: {events!r}"
+    return json.loads(result_events[-1])
+
+
 def main():
     # 서비스 조립과 같은 import 순서를 사용한다.
     import src.main as main_module
@@ -117,7 +138,7 @@ def main():
             })
             elapsed = perf_counter() - started
             assert response.status_code == 200, response.status_code
-            body = response.json()
+            body = _parse_result_event(response.text)
             assert body["status"] == "success", body["status"]
             routes = body["state"]["route_result"]
             assert routes and all(route["status"] == WalkRouteStatus.SUCCESS for route in routes)
