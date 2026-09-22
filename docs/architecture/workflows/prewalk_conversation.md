@@ -6,14 +6,15 @@
 > 검증 상태: 프로필 전달 단위 테스트 완료·기존 OpenAI/Kakao/DB/Valkey/경로 통합 확인  
 > 2026-09-23 `oneway_shortest`(편도 최단)는 `Interviewer`가 확인 질문 전에 최종 경로를 미리 계산해 `State.route_result`에 채워두고, 사용자가 긍정 확인하면 `RouteExecutor`는 그 값을 재계산 없이 그대로 반환한다. 노드별 계약·근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-23 후속2"를 단일 기준으로 참고한다 — 이 문서는 여기서 세부를 반복하지 않는다.  
 > 2026-09-24 `ConfirmationClassifier` Node(확인 응답 긍정/부정 LLM 판정)를 삭제했다. FE가 확인 질문에 버튼으로 답하고 그 값을 `ChatRequest`의 새 필드 `confirmation`(`Optional[bool]`)으로 따로 보내면서(`user_prompt`는 "아니요"의 교정 내용 전용으로 분리), `PrewalkOrchestrator.orchestrator()`가 그 값을 그대로 반영해 직접 판정한다(그래프 진입점도 `awaiting_confirmation` 대신 이 판정 결과인 `is_complete`를 본다). 근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-24"를 참고한다.  
-> 2026-09-25 확인을 받아 `RouteExecutor`가 경로 생성을 호출하는 바로 그 턴(`is_complete=True`)에는 GPS 좌표가 바뀌어도 `current_location`을 갱신하지 않는다(PostGIS 검증·Kakao 역지오코딩 스킵). 그 이후에 오는 `user_prompt`는 무언가 수정할 게 있어서 오는 새 요청으로 보고(그때는 `is_complete`가 다시 `False`) 현위치 갱신을 재개한다 — "확인 후 영원히 멈춤"이 아니라 "경로 생성을 부르는 그 턴만" 스킵한다. 새 필드 추가 없이 기존 `is_complete`를 재사용한다. 근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-25"를 참고한다.
+> 2026-09-25 확인을 받아 `RouteExecutor`가 경로 생성을 호출하는 바로 그 턴(`is_complete=True`)에는 GPS 좌표가 바뀌어도 `current_location`을 갱신하지 않는다(PostGIS 검증·Kakao 역지오코딩 스킵). 그 이후에 오는 `user_prompt`는 무언가 수정할 게 있어서 오는 새 요청으로 보고(그때는 `is_complete`가 다시 `False`) 현위치 갱신을 재개한다 — "확인 후 영원히 멈춤"이 아니라 "경로 생성을 부르는 그 턴만" 스킵한다. 새 필드 추가 없이 기존 `is_complete`를 재사용한다. 근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-25"를 참고한다.  
+> 2026-09-25 후속 `POST /api/prewalk/intent`가 JSON 한 번 응답에서 SSE(`text/event-stream`)로 바뀌었다 — Node가 하나 끝날 때마다 `event: progress`(텍스트), 그래프가 끝나면 `event: result`(JSON `ChatResponse`), 처리 중 실패하면 `event: error`(텍스트)를 내려보낸다. `PrewalkOrchestrator.orchestrator()`는 `graph.astream(stream_mode="updates")`를 쓰는 async generator로 바뀌었고, 스트리밍 시작 뒤에는 HTTP status를 못 바꿔 `/intent`의 실패도 HTTP 4xx/5xx 대신 `event: error`로 알린다(`/init`은 영향 없음, 아래 "5. 실패·복구" 참고). 근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-25 후속"을 참고한다.
 
 ## 1. 목적과 시작 조건
 
 대화를 통해 경로 모드·출발지·목적지·거리·테마를 수집하고, 사용자 확인 후 직접 경로 엔진을 실행하는 흐름이다.
 
 - `POST /api/prewalk/init`: access cookie와 현재 좌표로 세션·초기 State 생성
-- `POST /api/prewalk/intent`: `thread_id`와 사용자 발화로 State 진행
+- `POST /api/prewalk/intent`: `thread_id`와 사용자 발화로 State 진행. 응답은 SSE(`text/event-stream`, 2026-09-25 후속)다
 - 시작 전 인증 사용자, PostgreSQL, Valkey, 메모리 Graph가 필요하다.
 - 정보 추출에는 OpenAI, 주소·장소 검색에는 외부 API를 사용한다. 초기 인사는 2026-09-21부터 LLM·외부 API 호출 없는 고정 문구다.
 
@@ -76,8 +77,9 @@ intent: JWT 확인 → Valkey State 조회 → State.user_id 소유권 확인
 
 | 조건 | 현재 결과 | 복구 |
 |---|---|---|
-| 좌표 schema 오류 | HTTP 422 | 입력 수정 |
-| 서울 Polygon·보행 불가 좌표 | HTTP 400 | 위치 수정 |
+| 좌표 schema 오류 | HTTP 422(두 엔드포인트 공통 — 스트림 시작 전 요청 검증 단계) | 입력 수정 |
+| 서울 Polygon·보행 불가 좌표(`init`) | HTTP 400 | 위치 수정 |
+| 서울 Polygon·보행 불가 좌표(`intent`, 좌표가 바뀐 턴만, 2026-09-25 후속) | HTTP 200 + `event: error`(텍스트) — 스트리밍 시작 뒤엔 HTTP status를 못 바꾼다 | 위치 수정 |
 | token 없음·손상 | HTTP 200 / 인증 상태 | refresh 또는 재로그인 |
 | Valkey State 없음·TTL 만료 | `session_not_found` | init부터 재시작 |
 | 다른 사용자의 thread | `unaccessible` | 자신의 thread 사용 |
@@ -85,7 +87,7 @@ intent: JWT 확인 → Valkey State 조회 → State.user_id 소유권 확인
 | 초기 주소(Kakao) 실패 | 좌표 Location으로 계속 | 외부 API 복구 후 새 init |
 | State 저장 실패 | 성공 응답은 반환하지만 다음 intent에서 세션 유실 가능 | Valkey 복구 후 init 재시작 |
 
-Node 내부의 일부 LLM·경로 실패는 예외 대신 기존 State를 반환한다. HTTP 200만으로 완료를 판단하지 말고 `awaiting_confirmation`, `is_complete`, `route_result.status`를 확인한다.
+Node 내부의 일부 LLM·경로 실패는 예외 대신 기존 State를 반환한다. HTTP 200만으로 완료를 판단하지 말고 `awaiting_confirmation`, `is_complete`, `route_result.status`를 확인한다. `intent`는 2026-09-25 후속부터 이 판단을 SSE의 마지막 `event: result` payload(또는 실패 시 `event: error`)에서 해야 한다 — HTTP status는 성공·실패 관계없이 거의 항상 200이다.
 
 ## 6. 검증 결과
 
