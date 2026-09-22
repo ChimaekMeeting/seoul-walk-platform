@@ -183,25 +183,20 @@ class RouteService:
                 if cost_context is not None:
                     result.cost_alpha = cost_context.alpha
                     result.cost_beta = cost_context.beta
-        # circular_random/oneway_random은 최대 3개까지 다양화한 후보를 반환한다.
-        # 앱은 어느 후보든 바로 선택해 산책·즐겨찾기·평가할 수 있으므로 성공 후보마다
-        # RouteHistory를 하나씩 저장해 각각의 id를 응답에 붙인다. 후보별 history에는 해당
-        # 후보 특성을 index 0으로 재정렬해 저장한다 — longterm_profile_service가 index 0을
-        # 실제 선택 경로(X_R)로 해석하기 때문이다.
+        # 엔진은 내부 품질 비교를 위해 대표 경로와 후보 경로를 함께 생성할 수 있다.
+        # 외부 계약은 품질 평가 기준상 최우수인 첫 번째 경로 하나만 노출한다.
         first_result = results[0]
         logger.info(
-            "walk route result: mode=%s status=%s candidates=%d",
+            "walk route result: mode=%s status=%s internal_candidates=%d",
             mode, first_result.status.value, len(results),
         )
 
-        for result in results:
-            if result.status != WalkRouteStatus.SUCCESS:
-                continue
+        if first_result.status == WalkRouteStatus.SUCCESS:
             try:
-                result.nearby_pois = [
+                first_result.nearby_pois = [
                     RoutePoiItem.model_validate(poi)
                     for poi in RoutePoiRepository.find_near_route(
-                        result.coordinates
+                        first_result.coordinates
                     )
                 ]
             except Exception as exc:
@@ -211,10 +206,8 @@ class RouteService:
             try:
                 user = UserRepository.find_by_provider_and_provider_id(provider, provider_id)
                 if user is not None:
-                    # engine.candidate_feature_vectors: results와 같은 순서의 {"safety","comfort"}
-                    # 경로(대표 경로, 후보 경로)별 평균 — 장기 프로필 SGD가 나중에 X_R/X_contrast로 쓴다
-                    # (route_feedback). 다양화를 지원하지 않는 엔진(oneway_shortest 등)은 속성 자체가
-                    # 없을 수 있다(후보 경로 0개).
+                    # 내부 후보 feature는 최종 경로의 history snapshot에 유지한다.
+                    # route_hash는 저장소에서 최종 경로 좌표를 기준으로 계속 계산한다.
                     candidate_features = getattr(engine, "candidate_feature_vectors", None) or None
                     if candidate_features and len(candidate_features) < MIN_CANDIDATES_FOR_PROFILE:
                         logger.info(
@@ -222,36 +215,24 @@ class RouteService:
                             mode, len(candidate_features) - 1,
                         )
 
-                    for index, result in enumerate(results):
-                        if result.status != WalkRouteStatus.SUCCESS:
-                            continue
-
-                        selected_first_features = candidate_features
-                        if candidate_features and index < len(candidate_features):
-                            selected_first_features = [
-                                candidate_features[index],
-                                *candidate_features[:index],
-                                *candidate_features[index + 1:],
-                            ]
-
-                        history = RouteHistoryRepository.save(
-                            user_id=user.id,
-                            mode=mode,
-                            origin_lat=origin.lat,
-                            origin_lon=origin.lon,
-                            coordinates=result.coordinates,
-                            total_km=result.total_km,
-                            destination_lat=destination.lat if destination else None,
-                            destination_lon=destination.lon if destination else None,
-                            candidate_features=selected_first_features,
-                            origin_label=origin_label,
-                            destination_label=destination_label,
-                        )
-                        result.id = history.id
+                    history = RouteHistoryRepository.save(
+                        user_id=user.id,
+                        mode=mode,
+                        origin_lat=origin.lat,
+                        origin_lon=origin.lon,
+                        coordinates=first_result.coordinates,
+                        total_km=first_result.total_km,
+                        destination_lat=destination.lat if destination else None,
+                        destination_lon=destination.lon if destination else None,
+                        candidate_features=candidate_features,
+                        origin_label=origin_label,
+                        destination_label=destination_label,
+                    )
+                    first_result.id = history.id
             except Exception as exc:
                 log_unexpected_error(logger, "route_history_save_error", exc)
 
-        return results
+        return [first_result]
 
     # 가중 비용 자체는 어떤 WalkMode를 쓰는지 모른다 — preference가 있으면(그리고
     # 점수 커버리지가 충분하면) 항상 cost_context를 만든다. 이걸 실제로 엔진에

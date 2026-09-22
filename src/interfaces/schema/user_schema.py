@@ -2,7 +2,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Optional, List
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from src.interfaces.schema.auth_schema import Status
 from src.interfaces.schema.walk_schema import WalkProgressStatus
@@ -47,6 +47,8 @@ class UserUpdateResponse(BaseModel):
 
 
 class RouteHistoryItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     mode: str
     origin_lat: float
@@ -76,10 +78,6 @@ class RouteHistoryItem(BaseModel):
     @classmethod
     def none_to_recommended(cls, v):
         return v if v is not None else "recommended"
-
-    class Config:
-        from_attributes = True
-
 
 class RouteWalkProgressResponse(BaseModel):
     """POST /api/user/routes/{id}/start, /complete 응답(#520).

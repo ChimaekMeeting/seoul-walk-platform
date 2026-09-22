@@ -4,7 +4,7 @@ tests/integration/test_route_feedback_flow.py
 RouteService.get_route() -> RouteHistory.candidate_features 스냅샷 -> LongTermProfileService.
 submit_feedback()으로 이어지는 흐름을 하나의 테스트에서 검증한다.
 
-기존 단위 테스트(test_routue_service.py/test_longterm_profile_service.py)는 각 서비스를
+기존 단위 테스트(test_route_service.py/test_longterm_profile_service.py)는 각 서비스를
 따로따로, candidate_features를 이미 주어진 값으로 모킹해서 검증한다. 이 파일은 그 둘을
 이어서 "경로 생성 시점에 얼린 candidate_features가 피드백 시점까지 그대로 전달되는가"
 자체를 검증한다 — candidate_features 스냅샷 메커니즘을 도입한 이유(그래프/엔진 상태가
@@ -463,7 +463,7 @@ class TestCandidateCountDrivesFeedbackOutcome:
 
         assert stored.candidate_features == _SUCCESS_CANDIDATE_FEATURES
 
-    def test_각_경로는_자기_id와_자신이_첫번째인_candidate_features를_가진다(
+    def test_최종_경로만_id와_candidate_features를_가진다(
         self, route_service, history_store
     ):
         route_service.base_engines[WalkMode.CIRCULAR_RANDOM] = _engine_stub(
@@ -474,15 +474,9 @@ class TestCandidateCountDrivesFeedbackOutcome:
             ACCESS_TOKEN, origin=ORIGIN, target_km=2.5, mode=WalkMode.CIRCULAR_RANDOM,
         )
 
-        assert len({result.id for result in results}) == len(results) == 3
-        for index, result in enumerate(results):
-            stored = history_store.find_by_id(result.id, user_id=1)
-            expected = [
-                _SUCCESS_CANDIDATE_FEATURES[index],
-                *_SUCCESS_CANDIDATE_FEATURES[:index],
-                *_SUCCESS_CANDIDATE_FEATURES[index + 1:],
-            ]
-            assert stored.candidate_features == expected
+        assert len(results) == 1
+        stored = history_store.find_by_id(results[0].id, user_id=1)
+        assert stored.candidate_features == _SUCCESS_CANDIDATE_FEATURES
 
     def test_같은_경로_피드백_재제출은_별점만_갱신하고_프로필은_중복_학습하지_않는다(
         self, route_service, profile_service, preference_store
@@ -719,7 +713,7 @@ class TestRealGraspAlnsEngineFeedsIntoFeedback:
 # 있어(설치돼 있지 않은 외부 패키지) tool_map[...].ainvoke()의 실제 도구 바인딩까지는 재현할
 # 수 없다 — 그래서 RouteTool.__init__(get_route_service()/GpsArtService 등 DI 의존)은
 # 건너뛰고, prewalk_router가 실제로 실행하는 코드인 circular_random_route() 코루틴 자체를
-# 직접 호출한다(RouteExecutor.run()의 가중치 조립 로직은 test_routue_service.py::
+# 직접 호출한다(RouteExecutor.run()의 가중치 조립 로직은 test_route_service.py::
 # TestRouteWeightPersonalization이 이미 별도로 검증하므로 여기서 반복하지 않는다).
 
 

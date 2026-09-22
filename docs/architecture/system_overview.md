@@ -291,7 +291,7 @@ DB 적재 후 실행 중인 서버의 Graph는 자동으로 갱신되지 않습�
 | 도보 원본 파싱 | `tests/unit/test_base_collector.py` | NODE·LINK와 원본 flag 변환 |
 | Graph | `tests/unit/test_graph_repository_scores.py` | 표준 속성(link_id/length/safety_score/accident_score/slope_score) 전달 (2026-09-19 갱신 — `test_graph_repository.py`는 옛 다축 계약을 검증하던 테스트로 삭제됨. `graph_filter.py`와 함께 필터링 계층 자체가 삭제돼 `test_graph_filter.py`도 삭제됨) |
 | Scoring | `tests/unit/test_weighted_edge_cost.py`, `tests/unit/test_oneway_astar_weighted.py`, `tests/unit/test_weighted_cost_runtime.py` | 안전·편안 가중 비용 공식(`WeightedEdgeCost`), α/β 정규화, 커버리지 게이트 (2026-09-19 갱신 — `test_scoring_engine.py`/`test_scoring_engine_regression.py`/`test_profiles.py`는 옛 다축·profile 시스템 테스트로 전부 삭제됨. `profile`이라는 개념 자체가 없어져 "Profile 병합"을 검증하는 테스트는 존재하지 않음) |
-| 경로 엔진·서비스 | `tests/unit/test_path_utils.py`, `test_oneway_random.py`, `test_routue_service.py` | 노드 탐색, 거리, 실패 상태, 엔진 연결 |
+| 경로 엔진·서비스 | `tests/unit/test_path_utils.py`, `test_oneway_random.py`, `test_route_service.py` | 노드 탐색, 거리, 실패 상태, 엔진 연결 |
 | 배너 | `tests/unit/test_banner_service.py` | 우선순위와 외부 실패 fallback |
 | API | `tests/integration/test_api.py` | HTTP status와 response schema |
 | 알고리즘 품질 | `benchmarks/tests/`, `benchmarks/benchmark.py` | 시간 제한, 목표 거리 오차, 폐곡선, spike, edge 중복 |
