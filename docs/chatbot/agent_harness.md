@@ -6,7 +6,8 @@
 > 2026-09-21 Interviewer 편도 우회 최단거리 초과 안내: `RouteService.get_shortest_km`(신규)로 목표 거리가 물리적 최단거리보다 짧거나 같은지 확인해, 그럴 때만 확인 질문 대신 최단 경로/거리 조정 여부를 되묻는다. 검증 결과·알려진 한계(모델이 `없음` 신호를 넘겨짚는 잔존 케이스)와, 이 과정에서 발견한 별개의 `extraction.yaml` 기존 결함("최단"만 짧게 답하면 tool 미호출)은 §9의 “2026-09-21 (Interviewer...)” 기록을 참고한다.  
 > 2026-09-23 위 기능을 `oneway_shortest`(편도 최단)까지 확장하고 계산값을 `State.shortest_km`(신규 필드)로 영속화했다. `Interviewer._oneway_shortest_conflict`는 `_update_shortest_km`(필드 갱신)·`_is_oneway_shortest_conflict`(판단만) 두 메서드로 분리됐다. 같은 날 `interview.yaml` 지침4(최종 확인)도 FE가 State를 직접 표시하는 쪽으로 바뀌면서 장소·거리 재요약 없이 짧게만 확인하도록 간소화했다(출발=목적지 왕복 요청의 알려진 한계 포함). 지침0(무관한 주제)도 테스터 제보로 "다리(교량)" 지명이 산책 요청을 무관한 주제로 오판하던 버그를 찾아 고쳤다(성산대교 0/5→5/5, 마포대교 0/5→3/3, 반문형 제거 변형 하나는 잔존 한계로 남음). 상세는 §9의 “2026-09-23 후속” 기록을 참고한다.  
 > 2026-09-23 후속2 `Interviewer`가 `oneway_shortest`의 최종 경로를 확인 전에 미리 계산해 `state.route_result`에 채우고, `route_executor.py`는 이미 채워져 있으면 재계산 없이 그대로 반환한다. 계산은 `RouteService.get_route()`를 이 async 노드에서 직접(동기) 호출하지 않고 `route_executor`와 똑같이 `RouteTool.oneway_shortest_route`(`asyncio.to_thread` + 타임아웃)를 통해 — DB 호출로 이벤트 루프가 막히지 않게 한다. `RouteService.get_shortest_km`은 시그니처·반환값(`Optional[float]`) 모두 그대로 두고 `oneway_random`의 참고용 거리 전용으로만 쓴다 — `oneway_random`은 이 값으로 `state.shortest_km`만 채우고 `state.route_result`는 채우지 않는다(최종 경로는 GRASP+ALNS로 따로 생성돼 `route_executor`가 실행되면 항상 새로 덮어쓰므로 미리 채워도 의미가 없다). 이에 맞춰 `prewalk_service.py::orchestrator`가 매 턴 `state.route_result`를 `None`으로 초기화하던 로직을 없앴다 — `Interviewer`가 두 모드 모두에서 항상 명시적으로 채우거나 지우므로 더 이상 필요 없다. 상세는 §9의 “2026-09-23 후속2” 기록을 참고한다.  
-> 2026-09-24 `ConfirmationClassifier` Node·`confirmation.yaml`을 완전히 삭제했다. FE가 확인 질문에 버튼(예/아니요)으로 답하는 쪽으로 계약이 바뀌면서 자유 텍스트를 LLM으로 분류할 필요가 없어졌기 때문이다. `ChatRequest`에 새 필드 `confirmation: Optional[bool]`을 추가해 이 버튼 값을 `user_prompt`와 분리했다(`user_prompt`는 "아니요"에 곁들이는 교정 내용 전용으로 남김 — 긍정/부정 신호와 자유 텍스트를 한 필드에 같이 실으면 파싱이 더 복잡해지고 깨지기 쉽다는 이유로, 처음 시도했던 `user_prompt=="yes"` 문자열 비교안은 되돌렸다). 판정은 `PrewalkOrchestrator.orchestrator()`가 그래프 실행 전에 `bool(confirmation)`으로 직접 하고, 그 결과를 `state.is_complete`에 반영한 뒤 Graph의 조건부 진입점이 `is_complete`만 보고 `route_executor`/`extractor`로 바로 분기한다(Node 하나가 통째로 없어짐). 상세는 §9의 “2026-09-24” 기록을 참고한다.
+> 2026-09-24 `ConfirmationClassifier` Node·`confirmation.yaml`을 완전히 삭제했다. FE가 확인 질문에 버튼(예/아니요)으로 답하는 쪽으로 계약이 바뀌면서 자유 텍스트를 LLM으로 분류할 필요가 없어졌기 때문이다. `ChatRequest`에 새 필드 `confirmation: Optional[bool]`을 추가해 이 버튼 값을 `user_prompt`와 분리했다(`user_prompt`는 "아니요"에 곁들이는 교정 내용 전용으로 남김 — 긍정/부정 신호와 자유 텍스트를 한 필드에 같이 실으면 파싱이 더 복잡해지고 깨지기 쉽다는 이유로, 처음 시도했던 `user_prompt=="yes"` 문자열 비교안은 되돌렸다). 판정은 `PrewalkOrchestrator.orchestrator()`가 그래프 실행 전에 `bool(confirmation)`으로 직접 하고, 그 결과를 `state.is_complete`에 반영한 뒤 Graph의 조건부 진입점이 `is_complete`만 보고 `route_executor`/`extractor`로 바로 분기한다(Node 하나가 통째로 없어짐). 상세는 §9의 “2026-09-24” 기록을 참고한다.  
+> 2026-09-25 `PrewalkOrchestrator.orchestrator()`가 확인 판정 블록을 좌표 갱신 블록보다 먼저 실행하도록 바꾸고, 좌표 갱신 조건에 `not state.is_complete`를 더했다(새 필드 추가 없이 기존 `is_complete` 재사용) — `is_complete=True`인 턴(확인을 받아 `RouteExecutor`가 경로 생성을 호출하는 바로 그 턴)에는 좌표 검증(PostGIS)·Kakao 역지오코딩을 하지 않는다. 그 이후 오는 `user_prompt`는 무언가 수정할 게 있어서 오는 새 요청으로 보고(그 시점엔 `is_complete`가 이미 `False`로 리셋돼 있음) 다시 현위치를 갱신한다 — 즉 "확인 이후 영원히 멈춤"이 아니라 "경로 생성을 부르는 그 턴만" 스킵한다. 상세는 §9의 “2026-09-25” 기록을 참고한다.
 
 ## 1. 책임
 
@@ -30,7 +31,7 @@ Authorization header가 있으면 Bearer를 사용하고 cookie는 보지 않는
 | 필드 | 최초 작성자 | 주요 소비·변경 주체 |
 |---|---|---|
 | `user_id` | Orchestrator init | 소유권 확인, `RouteExecutor` |
-| `current_location` | Orchestrator init, intent Orchestrator(좌표가 이전 턴과 다를 때만 갱신, 2026-09-17부터) | `Extractor`, `Interviewer` |
+| `current_location` | Orchestrator init, intent Orchestrator(좌표가 이전 턴과 다를 때만 갱신, 2026-09-17부터. `is_complete=True`인 턴(확인 후 경로 생성을 부르는 턴)에는 갱신하지 않고, 그다음 턴부터는 다시 갱신, 2026-09-25) | `Extractor`, `Interviewer` |
 | `access_token` | intent Orchestrator | `RouteExecutor` → `RouteService`; 현재 Graph 실행에서만 사용하고 API 응답·Valkey 직렬화에서는 제외 |
 | `user_prompt` | intent Orchestrator | `Extractor`, `Interviewer` |
 | `mode` | `Extractor` | `RouteExecutor` |
@@ -41,7 +42,7 @@ Authorization header가 있으면 Bearer를 사용하고 cookie는 보지 않는
 | `feature_labels` | `WeightExtractor`(GPS Art·최단경로는 `{}`로 스킵) | `RouteExecutor._build_weights` 가중치 블렌딩 |
 | `shortest_km` | `Interviewer._update_shortest_km`(`oneway_shortest`/`oneway_random`에서 위치 확정 시, 2026-09-23) | 편도 우회 최단거리 초과 안내 판단(`_is_oneway_shortest_conflict`), 확인 문구에 참고용 최단거리 표시 |
 | `awaiting_confirmation` | `Interviewer`(True로 설정)·intent Orchestrator(False로 해제, 2026-09-24) | 이번 턴이 확인 응답인지 판단(intent Orchestrator) |
-| `is_complete` | intent Orchestrator(확인 응답이면 `ChatRequest.confirmation`(bool)을 그대로 반영, 아니면 항상 `False`로 명시적으로 지움, 2026-09-24) | Graph 조건부 진입점(`RouteExecutor` 직행 여부) |
+| `is_complete` | intent Orchestrator(확인 응답이면 `ChatRequest.confirmation`(bool)을 그대로 반영, 아니면 항상 `False`로 명시적으로 지움, 2026-09-24) | Graph 조건부 진입점(`RouteExecutor` 직행 여부), intent Orchestrator의 `current_location` 갱신 여부 게이트(다음 턴에서 읽음, 2026-09-25) |
 | `response` | 각 대화 Node·Orchestrator | `ChatResponse.state` |
 | `route_result` | `RouteExecutor` | API 응답·Valkey 저장 |
 
@@ -214,7 +215,7 @@ flowchart TD
 | 확인 상태 | `PrewalkOrchestrator.orchestrator()`의 `ChatRequest.confirmation`(bool) 판정(2026-09-24, FE 버튼 계약), `is_complete`, Graph 조건부 진입점, RouteExecutor 진입 |
 | Mode/Preference | ModeTool, Extractor prompt, Interviewer 완료 조건, RouteTool |
 | 장소 필드 | Kakao schema, 후보 선택, 서울 bbox 검증 |
-| intent 좌표(`current_location` 갱신) | `ChatRequest.lat/lon` 검증(coord/water/highway validator), `PrewalkOrchestrator.orchestrator()`의 동일 좌표 스킵 조건, Kakao 역지오코딩, `prewalk_router.py`의 `ValueError`→400 매핑 |
+| intent 좌표(`current_location` 갱신) | `ChatRequest.lat/lon` 검증(coord/water/highway validator), `PrewalkOrchestrator.orchestrator()`의 동일 좌표 스킵 조건·`is_complete` 스킵 조건(2026-09-25), Kakao 역지오코딩, `prewalk_router.py`의 `ValueError`→400 매핑 |
 | `feature_labels`·가중치 | `WeightExtractor` prompt(`weight_extraction.yaml`), `FeatureTag`/`FeatureLabel`/`FeatureLabelMap` 스키마, `RouteExecutor._build_weights`(`_PREFERENCE_TARGET_MAP`, `_EXPLICITNESS_ALPHA_MAP`, `_FEATURE_TO_WEIGHTS_KEY`), 설문 `Weights` delta, 경로 scoring |
 | Prompt | tool 이름·인자, parser, fallback, LLM 검증 |
 | 저장 방식 | TTL, 세션 소유권, 만료·복구, API 응답 |
@@ -226,7 +227,7 @@ flowchart TD
 | init 인증 실패 | 인증 상태 반환 | refresh·재로그인 |
 | 날씨·주소 실패 | 빈 환경·기본 인사 또는 좌표 Location | 새 init 또는 계속 진행 |
 | intent 좌표 검증 실패(서울 밖·수계·고속도로, 2026-09-17부터) | `ValueError` → HTTP 400(`prewalk_router.py`). 좌표가 이전 턴과 같으면 이 검증 자체를 건너뛰므로, 같은 위치를 유지하는 후속 턴에서는 발생하지 않는다 | 유효한 좌표로 재요청 |
-| intent Kakao 역지오코딩 실패(좌표가 바뀐 턴에서만) | 주소·장소명 없이 좌표만 있는 Location으로 대체, 대화는 계속됨 | 다음 intent에서 재시도 |
+| intent Kakao 역지오코딩 실패(좌표가 바뀐 턴이면서 이번 턴 `is_complete=False`일 때만) | 주소·장소명 없이 좌표만 있는 Location으로 대체, 대화는 계속됨 | 다음 intent에서 재시도 |
 | State 없음·만료 | `session_not_found` | init부터 재시작 |
 | 타 사용자 State | `unaccessible` | 자신의 thread 사용 |
 | Extractor LLM 실패 | 기존 State 유지 | 다음 intent에서 재시도 |
@@ -440,6 +441,22 @@ HTTP 200만으로 성공을 판단하지 않는다. `status`, `awaiting_confirma
   - `tests/unit`(사전에 깨져 있던 `test_data_collector_scope.py` 수집 오류 제외) 1073 PASS / 20 FAIL — FAIL 전부 이전과 동일한 무관 도메인(`test_banner_service.py`·`test_base_collector.py`·`test_park_polygon_collector.py`)임을 파일명으로 재확인.
   - `tests/integration`(`check_circular_preference_artifact.py` 제외 — 실제 그래프 artifact가 필요한 수동 스크립트라 pytest 대상이 아님) 146 PASS.
   - **확인하지 못한 항목**: `check_circular_preference_artifact.py`를 실제로 실행해(`python -m tests.integration.check_circular_preference_artifact`, 실제 그래프 artifact 필요) `confirmation=True`로 바꾼 뒤에도 여전히 통과하는지는 로컬 환경(artifact 파일) 제약으로 실행하지 못했다 — 코드 검토로만 판단했다. `scripts/test_prewalk_conversation.py`의 자유 텍스트 확인 시나리오를 새 계약(`confirmation` 필드)에 맞춰 갱신하는 작업도 남아 있다.
+
+**2026-09-25 (확인 후 `current_location` 갱신 중단 — Kakao 호출 절감, 사용자 요청·결정론적 단위 실행)**
+
+- **배경**: 챗봇과 대화하는 동안 매 턴 `lat`/`lon`이 오고, 좌표가 이전 턴과 다르면 `PrewalkOrchestrator.orchestrator()`가 PostGIS 검증(`validate_seoul_polygon_contains`/`snap_coordinate_from_water`/`validate_no_highway`)과 Kakao 역지오코딩을 매번 다시 실행한다(2026-09-17 도입). 확인(`confirmation=True`)을 받아 `RouteExecutor`가 경로 생성을 호출하는 턴에는 `current_location`을 갱신할 이유가 없는데, 지금까지는 이 턴에도 좌표가 바뀌면 Kakao API를 호출하고 있었다 — 그걸 줄여달라는 요청.
+- **처음 시도했다가 되돌린 설계 1**: `State`에 `confirmed`라는 새 `bool` 필드를 만들어 확인 응답을 처음 긍정으로 받는 순간 세팅하는 방식으로 구현했었다. 그런데 이미 `state.is_complete`가 확인이 긍정으로 판정되는 순간 `True`가 되고 `RouteExecutor`가 이 값을 되돌리지 않는다는 걸 사용자가 지적해, 새 필드 없이 기존 `is_complete`를 재사용하는 쪽으로 바꿨다.
+- **처음 시도했다가 되돌린 설계 2**: 좌표 갱신 조건을 `not state.is_complete and (...)`로 바꾸되, 확인 판정 블록이 실행되기 **전**(Valkey에서 막 불러온, 직전 턴이 끝난 시점의 값)의 `is_complete`를 봤었다. 그러면 확인 판정이 `True`로 바뀌는 순간은 그 체크를 이미 지나간 뒤라, 확인받는 바로 그 턴엔 여전히 갱신이 일어난다 — 사용자가 "확인 판정 블록을 좌표 체크보다 위로 올리자"고 제안해 순서를 바꿨다. 그런데 그래프 진입 분기용 `else: state.is_complete = False` 리셋이 확인 다음 턴에도 매번 일어나다 보니, `was_already_confirmed`라는 스냅샷 변수로 "예전에 확인받은 적이 있었는지"를 따로 기억해 둬야 확인 이후 모든 턴에서 계속 멈추게 할 수 있었다. 하지만 다시 생각해보니 "확인 이후 영원히 멈춤"은 원하는 동작이 아니었다 — `is_complete=True`는 `RouteExecutor`가 경로 생성 엔진을 부르는 바로 그 순간만을 뜻하고, 그 뒤에 또 오는 `user_prompt`는 뭔가 수정할 게 있어서 오는 새 요청이니 그때는 현위치를 다시 갱신하는 게 맞다는 결론으로 바뀌어(사용자 판단), `was_already_confirmed` 스냅샷을 도로 뺐다.
+- **`prewalk_service.py::orchestrator`(최종)**: 확인 판정 블록(`if state.awaiting_confirmation: ... state.is_complete = bool(confirmation) else: state.is_complete = False`)을 좌표 갱신 블록보다 먼저 실행한다. 좌표 갱신 조건은 그 판정 결과를 그대로 보는 `not state.is_complete and (좌표가 다를 때)`다 — 스냅샷도 새 필드도 없다.
+- **동작 결과**: 정보 수집 중(`is_complete=False`)엔 계속 갱신됨 → 확인 대기 중 부정 응답(`is_complete=False`로 유지)에도 계속 갱신됨 → 긍정 확인을 받는 바로 그 턴(이 판정으로 `is_complete=True`가 됨)에는 갱신 안 함 → 그 다음에 오는 어떤 `user_prompt`든(`awaiting_confirmation`이 이미 꺼져 있어 `else`가 `is_complete=False`로 다시 리셋) 갱신 재개.
+- **범위 밖으로 남긴 것**: 경로 생성이 실패해도(`RouteExecutor` 예외) 이번 턴엔 이미 `is_complete=True`로 갱신을 건너뛴 뒤라 되돌리지 않는다 — "확인 자체를 받았는가"만 보고 "경로 생성이 성공했는가"는 안 본다.
+- **실행 검증**: `orchestrator()`를 실제로 호출하는 스모크 테스트(DB 세션·Kakao client·`ChatStateRepository`·`UserRepository` mock, Node는 통과 스텁)로 4가지 경계를 전부 확인했다.
+  - 정보 수집 턴(`awaiting_confirmation=False`, `is_complete=False`) + 좌표 변경 → Kakao 호출됨, 저장되는 `is_complete=False`.
+  - 확인 대기 중 부정 응답(`awaiting_confirmation=True→False`, `confirmation=False`) + 좌표 변경 → Kakao 호출됨, 저장되는 `is_complete=False`.
+  - 확인 대기 중 **긍정** 응답(`awaiting_confirmation=True→False`, `confirmation=True`) + 좌표 변경 → Kakao **미호출**, 저장되는 `is_complete=True`.
+  - 확인 후 다음 턴(불러온 `is_complete=True`, `awaiting_confirmation=False`, 새 `user_prompt`로 수정 요청) + 좌표 변경 → Kakao **호출됨**(갱신 재개), 저장되는 `is_complete=False`.
+  - `tests/unit`(사전에 깨져 있던 `test_data_collector_scope.py` 수집 오류 제외) 1219 PASS / 20 FAIL — FAIL 전부 이전과 동일한 무관 도메인(`test_banner_service.py`·`test_base_collector.py`·`test_park_polygon_collector.py`)임을 파일명으로 재확인. `tests/integration`(`check_circular_preference_artifact.py` 제외) 146 PASS.
+  - **확인하지 못한 항목**: 실제 Valkey에 저장된 State를 여러 턴에 걸쳐 불러오며 이 경계가 정확히 유지되는지(엔드투엔드), 그리고 실기기 시나리오에서 Kakao 호출 횟수가 실제로 줄어드는지는 실행 검증하지 못했다(스모크 테스트로 로직만 확인).
 
 ## 10. 완료 기준
 
