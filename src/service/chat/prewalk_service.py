@@ -163,8 +163,15 @@ class PrewalkOrchestrator:
         if state.user_id != user.id:
             return ChatResponse(status=ChatStatus.UNACCESSIBLE, thread_id=None, state=None)
 
-        # 좌표가 이전 턴과 동일하면 수계 snap·고속도로 차단·역지오코딩을 다시 하지 않는다.
-        if lat != state.current_location.lat or lon != state.current_location.lon:
+        # 최종 산책 조건에 대한 긍정/부정 여부 확인
+        if state.awaiting_confirmation:
+            state.awaiting_confirmation = False
+            state.is_complete = bool(confirmation)
+        else:
+            state.is_complete = False
+
+        # 현위치 갱신
+        if not state.is_complete and (lat != state.current_location.lat or lon != state.current_location.lon):
             with get_postgresql_db() as db:
                 validate_seoul_polygon_contains(lat, lon, db)
                 snapped_lat, snapped_lon = snap_coordinate_from_water(lat, lon, db)
@@ -186,13 +193,6 @@ class PrewalkOrchestrator:
 
         state.access_token = access_token
         state.user_prompt  = PromptUtils.sanitize_user_prompt(user_prompt)  # 프롬프트 정규화
-
-        # 최종 산책 조건에 대한 긍정/부정 여부 확인
-        if state.awaiting_confirmation:
-            state.awaiting_confirmation = False
-            state.is_complete = bool(confirmation)
-        else:
-            state.is_complete = False
 
         try:
             result      = await self.graph.ainvoke(state)
