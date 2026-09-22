@@ -3,7 +3,8 @@
 > 상태: Current  
 > 기준일: 2026-07-30
 > 관련 코드: `src/interfaces/api/prewalk_router.py`, `src/service/chat/prewalk_service.py`, `src/agent/`, `src/schema/prewalk_schema.py`  
-> 검증 상태: 프로필 전달 단위 테스트 완료·기존 OpenAI/Kakao/DB/Valkey/경로 통합 확인
+> 검증 상태: 프로필 전달 단위 테스트 완료·기존 OpenAI/Kakao/DB/Valkey/경로 통합 확인  
+> 2026-09-23 `oneway_shortest`(편도 최단)는 `Interviewer`가 확인 질문 전에 최종 경로를 미리 계산해 `State.route_result`에 채워두고, 사용자가 긍정 확인하면 `RouteExecutor`는 그 값을 재계산 없이 그대로 반환한다. 노드별 계약·근거·단위 테스트는 [챗봇 Agent 하네스](../../chatbot/agent_harness.md)의 "2026-09-23 후속2"를 단일 기준으로 참고한다 — 이 문서는 여기서 세부를 반복하지 않는다.
 
 ## 1. 목적과 시작 조건
 
@@ -22,8 +23,8 @@
 | `PrewalkOrchestrator` | 인증·소유권·State 저장과 LangGraph 분기 |
 | `State`, `ChatSession`, `ChatStateRepository` | 대화 상태 계약과 PostgreSQL/Valkey 저장 |
 | `Extractor` | LLM tool call로 모드·위치·거리·테마 추출 |
-| `Interviewer` | 누락 질문·Kakao 장소 검색·최종 확인·편도 우회 최단거리 초과 안내(2026-09-21) |
-| `RouteExecutor`, `RouteTool` | 설문·테마 가중치 조합과 `RouteService` 실행 |
+| `Interviewer` | 누락 질문·Kakao 장소 검색·최종 확인·편도 우회 최단거리 초과 안내(2026-09-21)·oneway_shortest 최종 경로 선계산(2026-09-23, `RouteTool` 재사용) |
+| `RouteExecutor`, `RouteTool` | 설문·테마 가중치 조합과 `RouteService` 실행(oneway_shortest는 `Interviewer`가 이미 채워둔 `route_result`가 있으면 재실행 생략, 2026-09-23) |
 
 ## 3. 정상 흐름
 
@@ -38,7 +39,10 @@ intent: JWT 확인 → Valkey State 조회 → State.user_id 소유권 확인
 → Extractor → Interviewer
 → 정보 부족: 질문 후 State 저장
 → 정보 충분: awaiting_confirmation=true로 확인 질문 후 저장
-→ 긍정 응답: RouteExecutor가 테마·명시값으로 profile 선택
+  (oneway_shortest는 이 시점에 Interviewer가 이미 RouteTool로 최종 경로까지
+   계산해 route_result에 채워둔다, 2026-09-23)
+→ 긍정 응답: oneway_shortest면 위에서 채워둔 route_result를 그대로 반환
+   그 외 모드는 RouteExecutor가 테마·명시값으로 profile 선택
 → 설문 가중치와 테마 delta 결합 → RouteService → 주변 POI·RouteHistory
 → 최종 State 저장·반환
 ```
@@ -50,8 +54,9 @@ intent: JWT 확인 → Valkey State 조회 → State.user_id 소유권 확인
 - PostgreSQL `chat_sessions`에는 사용자·UUID thread·`START`가 저장된다.
 - 전체 `State`는 Valkey에 JSON으로 저장되며 intent마다 TTL이 3,600초로 갱신된다.
 - State는 현재 위치, 모드별 preference, 후보 위치, 테마, 확인 상태, 참고용 최단거리(`shortest_km`, `oneway_shortest`/`oneway_random`에서 `Interviewer`가 채움, 2026-09-23)와 경로 결과를 가진다.
+- `route_result`는 `oneway_shortest`에서만 확인 질문 단계(`Interviewer`)부터 채워지고, 그 외 모드(`oneway_random` 포함)는 긍정 확인 후 `RouteExecutor` 단계부터 채워진다(2026-09-23) — `oneway_random`의 물리적 최단거리 계산은 목표 거리 비교용 참고 숫자(`shortest_km`)만 남기고 좌표는 들고 다니지 않는다(최종 경로는 GRASP+ALNS가 따로 만들어 `RouteExecutor`가 항상 덮어쓰므로). `prewalk_service.py::orchestrator`는 더 이상 매 턴 이 필드를 초기화하지 않고, `Interviewer`(oneway_shortest는 채움, 그 외는 명시적으로 `None`)와 `RouteExecutor`가 각자 실행될 때마다 명시적으로 채우거나 지운다.
 - intent 처리 때 State에 access JWT를 넣으며 현재 API 응답과 Valkey JSON에도 포함된다.
-- 경로 성공 시 `RouteService`가 `route_histories`를 저장하고 State의 `route_result.id`에 연결한다.
+- 경로 성공 시 `RouteService`가 `route_histories`를 저장하고 State의 `route_result.id`에 연결한다. `oneway_shortest`는 이 저장이 확인 질문 단계(`Interviewer`)에서 먼저 일어날 수 있다 — 순환/편도 우회가 후보 경로를 전부 저장해 두는 기존 방식과 같은 이유로, 사용자가 확인하지 않고 다른 요청으로 넘어가도 그 행은 그냥 안 쓰인다.
 - 이동 편의 테마(`유모차`, `계단이 불편한`)는 내부 `accessible`, 편의 테마
   (`활기찬`, `힙한`)는 `convenient` 프로필로 전달된다. 사용자에게는
   `accessible`을 `이동이 편한 길`로 안내하며, State에 명시한 profile이 있으면

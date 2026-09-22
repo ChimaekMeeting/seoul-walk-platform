@@ -186,9 +186,8 @@ class PrewalkOrchestrator:
                 log_unexpected_error(logger, "prewalk_intent_kakao_error", exc)
                 state.current_location = Location(lat=lat, lon=lon)
 
-        state.access_token  = access_token
-        state.user_prompt   = PromptUtils.sanitize_user_prompt(user_prompt)  # 프롬프트 정규화
-        state.route_result  = None
+        state.access_token = access_token
+        state.user_prompt  = PromptUtils.sanitize_user_prompt(user_prompt)  # 프롬프트 정규화
 
         # awaiting_confirmation 여부에 따라 confirmation_classifier/extractor 중 하나로 진입
         try:

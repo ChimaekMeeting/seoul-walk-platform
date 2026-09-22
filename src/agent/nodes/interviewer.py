@@ -4,12 +4,14 @@ import logging
 
 from src.infrastructure.external.client.gpt_client import GPTClient
 from src.agent.tools.place_tools import PlaceTool
+from src.agent.tools.route_tools import RouteTool
+from src.agent.nodes.route_executor import MODE_TOOL_MAP
 from src.infrastructure.external.schema.place_schema import PlaceSearchResult
 from src.agent.utils.chatbot_utils import PromptUtils
 from src.config.logging import log_unexpected_error
 from src.interfaces.errors import SAFE_INTERNAL_ERROR_DETAIL
 from src.interfaces.validators.coord_validator import is_within_seoul_bbox
-from src.interfaces.schema.walk_schema import Coordinate
+from src.interfaces.schema.walk_schema import Coordinate, PlaceLabel, WalkMode, WalkRouteStatus
 from src.schema.prewalk_schema import (
     State,
     Location,
@@ -26,7 +28,12 @@ logger = logging.getLogger(__name__)
 class Interviewer(GPTClient):
     def __init__(self, route_service):
         super().__init__()
+        # RouteExecutor.__init__과 같은 이유로 지연 임포트한다 — dependencies.py가
+        # src.agent.nodes(Interviewer 포함)를 임포트하므로 모듈 최상단에서 곧장
+        # dependencies를 임포트하면 순환 임포트가 된다.
+        from src.interfaces.dependencies import get_gps_art_service
         self.place_tool    = PlaceTool()
+        self.route_tool    = RouteTool(get_gps_art_service())  # oneway_shortest 최종 경로 생성용(타임아웃·스레드 오프로딩)
         self.prompt_utils  = PromptUtils()
         self.model         = self.llm.bind_tools(self.place_tool.tools)
         self.str_parser    = StrOutputParser()
@@ -41,7 +48,7 @@ class Interviewer(GPTClient):
         """
         is_complete  = self._is_complete(state.user_context)
         missing_info = self._get_missing_info(state.user_context)
-        self._update_shortest_km(state)
+        await self._update_shortest_km(state)
 
         logger.info(f"is_complete: {is_complete}")
         logger.info(f"missing_info: {missing_info}")
@@ -129,7 +136,7 @@ class Interviewer(GPTClient):
                             logger.info("interviewer_waypoint_candidate_selected | index=%d", idx)
 
             is_complete = self._is_complete(state.user_context)
-            self._update_shortest_km(state)
+            await self._update_shortest_km(state)
             logger.info(f"is_complete을 재확인합니다: is_complete = {is_complete}")
             logger.info(f"shortest_km: {state.shortest_km}")
 
@@ -228,27 +235,71 @@ class Interviewer(GPTClient):
         parts = [f"{self._target_label(key)}('{keyword}') {reason}" for key, keyword in targets.items()]
         return "; ".join(parts)
 
-    def _update_shortest_km(self, state: State) -> None:
+    async def _update_shortest_km(self, state: State) -> None:
         """
         편도 우회(oneway_random)·최단(oneway_shortest) 두 모드 모두에서, 출발지·목적지
-        위경도가 둘 다 확정되면 물리적 최단거리(km)를 A*로 계산해 state.shortest_km에
-        채운다. 그 외(다른 모드로 바뀜, 위치 미확정, 경로 없음)에는 None으로 지운다 —
-        이전 턴·이전 장소 쌍의 값이 남아 stale해지는 걸 막기 위해 값이 없을 때도 항상
-        명시적으로 덮어쓴다. is_complete 판정이 바뀔 수 있는 지점(run() 안 두 곳)마다
-        호출해, 이번 턴 기준으로 항상 최신 상태를 유지한다.
+        위경도가 둘 다 확정되면 물리적 최단거리를 계산해 state.shortest_km에 채운다.
+        state.route_result는 oneway_shortest에서만 같이 채운다.
+
+        - oneway_shortest: 이 결과가 곧 최종 경로다. route_executor와 똑같이
+          RouteTool.oneway_shortest_route(비동기, asyncio.to_thread + 타임아웃)를 통해
+          생성한다 — RouteService.get_route()를 이 async 노드에서 직접 동기 호출하면
+          POI 조회·RouteHistory 저장 같은 DB 호출이 이벤트 루프를 막아버린다. 인증
+          확인·POI 조회·RouteHistory 저장까지 마친 결과라 route_executor가 재계산 없이
+          그대로 재사용하므로 state.route_result도 같이 채운다.
+        - oneway_random: 목표 거리와 비교할 참고용 거리(숫자)만 필요하고 최종 경로는
+          GRASP+ALNS로 따로 생성되어 이 A* 결과 자체는 버려지므로, route_service의
+          가벼운 get_shortest_km(인증·POI·저장 없음, Optional[float])만 쓰고
+          state.route_result는 채우지 않는다(route_executor가 실행되면 항상 새로
+          덮어쓰므로 미리 채워도 의미가 없다).
+
+        그 외(다른 모드로 바뀜, 위치 미확정, 경로 없음)와 oneway_random에서는 둘 다
+        None으로 지운다 — prewalk_service.py의 orchestrator가 더 이상 매 턴
+        route_result를 초기화하지 않으므로(2026-09-23), 여기서 적용 대상이 아닌 경우를
+        항상 명시적으로 지우지 않으면 이전 턴·이전 모드의 값이 다음 턴까지 stale하게
+        남는다. is_complete 판정이 바뀔 수 있는 지점(run() 안 두 곳)마다 호출해, 이번
+        턴 기준으로 항상 최신 상태를 유지한다.
         """
         pref = state.user_context
         if not isinstance(pref, (OnewayPreference, OnewayShortestPreference)):
-            state.shortest_km = None
+            state.shortest_km  = None
+            state.route_result = None
             return
         if not self._has_location(pref.origin) or not self._has_location(pref.destination):
-            state.shortest_km = None
+            state.shortest_km  = None
+            state.route_result = None
             return
 
-        state.shortest_km = self.route_service.get_shortest_km(
-            Coordinate(lat=pref.origin.lat, lon=pref.origin.lon),
-            Coordinate(lat=pref.destination.lat, lon=pref.destination.lon),
-        )
+        origin      = Coordinate(lat=pref.origin.lat, lon=pref.origin.lon)
+        destination = Coordinate(lat=pref.destination.lat, lon=pref.destination.lon)
+
+        if pref.mode != WalkMode.ONEWAY_SHORTEST:
+            state.shortest_km  = self.route_service.get_shortest_km(origin, destination)
+            state.route_result = None
+            return
+
+        try:
+            results = await self.route_tool.tool_map[MODE_TOOL_MAP[WalkMode.ONEWAY_SHORTEST]].ainvoke({
+                "origin":            origin,
+                "destination":       destination,
+                "access_token":      state.access_token or "",
+                "origin_label":      PlaceLabel(address=pref.origin.address, place_name=pref.origin.place_name),
+                "destination_label": PlaceLabel(address=pref.destination.address, place_name=pref.destination.place_name),
+            })
+        except Exception as exc:
+            log_unexpected_error(logger, "interviewer_shortest_route_error", exc)
+            state.shortest_km  = None
+            state.route_result = None
+            return
+
+        result = results[0] if results else None
+        if result is None or result.status != WalkRouteStatus.SUCCESS:
+            state.shortest_km  = None
+            state.route_result = None
+            return
+
+        state.shortest_km  = result.total_km
+        state.route_result = results
 
     @staticmethod
     def _is_oneway_shortest_conflict(state: State) -> bool:
