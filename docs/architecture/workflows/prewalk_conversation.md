@@ -89,7 +89,16 @@ intent: JWT 확인 → Valkey State 조회 → State.user_id 소유권 확인
 
 Node 내부의 일부 LLM·경로 실패는 예외 대신 기존 State를 반환한다. HTTP 200만으로 완료를 판단하지 말고 `awaiting_confirmation`, `is_complete`, `route_result.status`를 확인한다. `intent`는 2026-09-25 후속부터 이 판단을 SSE의 마지막 `event: result` payload(또는 실패 시 `event: error`)에서 해야 한다 — HTTP status는 성공·실패 관계없이 거의 항상 200이다.
 
-## 6. 검증 결과
+## 6. 경로 처리 추적 이벤트
+
+`POST /api/prewalk/intent` 스트림은 기존 `progress`·`result`·`error` 이벤트 외에
+`route_event`를 best-effort로 전달한다. 공통 payload는 `request_id`, `session_id`,
+`user_id`, `event_type`, `occurred_at`, `result`를 가지며, 정상 순서는
+`route_request_started` → `shortest_path_completed`(해당 계산 시) →
+`candidates_generated` → `representative_route_selected` →
+`route_response_completed`다. 이벤트 발행 실패는 경로 계산과 최종 응답에 영향을 주지 않는다.
+
+## 7. 검증 결과
 
 2026-07-27 격리 PostgreSQL·Valkey와 실제 Kakao·OpenAI를 사용해 서울시청 좌표에서 확인했다.
 

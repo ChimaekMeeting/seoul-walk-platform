@@ -38,6 +38,7 @@ from src.schema.route_schema import (
 from src.service.user.auth_service import AuthService
 from src.config.logging import log_unexpected_error
 from src.service.route.maneuver_service import build_maneuvers
+from src.service.route.route_events import emit_route_event
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,7 @@ class RouteService:
         origin -> waypoints[0] -> ... -> destination 순서상 i번째 구간의 이동 방식이며,
         지정하지 않은 구간은 최단 경로(oneway_shortest)로 채워진다.
         """
+        emit_route_event("route_request_started", mode=mode.value, has_destination=destination is not None)
         logger.info(
             "walk route request: mode=%s has_destination=%s",
             mode,
@@ -165,6 +167,7 @@ class RouteService:
         logger.info("walk route engine selected: mode=%s engine=%s", mode, type(engine).__name__)
 
         results = engine.run()
+        emit_route_event("candidates_generated", count=len(results), mode=mode.value)
         for result in results:
             if result.status == WalkRouteStatus.SUCCESS:
                 result.maneuvers = build_maneuvers(
@@ -193,6 +196,12 @@ class RouteService:
         # 엔진은 내부 품질 비교를 위해 대표 경로와 후보 경로를 함께 생성할 수 있다.
         # 외부 계약은 품질 평가 기준상 최우수인 첫 번째 경로 하나만 노출한다.
         first_result = results[0]
+        emit_route_event(
+            "representative_route_selected",
+            mode=mode.value,
+            status=first_result.status.value,
+            candidate_count=len(results),
+        )
         logger.info(
             "walk route result: mode=%s status=%s internal_candidates=%d",
             mode, first_result.status.value, len(results),
@@ -239,6 +248,7 @@ class RouteService:
             except Exception as exc:
                 log_unexpected_error(logger, "route_history_save_error", exc)
 
+        emit_route_event("route_response_completed", status=first_result.status.value, total_km=first_result.total_km)
         return [first_result]
 
     def get_shortest_km(self, origin: Coordinate, destination: Coordinate) -> Optional[float]:
@@ -252,6 +262,11 @@ class RouteService:
             end_lon=destination.lon,
         )
         result = OnewayAstarEngine(inp, self.G).run()[0]
+        emit_route_event(
+            "shortest_path_completed",
+            status=result.status.value,
+            total_km=result.total_km if result.status == WalkRouteStatus.SUCCESS else None,
+        )
         if result.status != WalkRouteStatus.SUCCESS:
             logger.warning(f"get_shortest_km: 최단거리를 구하지 못했습니다 (status={result.status})")
             return None
