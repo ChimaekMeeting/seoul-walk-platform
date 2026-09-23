@@ -18,6 +18,7 @@ from src.interfaces.validators.mode_validator import (
     sanitize_circular_destination,
     validate_oneway_requires_destination,
 )
+from src.interfaces.schema.maneuver_schema import RouteManeuver
 
 
 class Coordinate(BaseModel):
@@ -200,6 +201,8 @@ class WalkRouteResponse(BaseModel):
     status: WalkRouteStatus
     mode: WalkMode
     coordinates: list[list[float]]
+    node_ids: list[int] = Field(default_factory=list)
+    maneuvers: list[RouteManeuver] = Field(default_factory=list)
     total_km: float = 0.0
     # RouteHistory로 자동 저장된 경우에만 채워짐(즐겨찾기 등 PATCH /api/user/routes/{id}/favorite 호출에 사용).
     # 저장에 실패했거나 애초에 저장 대상이 아닌 응답(에러 상태 등)에서는 None.
