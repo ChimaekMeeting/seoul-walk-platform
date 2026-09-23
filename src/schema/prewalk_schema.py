@@ -1,9 +1,139 @@
 from enum import Enum
+from math import atan2, cos, degrees, radians, sin
 from pydantic import BaseModel, Field, RootModel, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
 from typing import Literal, Optional, Union, List
+from src.interfaces.schema.maneuver_schema import ManeuverType, RouteManeuver
 from src.interfaces.schema.walk_schema import WalkMode, WalkRouteResponse
 from src.interfaces.validators.dist_validator import validate_target_km_positive
+
+
+class ManeuverType(str, Enum):
+    START = "start"
+    STRAIGHT = "straight"
+    LEFT = "left"
+    RIGHT = "right"
+    U_TURN = "u_turn"
+    ARRIVE = "arrive"
+
+
+class RouteManeuver(BaseModel):
+    sequence: int = Field(ge=0)
+    type: ManeuverType
+    instruction: str = Field(min_length=1)
+    lat: float
+    lon: float
+    node_id: Optional[int] = None
+    distance_from_start_m: float = Field(ge=0.0)
+    distance_to_maneuver_m: float = Field(ge=0.0)
+    bearing_before_deg: Optional[float] = Field(default=None, ge=0.0, lt=360.0)
+    bearing_after_deg: Optional[float] = Field(default=None, ge=0.0, lt=360.0)
+    turn_angle_deg: Optional[float] = Field(default=None, ge=0.0, le=180.0)
+
+
+class RouteGeometry(BaseModel):
+    node_ids: list[int] = Field(default_factory=list)
+    coordinates: list[list[float]] = Field(default_factory=list)
+
+
+class ChatbotRouteDetails(BaseModel):
+    geometry: RouteGeometry = Field(default_factory=RouteGeometry)
+    maneuvers: list[RouteManeuver] = Field(default_factory=list)
+
+
+def _bearing_deg(start: list[float], end: list[float]) -> Optional[float]:
+    if len(start) < 2 or len(end) < 2 or start == end:
+        return None
+
+    lat1 = radians(start[0])
+    lat2 = radians(end[0])
+    delta_lon = radians(end[1] - start[1])
+    x = sin(delta_lon) * cos(lat2)
+    y = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(delta_lon)
+    return (degrees(atan2(x, y)) + 360.0) % 360.0
+
+
+def _turn_angle_deg(
+    before: Optional[float],
+    after: Optional[float],
+) -> Optional[float]:
+    if before is None or after is None:
+        return None
+    difference = abs(after - before)
+    return min(difference, 360.0 - difference)
+
+
+def _maneuver_type(
+    before: Optional[float],
+    after: Optional[float],
+    angle: Optional[float],
+) -> ManeuverType:
+    if before is None:
+        return ManeuverType.START
+    if after is None:
+        return ManeuverType.ARRIVE
+    if angle is not None and angle >= 135.0:
+        return ManeuverType.U_TURN
+    delta = (after - before + 360.0) % 360.0
+    return ManeuverType.RIGHT if delta < 180.0 else ManeuverType.LEFT
+
+
+def build_route_maneuvers(
+    node_ids: list[int],
+    coordinates: list[list[float]],
+    distance_from_start_m: Optional[list[float]] = None,
+) -> list[RouteManeuver]:
+    if not coordinates:
+        return []
+    if len(node_ids) != len(coordinates):
+        raise ValueError("node_ids와 coordinates의 길이가 다릅니다.")
+
+    distances = distance_from_start_m or [0.0] * len(coordinates)
+    if len(distances) != len(coordinates):
+        raise ValueError("distance_from_start_m과 coordinates의 길이가 다릅니다.")
+
+    bearings = [
+        _bearing_deg(coordinates[index], coordinates[index + 1])
+        for index in range(len(coordinates) - 1)
+    ]
+    maneuvers: list[RouteManeuver] = []
+
+    for index, coordinate in enumerate(coordinates):
+        before = bearings[index - 1] if index > 0 else None
+        after = bearings[index] if index < len(bearings) else None
+        angle = _turn_angle_deg(before, after)
+
+        if 0 < index < len(coordinates) - 1 and (angle is None or angle < 30.0):
+            continue
+
+        if index == 0:
+            maneuver_type = ManeuverType.START
+            instruction = "출발하세요."
+        elif index == len(coordinates) - 1:
+            maneuver_type = ManeuverType.ARRIVE
+            instruction = "도착했습니다."
+        else:
+            maneuver_type = _maneuver_type(before, after, angle)
+            instruction = "방향을 전환하세요."
+
+        previous_distance = distances[index - 1] if index > 0 else distances[index]
+        maneuvers.append(
+            RouteManeuver(
+                sequence=len(maneuvers),
+                type=maneuver_type,
+                instruction=instruction,
+                lat=coordinate[0],
+                lon=coordinate[1],
+                node_id=node_ids[index],
+                distance_from_start_m=distances[index],
+                distance_to_maneuver_m=max(0.0, distances[index] - previous_distance),
+                bearing_before_deg=before,
+                bearing_after_deg=after,
+                turn_angle_deg=angle,
+            )
+        )
+
+    return maneuvers
 
 
 class TargetKmPositiveMixin(BaseModel):
@@ -163,6 +293,7 @@ class State(BaseModel):
     waypoint_candidates: Optional[List[Optional[List[Location]]]] = None
 
     route_result: Optional[List[WalkRouteResponse]] = None
+    chatbot_route_details: Optional[ChatbotRouteDetails] = None
     shortest_km: Optional[float] = None  # 최단 경로, 편도 우회에서만 채워지는 값
     is_complete: bool = False
     awaiting_confirmation: bool = False

@@ -37,6 +37,7 @@ from src.schema.route_schema import (
 )
 from src.service.user.auth_service import AuthService
 from src.config.logging import log_unexpected_error
+from src.service.route.maneuver_service import build_maneuvers
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,12 @@ class RouteService:
         logger.info("walk route engine selected: mode=%s engine=%s", mode, type(engine).__name__)
 
         results = engine.run()
+        for result in results:
+            if result.status == WalkRouteStatus.SUCCESS:
+                result.maneuvers = build_maneuvers(
+                    result.coordinates,
+                    result.node_ids,
+                )
         if mode == WalkMode.ONEWAY_RANDOM:
             # 편도 우회는 preference가 실제 cost context로 만들어졌는지를
             # 응답에도 남긴다. 챗봇과 직접 API의 경로 품질을 구분할 수 있어야 한다.
