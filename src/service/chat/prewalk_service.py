@@ -1,4 +1,5 @@
 import logging
+import json
 from typing import Optional
 from uuid import uuid4
 
@@ -23,6 +24,7 @@ from src.schema.prewalk_schema import State, Location
 from src.service.user.auth_service import AuthService
 from src.agent.utils.chatbot_utils import PromptUtils
 from src.config.logging import log_unexpected_error
+from src.service.route.route_events import RouteEventCollector, event_scope, reset_event_scope
 
 logger = logging.getLogger(__name__)
 
@@ -152,9 +154,13 @@ class PrewalkOrchestrator:
     ):
         """
         Langgraph를 기반으로 정보 수집부터 경로 생성까지 진행합니다.
-        진행 상황을 ("progress", 문구) 이벤트로,
-        최종 결과를 ("result", ChatResponse) 이벤트로 yield하는 async generator입니다.
+        진행 상황은 ("progress", 문구), 경로 처리 추적은
+        ("route_event", JSON 문자열), 최종 결과는 ("result", ChatResponse)로
+        yield하는 async generator입니다. route_event는 best-effort이며 기존
+        경로 처리 결과와 최종 응답을 대체하지 않습니다.
         """
+        event_collector = RouteEventCollector(request_id=thread_id, session_id=thread_id)
+        event_token = event_scope(event_collector)
         # 사용자 인증
         status, provider, provider_id = self.auth_service.check_access_token(access_token)
         if status != ChatStatus.SUCCESS:
@@ -243,8 +249,13 @@ class PrewalkOrchestrator:
         except Exception as exc:
             log_unexpected_error(logger, "prewalk_intent_state_save_error", exc)
 
-        yield "result", ChatResponse(
+        response = ChatResponse(
             status    = status,
             thread_id = thread_id,
             state     = final_state,
         )
+        # 응답 객체를 만든 뒤 수집된 완료 이벤트를 챗봇 스트림에 전달한다.
+        for event in event_collector.events:
+            yield "route_event", json.dumps(event.to_dict(), ensure_ascii=False)
+        yield "result", response
+        reset_event_scope(event_token)
