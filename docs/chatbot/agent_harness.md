@@ -7,6 +7,7 @@
 > 2026-09-23 위 기능을 `oneway_shortest`(편도 최단)까지 확장하고 계산값을 `State.shortest_km`(신규 필드)로 영속화했다. `Interviewer._oneway_shortest_conflict`는 `_update_shortest_km`(필드 갱신)·`_is_oneway_shortest_conflict`(판단만) 두 메서드로 분리됐다. 같은 날 `interview.yaml` 지침4(최종 확인)도 FE가 State를 직접 표시하는 쪽으로 바뀌면서 장소·거리 재요약 없이 짧게만 확인하도록 간소화했다(출발=목적지 왕복 요청의 알려진 한계 포함). 지침0(무관한 주제)도 테스터 제보로 "다리(교량)" 지명이 산책 요청을 무관한 주제로 오판하던 버그를 찾아 고쳤다(성산대교 0/5→5/5, 마포대교 0/5→3/3, 반문형 제거 변형 하나는 잔존 한계로 남음). 상세는 §9의 “2026-09-23 후속” 기록을 참고한다.  
 > 2026-09-23 후속2 `Interviewer`가 `oneway_shortest`의 최종 경로를 확인 전에 미리 계산해 `state.route_result`에 채우고, `route_executor.py`는 이미 채워져 있으면 재계산 없이 그대로 반환한다. 계산은 `RouteService.get_route()`를 이 async 노드에서 직접(동기) 호출하지 않고 `route_executor`와 똑같이 `RouteTool.oneway_shortest_route`(`asyncio.to_thread` + 타임아웃)를 통해 — DB 호출로 이벤트 루프가 막히지 않게 한다. `RouteService.get_shortest_km`은 시그니처·반환값(`Optional[float]`) 모두 그대로 두고 `oneway_random`의 참고용 거리 전용으로만 쓴다 — `oneway_random`은 이 값으로 `state.shortest_km`만 채우고 `state.route_result`는 채우지 않는다(최종 경로는 GRASP+ALNS로 따로 생성돼 `route_executor`가 실행되면 항상 새로 덮어쓰므로 미리 채워도 의미가 없다). 이에 맞춰 `prewalk_service.py::orchestrator`가 매 턴 `state.route_result`를 `None`으로 초기화하던 로직을 없앴다 — `Interviewer`가 두 모드 모두에서 항상 명시적으로 채우거나 지우므로 더 이상 필요 없다. 상세는 §9의 “2026-09-23 후속2” 기록을 참고한다.  
 > 2026-09-24 `ConfirmationClassifier` Node·`confirmation.yaml`을 완전히 삭제했다. FE가 확인 질문에 버튼(예/아니요)으로 답하는 쪽으로 계약이 바뀌면서 자유 텍스트를 LLM으로 분류할 필요가 없어졌기 때문이다. `ChatRequest`에 새 필드 `confirmation: Optional[bool]`을 추가해 이 버튼 값을 `user_prompt`와 분리했다(`user_prompt`는 "아니요"에 곁들이는 교정 내용 전용으로 남김 — 긍정/부정 신호와 자유 텍스트를 한 필드에 같이 실으면 파싱이 더 복잡해지고 깨지기 쉽다는 이유로, 처음 시도했던 `user_prompt=="yes"` 문자열 비교안은 되돌렸다). 판정은 `PrewalkOrchestrator.orchestrator()`가 그래프 실행 전에 `bool(confirmation)`으로 직접 하고, 그 결과를 `state.is_complete`에 반영한 뒤 Graph의 조건부 진입점이 `is_complete`만 보고 `route_executor`/`extractor`로 바로 분기한다(Node 하나가 통째로 없어짐). 상세는 §9의 “2026-09-24” 기록을 참고한다.  
+> 2026-09-24 후속 `awaiting_confirmation`은 매 intent 턴 시작 시 먼저 `False`로 초기화한다. 직전 턴이 확인 대기 상태일 때 `confirmation`이 없으면 이를 `아니오`로 간주하지 않고 확인 대기 상태와 안내 응답을 유지한 채 그래프를 실행하지 않는다. `confirmation=False`일 때만 `Extractor`로 재진입하며, 정보가 다시 완비되면 `Interviewer`가 새 확인 질문과 함께 `True`를 설정한다. 상세는 §9의 “2026-09-24 후속” 기록을 참고한다.  
 > 2026-09-25 `PrewalkOrchestrator.orchestrator()`가 확인 판정 블록을 좌표 갱신 블록보다 먼저 실행하도록 바꾸고, 좌표 갱신 조건에 `not state.is_complete`를 더했다(새 필드 추가 없이 기존 `is_complete` 재사용) — `is_complete=True`인 턴(확인을 받아 `RouteExecutor`가 경로 생성을 호출하는 바로 그 턴)에는 좌표 검증(PostGIS)·Kakao 역지오코딩을 하지 않는다. 그 이후 오는 `user_prompt`는 무언가 수정할 게 있어서 오는 새 요청으로 보고(그 시점엔 `is_complete`가 이미 `False`로 리셋돼 있음) 다시 현위치를 갱신한다 — 즉 "확인 이후 영원히 멈춤"이 아니라 "경로 생성을 부르는 그 턴만" 스킵한다. 상세는 §9의 “2026-09-25” 기록을 참고한다.  
 > 2026-09-25 후속 `POST /api/prewalk/intent`가 JSON 한 번 응답에서 SSE(`text/event-stream`)로 바뀌었다 — `event: progress`(텍스트)를, 그래프가 끝나면 `event: result`(JSON `ChatResponse`)를, 처리 중 실패하면 `event: error`(텍스트)를 내려보낸다. `PrewalkOrchestrator.orchestrator()`는 `graph.ainvoke()` 대신 `graph.astream(stream_mode="updates")`를 쓰는 async generator로 바뀌었고, Valkey 저장은 여전히 스트림이 끝나기 직전 한 번만 한다. 스트리밍 시작 뒤에는 HTTP status를 못 바꿔 `/intent`의 실패도 HTTPException 대신 `event: error`로 알린다(`/init`은 영향 없음). 상세는 §9의 “2026-09-25 후속” 기록을 참고한다.  
 > 2026-09-25 후속2 위 `event: progress`가 실제로는 "Node가 끝난 시점"이었는데, 필요한 건 "다음 Node가 시작하는 시점"이었다. `astream_events`로 바꾸는 대신 `astream`을 그대로 쓰면서 `NEXT_NODE_AFTER`(신규 모듈 상수, `extractor→weight_extractor→interviewer` 고정 순서)로 알림을 한 단계 당겨 보내도록 바꿨다 — 첫 Node(진입점, `extractor` 또는 `route_executor`)만 `astream` 호출 전에 `state.is_complete`로 직접 판단해서 먼저 알린다. 상세는 §9의 “2026-09-25 후속2” 기록을 참고한다.
@@ -43,7 +44,7 @@ Authorization header가 있으면 Bearer를 사용하고 cookie는 보지 않는
 | `waypoint_candidates` | `Interviewer` | 다음 `Interviewer`(경유지 인덱스별 첫 번째 후보 자동 확정용, `waypoint` 모드 전용) |
 | `feature_labels` | `WeightExtractor`(GPS Art·최단경로는 `{}`로 스킵) | `RouteExecutor._build_weights` 가중치 블렌딩 |
 | `shortest_km` | `Interviewer._update_shortest_km`(`oneway_shortest`/`oneway_random`에서 위치 확정 시, 2026-09-23) | 편도 우회 최단거리 초과 안내 판단(`_is_oneway_shortest_conflict`), 확인 문구에 참고용 최단거리 표시 |
-| `awaiting_confirmation` | `Interviewer`(True로 설정)·intent Orchestrator(False로 해제, 2026-09-24) | 이번 턴이 확인 응답인지 판단(intent Orchestrator) |
+| `awaiting_confirmation` | `Interviewer`(확인 질문 생성 시 True)·intent Orchestrator(매 턴 시작 시 False로 초기화, 2026-09-24 후속) | 직전 응답이 확인 질문이었는지 판단; 확인 대기 중 `confirmation` 누락 시 True 유지 |
 | `is_complete` | intent Orchestrator(확인 응답이면 `ChatRequest.confirmation`(bool)을 그대로 반영, 아니면 항상 `False`로 명시적으로 지움, 2026-09-24) | Graph 조건부 진입점(`RouteExecutor` 직행 여부), intent Orchestrator의 `current_location` 갱신 여부 게이트(다음 턴에서 읽음, 2026-09-25) |
 | `response` | 각 대화 Node·Orchestrator | `ChatResponse.state` |
 | `route_result` | `RouteExecutor` | API 응답·Valkey 저장 |
@@ -169,10 +170,11 @@ flowchart TD
     RH --> END1
 ```
 
-`JUDGE`/`RESET`은 Graph 밖, `PrewalkOrchestrator.orchestrator()`에서 `self.graph.ainvoke(state)` 호출 직전에 실행되는 일반 Python 코드다(Node도 Edge도 아니다) — Graph 선언 자체는 그 결과인 `is_complete` 하나만 보는 조건부 진입점에서 시작한다(2026-09-24부터, 이전에는 `awaiting_confirmation`을 직접 보고 `ConfirmationClassifier`/`Extractor`로 갈라졌다).
+`JUDGE`/`RESET`은 Graph 밖, `PrewalkOrchestrator.orchestrator()`에서 Graph 호출 직전에 실행되는 일반 Python 코드다(Node도 Edge도 아니다) — 매 턴 `awaiting_confirmation`을 먼저 False로 초기화한 뒤, 직전 턴이 확인 대기였을 때만 `confirmation`을 판정한다. 이때 값이 없으면 확인 상태를 유지하고 Graph를 실행하지 않는다. Graph 선언 자체는 그 결과인 `is_complete` 하나만 보는 조건부 진입점에서 시작한다(2026-09-24부터, 이전에는 `awaiting_confirmation`을 직접 보고 `ConfirmationClassifier`/`Extractor`로 갈라졌다).
 
 - `is_complete=True`(직전 턴이 확인 대기 중이었고 이번 `ChatRequest.confirmation=True`) → `RouteExecutor`로 바로 진입, 재추출 없음
-- `is_complete=False`(새 정보 수집 턴이거나, 확인 대기 중 `confirmation`이 `False`거나 아예 안 왔을 때) → `Extractor → WeightExtractor → Interviewer → (is_complete ? RouteExecutor : END)`
+- `is_complete=False`(새 정보 수집 턴이거나, 확인 대기 중 `confirmation=False`) → `Extractor → WeightExtractor → Interviewer → (is_complete ? RouteExecutor : END)`
+- 확인 대기 중 `confirmation=None` → 안내 응답을 반환하고 기존 `awaiting_confirmation=True`를 유지하며 Graph를 실행하지 않음
 
 `Interviewer`는 정보가 충분하면 `awaiting_confirmation=True`, `is_complete=False`로 확인 질문을 만들고 END로 끝난다. 다음 intent 턴에서 Orchestrator가 이를 보고 `ChatRequest.confirmation`을 판정한다. `confirmation=False`(FE의 "아니요" 버튼)면 `user_prompt`에 교정 내용을 곁들여 보낼 수 있고, 그 값을 그대로 `state.user_prompt`에 실어 `Extractor`부터 다시 거친다 — `user_prompt`가 비어 있으면(FE가 버튼만 보내고 텍스트를 안 실었으면) `Extractor`가 아무것도 새로 추출하지 못해 사실상 같은 확인 질문이 그대로 다시 만들어진다(별도 "무엇을 바꿀지 되묻는" 로직은 없다).
 
@@ -441,8 +443,8 @@ HTTP 200만으로 성공을 판단하지 않는다. `status`, `awaiting_confirma
   else:
       state.is_complete = False
   ```
-  - `awaiting_confirmation`이 `True`(직전 턴이 확인 질문으로 끝남)일 때만 판정한다. `confirmation=True`면 긍정, 그 외(`False`·`None` — FE가 안 보낸 경우 포함)는 전부 부정 — LLM 판정이 실패할 수 있던 것과 달리 bool 판정은 실패하지 않으므로 별도 예외 처리가 필요 없다.
-  - `awaiting_confirmation`이 애초에 `False`였던 일반 턴에서도 `state.is_complete`를 명시적으로 `False`로 지운다 — Valkey에서 불러온 이전 턴의 `is_complete`가 우연히 `True`로 남아있었다면(예: 직전 턴이 `route_executor`까지 실행됐던 턴) 그 값을 그대로 두고 그래프 진입점이 이를 읽으면 `route_executor`로 잘못 직행하기 때문이다(`route_executor`는 `is_complete`를 되돌리지 않는다) — 매 턴 명시적으로 덮어써야 이 staleness를 막을 수 있다는 점은 `_update_shortest_km`가 `shortest_km`/`route_result`에 이미 적용해 둔 것과 같은 원칙이다.
+  - `awaiting_confirmation`이 `True`(직전 턴이 확인 질문으로 끝남)일 때만 판정한다. `confirmation=True`면 긍정, `confirmation=False`면 부정으로 처리한다. `confirmation=None`은 부정으로 간주하지 않고 기존 확인 대기 상태를 유지한 채 안내 응답을 반환한다.
+  - 매 턴 `awaiting_confirmation`을 먼저 `False`로 초기화하고, 일반 턴에서는 `state.is_complete`도 명시적으로 `False`로 지운다 — 이전 턴의 확인 대기·완료 상태가 Valkey에서 stale하게 남아 그래프 진입점을 오염시키지 않도록 한다.
 - **`tests/integration/check_circular_preference_artifact.py`**: `ConfirmationClassifier`를 직접 import해 `.run`을 patch하던 코드가 있어 삭제 후 `ImportError`로 깨졌다. import·patch·`confirm()` 헬퍼를 제거하고, `client.post` JSON body를 `"user_prompt": "네, 이 조건으로 만들어줘"`에서 `"confirmation": True`(`user_prompt` 생략)로 바꿨다(FE 버튼 계약과 동일하게).
 - **`scripts/eval_extraction.py`**: `ConfirmationClassifier`를 언급하던 주석 한 줄만 새 판정 방식을 반영하도록 수정(코드 동작 변화 없음).
 - **손대지 않고 남긴 것**: `scripts/test_prewalk_conversation.py`는 확인 응답에 "응"/"그걸로 해줘" 같은 자유 텍스트를 `user_prompt`로만 보내는 시나리오(3, 9~11번)가 있다 — import는 없어 실행은 되지만, 새 계약에서는 `confirmation` 없이 보내는 호출이라 전부 `is_complete=False`(부정)로 처리돼 원래 의도("애매한 긍정이 판정되는지")를 더는 검증하지 못한다. 시나리오를 `confirmation` 필드 기반으로 다시 짤지는 제품 판단이 필요해 이번 작업 범위에서 다루지 않았다 — `docs/chatbot/test_scenarios.md`도 같은 이유로 손대지 않았다(§9의 이 항목 참고).
