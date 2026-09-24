@@ -192,8 +192,14 @@ class PrewalkOrchestrator:
             return
 
         # 최종 산책 조건에 대한 긍정/부정 여부 확인
-        if state.awaiting_confirmation:
-            state.awaiting_confirmation = False
+        #
+        # awaiting_confirmation은 "이번 응답이 확인 질문을 기다리는가"라는
+        # 응답 상태이지, 이전 턴의 값을 계속 보존하는 상태가 아니다. 확인
+        # 대기 중이 아닌 일반 입력(특히 아니오 이후의 보정 입력)에서는 먼저
+        # 반드시 False로 초기화해야 이전 확인 질문의 값이 누출되지 않는다.
+        was_awaiting_confirmation = state.awaiting_confirmation
+        state.awaiting_confirmation = False
+        if was_awaiting_confirmation:
             state.is_complete = bool(confirmation)
         else:
             state.is_complete = False
