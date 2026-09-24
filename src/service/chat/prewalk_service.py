@@ -200,6 +200,24 @@ class PrewalkOrchestrator:
         was_awaiting_confirmation = state.awaiting_confirmation
         state.awaiting_confirmation = False
         if was_awaiting_confirmation:
+            if confirmation is None:
+                # 확인 대기 중인데 버튼 값이 누락된 요청은 거절로 간주하지
+                # 않는다. 그대로 그래프에 진입하면 bool(None)이 False가 되어
+                # 사용자가 실제로 "아니오"를 누른 것처럼 처리될 수 있다.
+                state.awaiting_confirmation = True
+                state.is_complete = False
+                state.response = "확인 질문에는 예 또는 아니오 버튼으로 답변해 주세요."
+                state.access_token = access_token
+                try:
+                    await ChatStateRepository.save_state(thread_id, state)
+                except Exception as exc:
+                    log_unexpected_error(logger, "prewalk_confirmation_missing_state_save_error", exc)
+                yield "result", ChatResponse(
+                    status=ChatStatus.SUCCESS,
+                    thread_id=thread_id,
+                    state=state,
+                )
+                return
             state.is_complete = bool(confirmation)
         else:
             state.is_complete = False
